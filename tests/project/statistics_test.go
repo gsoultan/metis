@@ -21,9 +21,9 @@ type auditSpy struct {
 	projectReads int
 }
 
-func (s *auditSpy) ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.AuditModel, error) {
+func (s *auditSpy) ListByProject(ctx context.Context, projectID uuid.UUID, limit int64) ([]models.AuditModel, error) {
 	s.projectReads++
-	return s.AuditRepository.ListByProject(ctx, projectID)
+	return s.AuditRepository.ListByProject(ctx, projectID, limit)
 }
 
 type spiedRepository struct {

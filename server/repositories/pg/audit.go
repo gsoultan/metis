@@ -58,12 +58,13 @@ func (r *auditRepository) Create(ctx context.Context, entry models.AuditModel) e
 
 // ListByInstance returns one instance's history, oldest first.
 func (r *auditRepository) ListByInstance(ctx context.Context, instanceID uuid.UUID) ([]models.AuditModel, error) {
-	return r.list(ctx, auditentry.InstanceID.Eq(instanceID))
+	return r.list(ctx, auditentry.InstanceID.Eq(instanceID), allRows)
 }
 
-// ListByProject returns a project's history, oldest first.
-func (r *auditRepository) ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.AuditModel, error) {
-	return r.list(ctx, auditentry.ProjectID.Eq(projectID))
+// ListByProject returns the oldest limit entries of a project's history,
+// oldest first.
+func (r *auditRepository) ListByProject(ctx context.Context, projectID uuid.UUID, limit int64) ([]models.AuditModel, error) {
+	return r.list(ctx, auditentry.ProjectID.Eq(projectID), limit)
 }
 
 // list applies the tenant scope and one caller-supplied predicate.
@@ -92,7 +93,7 @@ func (r *auditRepository) ListByProject(ctx context.Context, projectID uuid.UUID
 //
 // One statement with the limit lifted, not pg.everyRow: a keyset walk needs an
 // order with no ties, and those older entries still have them.
-func (r *auditRepository) list(ctx context.Context, pred auditentry.Pred) ([]models.AuditModel, error) {
+func (r *auditRepository) list(ctx context.Context, pred auditentry.Pred, limit int64) ([]models.AuditModel, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
 		return nil, err
@@ -109,7 +110,7 @@ func (r *auditRepository) list(ctx context.Context, pred auditentry.Pred) ([]mod
 		}
 		q = q.Where(auditentry.ProjectID.In(uuidsToRaw(scope.projects)...))
 	}
-	rows, err := q.Limit(allRows).All(ctx, ex, nil)
+	rows, err := q.Limit(limit).All(ctx, ex, nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not read the audit trail: %w", err)
 	}

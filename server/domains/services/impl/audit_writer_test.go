@@ -26,7 +26,7 @@ func (s *stubAuditRepo) ListByInstance(_ context.Context, _ uuid.UUID) ([]models
 	return nil, nil
 }
 
-func (s *stubAuditRepo) ListByProject(_ context.Context, _ uuid.UUID) ([]models.AuditModel, error) {
+func (s *stubAuditRepo) ListByProject(_ context.Context, _ uuid.UUID, _ int64) ([]models.AuditModel, error) {
 	return nil, nil
 }
 

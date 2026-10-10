@@ -11,8 +11,21 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
+	repocont "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
+
+// ocelExportLimit is the most audit entries, and the most instances, one OCEL
+// export will hold.
+//
+// The export is built in memory, whole: every entry of the project's trail and
+// every instance it has, variables and all, and then the log on top of them. A
+// project that has run for a year holds millions of entries, and one request
+// for its log could take the replica's memory with it — the pod is killed, and
+// every job it had claimed waits out its lease. A hundred thousand events is a
+// log a mining tool opens comfortably; past it the export is refused with the
+// number in the message rather than started and abandoned.
+const ocelExportLimit = 100_000
 
 // ExportOCEL reads a project's audit trail as an OCEL 2.0 object-centric event
 // log.
@@ -22,9 +35,34 @@ import (
 // project in another organization gets an empty log rather than a refusal they
 // could use to probe for which project ids exist.
 func (e *Engine) ExportOCEL(ctx context.Context, projectID uuid.UUID, opts entities.OCELOptions) (entities.OCELLog, error) {
-	entries, err := e.repo.Audit().ListByProject(ctx, projectID)
+	return e.exportOCEL(ctx, projectID, opts, ocelExportLimit)
+}
+
+// exportOCEL is ExportOCEL with the limit as a parameter, so a test can reach
+// it without writing a hundred thousand rows.
+func (e *Engine) exportOCEL(ctx context.Context, projectID uuid.UUID, opts entities.OCELOptions, limit int64) (entities.OCELLog, error) {
+	// Counted before anything is read: the instances are the heavier rows, and
+	// a count is one grouped query.
+	counts, err := e.repo.Process().CountByStatuses(ctx, projectID, repocont.InstanceFilter{})
+	if err != nil {
+		return entities.OCELLog{}, fmt.Errorf("count the instances of project %s: %w", projectID, err)
+	}
+	var instanceCount int64
+	for _, n := range counts {
+		instanceCount += n
+	}
+	if instanceCount > limit {
+		return entities.OCELLog{}, ocelTooLarge(projectID, fmt.Sprintf("%d instances", instanceCount), limit)
+	}
+
+	// One more than the limit, so that a trail of exactly the limit is told
+	// apart from a longer one.
+	entries, err := e.repo.Audit().ListByProject(ctx, projectID, limit+1)
 	if err != nil {
 		return entities.OCELLog{}, fmt.Errorf("read the audit trail for project %s: %w", projectID, err)
+	}
+	if int64(len(entries)) > limit {
+		return entities.OCELLog{}, ocelTooLarge(projectID, "more audit entries than that", limit)
 	}
 
 	instances, err := e.repo.Process().ListByProject(ctx, projectID)
@@ -43,6 +81,15 @@ func (e *Engine) ExportOCEL(ctx context.Context, projectID uuid.UUID, opts entit
 	}
 
 	return buildOCELLog(audit, known, opts), nil
+}
+
+// ocelTooLarge is the refusal of an export past the limit: a 400 that says
+// what there was too much of and where the limit is, so the caller is not left
+// guessing whether a retry would help.
+func ocelTooLarge(projectID uuid.UUID, what string, limit int64) error {
+	return apierr.Invalidf("project %s is too large to export as one OCEL log: "+
+		"an export holds at most %d audit entries and %d instances, and this project has %s",
+		projectID, limit, limit, what)
 }
 
 // casesOf is the project's instances as the log's cases, each naming the key

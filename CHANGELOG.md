@@ -314,6 +314,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Changed
 
+- **`GET /api/v1/projects/{id}/ocel` refuses a project larger than one export
+  can hold.** The export is built in memory, and it read the project's whole
+  audit trail and every instance first, so one request for a long-running
+  project's log could take the replica's memory with it. A project with more
+  than 100,000 audit entries or 100,000 instances is now refused with a 400
+  that names the limit, before the trail is read in full.
 - **A migration's skip, cancel and hold are no longer made when they cannot be
   recorded.** The trail entry for each was written and, if that failed, only
   logged: the step was waived, or the instance cancelled, with nothing to say
