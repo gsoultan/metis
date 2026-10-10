@@ -170,8 +170,9 @@ only moves work — it arrived on the new version with a token and an open task 
 version lacks. The planner's "must land somewhere" check had run on the listing, and the
 rewrite never asked again of the row its lock returned. The apply answered `applied: true`.
 The task's holder could still complete it; the token came off, nothing followed, and the
-instance stayed `active` with no token and no task, which nothing in the product can then
-move on, end or hold. Both are closed now, and both demonstrated
+instance stayed `active` with no token and no task, which nothing in the product could then
+move on, end or hold (it can be closed now: *In-place waive, cancel and hold*, below). Both
+are closed now, and both demonstrated
 (`lands_or_passed_over_test.go`, with the completion placed in the window on purpose):
 
 - **The work is decided for whoever holds it.** Before it decides an instance's work the
@@ -339,12 +340,27 @@ POST /api/v1/definitions/versions/migrate
   exactly as it would have been. Reimplementing that here would have been a second set of
   BPMN semantics, and the two would drift. The advance runs on the **source** graph, because
   the node being skipped is precisely the one the new version does not have, so only the old
-  graph knows what follows it.
-- **`cancel`** ends the instance where it stands: open tasks are cancelled, tokens cleared,
-  status set to `cancelled`. The instance is **not** migrated — it will never run again, and
-  its record should name the version it actually ran. Pending timers are left alone, because
-  `timerStillApplies` already refuses to fire one for an instance that is not active, which
-  is what a terminate end event relies on too.
+  graph knows what follows it. A user task or a manual task is ended whole instead, by the
+  engine's `FinishActivity`: every token on the step goes, every open task is withdrawn, and
+  the instance moves on once. For a step that runs once that is the same thing. For an
+  approval several people give it is not: `Proceed` counted one run, left the other runs'
+  tokens on the step with their tasks withdrawn, and started the next run of an approval that
+  asks one person after another, so the instance was passed over and took one run of the
+  migration per remaining run to leave the step
+  (`TestASkippedRepeatingApprovalLeavesNoRunBehind`). Every other kind of step that repeats
+  is still advanced past with `Proceed`.
+- **`cancel`** ends the instance where it stands: open tasks are cancelled, work parked for
+  outside workers is withdrawn, waiting events are dropped, the instance's open incidents are
+  closed, tokens cleared, status set to `cancelled`. The instance is **not** migrated — it
+  will never run again, and its record should name the version it actually ran. Pending
+  timers are left alone, because `timerStillApplies` already refuses to fire one for an
+  instance that is not active, which is what a terminate end event relies on too. A queued
+  service call is left as well, and is settled without calling when its turn comes: a call
+  asks whether its instance has ended before it is made. One already on its way when the
+  instance is cancelled cannot be recalled; its result is not written. Parked work and open
+  incidents used to be left behind: a worker was still handed the work, and its report moved
+  the cancelled instance on (`TestACancelWithdrawsTheWorkParkedForWorkers`,
+  `TestACancelClosesTheIncidentsOpenOnTheInstance`).
 - **`hold`** leaves the instance on the source version and raises an incident at the node for
   somebody to decide. An instance already held at that node keeps its one open incident, and
   nothing more is recorded for it.
@@ -383,7 +399,8 @@ running — when, by then,
   such work needs nowhere to land, because it is to be decided. By the time of the rewrite the
   decisions have been made, each in its own transaction before it, so a token still there is
   one no decision settled: the instance reached the step in the few statements between the
-  apply reading it again and locking it, or a skip left part of a repeating step behind;
+  apply reading it again and locking it, or a skip left part of a repeating step behind
+  (a step other than a user or manual task, which a skip ends whole);
 - or it has an open task or a waiting event on such a step, one the new version lacks, with no
   token under it. A decision acts on the instances waiting at its step, so nothing reaches
   that work. The engine does not leave any behind (leaving a step lets go of what waits on it
@@ -596,6 +613,332 @@ it, and says how many had been dealt with; running it again carries on. A decisi
 used to be written after the fact, or logged and carried on when it failed. A cancel also no
 longer writes `instance_cancelled` for an instance it found, once locked, no longer running.
 
+### In-place waive, cancel and hold
+
+A node action needs a second version of the process to migrate to. One instance can be
+decided where it stands, on the version it runs, with no second version:
+
+```
+POST /api/v1/instances/{id}/deviations
+{
+  "kind": "waive",
+  "node_id": "opsApprove",
+  "reason": "the operations manager is on leave and the order ships today",
+  "outputs": { "approved": true }
+}
+```
+
+`kind` is `waive`, `cancel` or `hold`. What each does to the instance is what a migration's
+`skip`, `cancel` and `hold` do: one implementation, called by both. What differs is who
+decides and how. It is an administrator of the instance's organization, about one instance,
+after a preview of that instance. The request and the reply are set out in
+[Integrating with Metis](integration.md#waiving-cancelling-or-holding-one-instance), and
+what an operator does in [the runbooks](runbooks.md#waiving-cancelling-or-holding-one-instance).
+
+**Every request is a dry run unless it says `"dry_run": false`.** A dry run reads the
+instance, holds no row and writes nothing. Its reply is the plan: the open tasks the act
+would take, every reason it cannot be made, what to know first, and a `visit_key`. Every
+refusal that is true is listed, not the first one, so one preview shows everything there is
+to fix. An apply is the same request with the plan's `visit_key` and `"dry_run": false`.
+
+**An apply is decided on the instance as its lock finds it.** It is one transaction. The
+instance's row is locked first, and everything below is asked of that row:
+
+1. Was this request already made? Then it is answered with the record the first one wrote
+   and `replayed: true`, whatever the instance has become since, and nothing is done again.
+   That is what makes a lost answer safe to ask for again.
+2. Is the instance still running? One that has ended is refused: *this instance is
+   cancelled, so it can no longer be waived; preview again*.
+3. Is the plan, made again from the locked row, the plan that was previewed? The
+   `visit_key` is compared, and when it differs the apply is refused: *this instance has
+   moved since you previewed it; preview again*. Then the plan's own refusals, which are
+   what a preview of the same request shows.
+4. Does the instance still wait where the act is made?
+5. The act, its ledger row and its trail entry, together. If any of them fails, none is
+   kept.
+
+A completion of the step takes the instance's lock too, so a completion and a waive of one
+step take turns, and the second finds what the first left
+(`TestACompletionThatArrivesWhileItsStepIsBeingWaivedIsRefused`,
+`TestAWaiveAppliedAfterItsHolderFinishedTheStepIsRefused`). Two applies of one preview sent
+at the same moment act once (`TestTwoAppliesOfOnePreviewWaiveOnce`,
+`TestAppliesOfOnePreviewSentTogetherActOnce`).
+
+**The visit key says what work the plan was made for.** It is made from the instance, the
+version it runs, the kind of act, the step, and:
+
+| Kind | Also in the key | So the key changes when |
+| :-- | :-- | :-- |
+| `waive` | the tokens on the step and the open tasks on the step | a task of the step is completed, opened or withdrawn, or a token arrives there or leaves |
+| `hold` | those, and each incident on the step with whether it is open or resolved | the same, or an incident on the step is raised or resolved |
+| `cancel` | every token and every open task of the instance | anything open on the instance changes, on any branch |
+
+Who holds a task, the instance's variables and its status are not in the key, so a claim or
+a hand-over between the preview and the apply does not make the preview stale. The record is
+then written from the tasks as the apply found them, not as the preview listed them
+(`TestAWaiveRecordsWhoHeldTheWorkWhenItWasTaken`,
+`TestACancelRecordsWhoHeldTheWorkWhenItWasTaken`). The key covers every open task and
+token, whether the plan lists it or not.
+
+A second request naming a key that has had its act, and asking for something else (another
+reason, other values), is refused with who acted: *this step was already waived by boss*.
+
+#### Waive
+
+A waive ends a step somebody was to do without anybody doing it: its open tasks are
+withdrawn, each holder is told theirs was withdrawn, and the instance moves on from the step
+once. It is recorded as **waived**, never as performed. The tasks end `canceled`, not
+`completed`. No completion is announced. The trail's entry is the `node_skipped` a
+migration's skip writes, with `outcome: "waived"`, and reads
+
+> *“Operations approve” was waived — nobody performed it — by boss. Reason: the operations
+> manager is on leave and the order ships today.*
+
+One thing does not tell the two apart: the instance's own list of completed steps includes a
+waived step, as it does after a migration's skip. To tell waived from performed, read the
+task (`canceled`), the trail (`node_skipped`, `outcome: waived`) or the ledger, not the
+instance.
+
+**A step marked as a control is waived like any other, and says so.** A waive asks for no
+acknowledgement of a step marked `compliance_relevant`. Its plan warns *“Operations approve”
+is marked as a control. Waiving it is recorded as a control that was not performed.*, and
+the waive's ledger row and trail entry carry `control: true` (in the row's `details`, and
+in the entry's data); a waive of any other step carries neither
+(`TestAWaiveOfAControlSaysSo`). The waive's own row is the record that the control was not
+performed. The instance's list of completed steps counts the waived step all the same, so a
+later migration that drops the step treats this instance as having passed the control and
+writes no `control_waived` row for it (read from the code, not run).
+
+The plan refuses a waive that would have to guess:
+
+| Refused | In the plan's words |
+| :-- | :-- |
+| A step that is not a person's work | *“Screen the supplier” is work for a system, not a person; retry it or resolve its incident instead of waiving it.* For a call activity whose called process is running: *“Have it checked” runs another process; waive the step inside that process (instance 0199…) instead.* For a call activity the instance has not reached: *“Have it checked” runs another process; waive the step inside that process instead.* For one whose called process has ended without resuming it (cancelled in place, or ended at a terminate end event): *“Have it checked” is waiting for a process that has ended and will not resume it; this instance can be cancelled or held instead.* For anything else: *…is not work somebody does; hold the instance instead.* |
+| A step the instance is not waiting at | *This instance is not waiting at “Sales approve”.* |
+| A step nobody has a task for | *Nobody has “Operations approve” to do, so there is nothing to waive.* |
+| A step with several ways out | *“Pick a supplier” has 2 ways out, so waiving it would choose a branch on the business's behalf.* |
+| A step with no way out, unless it is inside an ad-hoc sub-process, whose completion condition is read again instead | *…has no way out, so there is nowhere for the instance to go once it is waived.* |
+| A step that runs once and that the instance reached several times at once | *“Check the order” was reached 2 times at once on this instance, and a waive would move the instance on only once. Complete or reassign its tasks instead, or hold the instance.* |
+| A step the instance's version does not have | *This process has no step "archive".* |
+| No reason | *Say why: a reason is required, and it is kept with the record.* |
+| A reason of more than 2,000 characters | *The reason is longer than 2000 characters; say it more briefly.* |
+| An instance that is not running | *This instance is completed; only a running instance can be waived.* |
+
+An approval several people give is ended whole, on purpose: every open run is withdrawn and
+the instance moves on once, in parallel or one after another
+(`TestWaivingAParallelApprovalWithdrawsEveryOpenRunAndAdvancesOnce`,
+`TestWaivingASequentialApprovalStartsNoFurtherRun`). A waive inside an embedded sub-process
+moves on inside it, and one in a called process that ends it resumes its caller.
+
+**What the waiver counts as.** A step that is waived sets nothing unless the waive says
+what. `outputs` is values for fields the step's form declares, set before the instance moves
+on, as though somebody had filled them in. A waive is not a variable editor:
+
+- Only a field the step's form declares can be set, and only one the form of every open
+  task of the step declares. `METIS_ALLOW_UNDECLARED_TASK_VARIABLES`, which lets a completion
+  set anything for a migration window, does not apply to a waive
+  (`TestAWaiveSetsOnlyWhatTheStepsFormDeclares`).
+- At most 50 values, at most 64 KiB as JSON, a name of at most 255 characters, and no value
+  given as `null`: a null is not a value, and whatever reads the field would decide on
+  nothing.
+
+**Every place that decides from the step must be given its value.** This is the rule of
+`AGENTS.md` §0, no silent default at a decision point, applied to one instance. The whole
+definition is read, not only what follows the step: an event sub-process, a boundary event
+on an enclosing sub-process, a step started by hand in an ad-hoc sub-process and a branch
+running beside the step are all reached without a flow from it. Each place that reads a field the step's form declares is
+listed in `decision_points`, and the waive is refused until `outputs` gives every such
+field a value:
+
+| `kind` | What reads the field |
+| :-- | :-- |
+| `gateway` | The conditions on the flows of an exclusive or inclusive gateway |
+| `conditional_event` | A condition a step waits for |
+| `completion_condition` | The completion condition of a repeating step or an ad-hoc sub-process |
+| `decision_table` | The decision table a business rule task consults, or the one that assigns a user task, at the version the step pins, with the decisions it requires |
+| `collection` | The list a repeating step repeats over |
+| `called_process` | A call activity that hands the field to another process. Never read: see below |
+
+> *“Approved?” decides from approved, which “Review the claim” would have set; say what the
+> waiver counts as by supplying approved.*
+
+Three rules that are easy to assume the other way:
+
+- **A value the instance already holds does not count.** On a second visit through a loop
+  the instance holds the first visit's answer. Routing on it is the silent default, so the
+  waive is refused until it says what this visit counts as
+  (`TestAValueLeftFromAnEarlierVisitDoesNotCountForTheGateway`).
+- **A default flow excuses nothing.** A gateway with a default flow is listed with
+  `has_default_flow: true` and refused for a missing value like any other.
+- **Being asked for more than the instance will meet is the accepted cost.** A place the
+  instance has already passed, or will never reach, is listed too. The value asked for is
+  one the step's own form declares, so it can be given — with three exceptions, each of
+  which the plan refuses for: a field only some of the step's open runs declare, a field
+  whose name is longer than 255 characters, and more than 50 values in all.
+
+`missing` on the plan is the complete list of what has still to be supplied whenever the
+waive can be made: it holds at most 50 names, each to 255 characters, and a waive that would
+need more, or a longer name, is refused for that. A place names only the first few fields it
+is missing.
+
+**What is not read.** Each is a warning, not a refusal, and the waive can be applied past
+it. Check before applying.
+
+- **A process a later step calls.** A call activity hands the called process the step's
+  fields, and what that process decides from them is in another definition: *“Check the
+  supplier” starts another process and hands it approved, which “Review the claim” would
+  have set; that process was not read, so check what it does with it before applying.*
+- **The process that started this one.** When a called instance ends, its values go back to
+  its caller, which decides from them: *This instance was started by “Supplier onboarding”
+  at “Run the checks”, which receives its results when it ends and was not read. Where that
+  process decides on a value this step would have set and you give none, it decides on the
+  value it already holds, or undoes the waive if it holds none. Check that process before
+  applying.* Both halves are demonstrated: a caller holding a value for the field decides on
+  that older value and the waive is applied
+  (`TestAWaiveInACalledProcessLetsItsCallerDecideOnAValueItAlreadyHolds`); one holding none
+  has a gateway with no way out, and the waive is undone in both instances
+  (`TestAWaiveAGatewayCannotFollowIsA400ThatSaysWhoseGatewayItWas`).
+- **A condition that could not be read**, such as one written as a `js:` script: *“Route by
+  script” could not be read to see what it decides from; check it before applying.* And a
+  decision past the 64 tables one preview reads.
+- **A value derived from the step's.** A script or a service task's input mapping that
+  computes another variable from one of the step's fields is not traced. A gateway reading
+  that other variable is not listed.
+
+**When a value fits no branch.** A waive whose value no flow of a gateway accepts, where
+the gateway has no default, is refused at the apply with a 400 that names the gateway, and
+nothing is changed: *The values given fit no way out of “Large order?”, so the waive was not
+applied and nothing was changed. Preview again and give a value one of its branches
+accepts.* The gateway may be one of another instance the advance reached: the caller's, or
+a process a later step calls. The sentence then says whose
+(`TestAWaiveAGatewayCannotFollowIsA400ThatSaysWhoseGatewayItWas`).
+
+#### Cancel
+
+A cancel ends the **whole instance**, whichever step it names. The step is where the record
+says the instance stood. Every open task is withdrawn and its holder told, work parked for
+outside workers is withdrawn, waiting events are dropped, the instance's open incidents are
+closed, its tokens are cleared and its status is `cancelled`. The plan lists every open
+task of the instance, on every branch, and warns of each that is with somebody, of parked
+work to be withdrawn and of incidents to be closed.
+
+A cancel that names **no step** closes an instance that is `active` and waits at no step:
+the state a migration of an earlier release could leave, and one a process reaches by itself
+when its last step has no flow leaving it. It is the only supported way to close one. Its
+plan warns *This instance is not waiting at any step. Cancelling it closes it.* Only where
+the instance waits was looked at: whether a timer or a message could still move it was not.
+The same cancel withdraws a task left open with no token under it, and warns of it: *“Record
+the outcome” is still open though the instance is not waiting there; it will be withdrawn.*
+
+| Refused | In the plan's words |
+| :-- | :-- |
+| An instance while a process it called has not ended | *This instance is waiting on 1 process(es) it started (0199…); cancel or finish those first.* |
+| A cancel naming no step, of an instance that waits somewhere | *This instance is waiting at “Operations approve”; say which of those steps it is to be ended at.* |
+| A step the instance is not waiting at | *This instance is not waiting at “Sales approve”.* |
+| A step the instance's version does not have, and the instance holds no token on | *This process has no step "archive".* |
+
+A cancel may name a step the instance holds a token on **that its version does not have**:
+the state a migration of an earlier release could leave
+([upgrading.md](upgrading.md#an-instance-a-migration-left-with-nothing-to-do), case 1).
+The step is shown by its id, in the plan and in the record, because the version has no name
+for it; a waive and a hold of such a step are refused with *This process has no step "…".*
+(`TestACancelCanNameAStepTheInstancesVersionNoLongerHas`, on a row written through the
+repository).
+
+A **called instance** can be cancelled in place, where it waits or when it waits nowhere.
+Cancelling it ends that instance and resumes nobody. While its caller has not ended, its
+plan warns *This instance was started by another process (instance 0199…), which is still
+waiting for it and is not resumed by this; cancel or hold that one next.* The caller is
+left where it was, at its call step, and is refused while a process it called has not
+ended. So to end a process and what it called, cancel the called instance first, then the
+caller at its call step (`TestACalledInstanceIsCancelledAloneAndItsCallerOnlyAfterIt`; for
+a called instance that waits nowhere, with a cancel that names no step,
+`TestAStrandedCalledInstanceAndItsCallerCanBothBeClosed`). When the caller has already
+ended — a terminate end event on another branch ended it while the process it called was
+still running — there is no such warning, and the cancel closes what the caller left behind
+(`TestACalledInstanceWhoseCallerHasEndedIsCancelledWithNoWarningOfIt`).
+
+What a cancel leaves, in place as in a migration:
+
+- **A call already on its way cannot be recalled.** A call to another system that is in
+  flight when the instance is cancelled is still made. Its result is not written, and a
+  failure raises no incident. A call still queued is not made: it is settled without calling
+  when its turn comes, and until then the instance's job list shows a pending call on a
+  cancelled instance.
+- **Timers lapse quietly.** A pending timer is not deleted. It comes due, finds the
+  instance is not waiting for it, and does nothing: no token, no task, no incident
+  (`TestATimerDueAfterACancelInPlaceMovesNothingAndRaisesNoIncident`).
+- **No event says the instance was cancelled.** Each withdrawn task raises `TaskCanceled`,
+  on the event stream and to webhooks. A cancel of an instance with no open task raises no
+  event at all.
+
+#### Hold
+
+A hold raises one incident at the step the instance waits at, for somebody to decide, and
+changes nothing else: the tokens, the tasks and the status are as they were, and **the
+step's work can still be done**. A hold makes an instance visible. It does not stop it.
+
+- The incident's text is *held at “Operations approve” by boss:* and the reason. Anyone who
+  may read the instance's incidents reads it, which is anyone signed in to its organization.
+  Put nothing in the reason that only an administrator should see. (The incident of a
+  migration's hold begins otherwise: *held out of the migration from version 1 to version 2
+  of "quotation-approval" by boss:* and the reason.)
+- A step that already has an open incident keeps that one, and no second is raised. The
+  plan warns *“Operations approve” already has an open incident; the hold will use it.* The
+  hold is recorded all the same, and its entry says so: *This instance was held at
+  “Operations approve” by boss; the incident already open on that step stands.* The
+  incident's text is not rewritten, so this hold's reason is in its ledger row and its trail
+  entry only.
+- On a step that calls a system, or parks work for a worker, the incident already open may
+  be the engine's own, raised when the work failed. A hold uses it like any other.
+- A hold needs a step. An instance that waits nowhere can be cancelled and cannot be held.
+
+**Letting a hold go** is resolving its incident (`POST /api/v1/incidents/{id}/resolve`, an
+operator's call). Nothing records that: no trail entry, no ledger row, no name. The
+incident's `status` and `resolved_at` are all that say it happened. After that the step can
+be held again. A new preview has a new `visit_key`, because the key covers the step's
+incidents, and applying it raises a new incident and writes a new row
+(`TestAHoldCanBeMadeAgainOnceItsIncidentIsResolved`).
+
+Three things about a hold that are gaps, not design:
+
+- **The inbox words a hold as a failure.** It shows every incident under its step's name and
+  the word *failed*, with a *Try again* button, and explains the incident's text as a
+  technical cause. A hold reads the same way. *Try again* on a hold's own incident resolves
+  it. On an engine's failure incident that a hold used, *Try again* retries the failed call
+  as it always did. And on a step that parks work for a worker, resolving any incident
+  there offers that work again if it had run out of retries (read from the code, not run).
+- **Resolving takes no lock on the instance and asks nothing of it.** An incident can be
+  resolved a moment after a hold found it open. The hold's row is true of the moment it was
+  written.
+- **A hold's incident outlives its instance.** If the step is completed and the instance
+  goes on to finish, the incident stays open until somebody resolves it.
+
+#### Limits that hold for all three
+
+- **The lists in a plan are the first of what there is.** A process is somebody's input, so
+  a plan has a size whatever the process: at most 100 decision points (those missing a value
+  first, then those not read), 200 open tasks, 200 called instances, 50 missing names, and
+  ten names at a point, each shown to 64 characters. The counts beside them
+  (`open_work_in_all`, `decision_points_in_all`, `called_instances_in_all`,
+  `missing_in_all`, and a point's `reads_in_all` and `missing_in_all`) are of everything. They are exact, with one exception: where several
+  steps of a definition share an id, a point's own two counts may count a name twice, never
+  too few. The refusals are worked out from everything, not from what is listed, and
+  `applicable` is the one answer to "can this be applied". An empty list does not mean
+  nothing.
+- **An apply waits.** It waits for the instance's lock, and a waive or a cancel then waits
+  for the row of each task it withdraws, behind a claim, a hand-over or an edit under way.
+  There is no deadline on the server: the wait ends when the lock is free or the client
+  goes away.
+- **A suspended instance is refused.** A preview lists *This instance is suspended; only a
+  running instance can be held.* An apply answers *this instance is suspended, and a
+  suspended instance is not waived, cancelled or held in place*, for all three kinds.
+  Nothing in the product suspends an instance or resumes one today, so this is met only on
+  a row changed outside it.
+- **No second approver.** One administrator decides and applies. A cancel and a hold are
+  one administrator's decision and stay so. A waive is too in this release; the next adds
+  a second approver for a waive.
+
 ### Re-derived assignment
 
 An **open** task that changes node is **rebuilt from the node it lands on** — name,
@@ -678,7 +1021,7 @@ migration share its `run_id`:
 | Act | Row | Reaches | What it records |
 | :-- | :-- | :-- | :-- |
 | `skip` | `waive` | the task | the tasks withdrawn, as they were and as they are (status and assignee), and how many |
-| `cancel` | `cancel` | the instance | its status, `active` to `cancelled`, and the tasks withdrawn |
+| `cancel` | `cancel` | the instance | its status, `active` to `cancelled`, the tasks withdrawn, and in `details`, when there were any, how much parked work it withdrew (`external_tasks_withdrawn`) and how many incidents it closed (`incidents_closed`) |
 | `hold` | `hold` | the instance | the incident raised |
 | an acknowledged control the instance had not yet performed | `control_waived` | the instance | the step, and its `compliance_note` when it has one |
 
@@ -700,8 +1043,34 @@ happened. To see whether a hold is still open, read the instance's incidents
 (`GET /api/v1/incidents/{instanceId}`) and find the one whose `id` is the row's
 `after.incident.id`. A hold does not stop the step's holder from completing it, and a later
 run of the same migration, finding the incident resolved and the instance still on the step,
-places a new hold and writes a new row. Whether releasing a hold becomes a recorded act is
-decided with the hold of one instance in place, which is not in this release.
+places a new hold and writes a new row. All of this is true of a hold made in place too
+(*In-place waive, cancel and hold*, above): releasing it is resolving its incident, and that
+is not a recorded act.
+
+**The rows of an act made in place.** A waive, a cancel or a hold of one instance writes the
+same kinds of row, with `origin: "in_place"` where a migration's say `migration`, and a
+`run_id` of its own where a migration's rows share one:
+
+| Act | Row | Reaches | What it records |
+| :-- | :-- | :-- | :-- |
+| `waive` | `waive` | the task | the tasks withdrawn, the 200 with the lowest ids, as they were (status and holder) and as they are (`canceled`); the values the waive set (`after.variables`) and what the instance held under those names before (`before.variables`); in `details`, how many tasks were withdrawn (`withdrawn`), how many of them the row names (`tasks_listed`) and how many places decide from the step (`decision_points`, a count), and `control: true` when the step is marked as a control |
+| `cancel` | `cancel` | the instance | its status, `active` to `cancelled`; the tasks withdrawn, the 200 with the lowest ids; the incidents closed, `open` to `resolved`, at most 200; in `details`, always, `withdrawn`, `tasks_listed`, `external_tasks_withdrawn` and `incidents_closed` |
+| `hold` | `hold` | the instance | the incident (`after.incident`), and in `details` whether this hold raised it or found it open (`incident_raised`) |
+
+A row names its step (`node_id`, `node_name`), except the row of a cancel that named none,
+and its task (`task_id`) when exactly one task was withdrawn. Two things differ from a
+migration's rows on purpose. A migration's cancel lists every task it withdrew, however
+many, and writes the two counts only when they are not zero: its rows are pinned as they
+were. And a migration's hold of a step that already has an open incident writes nothing
+more, where a hold in place writes its row and says the incident was already there.
+
+For more than 200 open tasks — on the instance for a cancel, on the step for a waive of a
+repeating approval — the row does not name every holder
+(`TestACancelOfMoreWorkThanAPlanListsWithdrawsAllOfIt`,
+`TestAWaiveOfMoreRunsThanARowNamesWithdrawsThemAll`).
+The holder of a task it does not name is on the task's own row, which a withdrawal changes
+only the status of, and in the notice sent to them. The trail's entry for each withdrawal
+names the step and not the holder.
 
 **What writes no row, by decision.** The ledger is for what somebody did to an instance that
 its process did not decide. These change an instance too, and are left out on purpose:
@@ -830,4 +1199,8 @@ things worse.
 - [`recovery.md`](recovery.md) — the migration runner only goes forward
 - [`../AGENTS.md`](../AGENTS.md) §0 — why a silent default at a decision point is an incident
 - `server/domains/services/impl/migration.go` — the planner and the apply
+- `server/domains/services/impl/instance_deviation.go` — the waive, cancel and hold of one
+  instance in place: the lock, the replay and what an apply asks of the locked row
+- `tests/bpmn/instance_waive_test.go`, `tests/bpmn/instance_cancel_hold_test.go` — what
+  each does; `tests/deviation/deviate_route_test.go` — who may ask
 - `tests/instancemigration/state_test.go` — every case in §2 that has a test

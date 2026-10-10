@@ -384,6 +384,20 @@ Semantics worth knowing before production:
 - A returned error fails the task with one retry spent; when retries run out
   it stays failed for an operator.
 - A panicking handler fails that one task; the worker keeps serving the rest.
+- **Work can be taken back while a worker holds it.** When its instance is
+  cancelled, or its step is withdrawn, the task is gone, and a report on it is
+  answered `{"error": "not found: no such external task"}`. When the instance
+  ended some other way with the work still parked — a terminate end event on
+  another branch — the report is answered `{"error": "invalid argument: This
+  work belongs to an instance that has ended (completed); it is no longer
+  wanted."}`, nothing the worker sent is written, and the work is taken off
+  the list. Both arrive with HTTP 200 and the refusal in the reply's `error`
+  field, on `/complete` and on `/failure`: check `error`, not the status, then
+  stop and do not retry. Work of an instance that ended that second way can
+  still be fetched until somebody reports on it. A worker whose lock has run
+  out is refused for the lock first, whatever has become of the instance, so
+  that work stays on the list and is offered again (read from the code, not
+  run).
 
 The raw protocol, for any language that speaks HTTP:
 
@@ -674,7 +688,8 @@ curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/$ID/deviations  #
 
 `/deviations` answers `{"deviations": [...]}`, oldest first, with a row for each
 thing done to the instance that its process did not decide — a hand-over by
-somebody who did not hold the task, a migration's skip, cancel or hold, a step
+somebody who did not hold the task, a migration's skip, cancel or hold, a
+waive, cancel or hold of the one instance in place, a step
 started inside an ad-hoc sub-process — saying who did it and why, and what
 changed on the task or instance where something did, to anyone signed in to the instance's organization; another organization's
 instance is a 404.
@@ -698,6 +713,271 @@ Three things about a row's shape that a client can rely on:
 
 `GET /api/v1/events` is a server-sent-events stream for live updates, which
 is how the built-in UI avoids polling.
+
+## Waiving, cancelling or holding one instance
+
+An administrator can deal with one running instance outside what its process
+says: waive the step it waits at, cancel it, or hold it for somebody to
+decide. What each does, and what each refuses, is in
+[Changing a process that is already running](process-change-in-flight.md#in-place-waive-cancel-and-hold);
+what an operator does with it is in
+[the runbooks](runbooks.md#waiving-cancelling-or-holding-one-instance). This
+is the request and the reply.
+
+```bash
+# Preview: what would it do, and can it be done? Nothing is changed.
+curl -X POST $GOBPM/api/v1/instances/$ID/deviations \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"kind":"waive","node_id":"opsApprove","reason":"the operations manager is on leave","outputs":{"approved":true}}'
+
+# Apply: the same request, with the plan's visit_key and "dry_run": false.
+curl -X POST $GOBPM/api/v1/instances/$ID/deviations \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"kind":"waive","node_id":"opsApprove","reason":"the operations manager is on leave","outputs":{"approved":true},"visit_key":"dv1-…","dry_run":false}'
+```
+
+REST only. Connect and gRPC have no such call.
+
+**Who may call it.** An account holding Administrator in the organization the
+request is for: on its membership there, or on the account, for one that
+belongs to that organization. A preview takes the same, because it reads the
+instance. The roles legend (`GET /api/v1/roles`) lists the action as
+`DeviateInstance`, under Administrator, among the instances' actions.
+
+The organization the request is for is the one `X-Organization-ID` names, or
+the account's first membership without it, so an account in several
+organizations names the instance's:
+
+| The header names | Answer |
+| :-- | :-- |
+| the instance's organization, where the account is an administrator | the plan, or the apply |
+| the instance's organization, where the account is not an administrator | 403 |
+| another organization the account administers | 404: the instance is not in it |
+| an organization the account does not belong to | 401 |
+
+**The request.**
+
+| Field | |
+| :-- | :-- |
+| `kind` | `waive`, `cancel` or `hold`. |
+| `node_id` | The step's id, at most 255 characters. Needed for a waive and a hold. A cancel names the step the instance is to be ended at, and leaves it out only for an instance that waits at no step. |
+| `reason` | Why. Needed for all three, at most 2,000 characters, the spaces around it dropped. Kept with the record. |
+| `outputs` | A waive only: what the waived step counts as, as an object of values by the id of a field of the step's form. At most 50 values, at most 64 KiB as JSON, no `null`, a name of at most 255 characters. |
+| `visit_key` | The `visit_key` of the plan that was previewed. Needed to apply. At most 255 characters; the server's own are 36. |
+| `dry_run` | Only the JSON boolean `false` applies. Left out, `true` or `null` is a preview. |
+
+**How the body is read.** Strictly, because how it is read decides whether an
+instance is changed:
+
+- One JSON object and nothing after it, at most 256 KiB.
+- Only those six fields, each named exactly as above and given once.
+  `"DRY_RUN": false`, `"dryRun": false` and `dry_run` given twice are refused,
+  not read as a preview. `instance_id` in the body is refused: the instance
+  comes from the address.
+- Inside `outputs`, a name given twice in one object is refused too, at any
+  depth: `"outputs": {"amount": 250, "amount": 10}` is not read as 10. An
+  output decides which branch a gateway takes.
+- Each field holds the kind of value it takes. `"dry_run": "false"` and
+  `"dry_run": 0` are refused.
+- Anything else is a 400 with one sentence: *this request could not be read:
+  send one JSON object with kind, reason, node_id (a cancel may leave it out),
+  and for a waive outputs; to apply a plan add its visit_key and "dry_run":
+  false; name each field exactly and once*. An empty body is that 400, never a
+  preview. `{}` can be read, and is refused for its kind: *kind must be waive,
+  cancel or hold*.
+- The switch is the top-level field only. `?dry_run=false` in the address is
+  ignored. A `dry_run` inside `outputs` is an output of that name (read from
+  the code, not run).
+- `Content-Type` is not examined: the body is read as JSON whatever the
+  header says. A byte-order mark before the object is refused. (Both read
+  from the code, not run.)
+
+**The reply to a preview** is the plan:
+
+```json
+{
+  "plan": {
+    "instance_id": "0199…",
+    "kind": "waive",
+    "scope": "task",
+    "node_id": "opsApprove",
+    "node_name": "Operations approve",
+    "visit_key": "dv1-…",
+    "open_work": [
+      { "task_id": "0199…", "name": "Operations approve", "node_id": "opsApprove",
+        "node_name": "Operations approve", "status": "claimed", "assignee": "ollie" }
+    ],
+    "open_work_in_all": 1,
+    "outputs": { "approved": true },
+    "decision_points": [
+      { "node_id": "decide", "node_name": "Approved?", "kind": "gateway",
+        "reads": ["approved"], "reads_in_all": 1,
+        "supplied": ["approved"], "missing": [], "missing_in_all": 0,
+        "has_default_flow": false, "analysed": true }
+    ],
+    "decision_points_in_all": 1,
+    "missing": [],
+    "missing_in_all": 0,
+    "called_instances": [], "called_instances_in_all": 0,
+    "requires_second_approver": false,
+    "refusals": [],
+    "warnings": ["“Operations approve” is with ollie, who will be told it was withdrawn."],
+    "applicable": true
+  },
+  "applied": false,
+  "replayed": false
+}
+```
+
+- **`applicable`** is the answer to "would an apply be made": nothing refuses
+  the plan. Read it, and never infer it from an empty list.
+- **`refusals`** is every reason the act cannot be made, each a sentence;
+  **`warnings`** is what to know before applying. A plan that refuses is still
+  a 200 to a preview.
+- **`visit_key`** is what an apply sends back.
+- **`open_work`** is the open tasks where the act is made: the step's for a
+  waive and a hold, every open task of the instance for a cancel. A waive and
+  a cancel take them; a hold takes none, and lists them to show what is
+  waiting there. A holder is named
+  by username; no account id is returned.
+- **`outputs`** echoes the outputs as the server read them, in the preview and
+  in the apply. It is where a client confirms what was read.
+- **`decision_points`** is the places in the process that decide from a field
+  the waived step's form declares, each with what it reads of those fields
+  (`reads`), which of them the waive gives (`supplied`) and which it does not
+  (`missing`). `kind` is `gateway`, `conditional_event`,
+  `completion_condition`, `decision_table`, `collection` or `called_process`.
+  `analysed: false` means what the place reads could not be told in full: its
+  lists hold what could be told, and may be short.
+- **`missing`** is the complete list of what a waive has still to supply, each
+  name in full, whenever the waive can be made: at most 50 names, each to 255
+  characters. A waive that would need more, or a longer name, is refused for
+  that, and the list is then cut.
+- **`called_instances`** is, for a cancel, the ids of the processes this
+  instance started that have not ended: the 200 with the lowest ids, and
+  `called_instances_in_all` is how many there are. `requires_second_approver`
+  is always `false` in this release.
+- `scope` is `task` for a waive and `instance` for a cancel and a hold.
+- Every list is `[]` and `outputs` is `{}` when empty; nothing is `null`. Left
+  out when empty: the plan's `node_id` and `node_name` for a cancel that names
+  no step, and a task's `assignee` and `iteration_id`.
+
+**The lists are the first of what there is.** A plan has a size whatever the
+process. It lists at most 100 decision points (those missing a value first,
+then those that could not be read), 200 open tasks, 200 called instances, 50
+missing names, and ten names in each of a point's lists, each shown to 64
+characters. The counts beside them are of everything:
+`decision_points_in_all`, `open_work_in_all`, `called_instances_in_all`,
+`missing_in_all`, and a point's `reads_in_all` and `missing_in_all`. They are
+exact, except that a point's own two counts may count a name twice where
+several steps of a definition share an id; never too few. `refusals` and
+`warnings` are bounded the same way: they speak of the first ten decision
+points of a kind and of each task the plan lists, and count the rest in a
+sentence.
+
+**Read `applied`, not the status alone.** When a waive needs a second
+approver, an apply will answer `applied: false` with
+`requires_second_approver: true`. In this release `requires_second_approver`
+is always `false` and an apply that is answered 200 has `applied: true`; a
+client that reads `applied` now is ready for the release that adds the second
+approver.
+
+**The reply to an apply** is the plan it was applied with, `"applied": true`,
+and the record under `deviation`, exactly as `GET …/deviations` returns that
+row:
+
+```json
+{
+  "plan": { "…": "as above" },
+  "applied": true,
+  "replayed": false,
+  "deviation": {
+    "id": "0199…", "kind": "waive", "scope": "task", "origin": "in_place",
+    "status": "applied", "node_id": "opsApprove", "node_name": "Operations approve",
+    "task_id": "0199…", "actor": "boss", "actor_is_server": false,
+    "reason": "the operations manager is on leave",
+    "before": { "tasks": { "0199…": { "status": "claimed", "assignee": "ollie" } } },
+    "after": { "tasks": { "0199…": { "status": "canceled" } },
+               "variables": { "approved": true } },
+    "details": { "withdrawn": 1, "tasks_listed": 1, "decision_points": 1 },
+    "run_id": "0199…", "audit_entry_id": "0199…", "created_at": "2026-10-04T09:12:00Z"
+  }
+}
+```
+
+**A retried apply acts once.** The same request sent again — the same kind,
+step, reason, values and `visit_key` — is answered `"replayed": true` with the
+record the first one wrote, and nothing is done again. This does not expire.
+The plan of a replayed reply names the act and lists nothing: its lists are
+empty and its counts are zero, and neither says there was nothing. A different
+request naming a `visit_key` that has had its act is a 400 that says who
+acted: *this step was already waived by boss*.
+
+So the route is safe to retry with no `Idempotency-Key`. If a client sends one
+anyway (`TestAnIdempotencyKeyOnADeviationFollowsTheHeadersOwnRules` runs the 409
+and the replay of a 400 on this route; a replayed 403 or 500, and the last
+point, are read from the header's code, not run here):
+
+- A preview and its apply are different bodies. Sent under one key, the second
+  is refused by the header's own check with a plain-text 409, before the
+  route sees it. Use a new key for each request.
+- The first answer under a key is kept for 15 minutes and returned again,
+  with `Idempotency-Replayed: true`, whatever its status: a 400, a 403 or a
+  500 comes back after its cause is fixed. Send a new key after fixing.
+- The header and the `replayed` field are different signals. The header's
+  replay returns the first body unchanged, so its `replayed` may read `false`.
+- A retry under the same key while the first is still waiting for the
+  instance's lock waits up to ten seconds and is then answered 408, or 503 if
+  the first was abandoned. Both are plain text.
+
+**Statuses.** Branch on the status, never on the text of a reply.
+
+| Status | When | Body |
+| :-- | :-- | :-- |
+| 200 | A preview, whether or not its plan refuses. An apply. A replay. | as above |
+| 400 | The body could not be read, or is over 256 KiB. The id in the address is not an id. The command is malformed: no kind, no step for a waive or a hold, a `node_id` or a `visit_key` longer than 255 characters, outputs on a cancel or a hold, a `null` or unnamed output, more than 50, an apply with no `visit_key`. An apply whose plan refuses: the refusals, joined by a space. An apply that comes too late: *this instance has moved since you previewed it; preview again*, *this instance is cancelled, so it can no longer be waived; preview again*, *this step was already waived by boss*. A suspended instance. A waive whose value fits no branch of a gateway. | `{"error": "invalid argument: …"}` |
+| 401 | No token. | the plain text `Unauthorized` |
+| 403 | Signed in, and not an administrator of the organization the request is for. | `{"error": "forbidden: this needs the ADMIN role, which your account does not hold in this organization; an administrator here can grant it"}` |
+| 404 | The instance is not in the organization the request is for, or there is no such instance: the same words for both. | `{"error": "not found: no such process instance"}` |
+| 500 | The server failed after the request was accepted. What the act had done is rolled back, unless the failure came at the commit itself. Send the same request again: it acts or it replays. | `{"error": "waiving “Review the claim”: …"}` |
+
+Four things about them:
+
+- **A 400 carries a sentence and no machine-readable code.** The same status
+  covers a request to correct and an instance to preview again.
+- **The route itself never answers a conflict status.** What was already
+  done, and work that has moved, are 400s. A request sent with an
+  `Idempotency-Key` can still meet the header's own 409 and 408 on this
+  route, in plain text, before the route sees it.
+- **A 500's text is not a status.** It keeps the cause as words, and may
+  contain `not found:`, the instance's id, step ids and a decision's key.
+- **The body is read before the caller is checked**, as on every route. A
+  signed-in account that is not an administrator and sends a body that cannot
+  be read gets the 400 for the body. Nothing of any instance has been read by
+  then. With a readable body it gets the 403, whatever instance it names.
+
+Answers from in front of every route are plain text, not JSON: 413 for a body
+declared larger than 2 MiB (between 256 KiB and 2 MiB is the route's 400), 429
+from the rate limit, 503 when the server is at its limit of requests in
+flight (read from the code, not run on this route).
+
+**Numbers.** `outputs` is decoded as a task completion's variables are: every
+number is a float. Two spellings of one number (`250`, `250.0`, `2.5e2`) are
+the same request, and replay. `"250"` is not `250`. Two whole numbers past
+2^53 that round to the same float are the same request too
+(`TestTwoWholeNumbersPastTheFloatsPrecisionAreOneRequest`): send a large
+identifier as a string.
+
+**No deadline on the server.** An apply waits for the instance's lock, and for
+the rows of the tasks it withdraws, for as long as the client stays. While it
+waits it holds one of the server's 128 slots for requests in flight. Set a
+timeout in the client, and send the same request again afterwards: it either
+acts or replays.
+
+**What a worker meets.** A cancel withdraws the work an instance has parked
+for outside workers. A worker that then reports on it is told, as of any
+withdrawn work, HTTP 200 with `{"error": "not found: no such external task"}`.
+See [External-task workers](#external-task-workers-your-service-does-the-step).
 
 ## Retrying your own calls safely
 

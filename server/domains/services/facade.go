@@ -52,7 +52,9 @@ type ServiceFacade interface {
 	serviceContracts.SimulationService
 
 	// DeviationService reads what was done to one instance that its process did
-	// not decide. Writing it is not on the facade: every writer records through
-	// DeviationRecorder inside its own change.
+	// not decide, and waives, cancels or holds one instance where it stands
+	// (DeviateInstance). Writing a ledger row is not on the facade: every
+	// writer, the in-place command included, records through DeviationRecorder
+	// inside its own change.
 	serviceContracts.DeviationService
 }

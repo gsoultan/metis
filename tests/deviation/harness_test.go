@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/app"
@@ -57,6 +58,12 @@ func newDeviationHarness(t *testing.T) *deviationHarness {
 	}
 	return &deviationHarness{server: server, svc: svc, repo: repo, db: db, orgID: org.ID, projID: project.ID}
 }
+
+// routeClient is the client every request to the harness's server is made
+// with. It gives up: a request the server never answers fails its test with
+// what it was waiting for, where the default client would wait for as long as
+// the package is allowed to run.
+var routeClient = &http.Client{Timeout: 60 * time.Second}
 
 // tenantContext is a request from inside the harness's organization.
 func (h *deviationHarness) tenantContext() context.Context {
@@ -116,7 +123,7 @@ func (h *deviationHarness) do(t *testing.T, method, token, path string, body any
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := routeClient.Do(req)
 	if err != nil {
 		t.Fatalf("do request: %v", err)
 	}

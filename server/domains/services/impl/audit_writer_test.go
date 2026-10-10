@@ -51,6 +51,11 @@ func TestNarrativeFor(t *testing.T) {
 		{EventProcessFailed, "Loan Approval", "", `Process "Loan Approval" failed`},
 		{EventNodeReached, "Credit Check", "", `Step "Credit Check" started`},
 		{EventNodeCompleted, "Credit Check", "", `Step "Credit Check" finished`},
+		// What an entry says when its writer gave it no sentence of its own: true
+		// of an instance ended or held by a migration and of one ended or held
+		// where it stood.
+		{EventInstanceCancelled, "Credit Check", "ana", `This instance was ended before it finished`},
+		{EventInstanceHeld, "Credit Check", "ana", `This instance was held for somebody to decide`},
 		{"unknown_event", "something", "", `Event "unknown_event" occurred on "something"`},
 		{"unknown_event", "", "", `Event "unknown_event" occurred`},
 	}

@@ -57,14 +57,17 @@ func forAWorker() *entities.Node {
 }
 
 // endings is the ways an instance of fulfilment is ended with its work still
-// out, and the status each leaves it in.
+// out, the status each leaves it in, and whether it takes the work parked for
+// workers with it. A cancel does. A terminate end event does not, and the
+// work is removed when a worker reports on it.
 var endings = []struct {
-	name   string
-	status entities.ProcessStatus
-	end    func(t *testing.T, r *fulfilmentRun) error
+	name        string
+	status      entities.ProcessStatus
+	takesParked bool
+	end         func(t *testing.T, r *fulfilmentRun) error
 }{
-	{"cancelled by a migration", entities.ProcessCancelled, func(_ *testing.T, r *fulfilmentRun) error { return r.cancelByMigration() }},
-	{"terminated on another branch", entities.ProcessCompleted, func(_ *testing.T, r *fulfilmentRun) error { return r.callOff() }},
+	{"cancelled by a migration", entities.ProcessCancelled, true, func(_ *testing.T, r *fulfilmentRun) error { return r.cancelByMigration() }},
+	{"terminated on another branch", entities.ProcessCompleted, false, func(_ *testing.T, r *fulfilmentRun) error { return r.callOff() }},
 }
 
 // fulfilmentRun is one instance of fulfilment and the versions of its process.
@@ -172,8 +175,10 @@ func (r *fulfilmentRun) openIncidents(t *testing.T) int {
 // still running in it are terminated with it, and nothing of it runs again.
 //
 // A worker that fetched work before its instance ended, and reports after, is
-// told the work is no longer wanted: what it reports is not written, the
-// instance is not moved, and the work is not offered to anybody again.
+// refused: what it reports is not written, the instance is not moved, and the
+// work is not offered to anybody again. It is told the work is no longer
+// wanted — or, where the ending took the work with it, that there is no such
+// task.
 func TestAWorkerReportingOnAnInstanceThatHasEndedIsRefused(t *testing.T) {
 	reports := map[string]func(h engineHarness, task uuid.UUID) error{
 		"done": func(h engineHarness, task uuid.UUID) error {
@@ -203,7 +208,14 @@ func TestAWorkerReportingOnAnInstanceThatHasEndedIsRefused(t *testing.T) {
 
 				err = report(h, fetched[0].ID)
 				want := fmt.Sprintf("This work belongs to an instance that has ended (%s); it is no longer wanted.", ending.status)
-				if !errors.Is(err, apierr.ErrInvalidArgument) || err == nil || !strings.Contains(err.Error(), want) {
+				switch {
+				case ending.takesParked:
+					// The work went with the instance, and the worker hears what
+					// anybody hears of work that was withdrawn.
+					if !errors.Is(err, apierr.ErrNotFound) {
+						t.Errorf("the report was answered %v, want no such task: the cancel withdrew it", err)
+					}
+				case !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), want):
 					t.Errorf("the report was answered %v\nwant it refused as something the worker can read: %s", err, want)
 				}
 				r.requireEndedAndStill(t, ending.status)

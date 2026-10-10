@@ -15,7 +15,9 @@ import (
 //
 // instanceBefore and instanceAfter are the instance's status either side of a
 // cancel, and empty otherwise; incidentID is the incident a hold raised, and nil
-// otherwise.
+// otherwise. parkedWithdrawn and incidentsClosed are how much work parked for
+// outside workers a cancel took back and how many open incidents it closed,
+// and zero otherwise.
 type decisionRecord struct {
 	instance                      models.ProcessInstanceModel
 	definitionID                  uuid.UUID
@@ -27,6 +29,31 @@ type decisionRecord struct {
 	withdrawn                     []models.TaskModel
 	instanceBefore, instanceAfter string
 	incidentID                    uuid.UUID
+	parkedWithdrawn               int
+	incidentsClosed               int
+}
+
+// The names a cancel's record counts under what it took besides the tasks:
+// on a ledger row's details, and on its trail entry's data.
+const (
+	detailParkedWithdrawn = "external_tasks_withdrawn"
+	detailIncidentsClosed = "incidents_closed"
+)
+
+// countsOfACancel writes into values what a cancel took besides the tasks —
+// work parked for outside workers, incidents closed — and writes nothing for
+// a count of none: the record of a cancel that took nothing of the kind says
+// nothing of it, as it said nothing before these were counted.
+//
+// An incident a cancel closed reads "resolved", as one an operator resolved
+// does. This count on the cancel's record is what says the cancel closed it.
+func (d decisionRecord) countsOfACancel(values map[string]any) {
+	if d.parkedWithdrawn > 0 {
+		values[detailParkedWithdrawn] = d.parkedWithdrawn
+	}
+	if d.incidentsClosed > 0 {
+		values[detailIncidentsClosed] = d.incidentsClosed
+	}
 }
 
 // decisionDeviation is the ledger row of a migration's node action. An action
@@ -50,8 +77,13 @@ func decisionDeviation(d decisionRecord, nodeName string) entities.Deviation {
 	if len(d.withdrawn) == 1 {
 		row.Task = &entities.Task{ID: uuid.UUID(d.withdrawn[0].ID)}
 	}
+	details := map[string]any{}
 	if len(d.withdrawn) > 0 {
-		row.Details = map[string]any{"withdrawn": len(d.withdrawn)}
+		details["withdrawn"] = len(d.withdrawn)
+	}
+	d.countsOfACancel(details)
+	if len(details) > 0 {
+		row.Details = details
 	}
 	row.Before, row.After = withdrawnTaskValues(d.withdrawn)
 	if d.instanceBefore != "" || d.instanceAfter != "" {
