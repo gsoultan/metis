@@ -269,7 +269,9 @@ func (c *EmailNotificationChannel) Deliver(ctx context.Context, n entities.Notif
 	var body strings.Builder
 	body.WriteString("From: " + c.settings.From + "\r\n")
 	body.WriteString("To: " + to + "\r\n")
-	body.WriteString("Subject: " + n.Title + "\r\n")
+	// The title is built from process data, so a line break in it would end
+	// the Subject header and begin whatever followed.
+	body.WriteString("Subject: " + mail.HeaderText(n.Title) + "\r\n")
 	body.WriteString("MIME-Version: 1.0\r\n")
 	body.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
 	body.WriteString(n.Message)
