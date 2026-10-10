@@ -408,6 +408,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   `ix_shared_counters_window_start`, built `CONCURRENTLY` on PostgreSQL so
   rate-limited requests are not held up while it builds. Which rows a sweep
   removes is unchanged.
+- **A page of a project's tasks sorted every task the project had.** The list
+  asks for a project's tasks newest first, and the only index on the way was
+  `project_id` alone. Migration 35 adds `ix_tasks_project_created` over
+  `(project_id, created_at DESC, id DESC)`, built `CONCURRENTLY` on
+  PostgreSQL, and one project's tasks are now asked for by equality so the
+  page is read from it already in order. A list across several projects still
+  sorts.
 - **Somebody in two organizations could be shown no notifications in one of
   them.** `GET /api/v1/notifications` read the person's newest
   thousand notifications across every organization and then dropped those the
