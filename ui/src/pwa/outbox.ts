@@ -11,15 +11,33 @@
 import { v7 as uuidv7 } from 'uuid';
 
 import {
+  afterAttempt,
   classifyNetworkFailure,
   classifyResponse,
   isExhausted,
+  ownedBy,
   type FlushOutcome,
   type OutboxEntry,
 } from '../domain/outbox';
 import { API_BASE_URL } from '../services/shared/config';
-import { getAuthHeaders } from '../services/shared/auth';
+import { getAuthToken, getAuthUserId } from '../services/shared/auth';
+import { reportSessionRefused } from '../services/shared/sessionRefusal';
 import { listOutbox, outboxAvailable, putOutbox, removeOutbox } from './outboxStore';
+
+/** Where the queue is kept: IndexedDB, or a stand-in in a test. */
+export interface OutboxQueue {
+  available: () => boolean;
+  list: () => Promise<OutboxEntry[]>;
+  put: (entry: OutboxEntry) => Promise<void>;
+  remove: (key: string) => Promise<void>;
+}
+
+const browserQueue: OutboxQueue = {
+  available: outboxAvailable,
+  list: listOutbox,
+  put: putOutbox,
+  remove: removeOutbox,
+};
 
 /** What a caller must say to queue something. */
 export interface QueueableRequest {
@@ -48,6 +66,7 @@ export async function queueRequest(request: QueueableRequest): Promise<OutboxEnt
     label: request.label,
     queuedAt: new Date().toISOString(),
     attempts: 0,
+    userId: getAuthUserId() ?? undefined,
   };
   await putOutbox(entry);
   void requestBackgroundSync();
@@ -68,25 +87,34 @@ export interface FlushResult {
  * first. It also keeps a flush over a weak connection from opening a dozen
  * sockets at once.
  */
-export async function flushOutbox(): Promise<FlushResult[]> {
-  if (!outboxAvailable()) return [];
+export async function flushOutbox(queue: OutboxQueue = browserQueue): Promise<FlushResult[]> {
+  if (!queue.available()) return [];
+
+  // Read once, so every entry in this flush goes out under the session that
+  // was checked against its owner.
+  const token = getAuthToken();
+  const userId = getAuthUserId();
+  if (!token || !userId) return [];
 
   const results: FlushResult[] = [];
-  for (const entry of await listOutbox()) {
+  // Only this person's work: an approval somebody else queued on this device
+  // waits for them, rather than going out in this person's name.
+  for (const entry of ownedBy(await queue.list(), userId)) {
     // An entry that has run out of attempts stays put and stays counted. It
     // needs a person, and quietly deleting it would lose an approval they
     // believe they made.
     if (isExhausted(entry)) continue;
 
-    const outcome = await send(entry);
+    const outcome = await send(entry, token);
     results.push({ entry, outcome });
 
-    if (outcome.kind === 'sent' || outcome.kind === 'refused') {
-      await removeOutbox(entry.key);
+    const kept = afterAttempt(entry, outcome);
+    if (kept === null) {
+      await queue.remove(entry.key);
       continue;
     }
 
-    await putOutbox({ ...entry, attempts: entry.attempts + 1 });
+    if (kept !== entry) await queue.put(kept);
     // Stop at the first thing that could not be sent: the rest are almost
     // certainly blocked by the same cause, and hammering a dead connection
     // burns everything's attempts at once.
@@ -95,7 +123,7 @@ export async function flushOutbox(): Promise<FlushResult[]> {
   return results;
 }
 
-async function send(entry: OutboxEntry): Promise<FlushOutcome> {
+async function send(entry: OutboxEntry, token: string): Promise<FlushOutcome> {
   try {
     const response = await fetch(`${API_BASE_URL}${entry.path}`, {
       method: entry.method,
@@ -104,12 +132,13 @@ async function send(entry: OutboxEntry): Promise<FlushOutcome> {
         // The server keys on this alongside the method, path, tenant and
         // caller, so a replay returns the original answer.
         'Idempotency-Key': entry.key,
-        ...getAuthHeaders(),
+        Authorization: `Bearer ${token}`,
       },
       body: entry.body === undefined ? undefined : JSON.stringify(entry.body),
     });
 
     if (response.ok) return classifyResponse(response.status);
+    if (response.status === 401) reportSessionRefused(token);
 
     const data = (await response.json().catch(() => ({}))) as { error?: unknown };
     const message = typeof data.error === 'string' ? data.error : undefined;

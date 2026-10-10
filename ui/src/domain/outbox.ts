@@ -37,7 +37,14 @@ export type FlushOutcome =
    * The request never got an answer, or the server failed. Keep the entry and
    * try again: this is the case the queue exists for.
    */
-  | { kind: 'retry'; reason: string };
+  | { kind: 'retry'; reason: string }
+  /**
+   * The session ended while the work was queued. Keep the entry, and do not
+   * count this as an attempt: nothing about the work is wrong, and five
+   * expired-token answers would otherwise mark it as needing a person before
+   * they had even signed in again.
+   */
+  | { kind: 'signedOut'; reason: string };
 
 export interface OutboxEntry {
   /** The idempotency key, and the entry's own identity. */
@@ -51,6 +58,13 @@ export interface OutboxEntry {
   queuedAt: string;
   /** How many times sending has been attempted. */
   attempts: number;
+  /**
+   * Who did it. The request is sent with whoever's token is in the tab at the
+   * time, so an approval queued by one person must not go out when somebody
+   * else has signed in on the same phone. Absent on an entry queued before
+   * this was recorded; such an entry is never sent (see ownedBy).
+   */
+  userId?: string;
 }
 
 /**
@@ -82,7 +96,10 @@ export function classifyResponse(status: number, serverMessage?: string): FlushO
   // 401 is a session that expired while the work was queued. Retrying with the
   // same expired token cannot help; the person has to sign in, and their work
   // is still here when they do.
-  if (status === 401 || status === 403) {
+  if (status === 401) {
+    return { kind: 'signedOut', reason: serverMessage || 'You need to sign in again to send this.' };
+  }
+  if (status === 403) {
     return { kind: 'retry', reason: serverMessage || 'You need to sign in again to send this.' };
   }
 
@@ -98,6 +115,32 @@ export function classifyNetworkFailure(error: unknown): FlushOutcome {
 /** Whether an entry has run out of attempts and needs a person to look. */
 export function isExhausted(entry: OutboxEntry): boolean {
   return entry.attempts >= MAX_ATTEMPTS;
+}
+
+/**
+ * The entries `userId` queued — the only ones sent or shown while they are
+ * signed in. Everybody else's wait, untouched, for their own sign-in. An entry
+ * with no recorded owner could be anybody's, so it is nobody's to send.
+ */
+export function ownedBy(entries: readonly OutboxEntry[], userId: string | null | undefined): OutboxEntry[] {
+  if (!userId) return [];
+  return entries.filter((entry) => entry.userId === userId);
+}
+
+/**
+ * The entry as it should be kept after an attempt, or null to drop it.
+ * Only an attempt the server could have answered differently counts.
+ */
+export function afterAttempt(entry: OutboxEntry, outcome: FlushOutcome): OutboxEntry | null {
+  switch (outcome.kind) {
+    case 'sent':
+    case 'refused':
+      return null;
+    case 'signedOut':
+      return entry;
+    case 'retry':
+      return { ...entry, attempts: entry.attempts + 1 };
+  }
 }
 
 /** Oldest first: the order the person did them is the order they meant. */

@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  afterAttempt,
   classifyNetworkFailure,
   classifyResponse,
   describeQueue,
   inSendOrder,
   isExhausted,
   MAX_ATTEMPTS,
+  ownedBy,
   type OutboxEntry,
 } from './outbox';
 
@@ -52,9 +54,18 @@ describe('reading the server’s answer', () => {
    * expired token cannot help, but the work must survive until they sign in —
    * discarding it would lose an approval somebody already made.
    */
-  it('keeps work when the session has expired', () => {
-    expect(classifyResponse(401).kind).toBe('retry');
+  it('keeps work when the session has expired, without counting it as an attempt', () => {
+    expect(classifyResponse(401).kind).toBe('signedOut');
+    expect(afterAttempt(entry({ attempts: 2 }), classifyResponse(401))).toEqual(entry({ attempts: 2 }));
     expect(classifyResponse(403).kind).toBe('retry');
+    expect(afterAttempt(entry({ attempts: 2 }), classifyResponse(403))?.attempts).toBe(3);
+  });
+
+  it('sends and shows only the signed-in person’s work', () => {
+    const queue = [entry({ key: 'a', userId: 'ana' }), entry({ key: 'b', userId: 'ben' }), entry({ key: 'c' })];
+    expect(ownedBy(queue, 'ana').map((e) => e.key)).toEqual(['a']);
+    // Nobody signed in, and an entry with no owner, are nobody's to send.
+    expect(ownedBy(queue, null)).toEqual([]);
   });
 
   /*

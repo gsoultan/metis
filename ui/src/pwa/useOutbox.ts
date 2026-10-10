@@ -7,10 +7,11 @@
  */
 
 import { notifications } from '@mantine/notifications';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { describeQueue, type OutboxEntry } from '../domain/outbox';
+import { describeQueue, ownedBy, type OutboxEntry } from '../domain/outbox';
+import { useAppStore } from '../store/useAppStore';
 import { flushOutbox } from './outbox';
 import { watchOutbox } from './outboxStore';
 import { errorMessage } from '../services/shared/errors';
@@ -24,8 +25,12 @@ export interface OutboxState {
 }
 
 export function useOutbox(): OutboxState {
-  const [entries, setEntries] = useState<OutboxEntry[]>([]);
+  const [allEntries, setEntries] = useState<OutboxEntry[]>([]);
   const queryClient = useQueryClient();
+  // The header counts only the signed-in person's work; anybody else's on this
+  // device is not theirs to send or to worry about.
+  const userId = useAppStore((state) => state.user?.id ?? null);
+  const entries = useMemo(() => ownedBy(allEntries, userId), [allEntries, userId]);
 
   useEffect(() => watchOutbox(setEntries), []);
 
@@ -62,9 +67,13 @@ export function useOutbox(): OutboxState {
   }, [queryClient]);
 
   useEffect(() => {
-    // On load, because the tab may have been closed while offline.
-    void flush();
+    // On load, because the tab may have been closed while offline, and on each
+    // sign-in: work queued before the session expired goes out once the
+    // person is back, rather than at the next time the connection drops.
+    if (userId) void flush();
+  }, [flush, userId]);
 
+  useEffect(() => {
     const onOnline = () => void flush();
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);

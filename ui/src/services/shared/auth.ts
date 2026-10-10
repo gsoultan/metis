@@ -3,6 +3,7 @@ import { AUTH_STORAGE_KEY } from "./config";
 type StorageState = {
   state?: {
     token?: string;
+    user?: { id?: string } | null;
   };
 };
 
@@ -27,6 +28,16 @@ export const getAuthToken = (): string | null => {
   }
 
   return state.state.token;
+};
+
+/** The signed-in person's id, or null when nobody is signed in. */
+export const getAuthUserId = (): string | null => {
+  const state = parseStorageState();
+  if (!state?.state?.token) {
+    return null;
+  }
+
+  return state.state.user?.id || null;
 };
 
 export const getAuthHeaders = (): Record<string, string> => {
