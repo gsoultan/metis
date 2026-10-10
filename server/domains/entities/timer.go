@@ -30,6 +30,37 @@ type TimerSchedule struct {
 	Repeats int
 }
 
+// MinTimerInterval is the shortest gap a repeating timer may fire on. A cycle
+// is due again as soon as it has fired, so "R/PT0.001S" fired on every poll
+// of the job worker, for good, and each occurrence is a job, an audit entry
+// and a run of whatever the timer leads to.
+const MinTimerInterval = time.Second
+
+// CheckRepeatingTimer reports why a repeating timer cannot be scheduled, so
+// deploy can refuse it rather than the first instance that reaches it. Any
+// expression that does not read as a repeating cycle passes: this checks the
+// interval of cycles only.
+func CheckRepeatingTimer(expr string) error {
+	_, every, ok := parseRepeatingCycle(strings.TrimSpace(expr))
+	if !ok {
+		return nil
+	}
+	return checkRepeatInterval(expr, every)
+}
+
+// checkRepeatInterval refuses a cycle that repeats on no interval or on one
+// shorter than MinTimerInterval.
+func checkRepeatInterval(expr string, every time.Duration) error {
+	if every <= 0 {
+		return fmt.Errorf("timer %q repeats on an empty interval", expr)
+	}
+	if every < MinTimerInterval {
+		return fmt.Errorf("timer %q repeats every %s, more often than the shortest interval a timer may repeat on (%s)",
+			expr, every, MinTimerInterval)
+	}
+	return nil
+}
+
 // RepeatsForever marks a cycle written without a repeat count ("R/PT10M").
 const RepeatsForever = -1
 
@@ -57,8 +88,8 @@ func (s TimerSchedule) Next(now time.Time) TimerSchedule {
 func ParseTimerSchedule(expr string, now time.Time) (TimerSchedule, error) {
 	trimmed := strings.TrimSpace(expr)
 	if repeats, every, ok := parseRepeatingCycle(trimmed); ok {
-		if every <= 0 {
-			return TimerSchedule{}, fmt.Errorf("timer %q repeats on an empty interval", expr)
+		if err := checkRepeatInterval(expr, every); err != nil {
+			return TimerSchedule{}, err
 		}
 		// The count in "R3/PT10M" is the number of occurrences, so the first one
 		// leaves that many minus one still to come.
