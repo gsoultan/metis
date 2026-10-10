@@ -1,6 +1,7 @@
 import { RouterProvider, createRouter } from '@tanstack/react-router'
 import { routeTree } from './routeTree.gen'
 import './App.css'
+import { routerFallbacks } from './routerFallbacks'
 import { useAppStore } from './store/useAppStore'
 import { endSessionOnRefusal, onSessionRefused } from './services/shared/sessionRefusal'
 
@@ -10,7 +11,7 @@ import { endSessionOnRefusal, onSessionRefused } from './services/shared/session
 // context: the guards call useAppStore.getState() directly.
 // scrollRestoration here rather than the <ScrollRestoration /> component,
 // which the router deprecated and warned about on every page load.
-const router = createRouter({ routeTree, scrollRestoration: true })
+const router = createRouter({ routeTree, scrollRestoration: true, ...routerFallbacks })
 
 // Register the router instance for type safety
 declare module '@tanstack/react-router' {
