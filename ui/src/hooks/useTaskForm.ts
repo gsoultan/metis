@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { type FormField } from '../components/FormBuilder';
 import { evaluateFormCondition, evaluateFormExpression } from '../domain/formExpression';
+import { compileFieldPattern } from '../domain/formPattern';
 
 type FormValues = Record<string, unknown>;
 type FormErrors = Record<string, string | null>;
@@ -146,8 +147,11 @@ export function useTaskForm(
         return 'This field is required';
       }
 
-      if (field.validation?.pattern && value && !new RegExp(field.validation.pattern).test(String(value))) {
-        return field.validation.message || 'Invalid format';
+      // Compiled through a guard: the pattern is the definition's, and one that
+      // does not compile or backtracks without end is skipped, not run.
+      const pattern = field.validation?.pattern ? compileFieldPattern(field.validation.pattern) : null;
+      if (pattern && value && !pattern.test(String(value))) {
+        return field.validation?.message || 'Invalid format';
       }
 
       // `customJs` is named for what it used to be, and it is no longer that.
