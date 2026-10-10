@@ -287,6 +287,7 @@ const en: Catalogue = {
   'access.action.ActivateAdHocTask': 'Activate ad hoc task',
   'access.action.BroadcastSignal': 'Broadcast signal',
   'access.action.MigrateInstances': 'Migrate instances',
+  'access.action.DeviateInstance': 'Waive, cancel or hold an instance',
   'access.action.ResolveIncident': 'Resolve incident',
   'access.action.ImportParticipants': 'Import participants',
   'access.action.RemoveParticipant': 'Remove participant',

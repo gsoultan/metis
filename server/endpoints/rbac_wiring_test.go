@@ -100,6 +100,7 @@ func TestMakeEndpoints_AdministrativeEndpointsAreRoleGated(t *testing.T) {
 		"UpdateOrganization", "DeleteOrganization",
 		"CreateProject", "UpdateProject", "DeleteProject",
 		"CreateConnectorInstance", "UpdateConnectorInstance", "DeleteConnectorInstance",
+		"DeviateInstance",
 	}
 	for _, name := range adminGated {
 		if !strings.Contains(source, `adminOnly("`+name+`")`) {

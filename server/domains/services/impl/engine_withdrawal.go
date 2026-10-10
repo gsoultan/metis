@@ -121,7 +121,9 @@ func ownerAwaitingHandBack(row models.TaskModel) string {
 // parked work once however many nodes there are.
 //
 // It is what an ad-hoc sub-process does to the steps still running inside it
-// when it finishes (endAdHocSteps), and nothing else withdraws parked work.
+// when it finishes (endAdHocSteps), and what a cancel does to every step of
+// the instance it ends (nodeActions.withdrawParked). Nothing else withdraws
+// parked work: an instance that ends on its own leaves it.
 //
 // An external task is a row of its own, like a user task, and it outlived the
 // sub-process it was created in. A worker went on being offered it, and its

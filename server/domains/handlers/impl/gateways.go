@@ -53,9 +53,10 @@ func (h *ExclusiveGatewayHandler) DoExecute(ctx context.Context, instance *entit
 
 	if selectedFlow == nil {
 		if !allowImplicitDefaultFlow() {
-			return fmt.Errorf(
-				"BPMN_ERROR:no outgoing sequence flow could be selected at exclusive gateway %q: "+
-					"no condition evaluated true and no default flow is declared", node.ID)
+			// A type, so whoever asked for the advance can tell it from any
+			// other failure; its words are the ones this has always returned.
+			return &entities.NoFlowSelectedError{
+				GatewayKind: entities.GatewayKindExclusive, GatewayID: node.ID, GatewayName: node.Name, InstanceID: instance.ID}
 		}
 		// Legacy behaviour, retained only behind METIS_ALLOW_IMPLICIT_DEFAULT_FLOW.
 		selectedFlow = flows[0]
@@ -185,9 +186,8 @@ func (h *InclusiveGatewayHandler) DoExecute(ctx context.Context, instance *entit
 	}
 	if len(selectedFlows) == 0 && len(outgoing) > 0 {
 		if !allowImplicitDefaultFlow() {
-			return fmt.Errorf(
-				"BPMN_ERROR:no outgoing sequence flow could be selected at inclusive gateway %q: "+
-					"no condition evaluated true and no default flow is declared", node.ID)
+			return &entities.NoFlowSelectedError{
+				GatewayKind: entities.GatewayKindInclusive, GatewayID: node.ID, GatewayName: node.Name, InstanceID: instance.ID}
 		}
 		selectedFlows = append(selectedFlows, outgoing[0])
 		logImplicitDefaultFlow(node.ID, outgoing[0].ID)

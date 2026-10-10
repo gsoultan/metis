@@ -269,6 +269,7 @@ const id: Catalogue = {
   'access.action.ActivateAdHocTask': 'Aktifkan tugas ad hoc',
   'access.action.BroadcastSignal': 'Siarkan sinyal',
   'access.action.MigrateInstances': 'Migrasikan instansi',
+  'access.action.DeviateInstance': 'Abaikan, batalkan, atau tahan instansi',
   'access.action.ResolveIncident': 'Selesaikan insiden',
   'access.action.ImportParticipants': 'Impor peserta',
   'access.action.RemoveParticipant': 'Hapus peserta',

@@ -169,6 +169,133 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   tasks and the audit trail are never removed by the server at any setting:
   they are the business record. See *What to watch* in
   `docs/postgresql.md`.
+- **An administrator can waive a step of one instance, cancel the instance or
+  hold it, where it stands.** Dealing with one running instance outside what
+  its process says took a second version of the process and a migration with
+  a `skip`, a `cancel` or a `hold`. `POST /api/v1/instances/{id}/deviations`
+  does each to one instance on the version it runs. The body is one JSON
+  object: `kind` (`waive`, `cancel` or `hold`), `node_id` (the step; a cancel
+  may leave it out), `reason` (required, at most 2,000 characters, kept with
+  the record) and, for a waive, `outputs`. It is for administrators of the
+  organization the request is for, a preview included: anybody else signed in
+  gets a 403, and an instance of another organization is a 404 in the words
+  an id that does not exist gets. REST only: Connect and gRPC have no such
+  call.
+  - **A request is a preview unless it says `"dry_run": false`.** A preview
+    writes nothing and holds no row. The reply is the plan: the open tasks
+    where the act is made (`open_work`; a waive and a cancel take them, a
+    hold takes none), every reason it cannot be made
+    (`refusals`), what to know first (`warnings`), and a `visit_key`. Only
+    the JSON boolean `false`, in a top-level `dry_run`, applies. A request
+    that leaves it out, or says `true` or `null`, is a preview; one that says
+    it any other way (`"false"`, `0`, `"DRY_RUN": false`, the field twice) is
+    a 400 and changes nothing. So is one that gives a name twice inside
+    `outputs`. An apply sends the plan's `visit_key` back and
+    is made only while the work is what the preview showed. A task opened,
+    completed or withdrawn where the act would be made, or a token arrived or
+    gone, and it is refused: *this instance has moved since you previewed it;
+    preview again*. A plan that refuses is a 200 to a preview and a 400 to an
+    apply, in the same sentences.
+  - **A retried apply acts once.** The same request sent again (the same
+    kind, step, reason, values and `visit_key`) is answered `replayed: true`
+    with the record the first one wrote, whatever the instance has become
+    since. A different request naming a visit that has had its act is refused
+    with who made it: *this step was already waived by boss*.
+  - **A waive ends a step somebody was to do, without anybody doing it.** The
+    step is a user task or a manual task with a task open on it, that the
+    instance waits at, with one way out (or none, inside an ad-hoc
+    sub-process). Its open tasks are withdrawn (`canceled`, never
+    `completed`), each holder is told theirs was withdrawn, and the instance
+    moves on once. An approval several people give is ended whole: every open
+    run is withdrawn and no further run starts. A step that does not repeat
+    and that the instance reached more than once at the same moment is
+    refused. The trail's entry is a `node_skipped` with `outcome: "waived"`
+    and reads *“Operations approve” was waived — nobody performed it — by
+    boss. Reason: ….*; the ledger row is a `waive` with `origin: "in_place"`.
+  - **What a waived step counts as has to be said.** `outputs` gives values
+    for fields the step's form declares, set as though somebody had filled
+    them in: at most 50, at most 64 KiB as JSON, none of them `null`. Only a
+    field the form of every open task of the step declares can be set, and
+    `METIS_ALLOW_UNDECLARED_TASK_VARIABLES` does not widen that. Every place
+    in the process that decides from one of the form's fields must be given
+    its value: a gateway's conditions, a condition a step waits for, a
+    completion condition, a decision table a business rule task or a task's
+    assignment consults, the list a repeating step repeats over. That holds
+    wherever in the process the place is, not only after the step, and
+    whether or not a gateway has a default flow. A value the instance already
+    holds from an earlier visit does not count. The plan lists those places
+    in `decision_points`, and `missing` is the complete list of what has
+    still to be supplied whenever the waive can be made (a waive that needs
+    more than 50 values, or a name over 255 characters, is refused for that). Three things are not read, and are warned of
+    instead of refused: a process a later step calls, a condition that could
+    not be read, and, for an instance another process started, that process.
+    Where the caller decides on a value this step would have set and the
+    waive gives none, it decides on the value it already holds, or the waive
+    is undone if it holds none. The instance's own list of completed steps
+    includes a waived step, as after a migration's skip: to tell waived from
+    performed, read the task (`canceled`), the trail or the ledger. A waive
+    of a step marked `compliance_relevant` warns that it is a control, and
+    its ledger row and trail entry carry `control: true`.
+  - **A cancel ends the whole instance, whichever step it names.** Every open
+    task is withdrawn and its holder told, work parked for outside workers is
+    withdrawn, what the instance was waiting for is dropped, its open
+    incidents are closed, and its status is `cancelled`. The plan lists every
+    open task of the instance, not only the step's. A cancel that names no
+    step closes an instance that is `active` and waits at no step, which
+    nothing could close before; a task left open on such an instance, with
+    no token under it, is withdrawn with it. A cancel may also name a step
+    the instance holds a token on that its version no longer has, which an
+    earlier release's migration could leave; the step is shown by its id.
+    A called instance can be
+    cancelled alone: its caller is not resumed, and the plan warns of a
+    caller that is still waiting for it. Refused: an instance while a process
+    it called has not ended, and a suspended instance. So a process and what
+    it called are ended by cancelling the called instance first.
+  - **A hold raises one incident at the step and changes nothing else.** The
+    step's work can still be done. A step that already has an open incident
+    keeps that one, and the hold is recorded all the same. The hold ends when
+    an operator resolves the incident, which nothing records but the incident
+    itself; after that the step can be held again.
+  - **Each act is recorded in the transaction that makes it**: a ledger row
+    (`waive`, `cancel` or `hold`, `origin: "in_place"`) and a trail entry
+    (`node_skipped`, `instance_cancelled` or `instance_held`) that name each
+    other. If either cannot be written, nothing is changed.
+
+  What it does not do, true as this ships:
+  - A call to another system already on its way when its instance is
+    cancelled cannot be recalled. Its result is not written.
+  - A pending timer of a cancelled instance is left and does nothing when it
+    comes due. A queued call is left too, and is settled without calling when
+    its turn comes.
+  - No event says an instance was cancelled or held. The event stream and
+    webhooks carry `TaskCanceled` for each task withdrawn, and nothing else.
+  - A hold shows in the incident inbox under its step's name and the word
+    *failed* (*Operations approve failed*), with a *Try again* button, which
+    is how every incident is worded. On a step that calls a system or parks
+    work for a worker, the incident a hold uses may be the engine's own
+    failure, and *Try again* on that one retries the call.
+  - A hold's incident stays open when the instance goes on to finish.
+  - The lists in a plan are the first of what there is: at most 100 decision
+    points, 200 open tasks, 200 called instances, 50 missing names, ten
+    names at a point. The
+    counts beside them (`…_in_all`) are of everything. The ledger row of a
+    cancel or a waive names the 200 tasks with the lowest ids and counts them
+    all.
+  - A 400 carries a sentence and no machine-readable code.
+  - An apply waits for the instance's lock, and for the rows of the tasks it
+    withdraws, with no deadline on the server.
+  - A cancel and a hold are one administrator's decision and stay so. A
+    waive is too in this release; the next adds a second approver for a
+    waive. There is no screen: the command is made through the API.
+
+  The command and its rules are in [Changing a process that is already
+  running](docs/process-change-in-flight.md#in-place-waive-cancel-and-hold),
+  the request and reply in
+  [Integrating with Metis](docs/integration.md#waiving-cancelling-or-holding-one-instance),
+  and what an operator does in
+  [the runbooks](docs/runbooks.md#waiving-cancelling-or-holding-one-instance).
+  No schema migration.
+
 - **An instance keeps a ledger of what was done to it outside its process.**
   A step waived by a migration, an instance a migration cancelled or held, a
   task handed on by somebody who did not hold it, a step started inside an
@@ -207,8 +334,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
     `after.incident.status` reads `open` for ever; to see whether the hold is
     still open, read the instance's incidents
     (`GET /api/v1/incidents/{instanceId}`) and find the one whose `id` is the
-    row's `after.incident.id`. Whether releasing a hold becomes a recorded act
-    is decided with the hold of one instance in place.
+    row's `after.incident.id`. The hold of one instance in place, above, is
+    released the same way, and releasing it is not a recorded act either.
   - **Sending a message or broadcasting a signal.** It is the event the
     process was modelled to wait for. The trail shows the instance moving on
     and not who sent it; governing that channel is its own piece of work.
@@ -246,9 +373,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   migration's own `instance_migrated` entry does not name the control-loss
   rows; they name it.
 
-  Not in this release: waiving, cancelling or holding one instance in place,
-  without a second version of its process, and a second approver for such an
-  act. Both come in the next ones.
+  Waiving, cancelling or holding one instance in place, without a second
+  version of its process, writes its rows here too: the entry above. Not in
+  this release: a second approver for such an act.
 
   **Upgrading:** migration 33 creates the table and its indexes. Nothing is
   backfilled, so what happened before stays in the audit trail where it was.
@@ -437,6 +564,57 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   instance that had looped past a thousand steps lost its newest snapshots —
   the ones that say what it saw when it last decided — with nothing to say
   there were more. Every snapshot is now returned, oldest first.
+- **A migration's skip of an approval several people give ended one run and
+  left the rest.** A user task or a manual task that runs once per person
+  keeps a token for each run. A `skip` withdrew every open task of the step
+  and then advanced the instance as though one run had finished: one run was
+  counted, the other runs' tokens stayed on the step with no task under them,
+  and an approval that asks one person after another started its next run.
+  The rewrite then found a token still on a step the migration decides and
+  passed the instance over, so it took one run of the same migration for each
+  remaining run to get the instance off the step. A skip of such a step now
+  ends it whole, in one run of the migration: every open run is withdrawn and
+  its holder told, the tokens and the count of runs go, no further run
+  starts, and the instance moves on once and is migrated. An instance an
+  earlier release left part-skipped, with tokens on the step and no task
+  under them, is cleared by running the same migration once more. A user or
+  manual task that runs once is skipped as before, and so is every other
+  kind of step, whatever its loop.
+- **A skip or a cancel could record a task as nobody's while taking it from
+  somebody.** Claiming a task takes the task's row and not its instance, so a
+  claim could land while a migration's skip or cancel held the instance. The
+  withdrawal was announced and recorded from a read made before it: the
+  ledger row said nobody held the task, and the person who had just claimed
+  it was not told it was withdrawn. A skip of a user or manual task and a
+  cancel now hold the row of each open task, after the instance and in the
+  order of the tasks' ids, and announce and record the holder as that row has
+  it. So a skip or a cancel waits for a claim, a hand-over or an edit of one
+  of those tasks that is under way.
+- **A migration's cancel left parked work and open incidents on the instance
+  it ended.** A `cancel` withdrew the instance's tasks and dropped what it
+  was waiting for, and left two things behind: work parked for outside
+  workers, still on offer, and the instance's open incidents, still open,
+  where resolving one put its work back on the queue for an instance that had
+  ended. A cancel, a migration's and the one made in place alike, now
+  withdraws the parked work,
+  with one `parked_work_withdrawn` entry on the trail for each step that had
+  any, and closes every open incident of the instance: its `status` becomes
+  `resolved` and `resolved_at` is set, its text is left as it was, and
+  nothing is retried or offered again as resolving one would. The cancel's
+  record counts both, as `external_tasks_withdrawn` and `incidents_closed`,
+  on the ledger row's `details` and on the `instance_cancelled` entry: for a
+  migration's cancel only when the count is not zero, for one made in place
+  always. An incident a cancel closed reads `resolved`, as one an operator
+  resolved does; the count on the cancel's record is what says the cancel
+  closed it.
+
+  Read with the entry at the end of this section, which refuses a worker's
+  report on an instance that has ended: a cancel now takes the parked work
+  itself, so a worker that reports on work of a cancelled instance is told
+  what it is told of any withdrawn work, HTTP 200 with *not found: no such
+  external task* in `error`. *This work belongs to an instance that has ended
+  (…)* is what it is told for an instance that ended on its own with work
+  still parked.
 - **A migration with a mapping reopened work that was already finished.** A
   node mapping says where work in progress goes. The rewrite applied it to
   every task and every job of the instance on a mapped step, whatever its
@@ -585,7 +763,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   that version lacks, and the apply answered `applied: true`. Its holder could
   still complete the task; the token then came off, nothing followed, and the
   instance stayed `active` with no token and no task, where nothing in the
-  product can move it on, end it or hold it. 0.3.0 and 0.4.0 plan and apply
+  product could move it on, end it or hold it (the cancel of one instance in
+  place, under *Added*, now closes it). 0.3.0 and 0.4.0 plan and apply
   the same way (read from their code), so an installation that has applied a
   migration may hold such an instance: [An instance a migration left with
   nothing to do](docs/upgrading.md#an-instance-a-migration-left-with-nothing-to-do)
@@ -763,7 +942,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
     The reply to `POST /api/v1/external-tasks/{id}/complete` and `/failure` is
     HTTP 200 with the refusal in `error`, as every refusal on those two routes
     is: *This work belongs to an instance that has ended (cancelled); it is no
-    longer wanted.* A worker should treat that as "stop, do not retry".
+    longer wanted.* A worker should treat that as "stop, do not retry". A
+    worker whose lock has run out is refused for the lock first, and that
+    work is offered again.
   - **No call is made for an instance that has ended.** The job is settled
     without calling. A call already on its way when the instance ends cannot
     be recalled; its result is not written and a failure raises no incident.

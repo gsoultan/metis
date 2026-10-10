@@ -269,6 +269,12 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// answers a foreign instance as not found.
 	deviationEndpoints := deviation.MakeEndpoints(s)
 	deviationEndpoints.ListInstanceDeviations = protected("ListInstanceDeviations")(deviationEndpoints.ListInstanceDeviations)
+	// Administrative, as migrating instances is: this ends, holds or moves on
+	// work that has already been started — somebody's purchase order,
+	// somebody's leave request — outside what its process says. A preview is
+	// gated too: it reads the instance. The service asks again who is calling,
+	// so the command is not open to a caller that reaches it by another road.
+	deviationEndpoints.DeviateInstance = adminOnly("DeviateInstance")(deviationEndpoints.DeviateInstance)
 
 	organizationEndpoints := organization.MakeEndpoints(s)
 	// Was public: logging and nothing else, so any signed-in account could

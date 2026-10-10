@@ -154,8 +154,15 @@ func (s *jobService) failJob(ctx context.Context, job entities.Job, jobErr error
 // incident, so whatever ends the instance while holding it either comes first,
 // and no incident is raised, or waits until the incident is there. The
 // instance first and the job's row second, as every path that settles a job
-// takes them. Raising an incident already waited for whoever held its
-// instance, so nothing waits here that did not wait before.
+// takes them.
+//
+// This waits for more than raising the incident did. The incident's row
+// names its instance, and inserting it takes only the share lock a foreign
+// key takes, which waits for nothing but a delete or a change of the
+// instance's key. The lock taken here is the one an update of the instance
+// conflicts with, so a failed job now also waits behind anything that is
+// part-way through changing the instance — including an update made without
+// asking for the row first.
 //
 // When the instance cannot be read, the answer is to go on and raise the
 // incident, as was always done: one wrongly raised is closed by somebody, and
