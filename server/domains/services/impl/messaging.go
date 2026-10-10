@@ -99,9 +99,6 @@ func NewMessagingService(engine contracts.EngineEventBus, externalSvc contracts.
 
 func (s *messagingService) StartBridge(ctx context.Context, projectID uuid.UUID, topic string, rabbitURL string, exchange string, routingKey string, lockDuration time.Duration) error {
 	id := fmt.Sprintf("bridge-%s-%s", projectID, topic)
-	if _, loaded := s.cancels.Load(id); loaded {
-		return fmt.Errorf("bridge for topic %s already running", topic)
-	}
 
 	// A lock of nothing would offer every task again the moment it was
 	// published.
@@ -109,8 +106,10 @@ func (s *messagingService) StartBridge(ctx context.Context, projectID uuid.UUID,
 		return fmt.Errorf("bridge for topic %s has no lock, so every task it published would be offered again at once", topic)
 	}
 
-	childCtx, cancel := context.WithCancel(ctx)
-	s.cancels.Store(id, cancel)
+	childCtx, started := s.claim(ctx, id)
+	if !started {
+		return fmt.Errorf("bridge for topic %s already running", topic)
+	}
 
 	bridge := s.newBridge(ctx, projectID, topic, rabbitURL, exchange, routingKey, lockDuration)
 	s.wg.Go(func() {
@@ -119,6 +118,22 @@ func (s *messagingService) StartBridge(ctx context.Context, projectID uuid.UUID,
 	})
 
 	return nil
+}
+
+// claim reserves id for one bridge or consumer and returns the context it runs
+// under, or started false when another already holds it.
+//
+// The check and the reservation are one step. They were a Load and then a
+// Store, so two starts arriving together both passed the check: two consumers
+// ran on one queue, and the first one's cancel was overwritten by the second's,
+// leaving a consumer that StopAll could not stop and waited on forever.
+func (s *messagingService) claim(ctx context.Context, id string) (context.Context, bool) {
+	childCtx, cancel := context.WithCancel(ctx)
+	if _, loaded := s.cancels.LoadOrStore(id, cancel); loaded {
+		cancel()
+		return nil, false
+	}
+	return childCtx, true
 }
 
 // newBridge assembles a bridge from what the service was given.
@@ -149,12 +164,10 @@ func (s *messagingService) newBridge(ctx context.Context, projectID uuid.UUID, t
 
 func (s *messagingService) StartInboundConsumer(ctx context.Context, projectID uuid.UUID, rabbitURL string, queueName string, messageName string) error {
 	id := fmt.Sprintf("consumer-%s-%s", projectID, queueName)
-	if _, loaded := s.cancels.Load(id); loaded {
+	childCtx, started := s.claim(ctx, id)
+	if !started {
 		return fmt.Errorf("consumer for queue %s already running", queueName)
 	}
-
-	childCtx, cancel := context.WithCancel(ctx)
-	s.cancels.Store(id, cancel)
 
 	consumer := s.newConsumer(ctx, projectID, rabbitURL, queueName, messageName)
 	s.wg.Go(func() {

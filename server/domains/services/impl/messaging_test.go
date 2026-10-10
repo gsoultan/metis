@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -807,6 +808,79 @@ func TestAMessageThatWasPartlyDeliveredIsNotSentAgain(t *testing.T) {
 			}
 			if body["failure_reason"] != "partially_delivered" {
 				t.Fatalf("failure_reason = %v, want partially_delivered", body["failure_reason"])
+			}
+		})
+	}
+}
+
+// Two starts of one consumer, or one bridge, arriving together.
+//
+// The check that one was already running and the record that one now was were
+// separate steps, so both starts passed the check: two ran, and the second's
+// cancel overwrote the first's, leaving one that StopAll could not stop and
+// then waited on for ever. Exactly one start may win, and StopAll must return.
+func TestStartsOfOneConsumerOrBridgeArrivingTogetherRunOnlyOne(t *testing.T) {
+	t.Parallel()
+
+	starts := map[string]func(svc *messagingService, project uuid.UUID) error{
+		"consumer": func(svc *messagingService, project uuid.UUID) error {
+			return svc.StartInboundConsumer(t.Context(), project, "amqp://unreachable", "orders", "OrderPaid")
+		},
+		"bridge": func(svc *messagingService, project uuid.UUID) error {
+			return svc.StartBridge(t.Context(), project, "invoices", "amqp://unreachable", "x", "rk", time.Minute)
+		},
+	}
+	for name, start := range starts {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			const together, rounds = 16, 300
+			svc := &messagingService{
+				engine:      &engineEventBusStub{},
+				externalSvc: &externalTaskStub{},
+				sleep:       sleepWithContext,
+				jitter:      func(time.Duration) time.Duration { return 0 },
+				dial: func(string) (brokerConnection, error) {
+					return nil, errors.New("the broker is down")
+				},
+			}
+
+			// The window between the check and the record was a few
+			// instructions wide, so it is tried many times over.
+			for round := range rounds {
+				project := uuid.New()
+				var ready, done sync.WaitGroup
+				var won atomic.Int64
+				gate := make(chan struct{})
+				for range together {
+					ready.Add(1)
+					done.Go(func() {
+						ready.Done()
+						<-gate
+						if start(svc, project) == nil {
+							won.Add(1)
+						}
+					})
+				}
+				ready.Wait()
+				close(gate)
+				done.Wait()
+
+				if got := won.Load(); got != 1 {
+					t.Errorf("round %d: %d of %d starts ran a %s; want exactly one", round, got, together, name)
+					break
+				}
+			}
+
+			stopped := make(chan struct{})
+			go func() {
+				svc.StopAll()
+				close(stopped)
+			}()
+			select {
+			case <-stopped:
+			case <-time.After(5 * time.Second):
+				t.Fatalf("StopAll did not return: a %s whose cancel was overwritten is still running", name)
 			}
 		})
 	}
