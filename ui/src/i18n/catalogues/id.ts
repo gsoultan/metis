@@ -161,13 +161,13 @@ const id: Catalogue = {
   'migration.pendingExpires': 'Permintaan ini kedaluwarsa pada {date}.',
   'migration.pendingHow': 'Belum ada layar untuk ini: administrator menyetujui atau menolaknya melalui API.',
   'migration.pendingMessage':
-    'Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya tidak dapat menyetujuinya, kecuali organisasi ini telah diatur memiliki satu administrator dan tidak ada orang lain yang menjadi administratornya.',
+    'Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya tidak dapat menyetujuinya, kecuali organisasi ini telah ditetapkan hanya memiliki satu administrator dan tidak ada orang lain yang menjadi administratornya.',
   'migration.pendingReference': 'Referensi permintaan ini adalah {reference}.',
   'migration.pendingTitle': 'Dikirim untuk persetujuan',
   'migration.pendingToastTitle': 'Dikirim untuk persetujuan: v{source} → v{target}',
   'migration.pendingWhy': 'Mengapa persetujuan diminta',
   'migration.secondApproverMessage':
-    'Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya tidak dapat menyetujuinya, kecuali organisasi ini telah diatur memiliki satu administrator dan tidak ada orang lain yang menjadi administratornya.',
+    'Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya tidak dapat menyetujuinya, kecuali organisasi ini telah ditetapkan hanya memiliki satu administrator dan tidak ada orang lain yang menjadi administratornya.',
   'migration.secondApproverTitle': 'Ini harus disetujui sebelum ada yang dipindahkan',
   'migration.sendForApproval': 'Kirim untuk persetujuan',
   'migration.unreadableMessage':

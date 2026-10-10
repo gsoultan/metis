@@ -176,7 +176,7 @@ describe('a migration sent for a second administrator', () => {
     expect(outcome.notice.title).toBe('Dikirim untuk persetujuan');
     expect(outcome.notice.message).toBe(
       'Diminta oleh Dita Larasati. Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya ' +
-        'tidak dapat menyetujuinya, kecuali organisasi ini telah diatur memiliki satu administrator dan tidak ada orang lain yang menjadi administratornya. ' +
+        'tidak dapat menyetujuinya, kecuali organisasi ini telah ditetapkan hanya memiliki satu administrator dan tidak ada orang lain yang menjadi administratornya. ' +
         'Permintaan ini kedaluwarsa pada 6 Oct 2026, 09:12.',
     );
     expect(outcome.listTitle).toBe('Mengapa persetujuan diminta');
@@ -593,7 +593,7 @@ describe('what a toast says of an answer the dialog cannot keep', () => {
     expect(toast.stays).toBe(true);
     expect(migrationOutcome(sentForApproval, 5, inIndonesian, at).toast.message).toBe(
       'Diminta oleh Dita Larasati. Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya ' +
-        'tidak dapat menyetujuinya, kecuali organisasi ini telah diatur memiliki satu administrator dan tidak ada orang lain yang menjadi administratornya. ' +
+        'tidak dapat menyetujuinya, kecuali organisasi ini telah ditetapkan hanya memiliki satu administrator dan tidak ada orang lain yang menjadi administratornya. ' +
         'Permintaan ini kedaluwarsa pada 6 Oct 2026, 09:12. ' +
         'Belum ada layar untuk ini: administrator menyetujui atau menolaknya melalui API. ' +
         'Referensi permintaan ini adalah 0199c0de-0000-7000-8000-00000000aaaa.',

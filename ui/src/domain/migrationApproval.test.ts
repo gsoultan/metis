@@ -48,7 +48,7 @@ describe('a plan that needs a second administrator', () => {
     expect(needed?.title).toBe('Ini harus disetujui sebelum ada yang dipindahkan');
     expect(needed?.message).toBe(
       'Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya tidak dapat menyetujuinya, ' +
-        'kecuali organisasi ini telah diatur memiliki satu administrator dan tidak ada orang lain yang menjadi administratornya.',
+        'kecuali organisasi ini telah ditetapkan hanya memiliki satu administrator dan tidak ada orang lain yang menjadi administratornya.',
     );
   });
 
