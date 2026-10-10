@@ -12,52 +12,44 @@ const detailMappedTo = "mapped_to"
 // control's id, and the id of the step the instance was moved onto.
 const dataControlsMappedTo = "controls_mapped_to"
 
-// movedOntoAControl answers the step an instance waiting at a control is
-// moved onto by a mapping, when that step is itself marked as a control and
-// is not the same step under the same id.
+// movedOntoARenamedControl answers the step an instance waiting at a control
+// is moved onto, in the one shape where the record does not know the control
+// to be lost: the mapping renames the control by ids (renames, from
+// renamedByIDs — the new id is no step of the version being left, nothing
+// else is mapped onto it, and the old id is gone from the new version), and
+// the step under the new id is marked as a control.
 //
-// Such a control is a hold, and its loss has to be acknowledged: nothing can
-// tell a control renamed with its neighbours changed from one redirected onto
-// a different control, so it is not counted as carried across. But what
-// happens to an instance waiting at it is not what happens to one whose
-// control was dropped. It is moved onto a control of the new version, and
-// may go on to perform exactly the step it was waiting for. A record that
-// said it never will would say more than happened — so the row says where
-// it was moved, and the trail says that, and neither says "never".
+// Such a control is still a hold, and its loss has to be acknowledged and
+// approved: a rename that is not in place — the steps round it changed — is
+// not counted as the control carried across, because nothing can tell the
+// same control under a new id from a different one put in its place. But an
+// instance waiting at it is moved onto a control the new version adds, and
+// may go on to perform exactly the step it waited for. So the record says
+// that: the control was not carried across as the same step, and the
+// instance was moved onto the step named. It does not say the control will
+// be performed, and it does not say it never will.
 //
-// A control the new version drops, or leaves unmarked, is not this: whatever
-// the mapping does with the work that waited there, nobody performs that
-// control again. Nor is an instance that was not waiting at the control: it
-// is not moved by the mapping at all.
+// Every other shape is a control certainly lost, and keeps the record of one:
+// the old id is still a step of the new version (the instance is put past
+// it); the step it is mapped onto was already a step (the instance is put on
+// a control it had to perform anyway); two controls are mapped onto one; the
+// step it is mapped onto is no control; or the new version has no such step.
+// Saying of any of those that the instance "was moved onto" a control would
+// be milder than what the second administrator was shown.
 //
-// instance is the row as locked, before the rewrite re-points its tokens.
-func movedOntoAControl(
+// Nor is an instance that was not waiting at the control moved by the
+// mapping at all. instance is the row as locked, before the rewrite.
+func movedOntoARenamedControl(
 	instance models.ProcessInstanceModel,
 	nodeID string,
-	nodeMapping map[string]string,
+	renames map[string]string,
 	targetNodes map[string]models.FlowNode,
 ) (string, bool) {
-	to := mapNode(nodeMapping, nodeID)
-	if to == nodeID || !holdsWork(instance, nodeID) {
+	to, renamed := renames[nodeID]
+	if !renamed || !holdsWork(instance, nodeID) {
 		return "", false
 	}
 	landed, lands := targetNodes[to]
-	if !lands || !boolProperty(landed.Properties, "compliance_relevant") {
-		return "", false
-	}
-	return to, true
-}
-
-// landedOnAControl is movedOntoAControl asked after the rewrite, of what the
-// rewrite moved (from → to, for the steps the instance held work on): the
-// step a control's work was moved to, when the new version marks that step
-// as a control.
-func landedOnAControl(moved map[string]string, nodeID string, target models.ProcessDefinitionModel) (string, bool) {
-	to, was := moved[nodeID]
-	if !was || to == nodeID {
-		return "", false
-	}
-	landed, lands := findFlowNode(target.Nodes, to)
 	if !lands || !boolProperty(landed.Properties, "compliance_relevant") {
 		return "", false
 	}

@@ -104,6 +104,13 @@ type ComplianceHold struct {
 	Note string `json:"note,omitzero"`
 	// Instances is how many running instances have not passed it yet.
 	Instances int `json:"instances"`
+	// MovedOnto is not part of a plan and is never written or read as one. A
+	// run sets it on its own copy of a hold, for one instance, while it
+	// records that instance's losses: the id of the step the instance was
+	// moved onto, when the control was renamed by ids onto a control of the
+	// new version and the instance waited at it. The record of the losses
+	// and the trail entry that follows are then written from one decision.
+	MovedOnto string `json:"-"`
 }
 
 // NodeMove is one node's worth of a plan.

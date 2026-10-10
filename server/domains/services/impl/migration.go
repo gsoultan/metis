@@ -247,7 +247,7 @@ func (s *migrationService) planFor(
 		// Named and not there is a refusal, not a silent omission: somebody who
 		// listed twelve instances and had eleven moved would have no way to
 		// find out which one did not.
-		return plan, nil, instancesNotRunning{version: source.Version, key: source.Key, missing: missing}
+		return plan, nil, &instancesNotRunning{version: source.Version, key: source.Key, missing: missing}
 	}
 	plan.Instances = len(instances)
 	if len(instances) == 0 {
@@ -578,7 +578,7 @@ func (s *migrationService) apply(
 			// are re-pointed at the new graph: the ledger and the migration's
 			// narrative then name the same losses.
 			waived = controlsNotPassed(plan.ComplianceHolds, fresh.CompletedNodes)
-			if err := s.recordControlLosses(txCtx, fresh, sourceDefID, waived, options, runID, entryID, nodeMapping, targetNodes); err != nil {
+			if err := s.recordControlLosses(txCtx, fresh, sourceDefID, waived, options, runID, entryID, nodeMapping, sourceNodes, targetNodes); err != nil {
 				return err
 			}
 			instance = fresh
@@ -752,13 +752,22 @@ func (s *migrationService) recordControlLosses(
 	options servicecontracts.MigrationOptions,
 	runID, entryID uuid.UUID,
 	nodeMapping map[string]string,
-	targetNodes map[string]models.FlowNode,
+	sourceNodes, targetNodes map[string]models.FlowNode,
 ) error {
 	rows := withApproval(controlLossDeviations(instance, sourceDefID, waived, migrationActor(options), runID, entryID), options.Approval)
-	// A control the instance is moved off onto another control says where:
-	// it was not lost as a dropped one is (movedOntoAControl).
-	for i, hold := range waived {
-		if to, moved := movedOntoAControl(instance, hold.NodeID, nodeMapping, targetNodes); moved {
+	// A control renamed by ids onto a control of the new version, whose
+	// waiting instance is moved onto it, says where (movedOntoARenamedControl).
+	// It is decided here, once, and kept on the run's own copy of the hold
+	// for the trail entry that is written after the rewrite: the row and the
+	// entry say one thing.
+	if len(waived) > 0 {
+		renames := renamedByIDs(sourceNodes, targetNodes, nodeMapping)
+		for i, hold := range waived {
+			to, moved := movedOntoARenamedControl(instance, hold.NodeID, renames, targetNodes)
+			if !moved {
+				continue
+			}
+			waived[i].MovedOnto = to
 			if rows[i].Details == nil {
 				rows[i].Details = map[string]any{}
 			}
@@ -820,16 +829,18 @@ func (s *migrationService) recordMigration(
 	// not already performed — worked out once, before the rewrite, so this
 	// entry and the ledger rows that point at it agree.
 	//
-	// A control the instance was moved off onto another control is said
-	// apart: it was not carried across as the same step, and the instance now
-	// stands on the step named — which is not "it never will" (landedOnAControl).
-	// A control that was dropped keeps the sentence it always had.
+	// A control renamed by ids onto a control of the new version, at which
+	// the instance waited, is said apart: it was not carried across as the
+	// same step, and the instance was moved onto the step named. That was
+	// decided when the losses were recorded (recordControlLosses, MovedOnto)
+	// and is read here, not worked out again. Every other control lost keeps
+	// the sentence it always had.
 	var waived, lost []string
 	mappedTo := map[string]string{}
 	for _, hold := range waivedHolds {
 		waived = append(waived, hold.NodeID)
-		if to, mapped := landedOnAControl(moved, hold.NodeID, target); mapped {
-			mappedTo[hold.NodeID] = to
+		if hold.MovedOnto != "" {
+			mappedTo[hold.NodeID] = hold.MovedOnto
 			continue
 		}
 		lost = append(lost, hold.NodeID)
