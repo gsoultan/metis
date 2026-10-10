@@ -40,15 +40,41 @@ func (s *decisionService) Evaluate(ctx context.Context, projectID uuid.UUID, dec
 	for k, v := range variables {
 		varsCopy[k] = v
 	}
-	return s.evaluateRecursive(ctx, projectID, decisionKey, version, varsCopy, make(map[string]bool))
+	run := &decisionEvaluation{seen: make(map[string]bool), results: make(map[decisionRef]entities.DecisionResult)}
+	return s.evaluateRecursive(ctx, projectID, decisionKey, version, varsCopy, run)
 }
 
-func (s *decisionService) evaluateRecursive(ctx context.Context, projectID uuid.UUID, decisionKey string, version int, variables map[string]any, seen map[string]bool) (entities.DecisionResult, error) {
-	if seen[decisionKey] {
+// decisionRef names one decision as a requirement asks for it: a key at a
+// pinned version, or at whichever is live when version is zero.
+type decisionRef struct {
+	key     string
+	version int
+}
+
+// decisionEvaluation is the state of one top-level evaluation.
+//
+// results is what keeps it linear. A decision two others both require used
+// to be evaluated once for each, and each of those once for every decision
+// requiring them, so requirements a few layers deep and two wide ran
+// exponentially many evaluations — each a database read and a table run —
+// inside one request. A decision means one thing within one evaluation, so it
+// is evaluated once and its answer reused.
+type decisionEvaluation struct {
+	// seen holds the decisions on the current path, to refuse a cycle.
+	seen    map[string]bool
+	results map[decisionRef]entities.DecisionResult
+}
+
+func (s *decisionService) evaluateRecursive(ctx context.Context, projectID uuid.UUID, decisionKey string, version int, variables map[string]any, run *decisionEvaluation) (entities.DecisionResult, error) {
+	if run.seen[decisionKey] {
 		return entities.DecisionResult{}, fmt.Errorf("circular dependency detected for decision %s", decisionKey)
 	}
-	seen[decisionKey] = true
-	defer delete(seen, decisionKey)
+	ref := decisionRef{key: decisionKey, version: version}
+	if res, ok := run.results[ref]; ok {
+		return res, nil
+	}
+	run.seen[decisionKey] = true
+	defer delete(run.seen, decisionKey)
 
 	// A pinned version is exactly that version. Otherwise the live one — which
 	// may be older than the newest: a saved version can be staged, and an
@@ -71,8 +97,11 @@ func (s *decisionService) evaluateRecursive(ctx context.Context, projectID uuid.
 	// their live versions, whatever version this one is: a requirement names a
 	// key, and a staged table must not come into force through a decision
 	// that depends on it.
-	for _, reqKey := range decision.RequiredDecisions {
-		res, err := s.evaluateRecursive(ctx, projectID, reqKey, 0, variables, seen)
+	//
+	// A requirement listed twice is evaluated once: saving refuses that now,
+	// and a version stored before it did still runs.
+	for _, reqKey := range uniqueKeys(decision.RequiredDecisions) {
+		res, err := s.evaluateRecursive(ctx, projectID, reqKey, 0, variables, run)
 		if err != nil {
 			return entities.DecisionResult{}, fmt.Errorf("failed to evaluate required decision %s: %w", reqKey, err)
 		}
@@ -89,7 +118,38 @@ func (s *decisionService) evaluateRecursive(ctx context.Context, projectID uuid.
 	}
 
 	// 2. Evaluate rules and apply hit policy via the injected Strategy
-	return s.tableEvaluator.EvaluateTable(ctx, decision, variables)
+	res, err := s.tableEvaluator.EvaluateTable(ctx, decision, variables)
+	if err != nil {
+		return entities.DecisionResult{}, err
+	}
+	run.results[ref] = res
+	return res, nil
+}
+
+// uniqueKeys returns keys in order with repeats dropped.
+func uniqueKeys(keys []string) []string {
+	seen := make(map[string]bool, len(keys))
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// duplicateRequirement returns a key listed more than once among a
+// decision's requirements, or "" when none is.
+func duplicateRequirement(keys []string) string {
+	seen := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		if seen[k] {
+			return k
+		}
+		seen[k] = true
+	}
+	return ""
 }
 
 // maxDecisionSearch is the longest search a decision list runs: names and keys
