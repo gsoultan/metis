@@ -154,6 +154,80 @@ func TestWhatHappensToSomebodyTheSourceStopsNaming(t *testing.T) {
 	}
 }
 
+// A source told to deactivate the people it stops naming, which then names
+// nobody it can use, has not said that everybody left.
+//
+// An empty response or a feed of rows that all fail validation read as
+// "nobody is named any more", and every participant in the project was
+// deactivated. The sync fails instead, says why on the source, and leaves
+// everyone as they were.
+func TestASourceThatNamesNobodyDeactivatesNobody(t *testing.T) {
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+
+	for _, tc := range []struct {
+		name   string
+		second string
+	}{
+		{"an empty response", `[]`},
+		{"rows that are all refused", `[{"email":"no-username@example.com"},{"username":""}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var call int
+			directory := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				call++
+				if call == 1 {
+					_, _ = w.Write([]byte(`[{"username":"ada"},{"username":"bob"}]`))
+					return
+				}
+				_, _ = w.Write([]byte(tc.second))
+			}))
+			defer directory.Close()
+
+			sync, people, projectID := syncFixture(t)
+			id, err := sync.SaveSource(t.Context(), entities.ParticipantSource{
+				Project:   &entities.Project{ID: projectID},
+				Name:      "HR",
+				Kind:      "http",
+				Config:    map[string]any{"url": directory.URL},
+				OnMissing: entities.OnMissingDeactivate,
+				Enabled:   true,
+			})
+			if err != nil {
+				t.Fatalf("save source: %v", err)
+			}
+			if _, err := sync.SyncSource(t.Context(), id); err != nil {
+				t.Fatalf("first sync: %v", err)
+			}
+
+			summary, err := sync.SyncSource(t.Context(), id)
+			if err == nil {
+				t.Fatal("a source that named nobody was synced as if everybody had left")
+			}
+			if summary.Deactivated != 0 {
+				t.Errorf("deactivated %d", summary.Deactivated)
+			}
+
+			listed, err := people.ListWorkflowUsers(t.Context(), projectID, 0)
+			if err != nil {
+				t.Fatalf("list: %v", err)
+			}
+			for _, person := range listed {
+				if !person.Active {
+					t.Errorf("%s was deactivated by a source that named nobody", person.Username)
+				}
+			}
+
+			sources, err := sync.ListSources(t.Context(), projectID)
+			if err != nil {
+				t.Fatalf("list sources: %v", err)
+			}
+			if len(sources) != 1 || sources[0].LastRun == nil || sources[0].LastRun.OK || sources[0].LastRun.Detail == "" {
+				t.Fatalf("the source should record a failed run that says why, got %+v", sources[0].LastRun)
+			}
+		})
+	}
+}
+
 // A source that could never be read is refused when it is saved, not at the
 // first run — where nobody is watching.
 func TestAnUnrunnableSourceIsRefusedOnSave(t *testing.T) {

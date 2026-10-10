@@ -263,8 +263,8 @@ func MakeGetAuditLogsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if err != nil {
 			return GetAuditLogsResponse{Err: apierr.Invalidf("instance_id %q is not a valid identifier: %v", req.InstanceID, err)}, nil
 		}
-		entries, err := s.GetAuditLogs(ctx, id)
-		return GetAuditLogsResponse{Entries: entries, Err: err}, nil
+		entries, total, err := s.GetLatestAuditLogs(ctx, id, req.Limit, req.Offset)
+		return GetAuditLogsResponse{Entries: entries, Total: total, Err: err}, nil
 	}
 }
 

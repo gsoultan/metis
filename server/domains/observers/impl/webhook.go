@@ -16,10 +16,18 @@ import (
 // stalls cannot pin a goroutine indefinitely.
 const webhookTimeout = 10 * time.Second
 
+// maxWebhookSends bounds the sends in flight at once. Each one started its own
+// goroutine holding the event's payload for up to webhookTimeout, so a slow
+// receiver and a busy process meant tens of thousands of goroutines, and their
+// payloads, until the process ran out of memory.
+const maxWebhookSends = 64
+
 // WebhookObserver sends process events to external URLs.
 type WebhookObserver struct {
 	endpoints []string
 	client    *http.Client
+	// sends holds one slot per send in flight.
+	sends chan struct{}
 	// afterCommit runs a send once the transaction the event was raised in
 	// has committed, and never if it rolls back.
 	afterCommit func(ctx context.Context, fn func())
@@ -34,6 +42,7 @@ func NewWebhookObserver(endpoints []string, afterCommit func(ctx context.Context
 	return &WebhookObserver{
 		endpoints:   endpoints,
 		client:      &http.Client{Timeout: webhookTimeout},
+		sends:       make(chan struct{}, maxWebhookSends),
 		afterCommit: afterCommit,
 	}
 }
@@ -57,7 +66,20 @@ func (o *WebhookObserver) OnEvent(ctx context.Context, event entities.ProcessEve
 	detached := context.WithoutCancel(ctx)
 	o.afterCommit(ctx, func() {
 		for _, url := range o.endpoints {
-			go o.sendWebhook(detached, url, payload)
+			select {
+			case o.sends <- struct{}{}:
+				go func() {
+					defer func() { <-o.sends }()
+					o.sendWebhook(detached, url, payload)
+				}()
+			default:
+				// Dropped, and said so: this observer is fire-and-forget with
+				// no retry, and a backlog it cannot keep up with would only
+				// grow until the process fell over.
+				log.Warn().Str("url", url).Str("event", event.Type).
+					Int("inFlight", maxWebhookSends).
+					Msg("Webhook receiver is not keeping up; this event was not sent")
+			}
 		}
 	})
 }

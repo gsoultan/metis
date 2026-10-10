@@ -7,17 +7,30 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/services/contracts"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type engineEventBusStub struct {
-	sendMessage func(ctx context.Context, projectID uuid.UUID, messageName, correlationKey string, vars map[string]any) error
+	sendMessage      func(ctx context.Context, projectID uuid.UUID, messageName, correlationKey string, vars map[string]any) error
+	startFromMessage func(ctx context.Context, projectID uuid.UUID, messageName string, vars map[string]any) (int, error)
+}
+
+// StartFromMessage reports one start unless told otherwise, so a test that is
+// not about keyless messages is not dead-lettered for starting nothing.
+func (s *engineEventBusStub) StartFromMessage(ctx context.Context, projectID uuid.UUID, messageName string, vars map[string]any) (int, error) {
+	if s.startFromMessage == nil {
+		return 1, nil
+	}
+
+	return s.startFromMessage(ctx, projectID, messageName, vars)
 }
 
 func (s *engineEventBusStub) DispatchEvent(_ context.Context, _ entities.ProcessEvent) {}
@@ -630,5 +643,283 @@ func TestAnUnreadableMessageTheDeadLetterQueueRefusesIsNotAcknowledged(t *testin
 	}
 	if outcome != requeueDelivery {
 		t.Fatalf("an unreadable message was acknowledged (outcome %v) with nowhere holding it", outcome)
+	}
+}
+
+// A broker message that carried no correlation key.
+//
+// To the engine an empty key means every instance waiting on the message's
+// name, so a message that merely lacked the field advanced all of them at once.
+// It may still start a process — that is what a message start event is for —
+// but it must reach no waiting instance.
+func TestAMessageWithNoCorrelationKeyStartsProcessesButReachesNoWaitingInstance(t *testing.T) {
+	t.Parallel()
+
+	var sends, starts atomic.Int64
+	svc := &messagingService{
+		engine: &engineEventBusStub{
+			sendMessage: func(context.Context, uuid.UUID, string, string, map[string]any) error {
+				sends.Add(1)
+				return nil
+			},
+			startFromMessage: func(context.Context, uuid.UUID, string, map[string]any) (int, error) {
+				starts.Add(1)
+				return 1, nil
+			},
+		},
+		sleep:                  func(context.Context, time.Duration) error { return nil },
+		jitter:                 func(time.Duration) time.Duration { return 0 },
+		inboundDispatchTimeout: time.Second,
+	}
+
+	outcome, err := svc.processInboundDelivery(t.Context(), uuid.New(), "incoming-queue", "incoming-queue.dlq", "message.name",
+		amqp.Delivery{Body: []byte(`{"value":"x"}`), Headers: amqp.Table{"correlation_key": ""}},
+		func(context.Context, string, amqp.Publishing) error {
+			t.Fatal("a message that started a process was dead-lettered")
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("processInboundDelivery: %v", err)
+	}
+	if outcome != ackDelivery {
+		t.Fatalf("outcome = %v, want the message acknowledged", outcome)
+	}
+	if got := sends.Load(); got != 0 {
+		t.Fatalf("the message was sent to waiting instances %d times; it names none of them", got)
+	}
+	if got := starts.Load(); got != 1 {
+		t.Fatalf("the message was offered to start events %d times, want 1", got)
+	}
+}
+
+// A keyless message that no process starts on has reached nobody. It used to
+// be acknowledged as if it had been delivered; now it is parked with the reason.
+func TestAMessageWithNoCorrelationKeyThatStartsNothingIsDeadLetteredOnce(t *testing.T) {
+	t.Parallel()
+
+	var starts atomic.Int64
+	svc := &messagingService{
+		engine: &engineEventBusStub{
+			sendMessage: func(context.Context, uuid.UUID, string, string, map[string]any) error {
+				t.Fatal("a message with no correlation key was sent to waiting instances")
+				return nil
+			},
+			startFromMessage: func(context.Context, uuid.UUID, string, map[string]any) (int, error) {
+				starts.Add(1)
+				return 0, nil
+			},
+		},
+		sleep:                  func(context.Context, time.Duration) error { return nil },
+		jitter:                 func(time.Duration) time.Duration { return 0 },
+		inboundDispatchTimeout: time.Second,
+	}
+
+	var parked []amqp.Publishing
+	outcome, err := svc.processInboundDelivery(t.Context(), uuid.New(), "incoming-queue", "incoming-queue.dlq", "message.name",
+		amqp.Delivery{Body: []byte(`{"value":"x"}`)},
+		func(_ context.Context, _ string, message amqp.Publishing) error {
+			parked = append(parked, message)
+			return nil
+		})
+	if !errors.Is(err, errInboundMessageReachedNobody) {
+		t.Fatalf("err = %v, want it to say the message reached nobody", err)
+	}
+	if outcome != ackDelivery {
+		t.Fatalf("outcome = %v, want the parked message acknowledged", outcome)
+	}
+	if got := starts.Load(); got != 1 {
+		t.Fatalf("starting from the message was tried %d times; trying again changes nothing", got)
+	}
+	if len(parked) != 1 {
+		t.Fatalf("dead-lettered %d times, want once", len(parked))
+	}
+	var body map[string]any
+	if err := json.Unmarshal(parked[0].Body, &body); err != nil {
+		t.Fatalf("dead-letter body: %v", err)
+	}
+	if body["failure_reason"] != "no_correlation_key" {
+		t.Fatalf("failure_reason = %v, want no_correlation_key", body["failure_reason"])
+	}
+}
+
+// A message that reached some of its recipients before the rest failed.
+//
+// Each recipient commits on its own, so the retry that followed sent the whole
+// message again: every process that had started started a second time, once
+// per attempt. Such a send is now neither retried nor requeued — not even when
+// the failure was the dispatch running out of time — but parked with what it
+// still owes.
+func TestAMessageThatWasPartlyDeliveredIsNotSentAgain(t *testing.T) {
+	t.Parallel()
+
+	partly := fmt.Errorf("%w (1 committed): %w", contracts.ErrMessagePartlyDelivered, errors.New("start process broken-intake: boom"))
+	cases := []struct {
+		name string
+		body string
+		err  error
+	}{
+		{"a correlated message", `{"correlation_key":"order-1"}`, partly},
+		{"a message with no correlation key", `{"value":"x"}`, partly},
+		{"a message whose dispatch then ran out of time", `{"correlation_key":"order-1"}`, errors.Join(partly, context.DeadlineExceeded)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var attempts atomic.Int64
+			svc := &messagingService{
+				engine: &engineEventBusStub{
+					sendMessage: func(context.Context, uuid.UUID, string, string, map[string]any) error {
+						attempts.Add(1)
+						return tc.err
+					},
+					startFromMessage: func(context.Context, uuid.UUID, string, map[string]any) (int, error) {
+						attempts.Add(1)
+						return 1, tc.err
+					},
+				},
+				sleep:                  func(context.Context, time.Duration) error { return nil },
+				jitter:                 func(time.Duration) time.Duration { return 0 },
+				inboundDispatchTimeout: time.Second,
+			}
+
+			var parked []amqp.Publishing
+			outcome, err := svc.processInboundDelivery(t.Context(), uuid.New(), "incoming-queue", "incoming-queue.dlq", "message.name",
+				amqp.Delivery{Body: []byte(tc.body)},
+				func(_ context.Context, _ string, message amqp.Publishing) error {
+					parked = append(parked, message)
+					return nil
+				})
+			if !errors.Is(err, contracts.ErrMessagePartlyDelivered) {
+				t.Fatalf("err = %v, want it to say the message was partly delivered", err)
+			}
+			if got := attempts.Load(); got != 1 {
+				t.Fatalf("the message was sent %d times; everything it reached the first time was reached again", got)
+			}
+			if outcome != ackDelivery {
+				t.Fatalf("outcome = %v; a requeued message is delivered again", outcome)
+			}
+			if len(parked) != 1 {
+				t.Fatalf("dead-lettered %d times, want once", len(parked))
+			}
+			var body map[string]any
+			if err := json.Unmarshal(parked[0].Body, &body); err != nil {
+				t.Fatalf("dead-letter body: %v", err)
+			}
+			if body["failure_reason"] != "partially_delivered" {
+				t.Fatalf("failure_reason = %v, want partially_delivered", body["failure_reason"])
+			}
+		})
+	}
+}
+
+// Two starts of one consumer, or one bridge, arriving together.
+//
+// The check that one was already running and the record that one now was were
+// separate steps, so both starts passed the check: two ran, and the second's
+// cancel overwrote the first's, leaving one that StopAll could not stop and
+// then waited on for ever. Exactly one start may win, and StopAll must return.
+func TestStartsOfOneConsumerOrBridgeArrivingTogetherRunOnlyOne(t *testing.T) {
+	t.Parallel()
+
+	starts := map[string]func(svc *messagingService, project uuid.UUID) error{
+		"consumer": func(svc *messagingService, project uuid.UUID) error {
+			return svc.StartInboundConsumer(t.Context(), project, "amqp://unreachable", "orders", "OrderPaid")
+		},
+		"bridge": func(svc *messagingService, project uuid.UUID) error {
+			return svc.StartBridge(t.Context(), project, "invoices", "amqp://unreachable", "x", "rk", time.Minute)
+		},
+	}
+	for name, start := range starts {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			const together, rounds = 16, 300
+			svc := &messagingService{
+				engine:      &engineEventBusStub{},
+				externalSvc: &externalTaskStub{},
+				sleep:       sleepWithContext,
+				jitter:      func(time.Duration) time.Duration { return 0 },
+				dial: func(string) (brokerConnection, error) {
+					return nil, errors.New("the broker is down")
+				},
+			}
+
+			// The window between the check and the record was a few
+			// instructions wide, so it is tried many times over.
+			for round := range rounds {
+				project := uuid.New()
+				var ready, done sync.WaitGroup
+				var won atomic.Int64
+				gate := make(chan struct{})
+				for range together {
+					ready.Add(1)
+					done.Go(func() {
+						ready.Done()
+						<-gate
+						if start(svc, project) == nil {
+							won.Add(1)
+						}
+					})
+				}
+				ready.Wait()
+				close(gate)
+				done.Wait()
+
+				if got := won.Load(); got != 1 {
+					t.Errorf("round %d: %d of %d starts ran a %s; want exactly one", round, got, together, name)
+					break
+				}
+			}
+
+			stopped := make(chan struct{})
+			go func() {
+				svc.StopAll()
+				close(stopped)
+			}()
+			select {
+			case <-stopped:
+			case <-time.After(5 * time.Second):
+				t.Fatalf("StopAll did not return: a %s whose cancel was overwritten is still running", name)
+			}
+		})
+	}
+}
+
+// TestARedeliveredMessageThatTimesOutAgainIsDeadLettered: a dispatch that ran
+// out of its own time was requeued at once and every time, so a message that
+// always took longer than the budget looped forever and held its queue behind
+// it. The second time it runs out, it goes to the dead-letter queue.
+func TestARedeliveredMessageThatTimesOutAgainIsDeadLettered(t *testing.T) {
+	t.Parallel()
+
+	slow := &messagingService{
+		engine: &engineEventBusStub{
+			sendMessage: func(ctx context.Context, _ uuid.UUID, _ string, _ string, _ map[string]any) error {
+				<-ctx.Done()
+				return ctx.Err()
+			},
+		},
+		sleep:                  func(context.Context, time.Duration) error { return nil },
+		jitter:                 func(time.Duration) time.Duration { return 0 },
+		inboundDispatchTimeout: 20 * time.Millisecond,
+	}
+	deliver := func(ctx context.Context) (deliveryOutcome, int) {
+		published := 0
+		outcome, _ := slow.processInboundDelivery(ctx, uuid.New(), "q", "q.dlq", "message.name",
+			amqp.Delivery{Redelivered: true, Body: []byte(`{"correlation_key":"k"}`)},
+			func(context.Context, string, amqp.Publishing) error { published++; return nil })
+		return outcome, published
+	}
+
+	if outcome, published := deliver(t.Context()); outcome != ackDelivery || published != 1 {
+		t.Fatalf("outcome %v, %d dead letters; want it acknowledged and dead-lettered once", outcome, published)
+	}
+
+	// Stopping is still not the message's fault: it goes back.
+	stopped, cancel := context.WithCancel(t.Context())
+	cancel()
+	if outcome, published := deliver(stopped); outcome != requeueDelivery || published != 0 {
+		t.Fatalf("at shutdown: outcome %v, %d dead letters; want it requeued", outcome, published)
 	}
 }

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gsoultan/metis/internal/pkg/lru"
 )
 
 // tokenRefreshMargin is how early a token is treated as expired.
@@ -26,6 +28,24 @@ const tokenRefreshMargin = 30 * time.Second
 // Short on purpose. Guessing long risks sending a dead token for an hour;
 // guessing short costs an occasional extra fetch, which is the cheaper mistake.
 const defaultTokenLifetime = 5 * time.Minute
+
+// maxTokenLifetime is the longest a cached token is trusted, whatever the
+// provider says.
+//
+// expires_in is a number from somebody else's server. One above about 9.2e9
+// seconds overflowed time.Duration into a negative lifetime, so the token was
+// dead on arrival and fetched again on every call; a merely huge one would
+// keep a revoked token in use for years. A day is longer than any provider
+// issues client-credentials tokens for.
+const maxTokenLifetime = 24 * time.Hour
+
+// maxCachedCredentials bounds how many credentials the cache remembers.
+//
+// One entry per credential at one provider, and the secret is part of the key,
+// so every rotation — and every failed attempt with a mistyped secret — used
+// to add an entry that was never removed. An installation has a handful of
+// connectors; the bound only matters to the one being fed new secrets.
+const maxCachedCredentials = 1024
 
 // tokenRequestTimeout bounds the token fetch itself, which is a network call to
 // somebody else's identity provider and must not be able to hold a job worker.
@@ -53,8 +73,11 @@ type TokenCache struct {
 	client *http.Client
 	now    func() time.Time
 
+	// mu makes finding and creating a key's entry one step. The LRU is safe
+	// on its own, but two callers each missing and each putting would fetch
+	// twice under two different entry locks.
 	mu     sync.Mutex
-	tokens map[string]*tokenEntry
+	tokens *lru.Cache[string, *tokenEntry]
 }
 
 // tokenEntry is a cache slot with its own lock, so a fetch for one credential
@@ -66,7 +89,7 @@ type tokenEntry struct {
 
 // NewTokenCache returns a cache issuing tokens through client.
 func NewTokenCache(client *http.Client) *TokenCache {
-	return &TokenCache{client: client, now: time.Now, tokens: make(map[string]*tokenEntry)}
+	return &TokenCache{client: client, now: time.Now, tokens: lru.New[string, *tokenEntry](maxCachedCredentials)}
 }
 
 // clientCredentials is what a manifest's configuration must supply.
@@ -93,10 +116,10 @@ func (t *TokenCache) Token(ctx context.Context, creds clientCredentials) (string
 	key := creds.cacheKey()
 
 	t.mu.Lock()
-	entry, ok := t.tokens[key]
+	entry, ok := t.tokens.Get(key)
 	if !ok {
 		entry = &tokenEntry{}
-		t.tokens[key] = entry
+		t.tokens.Put(key, entry)
 	}
 	t.mu.Unlock()
 
@@ -111,10 +134,25 @@ func (t *TokenCache) Token(ctx context.Context, creds clientCredentials) (string
 
 	token, err := t.fetch(ctx, creds)
 	if err != nil {
+		// A credential that has never worked is not remembered: a mistyped
+		// secret retried by every job would otherwise fill the cache with
+		// entries holding nothing, pushing out the ones that do.
+		if entry.token.value == "" {
+			t.forget(key, entry)
+		}
 		return "", err
 	}
 	entry.token = token
 	return token.value, nil
+}
+
+// forget removes entry from the cache, if it is still the one held for key.
+func (t *TokenCache) forget(key string, entry *tokenEntry) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if current, ok := t.tokens.Get(key); ok && current == entry {
+		t.tokens.Remove(key)
+	}
 }
 
 // fetch performs the client-credentials grant.
@@ -180,7 +218,12 @@ func (t *TokenCache) fetch(ctx context.Context, creds clientCredentials) (cached
 	}
 
 	lifetime := defaultTokenLifetime
-	if payload.ExpiresIn > 0 {
+	switch {
+	case payload.ExpiresIn > int64(maxTokenLifetime/time.Second):
+		// Compared in seconds, before multiplying, so the comparison
+		// itself cannot overflow.
+		lifetime = maxTokenLifetime
+	case payload.ExpiresIn > 0:
 		lifetime = time.Duration(payload.ExpiresIn) * time.Second
 	}
 	// Never let the margin push expiry into the past: a provider issuing a

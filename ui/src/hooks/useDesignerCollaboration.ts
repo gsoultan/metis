@@ -7,10 +7,11 @@
  *   - Broadcasting the local cursor position to other participants
  *   - Applying remote node-move / node-update events to the local canvas
  */
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { Node, Edge } from '@xyflow/react';
 import type { ReactFlowInstance } from '@xyflow/react';
-import { useCollaboration } from './useCollaboration';
+import { useCollaboration, type CollaborationEvent } from './useCollaboration';
+import { createCursorThrottle, type CursorThrottle } from './cursorThrottle';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
 
 interface UseDesignerCollaborationParams {
@@ -34,8 +35,17 @@ export function useDesignerCollaboration({
   const { remoteCursors, remoteEvents, broadcast } = useCollaboration(projectId ?? undefined);
 
   // Apply incoming events from remote participants to the local canvas.
+  //
+  // Only the ones not applied yet. The list keeps the last few hundred, and
+  // walking all of it on each new event re-applied every old move over the
+  // person's own later edits, one setNodes per entry.
+  const lastApplied = useRef<CollaborationEvent | null>(null);
   useEffect(() => {
-    remoteEvents.forEach((event) => {
+    const from = lastApplied.current ? remoteEvents.lastIndexOf(lastApplied.current) + 1 : 0;
+    const fresh = remoteEvents.slice(from);
+    if (fresh.length === 0) return;
+    lastApplied.current = fresh[fresh.length - 1];
+    fresh.forEach((event) => {
       if (event.type === 'node_move') {
         const { id, position } = event.data as { id: string; position: { x: number; y: number } };
         setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, position } : n)));
@@ -48,6 +58,22 @@ export function useDesignerCollaboration({
     });
   }, [remoteEvents, setNodes]);
 
+  // The latest broadcast, so the throttle made once keeps sending through
+  // whichever project the designer is on now.
+  const broadcastRef = useRef(broadcast);
+  useEffect(() => {
+    broadcastRef.current = broadcast;
+  }, [broadcast]);
+  const cursorThrottle = useRef<CursorThrottle | null>(null);
+  useEffect(() => {
+    const throttle = createCursorThrottle((position) => broadcastRef.current('cursor', position));
+    cursorThrottle.current = throttle;
+    return () => {
+      throttle.cancel();
+      cursorThrottle.current = null;
+    };
+  }, []);
+
   const onMouseMove = useCallback(
     (event: React.MouseEvent) => {
       if (!reactFlowInstance) return;
@@ -55,9 +81,9 @@ export function useDesignerCollaboration({
         x: event.clientX,
         y: event.clientY,
       });
-      broadcast('cursor', { x, y });
+      cursorThrottle.current?.move({ x, y });
     },
-    [reactFlowInstance, broadcast],
+    [reactFlowInstance],
   );
 
   return { remoteCursors, broadcast, onMouseMove };

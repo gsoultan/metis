@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { type FormField } from '../components/FormBuilder';
 import { evaluateFormCondition, evaluateFormExpression } from '../domain/formExpression';
+import { compileFieldPattern } from '../domain/formPattern';
 
 type FormValues = Record<string, unknown>;
 type FormErrors = Record<string, string | null>;
@@ -64,8 +65,12 @@ function normalizeOptions(data: unknown): Array<{ value: string; label: string }
   return data.map((item) => (typeof item === 'string' ? { value: item, label: item } : item));
 }
 
-export function useTaskForm(fields: FormField[], variables: FormValues, onSubmit: (values: FormValues) => void) {
-  const [values, setValues] = useState<FormValues>(() => buildInitialValues(fields, variables));
+export function useTaskForm(
+  fieldsGiven: FormField[],
+  variablesGiven: FormValues,
+  onSubmit: (values: FormValues) => void,
+) {
+  const [values, setValues] = useState<FormValues>(() => buildInitialValues(fieldsGiven, variablesGiven));
   const [errors, setErrors] = useState<FormErrors>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [externalData, setExternalData] = useState<ExternalOptions>({});
@@ -78,13 +83,20 @@ export function useTaskForm(fields: FormField[], variables: FormValues, onSubmit
   // user had typed. React's documented "adjusting state when a prop changes"
   // pattern compares against the previous inputs instead, so the reset happens
   // exactly once per genuine change and before anything is painted.
-  const [previousInputs, setPreviousInputs] = useState({ fields, variables });
-  if (previousInputs.fields !== fields || previousInputs.variables !== variables) {
-    setPreviousInputs({ fields, variables });
-    setValues(buildInitialValues(fields, variables));
+  //
+  // Compared by content, not identity. The inbox passes a freshly parsed
+  // array on every render, and re-renders whenever any task event arrives —
+  // a colleague claiming something was enough — so comparing identities wiped
+  // the form mid-typing and fetched every endpoint-backed option list again.
+  const inputsKey = JSON.stringify([fieldsGiven, variablesGiven]);
+  const [inputs, setInputs] = useState({ key: inputsKey, fields: fieldsGiven, variables: variablesGiven });
+  if (inputs.key !== inputsKey) {
+    setInputs({ key: inputsKey, fields: fieldsGiven, variables: variablesGiven });
+    setValues(buildInitialValues(fieldsGiven, variablesGiven));
     setErrors({});
     setTouched({});
   }
+  const { fields, variables } = inputs;
 
   useEffect(() => {
     const endpointFields = fields.filter(
@@ -135,8 +147,11 @@ export function useTaskForm(fields: FormField[], variables: FormValues, onSubmit
         return 'This field is required';
       }
 
-      if (field.validation?.pattern && value && !new RegExp(field.validation.pattern).test(String(value))) {
-        return field.validation.message || 'Invalid format';
+      // Compiled through a guard: the pattern is the definition's, and one that
+      // does not compile or backtracks without end is skipped, not run.
+      const pattern = field.validation?.pattern ? compileFieldPattern(field.validation.pattern) : null;
+      if (pattern && value && !pattern.test(String(value))) {
+        return field.validation?.message || 'Invalid format';
       }
 
       // `customJs` is named for what it used to be, and it is no longer that.

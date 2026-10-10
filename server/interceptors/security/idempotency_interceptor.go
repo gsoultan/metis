@@ -27,6 +27,13 @@ const (
 	idempotencyKeyHeader          = "Idempotency-Key"
 	idempotencyReplayHeader       = "Idempotency-Replayed"
 	idempotencyConflictStatusCode = http.StatusConflict
+
+	// maxIdempotentResponseBytes is the largest reply kept for replay — the
+	// same as the largest request body accepted. Every reply was buffered and
+	// stored whole, so one large export behind an Idempotency-Key was held in
+	// memory twice and written to the records table as one row; a bigger one
+	// is passed through as it is produced and not recorded.
+	maxIdempotentResponseBytes = 2 << 20
 )
 
 type idempotencyInterceptor struct {
@@ -118,7 +125,18 @@ func (i *idempotencyInterceptor) executeAndRecord(w http.ResponseWriter, r *http
 		}
 	}()
 
-	result := i.captureResponse(next, r)
+	capture := newResponseCaptureWriter(w, maxIdempotentResponseBytes)
+	next.ServeHTTP(capture, r)
+	if capture.passedThrough {
+		// Already on its way to the client, so there is nothing to replay. The
+		// claim is released by the deferred Abandon: a retry with this key
+		// runs the request again rather than waiting for a record that is
+		// never going to be written.
+		log.Warn().Str("method", r.Method).Str("path", r.URL.Path).Int("limit_bytes", maxIdempotentResponseBytes).
+			Msg("A response was too large to keep for idempotent replay; it was sent but not recorded, so a retry with the same key will execute again")
+		return
+	}
+	result := capture.result()
 
 	if err := i.store.Complete(recordCtx, storageKey, StoredResponse{
 		StatusCode: result.statusCode,
@@ -166,12 +184,6 @@ func (i *idempotencyInterceptor) waitAndReplay(w http.ResponseWriter, r *http.Re
 	default:
 		writeIdempotencyResult(w, resultFrom(response), true)
 	}
-}
-
-func (i *idempotencyInterceptor) captureResponse(next http.Handler, r *http.Request) *idempotencyResult {
-	capture := newResponseCaptureWriter()
-	next.ServeHTTP(capture, r)
-	return capture.result()
 }
 
 func idempotencyStorageKey(r *http.Request, idempotencyKey string) string {
@@ -268,21 +280,32 @@ func writeIdempotencyResult(w http.ResponseWriter, result *idempotencyResult, re
 	}
 }
 
+// responseCaptureWriter buffers a reply so it can be recorded, up to limit
+// bytes. Past that it gives up on recording: what it has buffered goes to the
+// client, and so does everything after it, as it is written.
 type responseCaptureWriter struct {
-	header      http.Header
-	body        bytes.Buffer
-	statusCode  int
-	wroteHeader bool
+	downstream    http.ResponseWriter
+	limit         int
+	header        http.Header
+	body          bytes.Buffer
+	statusCode    int
+	wroteHeader   bool
+	passedThrough bool
 }
 
-func newResponseCaptureWriter() *responseCaptureWriter {
+func newResponseCaptureWriter(downstream http.ResponseWriter, limit int) *responseCaptureWriter {
 	return &responseCaptureWriter{
+		downstream: downstream,
+		limit:      limit,
 		header:     make(http.Header),
 		statusCode: http.StatusOK,
 	}
 }
 
 func (w *responseCaptureWriter) Header() http.Header {
+	if w.passedThrough {
+		return w.downstream.Header()
+	}
 	return w.header
 }
 
@@ -290,7 +313,32 @@ func (w *responseCaptureWriter) Write(data []byte) (int, error) {
 	if !w.wroteHeader {
 		w.WriteHeader(http.StatusOK)
 	}
-	return w.body.Write(data)
+	if w.passedThrough {
+		return w.downstream.Write(data)
+	}
+	if w.body.Len()+len(data) <= w.limit {
+		return w.body.Write(data)
+	}
+	if err := w.passThrough(); err != nil {
+		return 0, err
+	}
+	return w.downstream.Write(data)
+}
+
+// passThrough sends what has been buffered and stops buffering.
+func (w *responseCaptureWriter) passThrough() error {
+	w.passedThrough = true
+	maps.Copy(w.downstream.Header(), w.header)
+	w.downstream.WriteHeader(w.statusCode)
+	buffered := w.body.Bytes()
+	w.body = bytes.Buffer{}
+	if len(buffered) == 0 {
+		return nil
+	}
+	// #nosec G705 -- the handler's own reply, with the headers it set, only
+	// sent in one piece later than it was written.
+	_, err := w.downstream.Write(buffered)
+	return err
 }
 
 func (w *responseCaptureWriter) WriteHeader(statusCode int) {

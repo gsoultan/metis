@@ -57,14 +57,35 @@ const RETRIES = 3;
 const RETRY_DELAY_MS = 400;
 
 /**
+ * Whether the server has said, in this page load, that it is configured.
+ *
+ * A system that is set up does not become un-set-up, but the guard on the
+ * authenticated layout asked again before every navigation — every click in
+ * the sidebar waited on a round trip, and on a slow or restarting server on
+ * up to two retries as well. Only a "configured" answer is kept: "not
+ * configured" changes the moment the wizard finishes, and "unreachable" the
+ * moment the server is back.
+ */
+let knownConfigured = false;
+
+/** Forgets the kept answer. For tests. */
+export function forgetSetupState(): void {
+  knownConfigured = false;
+}
+
+/**
  * Reads setup status, retrying briefly so a backend that is still starting is
  * not mistaken for an unconfigured one.
  */
 export async function readSetupState(): Promise<SetupState> {
+  if (knownConfigured) {
+    return { initialized: true, unreachable: false };
+  }
   for (let attempt = 0; attempt < RETRIES; attempt++) {
     try {
       const { status } = await setupService.getSetupStatus();
-      return { initialized: Boolean(status?.is_initialized), unreachable: false };
+      knownConfigured = Boolean(status?.is_initialized);
+      return { initialized: knownConfigured, unreachable: false };
     } catch (error) {
       // A redirect thrown by something further in must not be retried.
       rethrowRedirect(error);

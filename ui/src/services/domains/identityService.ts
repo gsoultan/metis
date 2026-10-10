@@ -110,6 +110,8 @@ export const identityService = {
       method: "POST",
       body: { current_password: currentPassword, new_password: newPassword },
       signal,
+      // A wrong current password is a 401; it must not sign the person out.
+      checksCredentials: true,
     });
 
     return { err: raiseIfRefused(data).err };

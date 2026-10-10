@@ -195,7 +195,7 @@ func TestTenantIsolation_ListsExcludeOtherTenants(t *testing.T) {
 			{
 				name: "audit of another tenant's project",
 				read: func() ([]uuid.UUID, error) {
-					rows, err := pg.NewAuditRepository(testutils.StormConn(db)).ListByProject(ctx, f.projectB)
+					rows, err := pg.NewAuditRepository(testutils.StormConn(db)).ListByProject(ctx, f.projectB, 1000)
 					return idsOf(rows, func(m models.AuditModel) uuid.UUID { return uuid.UUID(m.ID) }), err
 				},
 				want: nil,
@@ -211,7 +211,7 @@ func TestTenantIsolation_ListsExcludeOtherTenants(t *testing.T) {
 			{
 				name: "audit of own project",
 				read: func() ([]uuid.UUID, error) {
-					rows, err := pg.NewAuditRepository(testutils.StormConn(db)).ListByProject(ctx, f.projectA)
+					rows, err := pg.NewAuditRepository(testutils.StormConn(db)).ListByProject(ctx, f.projectA, 1000)
 					return idsOf(rows, func(m models.AuditModel) uuid.UUID { return uuid.UUID(m.ID) }), err
 				},
 				want: []uuid.UUID{f.auditA},

@@ -7,6 +7,7 @@ import (
 	"maps"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
@@ -230,28 +231,22 @@ func (e *Engine) ListSubProcesses(ctx context.Context, parentInstanceID uuid.UUI
 	return res, nil
 }
 
+// GetExecutionPath is the nodes an instance has reached, in the order it first
+// reached them, and how often it reached each.
+//
+// Counted by the repository rather than from the trail: reading the trail to
+// count it held every entry the instance had ever written in memory, and the
+// answer is only as long as the process is wide.
 func (e *Engine) GetExecutionPath(ctx context.Context, instanceID uuid.UUID) (entities.ExecutionPath, error) {
-	entries, err := e.repo.Audit().ListByInstance(ctx, instanceID)
+	visits, err := e.repo.Audit().NodeVisits(ctx, instanceID, entities.EventNodeReached)
 	if err != nil {
 		return entities.ExecutionPath{}, err
 	}
-
 	var nodes []*entities.Node
-	frequencies := make(map[string]int)
-	seen := make(map[string]bool)
-
-	// The trail comes oldest first (ListByInstance orders by created_at, then by
-	// the order each transaction wrote its entries in), so a walk from the front
-	// is the order the steps were reached in. This walked it from the back, on
-	// the belief that it came newest first, and reported every path end to start.
-	for _, entry := range entries {
-		if entry.Type == entities.EventNodeReached && entry.NodeID != "" {
-			frequencies[entry.NodeID]++
-			if !seen[entry.NodeID] {
-				nodes = append(nodes, &entities.Node{ID: entry.NodeID})
-				seen[entry.NodeID] = true
-			}
-		}
+	frequencies := make(map[string]int, len(visits))
+	for _, v := range visits {
+		nodes = append(nodes, &entities.Node{ID: v.NodeID})
+		frequencies[v.NodeID] = v.Visits
 	}
 	return entities.ExecutionPath{
 		Nodes:       nodes,
@@ -259,16 +254,50 @@ func (e *Engine) GetExecutionPath(ctx context.Context, instanceID uuid.UUID) (en
 	}, nil
 }
 
+// GetAuditLogs is an instance's whole trail, oldest first, for the callers that
+// act on every entry. A screen reads GetLatestAuditLogs.
 func (e *Engine) GetAuditLogs(ctx context.Context, instanceID uuid.UUID) ([]entities.AuditEntry, error) {
 	ms, err := e.repo.Audit().ListByInstance(ctx, instanceID)
 	if err != nil {
 		return nil, err
 	}
+	return auditEntities(ms), nil
+}
+
+// AuditPageMax is the most entries one read of an instance's trail returns,
+// and what a caller that names no limit is given.
+//
+// The timeline used to read the whole trail, and an instance that loops for a
+// year has written more than any page should hold: a few hundred bytes an
+// entry, times every visit to every step. A thousand is more than a timeline
+// can usefully show and far less than a replica can be made to hold.
+const AuditPageMax = 1000
+
+// GetLatestAuditLogs is a window of an instance's trail counted back from its
+// newest entry, oldest first, and how many entries there are in all.
+//
+// limit is clamped to AuditPageMax, and zero or less means AuditPageMax:
+// bounded whatever the caller asks, so the read cannot be widened from
+// outside. offset counts back from the newest, so the next page further into
+// the past is offset+limit.
+func (e *Engine) GetLatestAuditLogs(ctx context.Context, instanceID uuid.UUID, limit, offset int) ([]entities.AuditEntry, int64, error) {
+	if limit <= 0 || limit > AuditPageMax {
+		limit = AuditPageMax
+	}
+	offset = max(offset, 0)
+	ms, total, err := e.repo.Audit().LatestByInstance(ctx, instanceID, int64(limit), int64(offset))
+	if err != nil {
+		return nil, 0, err
+	}
+	return auditEntities(ms), total, nil
+}
+
+func auditEntities(ms []models.AuditModel) []entities.AuditEntry {
 	res := make([]entities.AuditEntry, len(ms))
 	for i, m := range ms {
 		res[i] = adapters.AuditEntityAdapter{Model: m}.ToEntity()
 	}
-	return res, nil
+	return res
 }
 
 // maxExecutionDepth bounds how many nodes a single synchronous execution may
@@ -303,8 +332,37 @@ func executionDepthLimit() int {
 	return maxExecutionDepth
 }
 
-// enterNode increments the traversal depth for this execution, returning an
-// error once the bound is exceeded.
+// maxExecutionNodes bounds how many nodes a single synchronous execution may
+// run in total, across every branch.
+//
+// The depth bound only limits the longest path. followOutgoingFlows runs every
+// outgoing flow, so a definition of thirty layers of two-way parallel splits is
+// thirty deep and still runs 2^30 nodes, one after another on one worker and
+// inside one transaction. Counting every node the execution enters, not just
+// the ones on the current path, bounds that too.
+const maxExecutionNodes = 10_000
+
+// envMaxExecutionNodes overrides maxExecutionNodes for deployments with
+// legitimately wide synchronous processes.
+const envMaxExecutionNodes = "METIS_MAX_EXECUTION_NODES"
+
+// executionBudgetKey holds the count of nodes the current synchronous
+// execution has entered. It is a pointer shared by every branch, unlike the
+// depth, which each branch carries as its own value.
+type executionBudgetKey struct{}
+
+// executionNodeLimit returns the configured per-execution node budget.
+func executionNodeLimit() int64 {
+	if raw := envvar.Get(envMaxExecutionNodes); raw != "" {
+		if n, err := strconv.ParseInt(raw, 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	return maxExecutionNodes
+}
+
+// enterNode increments the traversal depth and the node count for this
+// execution, returning an error once either bound is exceeded.
 func enterNode(ctx context.Context, nodeID string) (context.Context, error) {
 	// An absent depth means this is the first node of the execution.
 	depth := 0
@@ -317,6 +375,20 @@ func enterNode(ctx context.Context, nodeID string) (context.Context, error) {
 			"BPMN_ERROR:execution exceeded %d nodes at %q; the definition most likely contains an "+
 				"unbounded loop. Break the cycle, or raise %s if the process is legitimately this deep",
 			limit, nodeID, envMaxExecutionDepth)
+	}
+
+	// An absent counter likewise means this is the first node, and the
+	// counter it creates is shared by every node this execution reaches.
+	entered, ok := ctx.Value(executionBudgetKey{}).(*atomic.Int64)
+	if !ok {
+		entered = new(atomic.Int64)
+		ctx = context.WithValue(ctx, executionBudgetKey{}, entered)
+	}
+	if limit := executionNodeLimit(); entered.Add(1) > limit {
+		return nil, fmt.Errorf(
+			"BPMN_ERROR:execution ran more than %d nodes in one pass at %q; the definition most likely "+
+				"fans out without bound. Reduce the branching, or raise %s if the process is legitimately this wide",
+			limit, nodeID, envMaxExecutionNodes)
 	}
 	return context.WithValue(ctx, executionDepthKey{}, depth), nil
 }
@@ -646,7 +718,13 @@ func (e *Engine) captureVariableSnapshot(ctx context.Context, instance entities.
 		Variables:  maps.Clone(instance.Variables),
 		CapturedAt: time.Now(),
 	}
-	if err := e.varHistory.CaptureSnapshot(ctx, snap); err != nil {
+	// Attempt, so inside a transaction the write takes a savepoint. On
+	// PostgreSQL a failed statement aborts the whole transaction, so logging
+	// and carrying on — as this did — failed the business transaction anyway,
+	// at its next statement, with "current transaction is aborted".
+	if err := e.repo.UnitOfWork().Attempt(ctx, func(ctx context.Context) error {
+		return e.varHistory.CaptureSnapshot(ctx, snap)
+	}); err != nil {
 		log.Warn().Err(err).
 			Str("instanceId", instance.ID.String()).
 			Msg("failed to capture variable snapshot")
@@ -678,7 +756,7 @@ func (e *Engine) BroadcastSignal(ctx context.Context, projectID uuid.UUID, signa
 
 	// Signal start events are a separate audience; a failed subscriber must not
 	// stop the signal from starting the processes that wait for it.
-	if err := e.triggerStartEvents(ctx, projectID, "signal_name", signalName, vars); err != nil {
+	if _, err := e.triggerStartEvents(ctx, projectID, "signal_name", signalName, vars); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -695,22 +773,48 @@ func (e *Engine) SendMessage(ctx context.Context, projectID uuid.UUID, messageNa
 	// one fans out to every instance waiting on that message name, so the same
 	// all-or-report rule applies.
 	var errs []error
+	delivered := 0
 	for _, m := range ms {
 		sub := adapters.SubscriptionEntityAdapter{Model: m}.ToEntity()
 		if err := e.triggerSubscription(ctx, sub, vars); err != nil {
 			errs = append(errs, fmt.Errorf("trigger message subscription %s: %w", sub.ID, err))
+			continue
 		}
+		delivered++
 	}
 
 	// Message start events carry no correlation key, so they are only in scope
 	// for an uncorrelated message.
 	if correlationKey == "" {
-		if err := e.triggerStartEvents(ctx, projectID, "message_name", messageName, vars); err != nil {
+		started, err := e.triggerStartEvents(ctx, projectID, "message_name", messageName, vars)
+		delivered += started
+		if err != nil {
 			errs = append(errs, err)
 		}
 	}
 
-	return errors.Join(errs...)
+	return partlyDelivered(delivered, errors.Join(errs...))
+}
+
+// StartFromMessage starts the processes whose message start event listens for
+// messageName, without reaching any instance already waiting on it.
+//
+// It is SendMessage for a message that names no instance and comes from a
+// source that cannot be taken to mean "every waiting instance" — a broker
+// message that simply carried no correlation key.
+func (e *Engine) StartFromMessage(ctx context.Context, projectID uuid.UUID, messageName string, vars map[string]any) (int, error) {
+	started, err := e.triggerStartEvents(ctx, projectID, "message_name", messageName, vars)
+	return started, partlyDelivered(started, err)
+}
+
+// partlyDelivered marks err as ErrMessagePartlyDelivered when some of the
+// message's recipients had already committed: each commits on its own, so
+// sending the message again would repeat them.
+func partlyDelivered(delivered int, err error) error {
+	if err == nil || delivered == 0 {
+		return err
+	}
+	return fmt.Errorf("%w (%d committed): %w", serviceContracts.ErrMessagePartlyDelivered, delivered, err)
 }
 
 // triggerSubscription advances the instance waiting on sub, merging vars into
@@ -776,36 +880,41 @@ func (e *Engine) triggerSubscription(ctx context.Context, sub entities.EventSubs
 // Failures are collected rather than returned at the first: a broadcast owes
 // every process that listens its start, and one that fails must not silence
 // the rest.
-func (e *Engine) triggerStartEvents(ctx context.Context, projectID uuid.UUID, propName, propValue string, vars map[string]any) error {
+func (e *Engine) triggerStartEvents(ctx context.Context, projectID uuid.UUID, propName, propValue string, vars map[string]any) (int, error) {
 	keys, err := e.repo.Definition().ListKeysByProject(ctx, projectID)
 	if err != nil {
-		return fmt.Errorf("list the processes of project %s: %w", projectID, err)
+		return 0, fmt.Errorf("list the processes of project %s: %w", projectID, err)
 	}
 
 	var errs []error
+	started := 0
 	for _, key := range keys {
-		if err := e.startIfListening(ctx, projectID, key, propName, propValue, vars); err != nil {
+		ok, err := e.startIfListening(ctx, projectID, key, propName, propValue, vars)
+		if err != nil {
 			errs = append(errs, err)
 		}
+		if ok {
+			started++
+		}
 	}
-	return errors.Join(errs...)
+	return started, errors.Join(errs...)
 }
 
 // startIfListening starts key's live version at its start event declaring
-// propName == propValue, if it has one.
-func (e *Engine) startIfListening(ctx context.Context, projectID uuid.UUID, key, propName, propValue string, vars map[string]any) error {
+// propName == propValue, if it has one, and says whether it started.
+func (e *Engine) startIfListening(ctx context.Context, projectID uuid.UUID, key, propName, propValue string, vars map[string]any) (bool, error) {
 	live, err := e.repo.Definition().GetLiveByProjectKey(ctx, projectID, key)
 	if errors.Is(err, apierr.ErrNotFound) {
 		// Nothing of this process is live, so nothing of it can start.
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return fmt.Errorf("find the live version of %s: %w", key, err)
+		return false, fmt.Errorf("find the live version of %s: %w", key, err)
 	}
 	def := adapters.DefinitionEntityAdapter{Model: live}.ToEntity()
 	start := listeningStartEvent(def, propName, propValue)
 	if start == nil {
-		return nil
+		return false, nil
 	}
 	// The version is pinned to the one just read, so a deploy landing between
 	// this check and the start cannot swap in a version without this event.
@@ -815,9 +924,9 @@ func (e *Engine) startIfListening(ctx context.Context, projectID uuid.UUID, key,
 		return cmd.Execute(txCtx)
 	})
 	if err != nil {
-		return fmt.Errorf("start process %s from %s %q: %w", key, propName, propValue, err)
+		return false, fmt.Errorf("start process %s from %s %q: %w", key, propName, propValue, err)
 	}
-	return nil
+	return true, nil
 }
 
 // listeningStartEvent returns the definition's top-level start event that

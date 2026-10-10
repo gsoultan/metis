@@ -840,6 +840,8 @@ func Schema(models []any) []Migration {
 		taskDelegation(),
 		instanceDeviations(),
 		deviationRequests(),
+		sharedCounterWindowIndex(),
+		taskListIndex(),
 	}
 }
 

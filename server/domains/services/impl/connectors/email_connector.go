@@ -75,6 +75,12 @@ func buildEmailMessage(cfg smtpConfig, payload map[string]any) ([]string, []byte
 	if to == "" {
 		return nil, nil, fmt.Errorf("email connector: missing required payload key 'to'")
 	}
+	// Refused, not folded. The To header is written as given, and a line
+	// break between two addresses survives the trimming that keeps each one
+	// valid on the envelope — so it would end the header and start another.
+	if strings.ContainsAny(to, "\r\n") {
+		return nil, nil, fmt.Errorf("email connector: payload key 'to' contains a line break")
+	}
 	recipients := splitRecipients(to)
 	if len(recipients) == 0 {
 		return nil, nil, fmt.Errorf("email connector: payload key 'to' names no address")
@@ -88,7 +94,7 @@ func buildEmailMessage(cfg smtpConfig, payload map[string]any) ([]string, []byte
 	var sb strings.Builder
 	sb.WriteString("From: " + cfg.from + "\r\n")
 	sb.WriteString("To: " + to + "\r\n")
-	sb.WriteString("Subject: " + subject + "\r\n")
+	sb.WriteString("Subject: " + mail.HeaderText(subject) + "\r\n")
 	sb.WriteString("MIME-Version: 1.0\r\n")
 	sb.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
 	sb.WriteString(body)

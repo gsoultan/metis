@@ -1,16 +1,22 @@
 package connects
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
 
+	"github.com/gsoultan/metis/api/proto/services/servicesconnect"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/server/endpoints"
 )
 
 // An error the endpoint chain returns reaches a Connect caller with the code
@@ -64,5 +70,32 @@ func TestTheMessageIsRedactedLikeREST(t *testing.T) {
 func TestSuccessPassesThrough(t *testing.T) {
 	if err := refused(nil); err != nil {
 		t.Fatalf("a successful call came back with %v", err)
+	}
+}
+
+// TestACompressedMessageIsCappedAfterInflating: the request-size limit counts
+// wire bytes, and Connect accepts gzip, so a small body of compressed zeros
+// inflated without bound before anything decoded it. Past the cap it is refused
+// as resource_exhausted, before it reaches an endpoint.
+func TestACompressedMessageIsCappedAfterInflating(t *testing.T) {
+	var body bytes.Buffer
+	zw := gzip.NewWriter(&body)
+	if _, err := zw.Write(bytes.Repeat([]byte(" "), 8*maxMessageBytes)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, handler := NewConnectHandler(endpoints.Endpoints{})
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		servicesconnect.ProcessServiceStartProcessProcedure, &body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Encoding", "gzip")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if !strings.Contains(rec.Body.String(), "resource_exhausted") {
+		t.Fatalf("status %d body %q, want resource_exhausted", rec.Code, rec.Body.String())
 	}
 }

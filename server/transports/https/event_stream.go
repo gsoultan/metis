@@ -1,9 +1,11 @@
 package https
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -31,6 +33,16 @@ var eventStreamHeartbeat = 25 * time.Second
 
 // eventStreamRetryAfter is what a refused stream is told to wait, in seconds.
 const eventStreamRetryAfter = 5
+
+// eventStreamWriteTimeout is how long one write to a stream may take.
+//
+// The server has no write timeout, because a stream is meant to stay open for
+// hours. So without one here a client that stopped reading — a suspended
+// laptop, a half-open connection the kernel has not given up on — filled its
+// socket buffer and then held the write, the goroutine and the stream's slot
+// for as long as the connection lived. A variable only so a test can wait
+// milliseconds for it.
+var eventStreamWriteTimeout = 10 * time.Second
 
 func eventStreamHandler(sseObserver *impl.SSEObserver, limit *eventStreamLimit) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -86,10 +98,20 @@ func serveEventStream(w http.ResponseWriter, r *http.Request, sseObserver *impl.
 	// cannot tell a working stream from a broken one, onopen never fires, and
 	// any proxy with a header-read timeout closes the connection before the
 	// first event ever arrives.
-	flusher, canFlush := w.(http.Flusher)
+	// Shutdown does not cancel a request's context: it waits for handlers to
+	// return. A stream never returns on its own, so every open tab used to hold
+	// shutdown for its whole timeout. Subscribed before the headers go out, so
+	// a client that has seen the stream open can rely on shutdown ending it.
+	shuttingDown := serverShutdown(r)
+
+	stream := http.NewResponseController(w)
+	_, canFlush := w.(http.Flusher)
 	if canFlush {
 		w.WriteHeader(http.StatusOK)
-		flusher.Flush()
+		if err := stream.Flush(); err != nil {
+			log.Debug().Err(err).Msg("An event stream client went away before the headers were sent")
+			return
+		}
 	}
 
 	heartbeat := time.NewTicker(eventStreamHeartbeat)
@@ -101,6 +123,8 @@ func serveEventStream(w http.ResponseWriter, r *http.Request, sseObserver *impl.
 		select {
 		case <-ctx.Done():
 			return
+		case <-shuttingDown:
+			return
 		case msg := <-ch:
 			payload = msg
 		case <-heartbeat.C:
@@ -109,12 +133,64 @@ func serveEventStream(w http.ResponseWriter, r *http.Request, sseObserver *impl.
 		// A failed write means the client is gone. Carrying on would spin this
 		// goroutine against a dead connection for as long as events keep
 		// arriving — one leaked per disconnect.
-		if _, err := fmt.Fprint(w, payload); err != nil {
+		if err := writeEvent(w, stream, payload, canFlush); err != nil {
 			log.Debug().Err(err).Msg("An event stream client went away mid-write")
 			return
 		}
-		if canFlush {
-			flusher.Flush()
+	}
+}
+
+// writeEvent writes one payload under its own deadline.
+//
+// The deadline is set before the write and cleared after it, so a quiet stream
+// is not cut for being quiet — only a write that cannot complete is. A writer
+// that cannot take a deadline (a test recorder) is written to without one.
+func writeEvent(w http.ResponseWriter, stream *http.ResponseController, payload string, canFlush bool) error {
+	if err := stream.SetWriteDeadline(time.Now().Add(eventStreamWriteTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
+	}
+	if _, err := fmt.Fprint(w, payload); err != nil {
+		return err
+	}
+	if canFlush {
+		if err := stream.Flush(); err != nil {
+			return err
 		}
 	}
+	if err := stream.SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
+	}
+	return nil
+}
+
+// shutdowns holds, per server, a channel closed when that server begins to
+// shut down. The main listener and every environment listener serve streams
+// from the same handler, so the signal has to be the serving server's own.
+var shutdowns sync.Map // *http.Server -> chan struct{}
+
+// serverShutdown returns a channel that closes when the server serving r
+// starts shutting down, or nil — never ready — when r was not served by an
+// http.Server.
+//
+// Registered once per server rather than once per stream: RegisterOnShutdown
+// only ever appends, so a hook per stream would grow without bound on a server
+// that stays up for weeks.
+func serverShutdown(r *http.Request) <-chan struct{} {
+	server, ok := r.Context().Value(http.ServerContextKey).(*http.Server)
+	if !ok || server == nil {
+		return nil
+	}
+	done := make(chan struct{})
+	existing, loaded := shutdowns.LoadOrStore(server, done)
+	if !loaded {
+		server.RegisterOnShutdown(func() {
+			shutdowns.Delete(server)
+			close(done)
+		})
+	}
+	ch, ok := existing.(chan struct{})
+	if !ok {
+		return nil
+	}
+	return ch
 }

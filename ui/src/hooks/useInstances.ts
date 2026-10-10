@@ -48,7 +48,7 @@ export const useAuditLogs = (id: string | null) => {
   return useQuery({
     queryKey: ['audit-logs', id],
     queryFn: ({ signal }) =>
-      id ? processService.getAuditLogs(id, signal) : Promise.resolve({ entries: [], err: "" }),
+      id ? processService.getAuditLogs(id, signal) : Promise.resolve({ entries: [], total: 0, err: "" }),
     enabled: !!id,
   });
 };

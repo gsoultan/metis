@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -185,7 +186,9 @@ func (e *DecisionTableEvaluatorImpl) assertOutputsAgree(def entities.DecisionDef
 	first := matched[0]
 	for _, m := range matched[1:] {
 		for i := range def.Outputs {
-			if outputAt(first.rule, i) != outputAt(m.rule, i) {
+			// DeepEqual, not !=: an output decoded from JSON can be a list or an
+			// object, and comparing those with != panics.
+			if !reflect.DeepEqual(outputAt(first.rule, i), outputAt(m.rule, i)) {
 				return fmt.Errorf(
 					"ANY hit policy violated: lines %d and %d both matched but disagree on %q (%v vs %v)",
 					first.index+1, m.index+1, def.Outputs[i].Name, outputAt(first.rule, i), outputAt(m.rule, i))

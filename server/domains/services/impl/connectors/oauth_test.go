@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -253,5 +254,70 @@ func TestTheTokenURLCannotBeOverriddenByConfiguration(t *testing.T) {
 	}
 	if creds.tokenURL != "https://issuer.example/token" {
 		t.Fatalf("token URL is %q; configuration redirected the credentials", creds.tokenURL)
+	}
+}
+
+// expires_in is a number from somebody else's server. One past what
+// time.Duration holds in seconds overflowed into a negative lifetime, so the
+// token was dead on arrival and fetched again on every call. It is capped at a
+// day, which also stops a merely huge one keeping a revoked token for years.
+func TestAnEnormousLifetimeIsCappedRatherThanOverflowing(t *testing.T) {
+	for _, expiresIn := range []int64{10_000_000_000, math.MaxInt64} {
+		t.Run(fmt.Sprint(expiresIn), func(t *testing.T) {
+			server, issued := tokenServer(t, expiresIn, nil)
+			cache := NewTokenCache(server.Client())
+			now := time.Now()
+			cache.now = func() time.Time { return now }
+
+			for range 3 {
+				if _, err := cache.Token(t.Context(), credsFor(server.URL)); err != nil {
+					t.Fatalf("token: %v", err)
+				}
+			}
+			if got := issued.Load(); got != 1 {
+				t.Fatalf("the provider was asked %d times for 3 calls; the lifetime overflowed", got)
+			}
+
+			now = now.Add(maxTokenLifetime)
+			if _, err := cache.Token(t.Context(), credsFor(server.URL)); err != nil {
+				t.Fatalf("token: %v", err)
+			}
+			if got := issued.Load(); got != 2 {
+				t.Fatalf("a token was still trusted a day after it was issued; the provider was asked %d times", got)
+			}
+		})
+	}
+}
+
+// The secret is part of the key, so every rotation — and every attempt with a
+// mistyped secret — added an entry that nothing ever removed.
+func TestTheCacheForgetsCredentialsThatNeverWorkedAndStaysBounded(t *testing.T) {
+	refusing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(refusing.Close)
+	cache := NewTokenCache(refusing.Client())
+	for i := range 10 {
+		creds := credsFor(refusing.URL)
+		creds.clientSecret = fmt.Sprintf("typo-%d", i)
+		if _, err := cache.Token(t.Context(), creds); err == nil {
+			t.Fatal("a refused grant returned a token")
+		}
+	}
+	if got := cache.tokens.Len(); got != 0 {
+		t.Fatalf("%d refused credentials are still cached", got)
+	}
+
+	server, _ := tokenServer(t, 3600, nil)
+	cache = NewTokenCache(server.Client())
+	for i := range maxCachedCredentials + 10 {
+		creds := credsFor(server.URL)
+		creds.clientSecret = fmt.Sprintf("rotation-%d", i)
+		if _, err := cache.Token(t.Context(), creds); err != nil {
+			t.Fatalf("token: %v", err)
+		}
+	}
+	if got := cache.tokens.Len(); got > maxCachedCredentials {
+		t.Fatalf("the cache holds %d credentials, more than its bound of %d", got, maxCachedCredentials)
 	}
 }

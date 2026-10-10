@@ -161,7 +161,7 @@ func TestTheRetentionPassExpiresOverdueDeviationRequests(t *testing.T) {
 	}
 
 	// A pass before the deadline leaves it waiting, and says nothing of it.
-	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now())
+	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now(), optInRetention{})
 	if request, row := stored(); request != "pending_approval" || row != "pending_approval" {
 		t.Fatalf("a pass before the deadline left the request %q and its row %q", request, row)
 	}
@@ -169,7 +169,7 @@ func TestTheRetentionPassExpiresOverdueDeviationRequests(t *testing.T) {
 		t.Fatalf("a pass with nothing to expire said %v", lines)
 	}
 
-	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now().Add(73*time.Hour))
+	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now().Add(73*time.Hour), optInRetention{})
 	if request, row := stored(); request != "expired" || row != "expired" {
 		t.Fatalf("after a pass past the deadline the request is stored as %q and its row as %q, want both expired", request, row)
 	}
@@ -209,14 +209,14 @@ func TestTheRetentionPassGivesALiveLedgerRowItsKey(t *testing.T) {
 	// sweeps: a process that never started them, and a pass past that hour,
 	// look for nothing.
 	began := time.Now()
-	w.app.sweepRetention(system, began)
+	w.app.sweepRetention(system, began, optInRetention{})
 	if _, live := keys(); live != nil {
 		t.Fatalf("a pass of a process that never started its sweeps filled the key (%q)", *live)
 	}
 	w.app.sweepsBegan = began
 	// (Each well inside the request's own deadline, so that it still waits.)
 	for _, late := range []time.Duration{liveKeyFillFor, liveKeyFillFor + time.Minute, 48 * time.Hour} {
-		w.app.sweepRetention(system, began.Add(late))
+		w.app.sweepRetention(system, began.Add(late), optInRetention{})
 		if _, live := keys(); live != nil {
 			t.Fatalf("a pass %s after the sweeps began filled the key; the fill is for the first %s", late, liveKeyFillFor)
 		}
@@ -225,7 +225,7 @@ func TestTheRetentionPassGivesALiveLedgerRowItsKey(t *testing.T) {
 		t.Fatalf("passes that looked for nothing said %v", lines)
 	}
 
-	w.app.sweepRetention(system, began.Add(liveKeyFillFor-time.Minute))
+	w.app.sweepRetention(system, began.Add(liveKeyFillFor-time.Minute), optInRetention{})
 	if visit, live := keys(); visit == nil || live == nil || *live != *visit {
 		t.Fatalf("after a pass within the hour the row's live key is %v and its visit key %v; want the live key filled", live, visit)
 	}
@@ -234,7 +234,7 @@ func TestTheRetentionPassGivesALiveLedgerRowItsKey(t *testing.T) {
 		t.Fatalf("the pass that filled a key said %v, want one warning with filled = 1", lines)
 	}
 	// With nothing to fill it says nothing: every pass would say it otherwise.
-	w.app.sweepRetention(system, began.Add(time.Minute))
+	w.app.sweepRetention(system, began.Add(time.Minute), optInRetention{})
 	if lines := logs.said("the key that holds"); len(lines) != 1 {
 		t.Fatalf("a pass with no key to fill said something: %v", lines)
 	}
@@ -347,7 +347,7 @@ func TestALiveKeyThatCannotBeGivenBecauseTheVisitIsHeldTwiceIsSaidAsThat(t *test
 	}
 	logs := captureLogs(t)
 	w.app.sweepsBegan = time.Now()
-	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now())
+	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now(), optInRetention{})
 
 	lines := logs.said("hold one visit of one instance")
 	if len(lines) != 1 || lines[0]["level"] != "error" || lines[0]["database"] != "main" {
@@ -392,7 +392,7 @@ func TestAPassThatLeavesRequestsBehindSaysHowManyItClosedAndHowManyItCouldNot(t 
 		t.Fatalf("break the ledger rows of the first %d: %v", broken, err)
 	}
 	logs := captureLogs(t)
-	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now())
+	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now(), optInRetention{})
 
 	var status string
 	if err := w.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, healthy).Scan(&status).Error; err != nil || status != "expired" {
@@ -438,7 +438,7 @@ func TestAPassCountsARequestSomebodyHoldsApartFromOneItCannotClose(t *testing.T)
 	t.Cleanup(func() { holder.Rollback() })
 
 	logs := captureLogs(t)
-	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now())
+	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now(), optInRetention{})
 
 	stored := func(request uuid.UUID) (status string) {
 		t.Helper()
@@ -471,7 +471,7 @@ func TestAPassCountsARequestSomebodyHoldsApartFromOneItCannotClose(t *testing.T)
 		t.Fatalf("let go of the ledger row: %v", err)
 	}
 	logs = captureLogs(t)
-	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now())
+	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now(), optInRetention{})
 	if stored(w.request) != "expired" || len(logs.said("left some as they were")) != 0 {
 		t.Fatalf("after the row was let go the request is stored as %q and the pass said %v; want it expired and nothing said", stored(w.request), logs.said("left some as they were"))
 	}

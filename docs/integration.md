@@ -686,6 +686,12 @@ curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/$ID/path   # exec
 curl -H "Authorization: Bearer $TOKEN" $GOBPM/api/v1/instances/$ID/deviations  # what was done outside its process
 ```
 
+`/audit` answers `{"entries": [...], "total": N}`: at most 1,000 entries, the
+newest of the trail, oldest first, and how many the trail holds in all.
+`?limit=` asks for fewer, and `?offset=` skips that many of the newest, so the
+page before is `?offset=1000`. A larger limit is given 1,000. `/path` counts
+every visit however long the trail is.
+
 `/deviations` answers `{"deviations": [...]}`, oldest first, with a row for each
 thing done to the instance that its process did not decide — a hand-over by
 somebody who did not hold the task, a migration's skip, cancel or hold, a

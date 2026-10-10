@@ -245,7 +245,7 @@ func newPprofHandler() http.Handler {
 func newHTTPServer(address string, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              address,
-		Handler:           handler,
+		Handler:           withBodyReadDeadline(defaultHTTPBodyReadTimeout, handler),
 		ReadHeaderTimeout: defaultHTTPReadHeaderTimeout,
 		IdleTimeout:       defaultHTTPIdleTimeout,
 		MaxHeaderBytes:    defaultHTTPMaxHeaderBytes,
@@ -913,6 +913,17 @@ func (a *App) readinessCheckers() map[string]health.Checker {
 			}
 			return sqlDB.PingContext(ctx)
 		}),
+		// The pgx pool is checked on its own because it is a pool of its own,
+		// and it is the one carrying most of the traffic. Only the GORM pool
+		// used to be pinged, so a replica whose storm pool could not reach the
+		// database — exhausted, or pointed somewhere that went away — still
+		// reported ready and kept taking requests it could only fail.
+		"storm": health.CheckerFunc(func(ctx context.Context) error {
+			if a.storm == nil {
+				return nil
+			}
+			return a.storm.Main().Ping(ctx)
+		}),
 	}
 }
 
@@ -1086,27 +1097,7 @@ func (a *App) runServers(ctx context.Context) error {
 			mux := http.NewServeMux()
 			mux.Handle("/metrics", metricsCollector.Handler())
 			server := newHTTPServer(metricsAddress, mux)
-
-			go func() {
-				<-ctx.Done()
-				// WithoutCancel rather than Background: this runs because ctx
-				// was cancelled, so deriving from it would hand Shutdown an
-				// already-expired deadline. Inheriting the values keeps the
-				// trace context attached to the shutdown instead of orphaning
-				// it, which context.Background() would have done.
-				shutdownCtx, cancel := context.WithTimeoutCause(
-					context.WithoutCancel(ctx),
-					httpShutdownTimeout,
-					errors.New("metrics server shutdown timed out"),
-				)
-				defer cancel()
-
-				if err := server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-					log.Error().Err(err).Msg("metrics server shutdown failed")
-				}
-			}()
-
-			if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := serveUntilShutdown(ctx, "metrics server", server, server.ListenAndServe); err != nil {
 				return fmt.Errorf("metrics server crashed: %w", err)
 			}
 			return nil
@@ -1118,23 +1109,7 @@ func (a *App) runServers(ctx context.Context) error {
 		g.Go(func() error {
 			log.Info().Str("addr", pprofAddress).Msg("pprof server listening")
 			server := newHTTPServer(pprofAddress, newPprofHandler())
-
-			go func() {
-				<-ctx.Done()
-				shutdownCtx, cancel := context.WithTimeoutCause(
-					context.Background(),
-					httpShutdownTimeout,
-					errors.New("pprof server shutdown timed out"),
-				)
-				defer cancel()
-
-				//nolint:contextcheck // shutdown is what ctx being cancelled triggers; inheriting it would cancel the shutdown itself
-				if err := server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-					log.Error().Err(err).Msg("pprof server shutdown failed")
-				}
-			}()
-
-			if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := serveUntilShutdown(ctx, "pprof server", server, server.ListenAndServe); err != nil {
 				return fmt.Errorf("pprof server crashed: %w", err)
 			}
 			return nil
@@ -1146,21 +1121,7 @@ func (a *App) runServers(ctx context.Context) error {
 	g.Go(func() error {
 		log.Info().Str("addr", httpAddress).Msg("HTTP server listening")
 		server := newHTTPServer(httpAddress, httpHandler)
-		go func() {
-			<-ctx.Done()
-			shutdownCtx, cancel := context.WithTimeoutCause(
-				context.Background(),
-				httpShutdownTimeout,
-				errors.New("http server shutdown timed out"),
-			)
-			defer cancel()
-
-			//nolint:contextcheck // shutdown is what ctx being cancelled triggers; inheriting it would cancel the shutdown itself
-			if err := server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Error().Err(err).Msg("HTTP server shutdown failed")
-			}
-		}()
-		return server.ListenAndServe()
+		return serveUntilShutdown(ctx, "HTTP server", server, server.ListenAndServe)
 	})
 
 	// One listener per environment, each bound to its own database, with its
@@ -1173,6 +1134,13 @@ func (a *App) runServers(ctx context.Context) error {
 	a.serveGRPC(ctx, g, grpcServer)
 
 	err := g.Wait()
+
+	// The environments' listeners shut down with the main one, and are waited
+	// for the same way: a request in flight on a staging port was promised the
+	// same drain time as one on the main port. The starts first, so no
+	// listener is added to the group while it is being waited on.
+	a.environments.work.Wait()
+	a.environments.listeners.Wait()
 
 	// Drain after the servers have stopped accepting, so nothing new arrives
 	// while in-flight jobs finish. Without this the worker's context was simply
@@ -1242,7 +1210,7 @@ func (a *App) serveGRPC(ctx context.Context, g *errgroup.Group, grpcServer *grpc
 		if err != nil {
 			return err
 		}
-		baseServer := grpc.NewServer()
+		baseServer := grpc.NewServer(grpcRecovery()...)
 		a.registerGRPCServices(baseServer, grpcServer)
 
 		log.Info().Str("addr", grpcAddress).Msg("gRPC server listening")

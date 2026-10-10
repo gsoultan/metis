@@ -3,7 +3,6 @@ package logic
 import (
 	"context"
 	"fmt"
-	"maps"
 
 	"github.com/dop251/goja"
 )
@@ -29,12 +28,14 @@ import (
 func RunScript(ctx context.Context, script string, vars map[string]any) (map[string]any, error) {
 	vm := NewSandboxedRuntime()
 
-	updated := maps.Clone(vars)
-	if updated == nil {
-		updated = make(map[string]any, 1)
-	}
-
-	for k, v := range vars {
+	// The script gets its own deep copy: goja binds maps and slices by
+	// reference, so a shallow clone would still let it reach into the
+	// caller's nested data (see isolatedVariables). updated shares the copy
+	// with the runtime, which is safe: it is returned only when the script
+	// has finished, so a script abandoned past its budget writes only into
+	// values nobody reads.
+	updated := isolatedVariables(vars)
+	for k, v := range updated {
 		if err := vm.Set(k, v); err != nil {
 			return nil, fmt.Errorf("bind variable %q into script scope: %w", k, err)
 		}

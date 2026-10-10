@@ -3,8 +3,11 @@ package pg
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -49,7 +52,14 @@ func (r *variableSnapshotRepository) Create(ctx context.Context, m models.Variab
 	return snapshotFrom(row)
 }
 
-// ListByInstance returns one instance's snapshots, oldest first.
+// ListByInstance returns every one of an instance's snapshots, oldest first.
+//
+// Every one, not the store's oldest thousand: the history is read to answer
+// "what did the instance see when it decided", and the decision being asked
+// about is usually the latest. An instance that had looped past a thousand
+// steps got history that stopped a thousand steps in, with no sign there was
+// more. The id breaks ties in captured_at, so the keyset walk is a position:
+// two snapshots taken in one step can share a moment.
 //
 // Scoped through the instance rather than directly: a snapshot has no project
 // of its own, so the check is that the instance is one the caller may see.
@@ -61,10 +71,9 @@ func (r *variableSnapshotRepository) ListByInstance(ctx context.Context, instanc
 	if err != nil {
 		return nil, err
 	}
-	rows, err := variablesnapshot.New().
+	rows, err := everyRow[variablesnapshot.Row](ctx, ex, variablesnapshot.New().
 		Where(variablesnapshot.InstanceID.Eq(instanceID)).
-		Order(variablesnapshot.CapturedAt.Asc()).
-		All(ctx, ex, nil)
+		Order(variablesnapshot.CapturedAt.Asc(), variablesnapshot.ID.Asc()))
 	if err != nil {
 		return nil, fmt.Errorf("could not read the snapshots: %w", err)
 	}
@@ -77,6 +86,26 @@ func (r *variableSnapshotRepository) ListByInstance(ctx context.Context, instanc
 		out = append(out, snapshot)
 	}
 	return out, nil
+}
+
+// ForgetCapturedBefore deletes, a batch at a time, the snapshots captured
+// before cutoff. Raw SQL, as every sweep is; captured_at is indexed, so each
+// batch is a range of it.
+func (r *variableSnapshotRepository) ForgetCapturedBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	if !entities.IsSystemContext(ctx) {
+		return 0, fmt.Errorf("%w: forgetting variable snapshots spans every tenant", apierr.ErrForbidden)
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return 0, err
+	}
+	removed, err := db.DeleteInBatches(ctx, ex,
+		`DELETE FROM variable_snapshots WHERE ctid = ANY(ARRAY(
+		     SELECT ctid FROM variable_snapshots WHERE captured_at < $1 LIMIT $2))`, cutoff.UTC())
+	if err != nil {
+		return removed, fmt.Errorf("could not forget old variable snapshots: %w", err)
+	}
+	return removed, nil
 }
 
 func snapshotFrom(row variablesnapshot.Row) (models.VariableSnapshotModel, error) {

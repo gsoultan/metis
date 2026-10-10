@@ -268,6 +268,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Variable snapshots and finished jobs can be cut back, if you ask.** Both
+  tables only ever grew. `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` removes
+  snapshots captured more than that many days ago, and
+  `METIS_RETENTION_COMPLETED_JOBS_DAYS` removes jobs that will never run
+  again — completed, or failed with no unresolved incident naming them — that
+  have been neither due nor changed for that long. **Both are off unless set**,
+  so an upgrade removes nothing. They run in the existing retention sweep, on
+  every database, 5,000 rows a statement. A pending or running job, a failed
+  job an open incident names, and every incident are kept. Process instances,
+  tasks and the audit trail are never removed by the server at any setting:
+  they are the business record. See *What to watch* in
+  `docs/postgresql.md`.
 - **Four routes read and decide the requests that wait for a second
   administrator.** For administrators of the organization the request is for;
   another organization's request is a 404 in the words one that does not
@@ -658,6 +670,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Changed
 
+- **`GET /api/v1/instances/{id}/audit` returns the newest 1,000 entries and
+  how many there are.** It read and returned an instance's whole trail, so an
+  instance that had looped for months answered with every entry it had ever
+  written. The response now holds at most 1,000 entries, the newest, still
+  oldest first, and a new `total`; `?limit=` and `?offset=` (counted back
+  from the newest) reach the rest. The timeline says when it is showing only
+  the latest events. `GET /api/v1/instances/{id}/path` is now counted by the
+  database rather than from the whole trail, with the same answer.
+- **`GET /api/v1/projects/{id}/ocel` refuses a project larger than one export
+  can hold.** The export is built in memory, and it read the project's whole
+  audit trail and every instance first, so one request for a long-running
+  project's log could take the replica's memory with it. A project with more
+  than 100,000 audit entries or 100,000 instances is now refused with a 400
+  that names the limit, before the trail is read in full.
 - **An apply of a waive answers 202 and makes nothing.**
   `POST /api/v1/instances/{id}/deviations` with `kind: waive` and
   `"dry_run": false` answers 202 with `applied: false`, the ledger row at
@@ -832,6 +858,71 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **One bad step, message or call could take the whole server down.** A
+  decision table with the ANY hit policy whose matching lines returned a list
+  or an object panicked comparing them, and nothing above the job and inbound
+  message workers recovered a panic, so the process exited — and the broker
+  redelivered the same message to whichever replica came up next. The
+  comparison is fixed, and a panic in a job, an inbound message or a gRPC call
+  now fails that one piece of work: a job is retried and then raised as an
+  incident (never caught by an error boundary), a message is dead-lettered
+  after its retries, and a gRPC call answers `Internal`.
+- **Memory anyone could spend.** An invented HTTP method was a new metrics
+  series per method, recorded before sign-in; it is now `OTHER`. A failed
+  sign-in kept the username as sent, up to the 2 MB body limit, for an hour;
+  a long one is now kept as its digest. A gzip-compressed Connect message was
+  inflated without bound — 2 MB of zeros became gigabytes — and is now refused
+  past 2 MB as `resource_exhausted`. The event webhook started a goroutine per
+  event per endpoint, holding its payload for up to ten seconds; at most 64
+  sends are in flight, and an event past that is logged and not sent.
+- **A request that trickled its body held its slot for as long as it liked.**
+  A few hundred, from one address and inside its rate limit, answered every
+  other call with 503 while `/readyz` stayed green. A request now has 30
+  seconds to send its body; the event stream and slow handlers are unaffected.
+- **An inbound message that always ran out of time was redelivered forever,**
+  holding its queue up behind it. It gets one more delivery, and is
+  dead-lettered as `dispatch_timeout` if that one runs out of time as well.
+- **A failed variable snapshot failed the step it was recording.** The write
+  was meant to be best-effort, but on PostgreSQL a failed statement aborts its
+  transaction; it now runs under a savepoint.
+- **Fetch-and-lock was unbounded over Connect and gRPC.** A zero lock offered
+  the task again at once, so two workers ran the same step, and a huge
+  `max_tasks` locked every task on a topic in one transaction. The lock must be
+  from 1 ms to a day, and a fetch locks at most 100 tasks.
+- **The task form wiped what was typed** whenever the inbox re-rendered — any
+  colleague claiming a task was enough — and fetched its option lists again.
+- **The designer sent a request on every mouse move,** sixty or more a second
+  per person, fanned out to everyone in the project. The cursor is now sent at
+  most ten times a second, and a remote edit is applied once rather than
+  re-applying every earlier one.
+- **Signing out left the last person's data on screen and in the cache,** so
+  the next person to sign in in that tab was shown it. Signing out now goes to
+  the sign-in page and empties the cache.
+
+- **The rate-limit sweep scanned all of `shared_counters` for every 5,000
+  rows it removed.** It removes the windows that started more than five
+  minutes ago, and `window_start` is the last column of the table's primary
+  key, so no index could answer the range. Migration 35 adds
+  `ix_shared_counters_window_start`, built `CONCURRENTLY` on PostgreSQL so
+  rate-limited requests are not held up while it builds. Which rows a sweep
+  removes is unchanged.
+- **A page of a project's tasks sorted every task the project had.** The list
+  asks for a project's tasks newest first, and the only index on the way was
+  `project_id` alone. Migration 36 adds `ix_tasks_project_created` over
+  `(project_id, created_at DESC, id DESC)`, built `CONCURRENTLY` on
+  PostgreSQL, and one project's tasks are now asked for by equality so the
+  page is read from it already in order. A list across several projects still
+  sorts.
+- **Somebody in two organizations could be shown no notifications in one of
+  them.** `GET /api/v1/notifications` read the person's newest
+  thousand notifications across every organization and then dropped those the
+  current one may not see, so a busy inbox elsewhere crowded out every
+  notification here. The organization is now part of the query.
+- **An instance's variable history stopped at its oldest thousand snapshots.**
+  The history was read with the store's default limit, oldest first, so an
+  instance that had looped past a thousand steps lost its newest snapshots —
+  the ones that say what it saw when it last decided — with nothing to say
+  there were more. Every snapshot is now returned, oldest first.
 - **A mapping could take an instance past a control with nothing held and
   nobody asked.** Three shapes, each applied on one administrator's call and
   left no ledger row. Each was reproduced as a failing test before it was

@@ -1,11 +1,13 @@
 package impl
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	netmail "net/mail"
 	"net/smtp"
 	"strings"
 	"testing"
@@ -232,6 +234,36 @@ func TestTheEmailGoesToThePersonNotTheSender(t *testing.T) {
 	}
 	if !strings.Contains(gotMsg, "Operations approve") {
 		t.Errorf("the message carries no body:\n%s", gotMsg)
+	}
+}
+
+// A notification's title is built from process data. A line break in it ended
+// the Subject header and began whatever followed.
+func TestALineBreakInANotificationTitleDoesNotStartAnotherHeader(t *testing.T) {
+	var gotMsg []byte
+	channel := NewEmailNotificationChannel(
+		EmailSettings{Host: "smtp.example.com", From: "noreply@example.com"},
+		func(context.Context, string) (string, error) { return "ollie@example.com", nil },
+		WithMailSender(func(_ context.Context, _ string, _ smtp.Auth, _ string, _ []string, msg []byte) error {
+			gotMsg = msg
+			return nil
+		}),
+	)
+	n := aNotification()
+	n.Title = "Approve order\nBcc: attacker@example.net"
+	if err := channel.Deliver(context.Background(), n); err != nil {
+		t.Fatalf("deliver: %v", err)
+	}
+
+	parsed, err := netmail.ReadMessage(bytes.NewReader(gotMsg))
+	if err != nil {
+		t.Fatalf("the message does not parse: %v\n%s", err, gotMsg)
+	}
+	if bcc := parsed.Header.Get("Bcc"); bcc != "" {
+		t.Fatalf("the title injected a Bcc header: %q", bcc)
+	}
+	if got, want := parsed.Header.Get("Subject"), "Approve order Bcc: attacker@example.net"; got != want {
+		t.Fatalf("Subject = %q, want %q", got, want)
 	}
 }
 

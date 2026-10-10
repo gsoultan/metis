@@ -6,6 +6,7 @@ package contracts
 
 import (
 	"context"
+	"errors"
 
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -57,17 +58,41 @@ type EngineReader interface {
 	GetExecutionPath(ctx context.Context, instanceID uuid.UUID) (entities.ExecutionPath, error)
 	GetAuditLogs(ctx context.Context, instanceID uuid.UUID) ([]entities.AuditEntry, error)
 
+	// GetLatestAuditLogs reads at most a page of an instance's trail, counted
+	// back from its newest entry after skipping offset, oldest first, and how
+	// many entries the trail holds in all. A limit of zero, or past the page
+	// maximum, reads the page maximum.
+	GetLatestAuditLogs(ctx context.Context, instanceID uuid.UUID, limit, offset int) ([]entities.AuditEntry, int64, error)
+
 	// ExportOCEL reads a project's audit trail as an OCEL 2.0 object-centric
 	// event log, so the history this engine already records can be mined by the
 	// tools that exist rather than only read in this application's timeline.
 	ExportOCEL(ctx context.Context, projectID uuid.UUID, opts entities.OCELOptions) (entities.OCELLog, error)
 }
 
+// ErrMessagePartlyDelivered is wrapped into the error of a message send that
+// failed for some of its recipients after others had already committed.
+//
+// Each recipient of a message — a waiting instance, a process it starts —
+// commits on its own, so a send that fails part-way has still done some of its
+// work. Sending the message again would do that work twice: a second start of a
+// process that already started. A caller that retries must not retry this one.
+var ErrMessagePartlyDelivered = errors.New("message reached some of its recipients before the rest failed")
+
 // EngineEventBus handles process events, signals, messages, escalation, and compensation.
 type EngineEventBus interface {
 	DispatchEvent(ctx context.Context, event entities.ProcessEvent)
 	BroadcastSignal(ctx context.Context, projectID uuid.UUID, signalName string, vars map[string]any) error
+	// SendMessage delivers a message to the instances waiting on it — every
+	// one of them when correlationKey is empty — and, when it is empty, starts
+	// the processes whose message start event listens for it. Its error wraps
+	// ErrMessagePartlyDelivered when some of that work committed.
 	SendMessage(ctx context.Context, projectID uuid.UUID, messageName, correlationKey string, vars map[string]any) error
+	// StartFromMessage starts the processes whose message start event listens
+	// for messageName, and nothing else: no waiting instance is reached. It
+	// reports how many started; its error wraps ErrMessagePartlyDelivered when
+	// some did before another failed.
+	StartFromMessage(ctx context.Context, projectID uuid.UUID, messageName string, vars map[string]any) (int, error)
 	TriggerEscalation(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, escalationCode string) error
 	TriggerCompensation(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, activityRef string) error
 }

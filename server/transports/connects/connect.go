@@ -25,9 +25,17 @@ import (
 	"github.com/gsoultan/metis/server/transports/https/common"
 )
 
+// maxMessageBytes caps a message after decompression. The request-size limit
+// counts the bytes on the wire, and Connect accepts gzip: without this a 2 MB
+// body of compressed zeros inflated to gigabytes before anything decoded it.
+const maxMessageBytes = 2 << 20
+
 func NewConnectHandler(eps endpoints.Endpoints) (string, http.Handler) {
 	mux := http.NewServeMux()
-	classified := connect.WithInterceptors(refusalCodes())
+	classified := connect.WithHandlerOptions(
+		connect.WithInterceptors(refusalCodes()),
+		connect.WithReadMaxBytes(maxMessageBytes),
+	)
 
 	mux.Handle(servicesconnect.NewOrganizationServiceHandler(organizations.NewHandler(eps.Organization), classified))
 	mux.Handle(servicesconnect.NewProjectServiceHandler(projects.NewHandler(eps.Project), classified))

@@ -157,8 +157,11 @@ func decodeGetExecutionPathRequest(_ context.Context, r *http.Request) (any, err
 }
 
 func decodeGetAuditLogsRequest(_ context.Context, r *http.Request) (any, error) {
-	id := r.PathValue("id")
-	return process.GetAuditLogsRequest{InstanceID: id}, nil
+	return process.GetAuditLogsRequest{
+		InstanceID: r.PathValue("id"),
+		Limit:      common.LimitParam(r),
+		Offset:     common.OffsetParam(r),
+	}, nil
 }
 
 func decodeExportOCELRequest(_ context.Context, r *http.Request) (any, error) {

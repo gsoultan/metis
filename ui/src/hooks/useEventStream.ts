@@ -14,7 +14,9 @@ import { useEffect, useRef } from 'react';
 import { useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { backoffDelay, parseEventStreamChunk, type StreamEvent } from '../domain/eventStream';
 import { API_BASE_URL } from '../services/shared/config';
-import { getAuthHeaders } from '../services/shared/auth';
+import { getAuthToken } from '../services/shared/auth';
+import { reportSessionRefused } from '../services/shared/sessionRefusal';
+import { createBurstDebounce, type BurstDebounce } from './burstDebounce';
 
 export type EventHandler = (event: StreamEvent) => void;
 
@@ -62,13 +64,26 @@ async function readStream(body: ReadableStream<Uint8Array>): Promise<void> {
 }
 
 async function connect(): Promise<void> {
+  // Signed out, there is nobody to stream for: the next subscriber after
+  // signing in opens it again.
+  const token = getAuthToken();
+  if (!token) {
+    return;
+  }
   const own = new AbortController();
   controller = own;
   try {
     const response = await fetch(`${API_BASE_URL}/events`, {
-      headers: { Accept: 'text/event-stream', ...getAuthHeaders() },
+      headers: { Accept: 'text/event-stream', Authorization: `Bearer ${token}` },
       signal: own.signal,
     });
+    if (response.status === 401) {
+      // The token expired or was revoked. Retrying it only fails again, every
+      // thirty seconds, for as long as the tab is open.
+      if (controller === own) controller = null;
+      reportSessionRefused(token);
+      return;
+    }
     if (!response.ok || !response.body) {
       throw new Error(`The event stream was refused (HTTP ${response.status})`);
     }
@@ -152,6 +167,8 @@ export function useEventStream(types: readonly string[] | typeof ALL_EVENTS, han
 
 /** How long after the last event a refetch is issued. */
 export const INVALIDATE_DEBOUNCE_MS = 300;
+/** The longest a steady stream of events can hold a refetch back. */
+export const INVALIDATE_MAX_WAIT_MS = 2_000;
 
 /**
  * Refetches the queries under `queryKey` when any of `types` arrives — at most
@@ -160,18 +177,21 @@ export const INVALIDATE_DEBOUNCE_MS = 300;
  */
 export function useInvalidateOnEvents(types: readonly string[], queryKey: QueryKey): void {
   const queryClient = useQueryClient();
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const keyText = JSON.stringify(queryKey);
+  const debounce = useRef<BurstDebounce | null>(null);
 
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
+  useEffect(() => {
+    const own = createBurstDebounce(
+      () => { void queryClient.invalidateQueries({ queryKey: JSON.parse(keyText) as QueryKey }); },
+      INVALIDATE_DEBOUNCE_MS,
+      INVALIDATE_MAX_WAIT_MS,
+    );
+    debounce.current = own;
+    return () => {
+      own.cancel();
+      if (debounce.current === own) debounce.current = null;
+    };
+  }, [queryClient, keyText]);
 
-  useEventStream(types, () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      timer.current = null;
-      queryClient.invalidateQueries({ queryKey: JSON.parse(keyText) as QueryKey });
-    }, INVALIDATE_DEBOUNCE_MS);
-  });
+  useEventStream(types, () => debounce.current?.call());
 }

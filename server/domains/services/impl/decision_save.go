@@ -80,6 +80,13 @@ func (s *decisionService) liveVersion(ctx context.Context, projectID uuid.UUID, 
 // storeNewVersion stores d as the next version of its key, and makes it the
 // live one when promote says so.
 func (s *decisionService) storeNewVersion(ctx context.Context, d entities.DecisionDefinition, promote bool) (entities.SavedDecision, error) {
+	// A requirement is an input the table reads by its key, so listing it
+	// twice says nothing more; before evaluation reused answers it doubled
+	// the work under it.
+	if dup := duplicateRequirement(d.RequiredDecisions); dup != "" {
+		return entities.SavedDecision{}, apierr.Invalidf(
+			"decision %s requires %s more than once; list each required decision once", d.Key, dup)
+	}
 	if d.ID == uuid.Nil {
 		id, err := uuid.NewV7()
 		if err != nil {

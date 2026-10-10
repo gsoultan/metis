@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	repocont "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
 
@@ -26,7 +27,15 @@ func (s *stubAuditRepo) ListByInstance(_ context.Context, _ uuid.UUID) ([]models
 	return nil, nil
 }
 
-func (s *stubAuditRepo) ListByProject(_ context.Context, _ uuid.UUID) ([]models.AuditModel, error) {
+func (s *stubAuditRepo) LatestByInstance(_ context.Context, _ uuid.UUID, _, _ int64) ([]models.AuditModel, int64, error) {
+	return nil, 0, nil
+}
+
+func (s *stubAuditRepo) NodeVisits(_ context.Context, _ uuid.UUID, _ string) ([]repocont.NodeVisit, error) {
+	return nil, nil
+}
+
+func (s *stubAuditRepo) ListByProject(_ context.Context, _ uuid.UUID, _ int64) ([]models.AuditModel, error) {
 	return nil, nil
 }
 

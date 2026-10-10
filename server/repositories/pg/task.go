@@ -492,14 +492,30 @@ func (r *taskRepository) scopedQuery(ctx context.Context, scoped []uuid.UUID, pr
 	q := task.New().Where(preds...)
 	switch {
 	case scoped != nil:
-		q = q.Where(task.ProjectID.In(uuidsToRaw(scoped)...))
+		q = q.Where(inProjects(scoped))
 	case !scope.unrestricted():
 		if len(scope.projects) == 0 {
 			return task.Query{}, false, nil
 		}
-		q = q.Where(task.ProjectID.In(uuidsToRaw(scope.projects)...))
+		q = q.Where(inProjects(scope.projects))
 	}
 	return q, true, nil
+}
+
+// inProjects is the tenant predicate: the task belongs to one of these
+// projects.
+//
+// One project is said as an equality rather than as a list of one. The page
+// of a project's tasks is read from ix_tasks_project_created (migration 35),
+// already in the order it asks for, and only an equality lets the planner use
+// that order: `project_id = ANY($1)` is a list of any length to a prepared
+// statement, so it reads every matching task and sorts them, as it did before
+// the index existed.
+func inProjects(ids []uuid.UUID) task.Pred {
+	if len(ids) == 1 {
+		return task.ProjectID.Eq(ids[0])
+	}
+	return task.ProjectID.In(uuidsToRaw(ids)...)
 }
 
 // quoted renders a name the way it appears inside a JSON array, so a substring

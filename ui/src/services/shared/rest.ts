@@ -1,5 +1,6 @@
 import { API_BASE_URL } from "./config";
-import { getAuthHeaders } from "./auth";
+import { getAuthToken } from "./auth";
+import { reportSessionRefused } from "./sessionRefusal";
 
 type RequestOptions = {
   method?: string;
@@ -7,6 +8,11 @@ type RequestOptions = {
   signal?: AbortSignal;
   headers?: Record<string, string>;
   auth?: boolean;
+  /**
+   * The request checks credentials of its own — the current password when
+   * changing it — so a 401 means those were wrong, not that the session ended.
+   */
+  checksCredentials?: boolean;
 };
 
 const toErrorMessage = (statusText: string, fallback: string) => {
@@ -18,11 +24,12 @@ const toErrorMessage = (statusText: string, fallback: string) => {
 };
 
 export const requestJSON = async <T>(path: string, options: RequestOptions = {}): Promise<T> => {
-  const { method = "GET", body, signal, headers = {}, auth = true } = options;
+  const { method = "GET", body, signal, headers = {}, auth = true, checksCredentials = false } = options;
 
+  const token = auth ? getAuthToken() : null;
   const finalHeaders: Record<string, string> = {
     ...headers,
-    ...(auth ? getAuthHeaders() : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
   if (body !== undefined && !finalHeaders["Content-Type"]) {
@@ -35,6 +42,12 @@ export const requestJSON = async <T>(path: string, options: RequestOptions = {})
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
   });
+
+  // Only a request that carried the session's token can say the session is
+  // over: /login and /setup send none, and a wrong password there is a 401 too.
+  if (response.status === 401 && token && !checksCredentials) {
+    reportSessionRefused(token);
+  }
 
   if (response.status === 204) {
     return {} as T;

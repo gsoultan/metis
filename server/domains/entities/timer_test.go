@@ -1,6 +1,7 @@
 package entities_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -156,5 +157,34 @@ func TestTimerScheduleNextCountsDown(t *testing.T) {
 	}
 	if next := unbounded.Next(now); next.Repeats != entities.RepeatsForever || !next.IsRepeating() {
 		t.Errorf("an unbounded cycle stopped repeating: %+v", next)
+	}
+}
+
+// A cycle is due again as soon as it has fired, so one written in
+// milliseconds fired on every poll of the job worker, for as long as the
+// instance lived. Anything faster than once per second is refused; a second
+// is not.
+func TestARepeatingTimerFasterThanOncePerSecondIsRefused(t *testing.T) {
+	now := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)
+
+	for _, expr := range []string{"R/PT0.001S", "R5/PT0.5S", "R/2026-01-01T00:00:00Z/PT0,9S"} {
+		if _, err := entities.ParseTimerSchedule(expr, now); err == nil {
+			t.Errorf("%q was scheduled; it repeats faster than once per second", expr)
+		} else if !strings.Contains(err.Error(), "shortest interval") {
+			t.Errorf("%q was refused without saying why: %v", expr, err)
+		}
+		if err := entities.CheckRepeatingTimer(expr); err == nil {
+			t.Errorf("CheckRepeatingTimer(%q) passed a cycle faster than once per second", expr)
+		}
+	}
+
+	// A one-off timer may be as short as it likes: it fires once.
+	for _, expr := range []string{"R/PT1S", "PT0.001S", "", "amount > 5"} {
+		if err := entities.CheckRepeatingTimer(expr); err != nil {
+			t.Errorf("CheckRepeatingTimer(%q) refused it: %v", expr, err)
+		}
+	}
+	if _, err := entities.ParseTimerSchedule("R/PT1S", now); err != nil {
+		t.Errorf("a cycle of exactly one second was refused: %v", err)
 	}
 }

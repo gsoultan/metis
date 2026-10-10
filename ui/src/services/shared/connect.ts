@@ -1,4 +1,4 @@
-import { createClient } from "@connectrpc/connect";
+import { Code, ConnectError, createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { DefinitionService } from "../../gen/services/definition_pb";
 import { OrganizationService } from "../../gen/services/organization_pb";
@@ -10,6 +10,7 @@ import { TaskService } from "../../gen/services/task_pb";
 import { UserService } from "../../gen/services/user_pb";
 import { API_BASE_URL } from "./config";
 import { getAuthToken } from "./auth";
+import { reportSessionRefused } from "./sessionRefusal";
 
 /**
  * Connect RPC transport for the first-party UI.
@@ -33,10 +34,19 @@ export const transport = createConnectTransport({
   interceptors: [
     (next) => async (req) => {
       const token = getAuthToken();
-      if (token) {
-        req.header.set("Authorization", `Bearer ${token}`);
+      if (!token) {
+        return next(req);
       }
-      return next(req);
+      req.header.set("Authorization", `Bearer ${token}`);
+      try {
+        return await next(req);
+      } catch (error) {
+        // An expired or revoked token: the session is over, not this call.
+        if (ConnectError.from(error).code === Code.Unauthenticated) {
+          reportSessionRefused(token);
+        }
+        throw error;
+      }
     },
   ],
 });

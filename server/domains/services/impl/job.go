@@ -157,7 +157,14 @@ func (s *jobService) StartWorkers(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				s.processPendingJobs(ctx)
+				// A panic here would end the ticker, and with it every job.
+				if err := runRecovered("job poll", func() error {
+					s.processPendingJobs(ctx)
+					return nil
+				}); err != nil {
+					// Logged with its stack by runRecovered; the next tick polls again.
+					continue
+				}
 			}
 		}
 	}()
@@ -305,7 +312,7 @@ func (s *jobService) runJob(ctx context.Context, job entities.Job) {
 		return
 	}
 
-	err := s.execute(ctx, job)
+	err := runRecovered("job "+job.ID.String(), func() error { return s.execute(ctx, job) })
 	if err == nil {
 		// Completed in the same transaction as its work; see job_settlement.go.
 		return
@@ -322,7 +329,9 @@ func (s *jobService) runJob(ctx context.Context, job entities.Job) {
 	if s.droppedForWithdrawnStep(ctx, job) {
 		return
 	}
-	if s.tryErrorBoundaryRoute(ctx, job, err) {
+	// A panic is a defect in Metis, not a failure the process modelled a path
+	// for: it is retried and then raised as an incident, never caught.
+	if !errors.Is(err, errPanicked) && s.tryErrorBoundaryRoute(ctx, job, err) {
 		return
 	}
 	s.recordFailure(ctx, job, err)

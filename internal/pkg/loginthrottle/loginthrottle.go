@@ -27,6 +27,8 @@
 package loginthrottle
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"sync"
 	"time"
 
@@ -83,6 +85,7 @@ func New() *Throttle {
 // a refused attempt does not extend its own penalty, which would let an
 // attacker lock an account out by continuing to knock.
 func (t *Throttle) RetryAfter(username string, now time.Time) (time.Duration, bool) {
+	username = keyOf(username)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -105,6 +108,7 @@ func (t *Throttle) RetryAfter(username string, now time.Time) (time.Duration, bo
 
 // Failed records an unsuccessful sign-in.
 func (t *Throttle) Failed(username string, now time.Time) {
+	username = keyOf(username)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -123,9 +127,25 @@ func (t *Throttle) Failed(username string, now time.Time) {
 // whatever came before it — otherwise somebody who mistyped four times would
 // keep paying for it after getting in.
 func (t *Throttle) Succeeded(username string) {
+	username = keyOf(username)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.accounts.Remove(username)
+}
+
+// maxKeyBytes is the longest username kept as itself. Capacity bounds the
+// number of entries, not their size, and the username is whatever the sign-in
+// request carried — up to the 2 MB body limit, before any account is found.
+const maxKeyBytes = 256
+
+// keyOf bounds what one entry costs: a longer name is kept as its digest, which
+// still tells one name from another.
+func keyOf(username string) string {
+	if len(username) <= maxKeyBytes {
+		return username
+	}
+	sum := sha256.Sum256([]byte(username))
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // delayFor doubles from BaseDelay for each failure past the free ones, to
