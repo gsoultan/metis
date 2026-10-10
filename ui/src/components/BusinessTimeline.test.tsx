@@ -41,13 +41,14 @@ const oneStep: ApiAuditEntry[] = ['Claim checked', 'Claim approved', 'Claim file
 
 // What the stand-in hook returns; each describe sets it before it renders.
 let shown = decided;
+let trailLength: number | undefined;
 
 // A module stood in for stays stood in for the rest of the run, so everything
 // else it exports stays as it is.
 const instanceHooks = await import('../hooks/useInstances');
 mock.module('../hooks/useInstances', () => ({
   ...instanceHooks,
-  useAuditLogs: () => ({ data: { entries: shown }, isLoading: false }),
+  useAuditLogs: () => ({ data: { entries: shown, total: trailLength }, isLoading: false }),
 }));
 
 const { BusinessTimeline } = await import('./BusinessTimeline');
@@ -176,5 +177,28 @@ describe('a hand-over on the business timeline', () => {
     expect(text).toContain('Parked work at &quot;Wait&quot; was withdrawn');
     expect(text).toContain('The called process finished after the parent moved on');
     expect(text).not.toContain('Reason:');
+  });
+});
+
+/**
+ * The server sends at most a page of a long trail — its newest entries — and
+ * how many there are in all. The timeline says it is showing the newest,
+ * rather than passing a page off as the whole history.
+ */
+describe('a trail longer than one page on the business timeline', () => {
+  it('says it shows only the latest events, and how many there are', () => {
+    shown = oneStep;
+    trailLength = 1500;
+    const text = textOf(renderToStaticMarkup(<MantineProvider><BusinessTimeline instanceId="i1" /></MantineProvider>));
+    trailLength = undefined;
+    expect(text).toContain('Showing the latest 3 of 1500 events');
+  });
+
+  it('says nothing of the kind when the whole trail is shown', () => {
+    shown = oneStep;
+    trailLength = oneStep.length;
+    const text = textOf(renderToStaticMarkup(<MantineProvider><BusinessTimeline instanceId="i1" /></MantineProvider>));
+    trailLength = undefined;
+    expect(text).not.toContain('Showing the latest');
   });
 });

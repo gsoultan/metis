@@ -84,6 +84,7 @@ const id: Catalogue = {
   'timeline.released': '{actor} melepaskan "{task}" kembali ke antrean',
   'timeline.releasedFor': '{actor} melepaskan "{task}" dari {previous} kembali ke antrean',
   'timeline.stepActivated': '{actor} memulai "{task}"',
+  'timeline.newestOnly': 'Menampilkan {shown} peristiwa terbaru dari {total}',
   'timeline.edited': '{actor} mengubah {fields} pada "{task}"',
   'timeline.field.name': 'nama',
   'timeline.field.priority': 'prioritas',

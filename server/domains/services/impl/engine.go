@@ -231,28 +231,22 @@ func (e *Engine) ListSubProcesses(ctx context.Context, parentInstanceID uuid.UUI
 	return res, nil
 }
 
+// GetExecutionPath is the nodes an instance has reached, in the order it first
+// reached them, and how often it reached each.
+//
+// Counted by the repository rather than from the trail: reading the trail to
+// count it held every entry the instance had ever written in memory, and the
+// answer is only as long as the process is wide.
 func (e *Engine) GetExecutionPath(ctx context.Context, instanceID uuid.UUID) (entities.ExecutionPath, error) {
-	entries, err := e.repo.Audit().ListByInstance(ctx, instanceID)
+	visits, err := e.repo.Audit().NodeVisits(ctx, instanceID, entities.EventNodeReached)
 	if err != nil {
 		return entities.ExecutionPath{}, err
 	}
-
 	var nodes []*entities.Node
-	frequencies := make(map[string]int)
-	seen := make(map[string]bool)
-
-	// The trail comes oldest first (ListByInstance orders by created_at, then by
-	// the order each transaction wrote its entries in), so a walk from the front
-	// is the order the steps were reached in. This walked it from the back, on
-	// the belief that it came newest first, and reported every path end to start.
-	for _, entry := range entries {
-		if entry.Type == entities.EventNodeReached && entry.NodeID != "" {
-			frequencies[entry.NodeID]++
-			if !seen[entry.NodeID] {
-				nodes = append(nodes, &entities.Node{ID: entry.NodeID})
-				seen[entry.NodeID] = true
-			}
-		}
+	frequencies := make(map[string]int, len(visits))
+	for _, v := range visits {
+		nodes = append(nodes, &entities.Node{ID: v.NodeID})
+		frequencies[v.NodeID] = v.Visits
 	}
 	return entities.ExecutionPath{
 		Nodes:       nodes,
@@ -260,16 +254,50 @@ func (e *Engine) GetExecutionPath(ctx context.Context, instanceID uuid.UUID) (en
 	}, nil
 }
 
+// GetAuditLogs is an instance's whole trail, oldest first, for the callers that
+// act on every entry. A screen reads GetLatestAuditLogs.
 func (e *Engine) GetAuditLogs(ctx context.Context, instanceID uuid.UUID) ([]entities.AuditEntry, error) {
 	ms, err := e.repo.Audit().ListByInstance(ctx, instanceID)
 	if err != nil {
 		return nil, err
 	}
+	return auditEntities(ms), nil
+}
+
+// AuditPageMax is the most entries one read of an instance's trail returns,
+// and what a caller that names no limit is given.
+//
+// The timeline used to read the whole trail, and an instance that loops for a
+// year has written more than any page should hold: a few hundred bytes an
+// entry, times every visit to every step. A thousand is more than a timeline
+// can usefully show and far less than a replica can be made to hold.
+const AuditPageMax = 1000
+
+// GetLatestAuditLogs is a window of an instance's trail counted back from its
+// newest entry, oldest first, and how many entries there are in all.
+//
+// limit is clamped to AuditPageMax, and zero or less means AuditPageMax:
+// bounded whatever the caller asks, so the read cannot be widened from
+// outside. offset counts back from the newest, so the next page further into
+// the past is offset+limit.
+func (e *Engine) GetLatestAuditLogs(ctx context.Context, instanceID uuid.UUID, limit, offset int) ([]entities.AuditEntry, int64, error) {
+	if limit <= 0 || limit > AuditPageMax {
+		limit = AuditPageMax
+	}
+	offset = max(offset, 0)
+	ms, total, err := e.repo.Audit().LatestByInstance(ctx, instanceID, int64(limit), int64(offset))
+	if err != nil {
+		return nil, 0, err
+	}
+	return auditEntities(ms), total, nil
+}
+
+func auditEntities(ms []models.AuditModel) []entities.AuditEntry {
 	res := make([]entities.AuditEntry, len(ms))
 	for i, m := range ms {
 		res[i] = adapters.AuditEntityAdapter{Model: m}.ToEntity()
 	}
-	return res, nil
+	return res
 }
 
 // maxExecutionDepth bounds how many nodes a single synchronous execution may

@@ -87,6 +87,12 @@ func LimitParam(r *http.Request) int {
 	return atoiOrZero(r.URL.Query().Get("limit"))
 }
 
+// OffsetParam reads ?offset= from a request: how many rows to skip, or zero.
+// Read like LimitParam, and for the same reason.
+func OffsetParam(r *http.Request) int {
+	return atoiOrZero(r.URL.Query().Get("offset"))
+}
+
 func atoiOrZero(s string) int {
 	n, err := strconv.Atoi(strings.TrimSpace(s))
 	if err != nil || n < 0 {

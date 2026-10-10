@@ -86,11 +86,22 @@ type GetExecutionPathResponse struct {
 
 type GetAuditLogsRequest struct {
 	InstanceID string `json:"instance_id"`
+	// Limit is the most entries to return, counted back from the newest. Zero,
+	// or more than the page maximum, is the page maximum.
+	Limit int `json:"limit,omitzero"`
+	// Offset is how many of the newest entries to skip first: the next page
+	// into the past is Offset+Limit.
+	Offset int `json:"offset,omitzero"`
 }
 
 type GetAuditLogsResponse struct {
+	// Entries are oldest first, as the whole trail is, and are the newest of
+	// it unless Offset skipped some.
 	Entries []entities.AuditEntry `json:"entries"`
-	Err     error                 `json:"err,omitzero"`
+	// Total is how many entries the trail holds, so a caller can tell a page
+	// from the whole of it.
+	Total int64 `json:"total"`
+	Err   error `json:"err,omitzero"`
 }
 
 func (r GetAuditLogsResponse) Failed() error { return r.Err }

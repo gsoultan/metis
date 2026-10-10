@@ -314,6 +314,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Changed
 
+- **`GET /api/v1/instances/{id}/audit` returns the newest 1,000 entries and
+  how many there are.** It read and returned an instance's whole trail, so an
+  instance that had looped for months answered with every entry it had ever
+  written. The response now holds at most 1,000 entries, the newest, still
+  oldest first, and a new `total`; `?limit=` and `?offset=` (counted back
+  from the newest) reach the rest. The timeline says when it is showing only
+  the latest events. `GET /api/v1/instances/{id}/path` is now counted by the
+  database rather than from the whole trail, with the same answer.
 - **`GET /api/v1/projects/{id}/ocel` refuses a project larger than one export
   can hold.** The export is built in memory, and it read the project's whole
   audit trail and every instance first, so one request for a long-running

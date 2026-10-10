@@ -58,6 +58,12 @@ type EngineReader interface {
 	GetExecutionPath(ctx context.Context, instanceID uuid.UUID) (entities.ExecutionPath, error)
 	GetAuditLogs(ctx context.Context, instanceID uuid.UUID) ([]entities.AuditEntry, error)
 
+	// GetLatestAuditLogs reads at most a page of an instance's trail, counted
+	// back from its newest entry after skipping offset, oldest first, and how
+	// many entries the trail holds in all. A limit of zero, or past the page
+	// maximum, reads the page maximum.
+	GetLatestAuditLogs(ctx context.Context, instanceID uuid.UUID, limit, offset int) ([]entities.AuditEntry, int64, error)
+
 	// ExportOCEL reads a project's audit trail as an OCEL 2.0 object-centric
 	// event log, so the history this engine already records can be mined by the
 	// tools that exist rather than only read in this application's timeline.

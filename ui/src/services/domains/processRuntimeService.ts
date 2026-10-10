@@ -7,6 +7,8 @@ import type { Deadlines } from "../../domain/slaReport";
 
 type GetAuditLogsResponse = {
   entries?: ApiAuditEntry[];
+  /** How many entries the trail holds; more than `entries` when only its newest page was sent. */
+  total?: number;
   err?: string;
 };
 
@@ -112,7 +114,8 @@ export const processRuntimeService = {
 
   async getAuditLogs(id: string, signal?: AbortSignal) {
     const data = await requestJSON<GetAuditLogsResponse>(`/instances/${id}/audit`, { signal });
-    return { entries: data.entries ?? [], err: data.err };
+    const entries = data.entries ?? [];
+    return { entries, total: data.total ?? entries.length, err: data.err };
   },
 
   async listSubProcesses(parentInstanceId: string, signal?: AbortSignal) {

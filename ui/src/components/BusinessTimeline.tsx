@@ -93,6 +93,9 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
   // step writes share its timestamp, and a stable sort left them oldest first
   // under the newest-first ones, the step's last entry below its first.
   const entries = [...data.entries].reverse();
+  // A long trail arrives as its newest page, and says how long it is: the
+  // timeline says so too, rather than passing a page off as the whole history.
+  const total = data.total ?? entries.length;
 
   /*
    * Height follows the content up to a cap, rather than always being 500px.
@@ -157,6 +160,11 @@ export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
             );
           })}
         </Timeline>
+        {total > entries.length && (
+          <Text size="xs" c="dimmed" mt="md">
+            {t('timeline.newestOnly', { shown: entries.length, total })}
+          </Text>
+        )}
       </Box>
     </ScrollArea.Autosize>
   );

@@ -88,6 +88,8 @@ const en: Catalogue = {
   'timeline.released': '{actor} released "{task}" back to the queue',
   'timeline.releasedFor': '{actor} released "{task}" from {previous} back to the queue',
   'timeline.stepActivated': '{actor} started "{task}"',
+  // The server sends a long trail's newest page only; this says so under it.
+  'timeline.newestOnly': 'Showing the latest {shown} of {total} events',
   'timeline.edited': '{actor} changed {fields} of "{task}"',
   'timeline.field.name': 'the name',
   'timeline.field.priority': 'the priority',
