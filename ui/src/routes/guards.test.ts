@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { isRedirect, redirect } from '@tanstack/react-router';
-import { rethrowRedirect } from './guards';
+import { forgetSetupState, requireConfigured, rethrowRedirect } from './guards';
+import { stubFetch } from '../services/shared/stubbedFetch';
 
 /**
  * The route guards each wrapped their check in try/catch and re-threw
@@ -48,5 +49,35 @@ describe('rethrowRedirect', () => {
   it('ignores non-error values', () => {
     expect(() => rethrowRedirect(undefined)).not.toThrow();
     expect(() => rethrowRedirect('failed')).not.toThrow();
+  });
+});
+
+describe('requireConfigured', () => {
+  let restore = () => {};
+  afterEach(() => {
+    restore();
+    forgetSetupState();
+  });
+
+  it('asks the server once a page load, not before every navigation', async () => {
+    const stub = stubFetch({ status: { is_initialized: true } });
+    restore = stub.restore;
+
+    await requireConfigured();
+    await requireConfigured();
+    await requireConfigured();
+
+    expect(stub.sent.length).toBe(1);
+  });
+
+  it('asks again while the system is not configured, so finishing the wizard is noticed', async () => {
+    const stub = stubFetch({ status: { is_initialized: false } });
+    restore = stub.restore;
+
+    const sentToSetup = async () => isRedirect(await requireConfigured().catch((thrown: unknown) => thrown));
+    expect(await sentToSetup()).toBe(true);
+    expect(await sentToSetup()).toBe(true);
+
+    expect(stub.sent.length).toBe(2);
   });
 });
