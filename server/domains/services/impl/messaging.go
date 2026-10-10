@@ -48,6 +48,10 @@ const (
 var (
 	errInboundDeadLetterPublishTimeout = errors.New("inbound dead-letter publish timeout")
 	errInboundDispatchTimeout          = errors.New("inbound message dispatch timeout")
+
+	// errInboundMessageReachedNobody is a message with no correlation key that
+	// no process starts on. Sending it again changes nothing.
+	errInboundMessageReachedNobody = errors.New("the message carries no correlation key, so it is not delivered to waiting instances, and no process starts on it")
 )
 
 // brokerReconnects is how long a bridge or consumer waits between attempts to
@@ -244,7 +248,10 @@ func (s *messagingService) processInboundDelivery(
 	}
 
 	reason := "dispatch_failed"
-	if !isRetryableDispatchError(err) {
+	switch {
+	case errors.Is(err, errInboundMessageReachedNobody):
+		reason = "no_correlation_key"
+	case !isRetryableDispatchError(err):
 		// Cancelled or timed out. When the consumer is stopping, the message
 		// was not refused by anything — nobody got to it — so it goes back
 		// rather than being dropped on the way out.
@@ -367,14 +374,38 @@ func (s *messagingService) newInboundDispatchContext(ctx context.Context) (conte
 	return context.WithTimeoutCause(ctx, timeout, errInboundDispatchTimeout)
 }
 
+// deliverInboundMessage hands one message to the engine.
+//
+// A message with no correlation key may start a process — that is how a
+// message start event works — but it is not delivered to the instances waiting
+// on its name. To the engine an empty key means every one of them, and a
+// broker message that merely lacked the field would have advanced them all at
+// once; the webhook path refuses the same thing for the same reason. A keyless
+// message that starts nothing has reached nobody, and is dead-lettered rather
+// than acknowledged as if it had.
+func (s *messagingService) deliverInboundMessage(ctx context.Context, projectID uuid.UUID, messageName string, correlationKey string, payload map[string]any) error {
+	if correlationKey != "" {
+		return s.engine.SendMessage(ctx, projectID, messageName, correlationKey, payload)
+	}
+
+	started, err := s.engine.StartFromMessage(ctx, projectID, messageName, payload)
+	if err != nil {
+		return err
+	}
+	if started == 0 {
+		return errInboundMessageReachedNobody
+	}
+	return nil
+}
+
 func (s *messagingService) sendMessageWithRetry(ctx context.Context, projectID uuid.UUID, messageName string, correlationKey string, payload map[string]any) error {
 	for attempt := range inboundDispatchMaxAttempts {
-		err := s.engine.SendMessage(ctx, projectID, messageName, correlationKey, payload)
+		err := s.deliverInboundMessage(ctx, projectID, messageName, correlationKey, payload)
 		if err == nil {
 			return nil
 		}
 
-		if !isRetryableDispatchError(err) {
+		if !isRetryableDispatchError(err) || errors.Is(err, errInboundMessageReachedNobody) {
 			return fmt.Errorf("send inbound message: %w", err)
 		}
 

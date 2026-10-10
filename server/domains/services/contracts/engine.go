@@ -68,6 +68,10 @@ type EngineEventBus interface {
 	DispatchEvent(ctx context.Context, event entities.ProcessEvent)
 	BroadcastSignal(ctx context.Context, projectID uuid.UUID, signalName string, vars map[string]any) error
 	SendMessage(ctx context.Context, projectID uuid.UUID, messageName, correlationKey string, vars map[string]any) error
+	// StartFromMessage starts the processes whose message start event listens
+	// for messageName, and nothing else: no waiting instance is reached. It
+	// reports how many started.
+	StartFromMessage(ctx context.Context, projectID uuid.UUID, messageName string, vars map[string]any) (int, error)
 	TriggerEscalation(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, escalationCode string) error
 	TriggerCompensation(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, activityRef string) error
 }

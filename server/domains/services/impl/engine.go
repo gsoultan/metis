@@ -705,7 +705,7 @@ func (e *Engine) BroadcastSignal(ctx context.Context, projectID uuid.UUID, signa
 
 	// Signal start events are a separate audience; a failed subscriber must not
 	// stop the signal from starting the processes that wait for it.
-	if err := e.triggerStartEvents(ctx, projectID, "signal_name", signalName, vars); err != nil {
+	if _, err := e.triggerStartEvents(ctx, projectID, "signal_name", signalName, vars); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -732,12 +732,22 @@ func (e *Engine) SendMessage(ctx context.Context, projectID uuid.UUID, messageNa
 	// Message start events carry no correlation key, so they are only in scope
 	// for an uncorrelated message.
 	if correlationKey == "" {
-		if err := e.triggerStartEvents(ctx, projectID, "message_name", messageName, vars); err != nil {
+		if _, err := e.triggerStartEvents(ctx, projectID, "message_name", messageName, vars); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	return errors.Join(errs...)
+}
+
+// StartFromMessage starts the processes whose message start event listens for
+// messageName, without reaching any instance already waiting on it.
+//
+// It is SendMessage for a message that names no instance and comes from a
+// source that cannot be taken to mean "every waiting instance" — a broker
+// message that simply carried no correlation key.
+func (e *Engine) StartFromMessage(ctx context.Context, projectID uuid.UUID, messageName string, vars map[string]any) (int, error) {
+	return e.triggerStartEvents(ctx, projectID, "message_name", messageName, vars)
 }
 
 // triggerSubscription advances the instance waiting on sub, merging vars into
@@ -803,36 +813,41 @@ func (e *Engine) triggerSubscription(ctx context.Context, sub entities.EventSubs
 // Failures are collected rather than returned at the first: a broadcast owes
 // every process that listens its start, and one that fails must not silence
 // the rest.
-func (e *Engine) triggerStartEvents(ctx context.Context, projectID uuid.UUID, propName, propValue string, vars map[string]any) error {
+func (e *Engine) triggerStartEvents(ctx context.Context, projectID uuid.UUID, propName, propValue string, vars map[string]any) (int, error) {
 	keys, err := e.repo.Definition().ListKeysByProject(ctx, projectID)
 	if err != nil {
-		return fmt.Errorf("list the processes of project %s: %w", projectID, err)
+		return 0, fmt.Errorf("list the processes of project %s: %w", projectID, err)
 	}
 
 	var errs []error
+	started := 0
 	for _, key := range keys {
-		if err := e.startIfListening(ctx, projectID, key, propName, propValue, vars); err != nil {
+		ok, err := e.startIfListening(ctx, projectID, key, propName, propValue, vars)
+		if err != nil {
 			errs = append(errs, err)
 		}
+		if ok {
+			started++
+		}
 	}
-	return errors.Join(errs...)
+	return started, errors.Join(errs...)
 }
 
 // startIfListening starts key's live version at its start event declaring
-// propName == propValue, if it has one.
-func (e *Engine) startIfListening(ctx context.Context, projectID uuid.UUID, key, propName, propValue string, vars map[string]any) error {
+// propName == propValue, if it has one, and says whether it started.
+func (e *Engine) startIfListening(ctx context.Context, projectID uuid.UUID, key, propName, propValue string, vars map[string]any) (bool, error) {
 	live, err := e.repo.Definition().GetLiveByProjectKey(ctx, projectID, key)
 	if errors.Is(err, apierr.ErrNotFound) {
 		// Nothing of this process is live, so nothing of it can start.
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return fmt.Errorf("find the live version of %s: %w", key, err)
+		return false, fmt.Errorf("find the live version of %s: %w", key, err)
 	}
 	def := adapters.DefinitionEntityAdapter{Model: live}.ToEntity()
 	start := listeningStartEvent(def, propName, propValue)
 	if start == nil {
-		return nil
+		return false, nil
 	}
 	// The version is pinned to the one just read, so a deploy landing between
 	// this check and the start cannot swap in a version without this event.
@@ -842,9 +857,9 @@ func (e *Engine) startIfListening(ctx context.Context, projectID uuid.UUID, key,
 		return cmd.Execute(txCtx)
 	})
 	if err != nil {
-		return fmt.Errorf("start process %s from %s %q: %w", key, propName, propValue, err)
+		return false, fmt.Errorf("start process %s from %s %q: %w", key, propName, propValue, err)
 	}
-	return nil
+	return true, nil
 }
 
 // listeningStartEvent returns the definition's top-level start event that

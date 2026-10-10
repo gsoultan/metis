@@ -105,6 +105,48 @@ func TestAStartEventOnlyAnOlderVersionHadStartsNothing(t *testing.T) {
 	}
 }
 
+// StartFromMessage is what a broker message with no correlation key reaches. It
+// starts the processes that listen for the message and leaves alone every
+// instance already waiting on it: to SendMessage an empty key means all of
+// them, and a message that merely lacked the field must not advance them all.
+func TestStartingFromAMessageLeavesTheInstancesWaitingOnItWaiting(t *testing.T) {
+	h := newEngineHarness(t, "Message Start Only Project")
+	h.deploy(t, orderIntake(h.projID, true))
+	h.deploy(t, &entities.ProcessDefinition{
+		Project: &entities.Project{ID: h.projID},
+		Key:     "order-watcher",
+		Nodes: []*entities.Node{
+			{ID: "start", Type: entities.StartEvent},
+			{ID: "await-order", Type: entities.IntermediateCatchEvent, Properties: map[string]any{"message_name": "OrderPlaced"}},
+			{ID: "react", Type: entities.UserTask, Name: "React to the order"},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "start", TargetRef: "await-order"},
+			{ID: "f2", SourceRef: "await-order", TargetRef: "react"},
+			{ID: "f3", SourceRef: "react", TargetRef: "end"},
+		},
+	})
+	watcher, err := h.svc.StartProcess(h.Ctx(), h.projID, "order-watcher", nil)
+	if err != nil {
+		t.Fatalf("start the watcher: %v", err)
+	}
+
+	started, err := h.engine.StartFromMessage(h.Ctx(), h.projID, "OrderPlaced", nil)
+	if err != nil {
+		t.Fatalf("start from message: %v", err)
+	}
+	if started != 1 {
+		t.Fatalf("started %d processes, want the one that listens", started)
+	}
+	if got := len(h.instances(t)); got != 2 {
+		t.Fatalf("%d instances, want the watcher and the one the message started", got)
+	}
+	if h.waitingAt(h.Ctx(), t, watcher, "react") {
+		t.Fatal("a message that named no instance advanced the instance waiting on it")
+	}
+}
+
 // A signal is a broadcast: every process that listens starts, once each.
 func TestASignalStartsEachListeningProcessOnce(t *testing.T) {
 	h := newEngineHarness(t, "Signal Start Project")

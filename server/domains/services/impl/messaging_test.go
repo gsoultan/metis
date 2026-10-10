@@ -17,7 +17,18 @@ import (
 )
 
 type engineEventBusStub struct {
-	sendMessage func(ctx context.Context, projectID uuid.UUID, messageName, correlationKey string, vars map[string]any) error
+	sendMessage      func(ctx context.Context, projectID uuid.UUID, messageName, correlationKey string, vars map[string]any) error
+	startFromMessage func(ctx context.Context, projectID uuid.UUID, messageName string, vars map[string]any) (int, error)
+}
+
+// StartFromMessage reports one start unless told otherwise, so a test that is
+// not about keyless messages is not dead-lettered for starting nothing.
+func (s *engineEventBusStub) StartFromMessage(ctx context.Context, projectID uuid.UUID, messageName string, vars map[string]any) (int, error) {
+	if s.startFromMessage == nil {
+		return 1, nil
+	}
+
+	return s.startFromMessage(ctx, projectID, messageName, vars)
 }
 
 func (s *engineEventBusStub) DispatchEvent(_ context.Context, _ entities.ProcessEvent) {}
@@ -630,6 +641,102 @@ func TestAnUnreadableMessageTheDeadLetterQueueRefusesIsNotAcknowledged(t *testin
 	}
 	if outcome != requeueDelivery {
 		t.Fatalf("an unreadable message was acknowledged (outcome %v) with nowhere holding it", outcome)
+	}
+}
+
+// A broker message that carried no correlation key.
+//
+// To the engine an empty key means every instance waiting on the message's
+// name, so a message that merely lacked the field advanced all of them at once.
+// It may still start a process — that is what a message start event is for —
+// but it must reach no waiting instance.
+func TestAMessageWithNoCorrelationKeyStartsProcessesButReachesNoWaitingInstance(t *testing.T) {
+	t.Parallel()
+
+	var sends, starts atomic.Int64
+	svc := &messagingService{
+		engine: &engineEventBusStub{
+			sendMessage: func(context.Context, uuid.UUID, string, string, map[string]any) error {
+				sends.Add(1)
+				return nil
+			},
+			startFromMessage: func(context.Context, uuid.UUID, string, map[string]any) (int, error) {
+				starts.Add(1)
+				return 1, nil
+			},
+		},
+		sleep:                  func(context.Context, time.Duration) error { return nil },
+		jitter:                 func(time.Duration) time.Duration { return 0 },
+		inboundDispatchTimeout: time.Second,
+	}
+
+	outcome, err := svc.processInboundDelivery(t.Context(), uuid.New(), "incoming-queue", "incoming-queue.dlq", "message.name",
+		amqp.Delivery{Body: []byte(`{"value":"x"}`), Headers: amqp.Table{"correlation_key": ""}},
+		func(context.Context, string, amqp.Publishing) error {
+			t.Fatal("a message that started a process was dead-lettered")
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("processInboundDelivery: %v", err)
+	}
+	if outcome != ackDelivery {
+		t.Fatalf("outcome = %v, want the message acknowledged", outcome)
+	}
+	if got := sends.Load(); got != 0 {
+		t.Fatalf("the message was sent to waiting instances %d times; it names none of them", got)
+	}
+	if got := starts.Load(); got != 1 {
+		t.Fatalf("the message was offered to start events %d times, want 1", got)
+	}
+}
+
+// A keyless message that no process starts on has reached nobody. It used to
+// be acknowledged as if it had been delivered; now it is parked with the reason.
+func TestAMessageWithNoCorrelationKeyThatStartsNothingIsDeadLetteredOnce(t *testing.T) {
+	t.Parallel()
+
+	var starts atomic.Int64
+	svc := &messagingService{
+		engine: &engineEventBusStub{
+			sendMessage: func(context.Context, uuid.UUID, string, string, map[string]any) error {
+				t.Fatal("a message with no correlation key was sent to waiting instances")
+				return nil
+			},
+			startFromMessage: func(context.Context, uuid.UUID, string, map[string]any) (int, error) {
+				starts.Add(1)
+				return 0, nil
+			},
+		},
+		sleep:                  func(context.Context, time.Duration) error { return nil },
+		jitter:                 func(time.Duration) time.Duration { return 0 },
+		inboundDispatchTimeout: time.Second,
+	}
+
+	var parked []amqp.Publishing
+	outcome, err := svc.processInboundDelivery(t.Context(), uuid.New(), "incoming-queue", "incoming-queue.dlq", "message.name",
+		amqp.Delivery{Body: []byte(`{"value":"x"}`)},
+		func(_ context.Context, _ string, message amqp.Publishing) error {
+			parked = append(parked, message)
+			return nil
+		})
+	if !errors.Is(err, errInboundMessageReachedNobody) {
+		t.Fatalf("err = %v, want it to say the message reached nobody", err)
+	}
+	if outcome != ackDelivery {
+		t.Fatalf("outcome = %v, want the parked message acknowledged", outcome)
+	}
+	if got := starts.Load(); got != 1 {
+		t.Fatalf("starting from the message was tried %d times; trying again changes nothing", got)
+	}
+	if len(parked) != 1 {
+		t.Fatalf("dead-lettered %d times, want once", len(parked))
+	}
+	var body map[string]any
+	if err := json.Unmarshal(parked[0].Body, &body); err != nil {
+		t.Fatalf("dead-letter body: %v", err)
+	}
+	if body["failure_reason"] != "no_correlation_key" {
+		t.Fatalf("failure_reason = %v, want no_correlation_key", body["failure_reason"])
 	}
 }
 

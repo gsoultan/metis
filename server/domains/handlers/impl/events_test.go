@@ -87,6 +87,11 @@ func (s *stubEngine) SendMessage(ctx context.Context, projectID uuid.UUID, messa
 	return nil
 }
 
+func (s *stubEngine) StartFromMessage(context.Context, uuid.UUID, string, map[string]any) (int, error) {
+	s.record("StartFromMessage")
+	return 0, nil
+}
+
 func (s *stubEngine) TriggerEscalation(context.Context, *entities.ProcessInstance, *entities.ProcessDefinition, entities.Node, string) error {
 	return nil
 }
