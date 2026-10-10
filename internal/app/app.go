@@ -1218,7 +1218,7 @@ func (a *App) serveGRPC(ctx context.Context, g *errgroup.Group, grpcServer *grpc
 		if err != nil {
 			return err
 		}
-		baseServer := grpc.NewServer()
+		baseServer := grpc.NewServer(grpcRecovery()...)
 		a.registerGRPCServices(baseServer, grpcServer)
 
 		log.Info().Str("addr", grpcAddress).Msg("gRPC server listening")

@@ -98,7 +98,9 @@ func (e *inboundPartitionExecutor) runPartitionWorker(partitionQueue <-chan inbo
 				runCtx = e.stopCtx
 			}
 
-			task.result <- task.execute(runCtx)
+			// Recovered, so a panic fails this one message instead of the
+			// process — and a redelivered message would only do it again.
+			task.result <- runRecovered("inbound message", func() error { return task.execute(runCtx) })
 		}
 	}
 }

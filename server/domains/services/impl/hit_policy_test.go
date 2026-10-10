@@ -200,3 +200,29 @@ func TestNoMatchIsAnEmptyResultNotAnError(t *testing.T) {
 		t.Errorf("matched %v, want nothing", result.MatchedRules)
 	}
 }
+
+// TestAnyComparesListAndObjectOutputs: ANY compared outputs with `!=`, and a
+// rule's outputs are JSON-decoded values. Two matching lines whose output is a
+// list or an object made Go panic comparing uncomparable types, and the panic
+// took down whichever worker was evaluating the business-rule task.
+func TestAnyComparesListAndObjectOutputs(t *testing.T) {
+	def := severityTable(entities.HitPolicyAny, "")
+
+	def.Rules = []entities.DecisionRule{
+		{Inputs: []string{"> 10"}, Outputs: []any{[]any{"a", "b"}}},
+		{Inputs: []string{"> 40"}, Outputs: []any{[]any{"a", "b"}}},
+	}
+	if result := evaluate(t, def, map[string]any{"amount": 50.0}); result.Values["severity"] == nil {
+		t.Error("ANY with agreeing list outputs returned no value")
+	}
+
+	def.Rules = []entities.DecisionRule{
+		{Inputs: []string{"> 10"}, Outputs: []any{map[string]any{"level": "LOW"}}},
+		{Inputs: []string{"> 40"}, Outputs: []any{map[string]any{"level": "HIGH"}}},
+	}
+	_, err := NewDecisionTableEvaluator(NewFEELEvaluator()).
+		EvaluateTable(t.Context(), def, map[string]any{"amount": 50.0})
+	if err == nil || !strings.Contains(err.Error(), "disagree") {
+		t.Errorf("error = %v, want ANY to refuse object outputs that disagree", err)
+	}
+}
