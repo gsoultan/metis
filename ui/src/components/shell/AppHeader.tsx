@@ -11,7 +11,7 @@ import {
   Tooltip,
   UnstyledButton,
 } from '@mantine/core';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import {
   Building2,
   FolderGit2,
@@ -72,6 +72,13 @@ export function AppHeader({
     expertMode,
     setExpertMode,
   } = useAppStore();
+  const navigate = useNavigate();
+  // Signing out stayed on the page, still showing the last person's data and
+  // still receiving their live events until the next navigation.
+  const signOut = () => {
+    clearAuth();
+    void navigate({ to: '/login' });
+  };
 
   const isDark = theme === 'dark';
   const currentProject = projects.find((p) => p.id === currentProjectId);
@@ -227,7 +234,7 @@ export function AppHeader({
 
               <Menu.Divider />
 
-              <Menu.Item color="red" leftSection={<LogOut size={14} />} onClick={clearAuth}>
+              <Menu.Item color="red" leftSection={<LogOut size={14} />} onClick={signOut}>
                 Sign out
               </Menu.Item>
             </Menu.Dropdown>

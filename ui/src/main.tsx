@@ -38,10 +38,13 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
 import App from './App.tsx'
+import { useAppStore } from './store/useAppStore'
+import { clearQueriesOnSignOut } from './store/clearOnSignOut'
 
 // Without defaults every query refetches on every mount and focus — see
 // services/queryDefaults for what each resource's rate of change justifies.
 const queryClient = new QueryClient({ defaultOptions: queryClientDefaults })
+clearQueriesOnSignOut(useAppStore, queryClient)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
