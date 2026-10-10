@@ -889,6 +889,17 @@ func (a *App) readinessCheckers() map[string]health.Checker {
 			}
 			return sqlDB.PingContext(ctx)
 		}),
+		// The pgx pool is checked on its own because it is a pool of its own,
+		// and it is the one carrying most of the traffic. Only the GORM pool
+		// used to be pinged, so a replica whose storm pool could not reach the
+		// database — exhausted, or pointed somewhere that went away — still
+		// reported ready and kept taking requests it could only fail.
+		"storm": health.CheckerFunc(func(ctx context.Context) error {
+			if a.storm == nil {
+				return nil
+			}
+			return a.storm.Main().Ping(ctx)
+		}),
 	}
 }
 
