@@ -32,21 +32,10 @@ import (
 func serveEnvironmentPort(ctx context.Context, name string, listener net.Listener, handler http.Handler) {
 	address := listener.Addr().String()
 	server := newHTTPServer(address, handler)
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeoutCause(
-			context.WithoutCancel(ctx),
-			httpShutdownTimeout,
-			fmt.Errorf("the %s environment's server did not shut down in time", name),
-		)
-		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error().Err(err).Str("environment", name).Msg("Environment server shutdown failed")
-		}
-	}()
+	serve := func() error { return server.Serve(listener) }
 
 	log.Info().Str("environment", name).Str("addr", address).Msg("Environment listening")
-	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := serveUntilShutdown(ctx, "the "+name+" environment's server", server, serve); err != nil {
 		log.Error().Err(err).
 			Str("environment", name).
 			Str("addr", address).

@@ -43,6 +43,10 @@ type environmentRuntimes struct {
 	// work is the watcher and the starts it has under way, so a test can wait
 	// for them to finish.
 	work sync.WaitGroup
+	// listeners is every environment listener, each until its shutdown has
+	// finished, so the process does not exit under a request one of them is
+	// still answering.
+	listeners sync.WaitGroup
 }
 
 // environmentRuntime is one environment as this replica serves it.
