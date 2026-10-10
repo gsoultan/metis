@@ -387,6 +387,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   the next person to sign in in that tab was shown it. Signing out now goes to
   the sign-in page and empties the cache.
 
+- **An instance's variable history stopped at its oldest thousand snapshots.**
+  The history was read with the store's default limit, oldest first, so an
+  instance that had looped past a thousand steps lost its newest snapshots —
+  the ones that say what it saw when it last decided — with nothing to say
+  there were more. Every snapshot is now returned, oldest first.
 - **A migration with a mapping reopened work that was already finished.** A
   node mapping says where work in progress goes. The rewrite applied it to
   every task and every job of the instance on a mapped step, whatever its

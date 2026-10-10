@@ -49,7 +49,14 @@ func (r *variableSnapshotRepository) Create(ctx context.Context, m models.Variab
 	return snapshotFrom(row)
 }
 
-// ListByInstance returns one instance's snapshots, oldest first.
+// ListByInstance returns every one of an instance's snapshots, oldest first.
+//
+// Every one, not the store's oldest thousand: the history is read to answer
+// "what did the instance see when it decided", and the decision being asked
+// about is usually the latest. An instance that had looped past a thousand
+// steps got history that stopped a thousand steps in, with no sign there was
+// more. The id breaks ties in captured_at, so the keyset walk is a position:
+// two snapshots taken in one step can share a moment.
 //
 // Scoped through the instance rather than directly: a snapshot has no project
 // of its own, so the check is that the instance is one the caller may see.
@@ -61,10 +68,9 @@ func (r *variableSnapshotRepository) ListByInstance(ctx context.Context, instanc
 	if err != nil {
 		return nil, err
 	}
-	rows, err := variablesnapshot.New().
+	rows, err := everyRow[variablesnapshot.Row](ctx, ex, variablesnapshot.New().
 		Where(variablesnapshot.InstanceID.Eq(instanceID)).
-		Order(variablesnapshot.CapturedAt.Asc()).
-		All(ctx, ex, nil)
+		Order(variablesnapshot.CapturedAt.Asc(), variablesnapshot.ID.Asc()))
 	if err != nil {
 		return nil, fmt.Errorf("could not read the snapshots: %w", err)
 	}
