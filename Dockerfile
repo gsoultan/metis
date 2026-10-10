@@ -39,7 +39,7 @@ RUN bun run build
 # every driver is pure Go, so this is a real cross-compile rather than
 # emulation: an arm64 image builds at native speed instead of running the whole
 # toolchain under QEMU.
-FROM --platform=$BUILDPLATFORM golang:1.27.0-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine AS build
 
 # git: the Go toolchain wants it for VCS stamping. ca-certificates: outbound
 # connector calls are TLS, and scratch-adjacent bases carry no roots.
