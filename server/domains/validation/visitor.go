@@ -54,6 +54,9 @@ func (v *Visitor) VisitFlowNode(n *entities.Node) {
 		v.errors = append(v.errors, fmt.Sprintf(
 			"Flow node %s repeats %q, which the engine cannot run; a step repeats parallel, sequential or none", n.ID, n.MultiInstanceType))
 	}
+	if err := n.LoopCardinalityError(); err != nil {
+		v.errors = append(v.errors, err.Error())
+	}
 }
 
 func (v *Visitor) VisitSequenceFlow(sf *entities.SequenceFlow) {

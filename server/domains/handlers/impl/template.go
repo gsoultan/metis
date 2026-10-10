@@ -60,6 +60,12 @@ func (t *NodeHandlerTemplate) handleMultiInstance(ctx context.Context, instance 
 	if instance.IsMultiInstanceActive(node.ID) {
 		return nil
 	}
+	// Every parallel token is created before any runs, so an unbounded count
+	// exhausts memory. Refused rather than cut short: running fewer
+	// repetitions than the definition asks for is a silent wrong answer.
+	if err := node.LoopCardinalityError(); err != nil {
+		return err
+	}
 
 	total := 0
 	var collection []any

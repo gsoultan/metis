@@ -2,6 +2,7 @@ package entities
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -54,6 +55,24 @@ type Node struct {
 	Properties map[string]any  `json:"properties,omitzero"`
 	Nodes      []*Node         `json:"nodes,omitzero"`
 	Flows      []*SequenceFlow `json:"flows,omitzero"`
+}
+
+// MaxLoopCardinality is the most times a step may be set to repeat by a
+// fixed count. The engine creates every parallel token up front and runs
+// them on one worker, so a definition saying 2000000000 exhausted memory
+// rather than doing two billion approvals. A real fixed-count loop is far
+// smaller.
+const MaxLoopCardinality = 10_000
+
+// LoopCardinalityError says why a step's fixed repeat count cannot be run,
+// or returns nil when it can. Deploy and the engine share it so a version
+// stored before deploy checked it fails with the same words.
+func (n *Node) LoopCardinalityError() error {
+	if !n.Repeats() || n.Collection != "" || n.LoopCardinality <= MaxLoopCardinality {
+		return nil
+	}
+	return fmt.Errorf("flow node %s repeats %d times, more than the %d a step may repeat by count",
+		n.ID, n.LoopCardinality, MaxLoopCardinality)
 }
 
 // KnownMultiInstanceType reports whether the engine can run a step that
