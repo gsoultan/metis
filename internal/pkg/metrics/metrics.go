@@ -32,6 +32,9 @@ const maxTrackedRoutes = 200
 const (
 	routeOverflow = "other"
 	segmentID     = ":id"
+	// routeUnmatched is where a path that was never routed lands, unless its
+	// route is already known; see trackRoute.
+	routeUnmatched = "unmatched"
 )
 
 // Collector holds the registry and the collectors registered on it.
@@ -147,7 +150,7 @@ func (c *Collector) Wrap(next http.Handler) http.Handler {
 		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(recorder, r)
 
-		route := c.trackRoute(normalizeRoute(r.URL.Path))
+		route := c.trackRoute(normalizeRoute(r.URL.Path), recorder.status)
 		status := strconv.Itoa(recorder.status)
 
 		c.requestDuration.WithLabelValues(methodLabel(r.Method), route, status).Observe(time.Since(start).Seconds())
@@ -164,7 +167,7 @@ func (c *Collector) serveStream(next http.Handler, w http.ResponseWriter, r *htt
 	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	next.ServeHTTP(recorder, r)
 
-	route := c.trackRoute(normalizeRoute(r.URL.Path))
+	route := c.trackRoute(normalizeRoute(r.URL.Path), recorder.status)
 	c.requestsTotal.WithLabelValues(methodLabel(r.Method), route, statusClass(recorder.status)).Inc()
 }
 
@@ -182,18 +185,41 @@ func methodLabel(method string) string {
 
 // trackRoute returns route if it is already known or there is room for it, and
 // routeOverflow once the bound is reached.
-func (c *Collector) trackRoute(route string) string {
+//
+// A path answered with a status that says nothing was routed is not admitted:
+// it is recorded as routeUnmatched unless the route is already known. The
+// slots are claimed for good, first come first served, so before this the
+// first 200 distinct junk paths an unauthenticated scanner sent — every one a
+// 404 or a 401 — took every slot, and every real route the service has was
+// reported as "other" from then on.
+func (c *Collector) trackRoute(route string, status int) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if _, ok := c.routes[route]; ok {
 		return route
 	}
+	if unrouted(status) {
+		return routeUnmatched
+	}
 	if len(c.routes) >= maxTrackedRoutes {
 		return routeOverflow
 	}
 	c.routes[route] = struct{}{}
 	return route
+}
+
+// unrouted reports whether a status is one a request can get without ever
+// reaching a route: not found, or refused by the authentication or rate-limit
+// interceptor in front of the mux. A real route seen only with these is named
+// from the first request that gets further.
+func unrouted(status int) bool {
+	switch status {
+	case http.StatusNotFound, http.StatusUnauthorized, http.StatusTooManyRequests:
+		return true
+	default:
+		return false
+	}
 }
 
 // normalizeRoute collapses identifier-shaped path segments so that one route

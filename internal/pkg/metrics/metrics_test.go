@@ -56,8 +56,10 @@ func TestStatusClass(t *testing.T) {
 // attacker-supplied path, so distinct junk paths must stop minting time series.
 func TestRouteLabelIsBounded(t *testing.T) {
 	c := New()
+	// Answered, so every path is admitted and only the bound holds them back;
+	// unrouted paths are kept out before the bound is reached at all.
 	handler := c.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(http.StatusOK)
 	}))
 
 	// Far more distinct paths than the bound allows, none identifier-shaped so
