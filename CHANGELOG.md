@@ -157,6 +157,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Variable snapshots and finished jobs can be cut back, if you ask.** Both
+  tables only ever grew. `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` removes
+  snapshots captured more than that many days ago, and
+  `METIS_RETENTION_COMPLETED_JOBS_DAYS` removes jobs that will never run
+  again — completed, or failed with no unresolved incident naming them — that
+  have been neither due nor changed for that long. **Both are off unless set**,
+  so an upgrade removes nothing. They run in the existing retention sweep, on
+  every database, 5,000 rows a statement. A pending or running job, a failed
+  job an open incident names, and every incident are kept. Process instances,
+  tasks and the audit trail are never removed by the server at any setting:
+  they are the business record. See *What to watch* in
+  `docs/postgresql.md`.
 - **An instance keeps a ledger of what was done to it outside its process.**
   A step waived by a migration, an instance a migration cancelled or held, a
   task handed on by somebody who did not hold it, a step started inside an

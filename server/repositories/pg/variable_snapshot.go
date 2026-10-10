@@ -3,8 +3,11 @@ package pg
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -83,6 +86,26 @@ func (r *variableSnapshotRepository) ListByInstance(ctx context.Context, instanc
 		out = append(out, snapshot)
 	}
 	return out, nil
+}
+
+// ForgetCapturedBefore deletes, a batch at a time, the snapshots captured
+// before cutoff. Raw SQL, as every sweep is; captured_at is indexed, so each
+// batch is a range of it.
+func (r *variableSnapshotRepository) ForgetCapturedBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	if !entities.IsSystemContext(ctx) {
+		return 0, fmt.Errorf("%w: forgetting variable snapshots spans every tenant", apierr.ErrForbidden)
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return 0, err
+	}
+	removed, err := db.DeleteInBatches(ctx, ex,
+		`DELETE FROM variable_snapshots WHERE ctid = ANY(ARRAY(
+		     SELECT ctid FROM variable_snapshots WHERE captured_at < $1 LIMIT $2))`, cutoff.UTC())
+	if err != nil {
+		return removed, fmt.Errorf("could not forget old variable snapshots: %w", err)
+	}
+	return removed, nil
 }
 
 func snapshotFrom(row variablesnapshot.Row) (models.VariableSnapshotModel, error) {

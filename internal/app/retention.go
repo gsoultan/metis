@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/interceptors/security"
 	"github.com/gsoultan/metis/server/repositories/db"
@@ -31,7 +34,8 @@ const sharedCountKept = 5 * time.Minute
 // two of them keyed by whatever callers chose to send.
 //
 // The same pass re-offers external tasks stranded at zero retries; see
-// reoffer.
+// reoffer. It also cuts back variable snapshots and finished jobs, but only
+// when an operator has said for how long to keep them; see optInRetention.
 //
 // It sweeps once at start-up, because an installation that is redeployed more
 // often than the interval would otherwise never sweep, and then on a timer.
@@ -40,11 +44,13 @@ const sharedCountKept = 5 * time.Minute
 // electing a single sweeper.
 func (a *App) startRetentionSweeps(ctx context.Context) {
 	ctx = entities.WithSystemContext(ctx)
+	keep := resolveOptInRetention()
+	keep.announce()
 	go func() {
 		ticker := time.NewTicker(retentionSweepEvery)
 		defer ticker.Stop()
 		for {
-			a.sweepRetention(ctx, time.Now())
+			a.sweepRetention(ctx, time.Now(), keep)
 			select {
 			case <-ctx.Done():
 				return
@@ -56,7 +62,7 @@ func (a *App) startRetentionSweeps(ctx context.Context) {
 
 // sweepRetention runs one pass over every table and every database that holds
 // one.
-func (a *App) sweepRetention(ctx context.Context, now time.Time) {
+func (a *App) sweepRetention(ctx context.Context, now time.Time, keep optInRetention) {
 	forget(ctx, "shared_counters", "main", func(ctx context.Context) (int64, error) {
 		return a.repo.SharedCounter().Prune(ctx, now.Add(-sharedCountKept))
 	})
@@ -64,13 +70,13 @@ func (a *App) sweepRetention(ctx context.Context, now time.Time) {
 	// Deliveries and idempotency records are kept in the database of the port
 	// the request arrived on, so a webhook posted to a staging port is
 	// remembered in staging, and each environment needs its own sweep.
-	a.sweepRuntime(ctx, "main", now)
+	a.sweepRuntime(ctx, "main", now, keep)
 	for _, id := range gorms.OpenEnvironmentIDs() {
-		a.sweepRuntime(db.Bind(ctx, id), id.String(), now)
+		a.sweepRuntime(db.Bind(ctx, id), id.String(), now, keep)
 	}
 }
 
-func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time) {
+func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time, keep optInRetention) {
 	reoffer(ctx, database, a.repo.ExternalTask().ReofferStranded)
 	forget(ctx, "webhook_deliveries", database, a.svc.ForgetOldDeliveries)
 	// No storm connection means idempotency records are held in the serving
@@ -79,6 +85,78 @@ func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time) 
 		forget(ctx, "idempotency_records", database, func(ctx context.Context) (int64, error) {
 			return security.ForgetIdempotencyRecords(ctx, a.storm, defaultHTTPIdempotencyTTL, now)
 		})
+	}
+	// The two an operator opts into. Instances live in each runtime's
+	// database, so their snapshots and jobs do too.
+	if keep.variableSnapshots > 0 {
+		forget(ctx, "variable_snapshots", database, func(ctx context.Context) (int64, error) {
+			return a.repo.VariableSnapshot().ForgetCapturedBefore(ctx, now.Add(-keep.variableSnapshots))
+		})
+	}
+	if keep.finishedJobs > 0 {
+		forget(ctx, "jobs", database, func(ctx context.Context) (int64, error) {
+			return a.repo.Job().ForgetFinishedBefore(ctx, now.Add(-keep.finishedJobs))
+		})
+	}
+}
+
+// The retention an operator opts into, in days. Unset, nothing is removed:
+// these rows are history somebody may still read, unlike the three above,
+// which answer a question only for minutes or hours.
+const (
+	envRetainVariableSnapshotsDays = "METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS"
+	envRetainCompletedJobsDays     = "METIS_RETENTION_COMPLETED_JOBS_DAYS"
+)
+
+// maxRetentionDays bounds the setting so a typo of extra digits is refused
+// rather than turned into a duration that overflows.
+const maxRetentionDays = 36_500
+
+// optInRetention is how long the swept-on-request tables keep a row; zero
+// means the table is not swept at all.
+//
+// Only these two. Process instances, tasks and the audit trail are business
+// records — what was decided, by whom, and when — and an engine that deleted
+// them on a timer would be deleting the evidence of somebody's commitments.
+type optInRetention struct {
+	variableSnapshots time.Duration
+	finishedJobs      time.Duration
+}
+
+func resolveOptInRetention() optInRetention {
+	return optInRetention{
+		variableSnapshots: retentionDays(envRetainVariableSnapshotsDays),
+		finishedJobs:      retentionDays(envRetainCompletedJobsDays),
+	}
+}
+
+// retentionDays reads one setting. Anything that is not a whole number of days
+// from 1 up is off, and said to be: a setting that deletes rows must not take
+// a guess at what was meant.
+func retentionDays(name string) time.Duration {
+	raw := strings.TrimSpace(envvar.Get(name))
+	if raw == "" || raw == "0" {
+		return 0
+	}
+	days, err := strconv.Atoi(raw)
+	if err != nil || days < 1 || days > maxRetentionDays {
+		log.Warn().Str("setting", name).Str("value", raw).
+			Msgf("Ignoring a retention setting that is not a whole number of days between 1 and %d; nothing is removed by it.", maxRetentionDays)
+		return 0
+	}
+	return time.Duration(days) * 24 * time.Hour
+}
+
+// announce says at boot which of the opt-in sweeps are on, because each one
+// deletes rows and an operator reading the log should not have to infer it.
+func (k optInRetention) announce() {
+	if k.variableSnapshots > 0 {
+		log.Info().Str("table", "variable_snapshots").Dur("kept", k.variableSnapshots).
+			Msg("Variable snapshots older than the retention period are removed")
+	}
+	if k.finishedJobs > 0 {
+		log.Info().Str("table", "jobs").Dur("kept", k.finishedJobs).
+			Msg("Completed jobs, and failed ones no open incident names, older than the retention period are removed")
 	}
 }
 

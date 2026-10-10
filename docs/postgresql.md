@@ -140,9 +140,9 @@ FROM pg_stat_user_tables ORDER BY n_dead_tup DESC LIMIT 10;
 ```
 
 The tables that grow without bound over an installation's life are
-`audit_logs`, `variable_snapshots`, `service_calls` and completed `jobs`. The
-audit trail is meant to be kept. The other three are candidates for a retention
-policy once you know your volume — start by measuring, not by deleting.
+`audit_logs`, `variable_snapshots`, `service_calls` and finished `jobs`, with
+`process_instances`, `tasks`, `incidents` and `notifications` growing with the
+work itself. Start by measuring, not by deleting.
 
 Three tables are cut back by the server itself, because their rows answer a
 question only for a while. Every replica sweeps them at start-up and every ten
@@ -154,6 +154,25 @@ open environment's:
 | `webhook_deliveries` | 48 hours | Longer than any sender's retry schedule, which is what the record de-duplicates. |
 | `idempotency_records` | 15 minutes once answered; a day if never answered | Answers older than the TTL are reclaimed, not replayed. An unanswered claim may still belong to a running request, because the server sets no write deadline. |
 | `shared_counters` | 5 minutes | The rate-limit windows are one minute long. |
+
+Two more are cut back only when you say for how long to keep them. **Both
+are off by default**, and an upgrade removes nothing until one is set:
+
+| Setting | Removes | Never removes |
+| :--- | :--- | :--- |
+| `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` | `variable_snapshots` captured more than that many days ago. An instance's variable history then starts at the period's beginning. | Snapshots inside the period, of any instance. |
+| `METIS_RETENTION_COMPLETED_JOBS_DAYS` | `jobs` that will never run again — `completed`, or `failed` with no unresolved incident naming them — neither due nor changed for that many days. | A `pending` or `running` job, and a `failed` job an open incident names: resolving the incident is what runs it again. The incidents themselves are kept. |
+
+Each is a whole number of days from 1; anything else is ignored with a warning
+and removes nothing. They run in the same sweep, on every database, 5,000 rows
+a statement, and the server says at boot which are on.
+
+**Process instances, tasks and the audit trail are never removed by the
+server**, at any setting. They are the business record — what was decided, by
+whom, and when — and keeping or archiving them is a decision for whoever owns
+that record, not a timer. The same holds for `service_calls`, which is what
+stops a retried step calling a partner twice, and for `incidents` and
+`notifications`.
 
 A failed sweep is logged as `A retention sweep failed` with the table and the
 database. The table then keeps growing until a sweep succeeds.

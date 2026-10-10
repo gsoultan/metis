@@ -30,4 +30,9 @@ type JobRepository interface {
 	// Backlog reports the queue across every tenant, so it is refused unless
 	// ctx is system work.
 	Backlog(ctx context.Context, now time.Time) (JobBacklog, error)
+
+	// ForgetFinishedBefore deletes the jobs that will never run again and
+	// have been neither due nor changed since cutoff, and returns how many it
+	// deleted. Across every tenant, so it is refused unless ctx is system work.
+	ForgetFinishedBefore(ctx context.Context, cutoff time.Time) (int64, error)
 }

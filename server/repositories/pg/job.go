@@ -164,6 +164,53 @@ func (r *jobRepository) GetPending(ctx context.Context, limit int) ([]models.Job
 // Three small reads rather than one aggregate: each is a range on an indexed
 // column, and a scrape every few seconds should not be the heaviest query the
 // database runs.
+// ForgetFinishedBefore deletes, a batch at a time, the jobs that will never
+// run again: completed ones, and failed ones no unresolved incident names.
+//
+// Never a pending or a running job — those are work the engine owes. Never a
+// failed job with an incident still open either: resolving the incident is
+// what runs it again, and it reads the job to do so, so deleting the row
+// would turn "retry" into an error. A failed job with no incident is one whose
+// instance had ended; one whose incidents are all resolved was run again and
+// failed once more after its instance had ended. Neither will run again.
+//
+// Old means neither due nor changed since cutoff. next_run_at is in the claim
+// index beside status, so each batch is a range of it; updated_at is checked
+// as well so a job finished after it was due is kept for the whole period
+// from when it finished.
+//
+// Raw SQL, as every sweep is: storm deletes by primary key, and naming every
+// row first would be a read of exactly the rows about to go.
+func (r *jobRepository) ForgetFinishedBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	if !entities.IsSystemContext(ctx) {
+		return 0, fmt.Errorf("%w: forgetting finished jobs spans every tenant", apierr.ErrForbidden)
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return 0, err
+	}
+	cutoff = cutoff.UTC()
+	completed, err := db.DeleteInBatches(ctx, ex,
+		`DELETE FROM jobs WHERE ctid = ANY(ARRAY(
+		     SELECT ctid FROM jobs
+		      WHERE status = $1 AND next_run_at < $2 AND updated_at < $2
+		      LIMIT $3))`, string(models.JobCompleted), cutoff)
+	if err != nil {
+		return completed, fmt.Errorf("could not forget completed jobs: %w", err)
+	}
+	failed, err := db.DeleteInBatches(ctx, ex,
+		`DELETE FROM jobs WHERE ctid = ANY(ARRAY(
+		     SELECT j.ctid FROM jobs j
+		      WHERE j.status = $1 AND j.next_run_at < $2 AND j.updated_at < $2
+		        AND NOT EXISTS (
+		            SELECT 1 FROM incidents i WHERE i.job_id = j.id AND i.status <> $3)
+		      LIMIT $4))`, string(models.JobFailed), cutoff, string(models.IncidentResolved))
+	if err != nil {
+		return completed + failed, fmt.Errorf("could not forget failed jobs: %w", err)
+	}
+	return completed + failed, nil
+}
+
 func (r *jobRepository) Backlog(ctx context.Context, now time.Time) (contracts.JobBacklog, error) {
 	if !entities.IsSystemContext(ctx) {
 		return contracts.JobBacklog{}, fmt.Errorf("%w: the job backlog spans every tenant", apierr.ErrForbidden)
