@@ -178,7 +178,9 @@ func (e *JSExpressionEvaluator) Evaluate(condition string, vars map[string]any) 
 	script := strings.TrimPrefix(condition, "js:")
 	vm := NewSandboxedRuntime()
 
-	for k, v := range vars {
+	// A condition only reads; binding a deep copy keeps it from rewriting the
+	// instance's nested data through goja's by-reference map binding.
+	for k, v := range isolatedVariables(vars) {
 		if err := vm.Set(k, v); err != nil {
 			return false
 		}
