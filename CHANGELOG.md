@@ -346,6 +346,47 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **One bad step, message or call could take the whole server down.** A
+  decision table with the ANY hit policy whose matching lines returned a list
+  or an object panicked comparing them, and nothing above the job and inbound
+  message workers recovered a panic, so the process exited — and the broker
+  redelivered the same message to whichever replica came up next. The
+  comparison is fixed, and a panic in a job, an inbound message or a gRPC call
+  now fails that one piece of work: a job is retried and then raised as an
+  incident (never caught by an error boundary), a message is dead-lettered
+  after its retries, and a gRPC call answers `Internal`.
+- **Memory anyone could spend.** An invented HTTP method was a new metrics
+  series per method, recorded before sign-in; it is now `OTHER`. A failed
+  sign-in kept the username as sent, up to the 2 MB body limit, for an hour;
+  a long one is now kept as its digest. A gzip-compressed Connect message was
+  inflated without bound — 2 MB of zeros became gigabytes — and is now refused
+  past 2 MB as `resource_exhausted`. The event webhook started a goroutine per
+  event per endpoint, holding its payload for up to ten seconds; at most 64
+  sends are in flight, and an event past that is logged and not sent.
+- **A request that trickled its body held its slot for as long as it liked.**
+  A few hundred, from one address and inside its rate limit, answered every
+  other call with 503 while `/readyz` stayed green. A request now has 30
+  seconds to send its body; the event stream and slow handlers are unaffected.
+- **An inbound message that always ran out of time was redelivered forever,**
+  holding its queue up behind it. It gets one more delivery, and is
+  dead-lettered as `dispatch_timeout` if that one runs out of time as well.
+- **A failed variable snapshot failed the step it was recording.** The write
+  was meant to be best-effort, but on PostgreSQL a failed statement aborts its
+  transaction; it now runs under a savepoint.
+- **Fetch-and-lock was unbounded over Connect and gRPC.** A zero lock offered
+  the task again at once, so two workers ran the same step, and a huge
+  `max_tasks` locked every task on a topic in one transaction. The lock must be
+  from 1 ms to a day, and a fetch locks at most 100 tasks.
+- **The task form wiped what was typed** whenever the inbox re-rendered — any
+  colleague claiming a task was enough — and fetched its option lists again.
+- **The designer sent a request on every mouse move,** sixty or more a second
+  per person, fanned out to everyone in the project. The cursor is now sent at
+  most ten times a second, and a remote edit is applied once rather than
+  re-applying every earlier one.
+- **Signing out left the last person's data on screen and in the cache,** so
+  the next person to sign in in that tab was shown it. Signing out now goes to
+  the sign-in page and empties the cache.
+
 - **A migration with a mapping reopened work that was already finished.** A
   node mapping says where work in progress goes. The rewrite applied it to
   every task and every job of the instance on a mapped step, whatever its
