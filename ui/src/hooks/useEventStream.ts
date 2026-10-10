@@ -14,7 +14,8 @@ import { useEffect, useRef } from 'react';
 import { useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { backoffDelay, parseEventStreamChunk, type StreamEvent } from '../domain/eventStream';
 import { API_BASE_URL } from '../services/shared/config';
-import { getAuthHeaders } from '../services/shared/auth';
+import { getAuthToken } from '../services/shared/auth';
+import { reportSessionRefused } from '../services/shared/sessionRefusal';
 
 export type EventHandler = (event: StreamEvent) => void;
 
@@ -62,13 +63,26 @@ async function readStream(body: ReadableStream<Uint8Array>): Promise<void> {
 }
 
 async function connect(): Promise<void> {
+  // Signed out, there is nobody to stream for: the next subscriber after
+  // signing in opens it again.
+  const token = getAuthToken();
+  if (!token) {
+    return;
+  }
   const own = new AbortController();
   controller = own;
   try {
     const response = await fetch(`${API_BASE_URL}/events`, {
-      headers: { Accept: 'text/event-stream', ...getAuthHeaders() },
+      headers: { Accept: 'text/event-stream', Authorization: `Bearer ${token}` },
       signal: own.signal,
     });
+    if (response.status === 401) {
+      // The token expired or was revoked. Retrying it only fails again, every
+      // thirty seconds, for as long as the tab is open.
+      if (controller === own) controller = null;
+      reportSessionRefused(token);
+      return;
+    }
     if (!response.ok || !response.body) {
       throw new Error(`The event stream was refused (HTTP ${response.status})`);
     }
