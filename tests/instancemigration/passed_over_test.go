@@ -32,13 +32,7 @@ type migrationReply struct {
 // JSON, so the names and the shape a client sees are what is asserted.
 func (f *fixture) migrateOverTheEndpoint(t *testing.T, request definition.MigrateInstancesRequest) (migrationReply, string) {
 	t.Helper()
-	reply, err := definition.MakeMigrateInstancesEndpoint(f.svc)(f.ctx, request)
-	if err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	if failed := reply.(definition.MigrateInstancesResponse).Err; failed != nil {
-		t.Fatalf("the migration was refused: %v", failed)
-	}
+	reply := f.answerOf(t, request)
 	body, err := json.Marshal(reply)
 	if err != nil {
 		t.Fatalf("encode the reply: %v", err)

@@ -44,6 +44,11 @@ type migrationService struct {
 	// the instance lock, after the row that lock returned has answered that the
 	// instance is still one the decision is about.
 	actions nodeActions
+	// rules says who may approve a request for a migration. It is the rule
+	// the approval of a waive asks, handed on by the service of requests,
+	// which is what approves: built on its own, a migration service names no
+	// organization whose only administrator may approve their own request.
+	rules approvalRules
 }
 
 // NewMigrationService creates a new MigrationService implementation.
@@ -51,6 +56,12 @@ func NewMigrationService(
 	repo repositories.Repository,
 	engine servicecontracts.ExecutionEngine,
 ) servicecontracts.MigrationService {
+	return newMigrationService(repo, engine)
+}
+
+// newMigrationService is NewMigrationService for the service of requests,
+// whose approval of a migration is this service's own plan and apply.
+func newMigrationService(repo repositories.Repository, engine servicecontracts.ExecutionEngine) *migrationService {
 	// One ledger and one audit writer: the ones the node actions record
 	// through are the ones the rest of a migration writes to.
 	actions := newNodeActions(repo, engine)
@@ -58,6 +69,7 @@ func NewMigrationService(
 		repo: repo, engine: engine,
 		audit: actions.audit, ledger: actions.ledger,
 		actions: actions,
+		rules:   approvalRules{repo: repo},
 	}
 }
 
@@ -100,8 +112,37 @@ func (s *migrationService) ApplyInstanceMigration(ctx context.Context, sourceDef
 	if plan.Instances == 0 {
 		return entities.MigrationResult{}, nil
 	}
-	return s.apply(ctx, sourceDefID, targetDefID, nodeMapping, options, plan, plannedFor(covered))
+	// The gate. After the plan this apply runs from and before anything is
+	// written, and it only verifies: it makes no request, so neither a dry run
+	// (which never comes here) nor a refused apply leaves one behind. What it
+	// checks is this plan and this listing — the very values apply is handed —
+	// so what was approved is what runs, or nothing does. options.Approval is
+	// overwritten with what it verified, whatever the caller put there.
+	options.Approval, err = s.approvedRequestFor(ctx, sourceDefID, targetDefID, nodeMapping, options, plan, covered)
+	if err != nil {
+		return entities.MigrationResult{}, err
+	}
+	result, err := s.apply(ctx, sourceDefID, targetDefID, nodeMapping, options, plan, plannedFor(covered))
+	if err != nil {
+		return result, failedInTheRun{err: err}
+	}
+	return result, nil
 }
+
+// failedInTheRun marks a failure of a migration's run itself, as against a
+// refusal made before the run began: the plan's, or the gate's.
+//
+// It says nothing of its own and changes nothing for whoever reads the
+// failure: its words are the failure's, and the failure is under it for
+// errors.Is and errors.As. It is there for the one caller that has to tell
+// the two apart — the approval of a migration, which answers a refusal as a
+// refusal and a run that stopped part-way as the server's failure, whatever
+// class the thing that stopped it happens to carry (approvedRunFailed).
+type failedInTheRun struct{ err error }
+
+func (f failedInTheRun) Error() string { return f.err.Error() }
+
+func (f failedInTheRun) Unwrap() error { return f.err }
 
 // PlanInstanceMigration works out what MigrateInstances would do, and writes
 // nothing.
@@ -206,8 +247,7 @@ func (s *migrationService) planFor(
 		// Named and not there is a refusal, not a silent omission: somebody who
 		// listed twelve instances and had eleven moved would have no way to
 		// find out which one did not.
-		return plan, nil, apierr.Invalidf("version %d of %q is not running instance(s) %s",
-			source.Version, source.Key, strings.Join(missing, ", "))
+		return plan, nil, &instancesNotRunning{version: source.Version, key: source.Key, missing: missing}
 	}
 	plan.Instances = len(instances)
 	if len(instances) == 0 {
@@ -248,14 +288,18 @@ func (s *migrationService) planFor(
 	plan.Warnings = append(plan.Warnings, defaultFlowWarnings(target, targetNodes, found.landings)...)
 	plan.Warnings = append(plan.Warnings, disarmedDutyWarnings(targetNodes)...)
 	plan.Warnings = append(plan.Warnings, claimWarnings(found.moves)...)
-	plan.Warnings = append(plan.Warnings, redirectWarnings(sourceNodes, nodeMapping, instances)...)
+	// What a mapping renames in place — the same step under a new id — is
+	// asked once, here: what finished work follows, a hold, and a redirect's
+	// reason all turn on it.
+	inPlace := renamedInPlace(source, target, sourceNodes, targetNodes, nodeMapping)
+	plan.Warnings = append(plan.Warnings, redirectWarnings(sourceNodes, targetNodes, nodeMapping, inPlace, instances)...)
 
 	// A step somebody marked as carrying a control obligation is not a step a
 	// mapping may quietly drop. Held rather than refused outright: the answer is
 	// sometimes yes — the approver has left, the regulator has just forbidden
 	// the step — but it has to be somebody's answer, recorded with their name on
 	// it, rather than a consequence of a node id nobody mapped.
-	plan.ComplianceHolds = complianceHolds(sourceNodes, targetNodes, nodeMapping, instances)
+	plan.ComplianceHolds = complianceHolds(sourceNodes, targetNodes, nodeMapping, inPlace, instances)
 	for _, hold := range plan.ComplianceHolds {
 		if slices.Contains(options.Acknowledged, hold.NodeID) {
 			continue
@@ -265,6 +309,26 @@ func (s *migrationService) planFor(
 				"acknowledge it explicitly to migrate them without it",
 			hold.NodeID, hold.Instances, noteSuffix(hold.Note)))
 	}
+
+	// Whether applying this is one administrator's call. Counted over the
+	// instances still running, the only ones a run acts on: plan.Instances and
+	// each hold's count above include the ones that have ended, as they always
+	// have, and are not what decides it.
+	//
+	// Four things need somebody else: a skip, a control not carried across
+	// (both secondApproverReasons), a redirect in a version with a control
+	// some instance has not passed (redirectsPastControls), and a
+	// separation-of-duties rule the new version takes away from a step some
+	// instance has still to pass (dutiesLoosened).
+	running := runningOf(instances)
+	plan.SecondApproverReasons = append(secondApproverReasons(sourceNodes, options.Actions, plan.ComplianceHolds, running),
+		redirectsPastControls(sourceNodes, targetNodes, nodeMapping, inPlace, running)...)
+	plan.SecondApproverReasons = append(plan.SecondApproverReasons, dutiesLoosened(sourceNodes, targetNodes, nodeMapping, inPlace, running)...)
+	slices.Sort(plan.SecondApproverReasons)
+	// Decided from every reason; shown as the first few and a count of the
+	// rest. What is shown is also what a refusal says and a request stores.
+	plan.RequiresSecondApprover = len(plan.SecondApproverReasons) > 0
+	plan.SecondApproverReasons = listedReasons(plan.SecondApproverReasons)
 
 	slices.Sort(plan.Refusals)
 	slices.Sort(plan.Warnings)
@@ -278,9 +342,13 @@ func (s *migrationService) planFor(
 // question: the instances that already passed it keep their record, the ones
 // that never reach it were never going to, and these are the ones whose
 // approval was pending when somebody deleted the step.
+//
+// inPlace is the part of the mapping that only gives a step a new id where it
+// stands (renamedInPlace). Any other mapping of a step sends its work to a
+// different step.
 func complianceHolds(
 	sourceNodes, targetNodes map[string]models.FlowNode,
-	nodeMapping map[string]string,
+	nodeMapping, inPlace map[string]string,
 	instances []models.ProcessInstanceModel,
 ) []entities.ComplianceHold {
 	pending := map[string]int{}
@@ -288,21 +356,32 @@ func complianceHolds(
 		if !boolProperty(node.Properties, "compliance_relevant") {
 			continue
 		}
-		// The obligation survives only if it lands on a node that carries one
-		// too. Existing is not enough: mapping "operations approve" onto "sales
-		// approve" lands the token perfectly and still means nobody performs
-		// the check, and a version that keeps the node id but drops the marking
-		// has removed the control just as surely as deleting the node would.
-		landed, ok := targetNodes[mapNode(nodeMapping, id)]
-		if ok && boolProperty(landed.Properties, "compliance_relevant") {
+		// The obligation survives only if the step itself survives — under its
+		// own id, or renamed where it stands — and still carries one. Existing is not enough:
+		// a version that keeps the node id but drops the marking has removed
+		// the control just as surely as deleting the node would.
+		//
+		// Nor is landing on a marked step enough. A control redirected onto a
+		// different step is not performed by performing that one, whatever
+		// that one is marked as: "first check" mapped onto "second check"
+		// lands the token on a control and still means nobody performs the
+		// first. It used to count as carried across whenever the landing step
+		// was marked, so a mapping could take an instance past a control with
+		// nothing held and nobody asked.
+		//
+		// And a new id is not enough to make it the same step. "First check"
+		// mapped onto a third check the new version adds after the second is
+		// a rename by ids alone, and takes the instance past two controls.
+		to := mapNode(nodeMapping, id)
+		_, renamed := inPlace[id]
+		landed, ok := targetNodes[to]
+		if ok && (to == id || renamed) && boolProperty(landed.Properties, "compliance_relevant") {
 			continue
 		}
-		for _, instance := range instances {
-			// An instance that already performed the step waived nothing. Only
-			// the ones whose approval was still pending are a question.
-			if !slices.Contains(instance.CompletedNodes, id) {
-				pending[id]++
-			}
+		// An instance that already performed the step waived nothing. Only
+		// the ones whose approval was still pending are a question.
+		if notPassed := notPassedBy(instances, id); notPassed > 0 {
+			pending[id] += notPassed
 		}
 	}
 
@@ -328,6 +407,13 @@ func noteSuffix(note string) string {
 	}
 	return fmt.Sprintf(" (%s)", note)
 }
+
+// resumeByRunningAgain is what a run that stops part-way tells whoever asked
+// for it to do next. It is true of a migration one administrator applied, and
+// not of one that ran under a second administrator's approval — that request
+// is spent, and what remains is asked for again — so the approval takes it
+// out of what it tells its caller (approvedRunFailed).
+const resumeByRunningAgain = "; run the same migration again to carry on from here"
 
 // apply performs the migration. Every refusal has already been made by the
 // planner, so this only writes.
@@ -359,10 +445,14 @@ func (s *migrationService) apply(
 	if err != nil {
 		return result, fmt.Errorf("target definition: %w", err)
 	}
-	targetNodes := nodeIndex(target.Nodes)
-	// The part of the mapping that only renames a step: what finished work
-	// follows.
-	renames := renamedSteps(nodeIndex(source.Nodes), nodeMapping)
+	sourceNodes, targetNodes := nodeIndex(source.Nodes), nodeIndex(target.Nodes)
+	// The part of the mapping that finished work follows: its renames, and
+	// onto a control only a rename in place (finishedWorkFollows).
+	renames := finishedWorkFollows(sourceNodes, targetNodes, nodeMapping,
+		renamedInPlace(source, target, sourceNodes, targetNodes, nodeMapping))
+	// What the version's steps are called, read once: every reason this run
+	// gives for leaving an instance alone names its steps from here.
+	told := stepsOfSource(source)
 
 	instances, err := s.repo.Process().ListByDefinition(ctx, sourceDefID)
 	if err != nil {
@@ -393,7 +483,7 @@ func (s *migrationService) apply(
 		// Moved all the same, it lost that control with no acknowledgement
 		// asked for and no row to say so.
 		if _, covered := planned[uuid.UUID(instance.ID)]; !covered {
-			result.PassedOver = append(result.PassedOver, passedOver(instance, notPlannedFor(source)))
+			result.PassedOver = append(result.PassedOver, passedOver(instance, becauseNotPlannedFor(told)))
 			log.Info().Str("instance", uuid.UUID(instance.ID).String()).Str("run", runID.String()).
 				Msg("A migration passed over an instance that was not on the source version when it was planned. " +
 					"It stays on the version it is running; plan the migration again to include it")
@@ -406,8 +496,7 @@ func (s *migrationService) apply(
 		// version it actually ran on.
 		made, err := s.decide(ctx, instance, sourceDefID, source, target, options, runID)
 		if err != nil {
-			return result, fmt.Errorf("%w (%d of %d instances had already been dealt with; "+
-				"run the same migration again to carry on from here)", err, done, len(instances))
+			return result, fmt.Errorf("%w (%d of %d instances had already been dealt with"+resumeByRunningAgain+")", err, done, len(instances))
 		}
 		if made.wrote {
 			result.Changed++
@@ -421,7 +510,7 @@ func (s *migrationService) apply(
 			// down: not counted among those dealt with, and still on the
 			// source version for the next run. Said in the result, for whoever
 			// asked for the migration, and in the log.
-			result.PassedOver = append(result.PassedOver, passedOver(instance, leftTheStep(source, made.left)))
+			result.PassedOver = append(result.PassedOver, passedOver(instance, becauseItLeftTheStep(told, made.left)))
 			log.Info().Str("instance", uuid.UUID(instance.ID).String()).Str("run", runID.String()).
 				Msg("A migration passed over an instance that was no longer where its listing found it. " +
 					"It stays on the version it is running; run the same migration again to plan for where it is now")
@@ -431,11 +520,11 @@ func (s *migrationService) apply(
 
 		moved := map[string]string{}
 		settled, elsewhere := false, false
-		// Why the instance, once locked, is not to be moved; empty when it is.
-		stuck := ""
-		// The instance_migrated entry is written after the rewrite commits, but
-		// the control-loss rows written inside it point at that entry, so its id
-		// is chosen first.
+		// Why the instance, once locked, is not to be moved; nothing when it is.
+		var stuck leftAlone
+		// The instance_migrated entry is the last thing the rewrite writes, and
+		// the control-loss rows written before it point at it, so its id is
+		// chosen first.
 		entryID, err := uuid.NewV7()
 		if err != nil {
 			return result, err
@@ -477,11 +566,11 @@ func (s *migrationService) apply(
 			// new version does not have, after it was listed, used to be
 			// re-pointed all the same; its holder then completed a task nothing
 			// follows, and the instance stayed active with no token for ever.
-			why, checkErr := s.whyNotMoved(txCtx, fresh, source, target, targetNodes, nodeMapping, options.Actions)
+			why, checkErr := s.whyNotMoved(txCtx, fresh, told, target, targetNodes, nodeMapping, options.Actions)
 			if checkErr != nil {
 				return checkErr
 			}
-			if why != "" {
+			if !why.none() {
 				stuck = why
 				return nil
 			}
@@ -489,13 +578,22 @@ func (s *migrationService) apply(
 			// are re-pointed at the new graph: the ledger and the migration's
 			// narrative then name the same losses.
 			waived = controlsNotPassed(plan.ComplianceHolds, fresh.CompletedNodes)
-			if err := s.recordControlLosses(txCtx, fresh, sourceDefID, waived, options, runID, entryID); err != nil {
+			if err := s.recordControlLosses(txCtx, fresh, sourceDefID, waived, options, runID, entryID, nodeMapping, sourceNodes, targetNodes); err != nil {
 				return err
 			}
 			instance = fresh
 			instance.DefinitionID = models.UUID(targetDefID)
 			for i := range instance.Tokens {
-				instance.Tokens[i].NodeID = mapNode(nodeMapping, instance.Tokens[i].NodeID)
+				from := instance.Tokens[i].NodeID
+				instance.Tokens[i].NodeID = mapNode(nodeMapping, from)
+				// A run a second administrator approved says where it moved
+				// each instance from and to, whether or not anybody held a
+				// task there: a wait for a timer or a message has no task, and
+				// its redirect would otherwise leave no trace of which step it
+				// was. Any other run's entry lists what it always listed.
+				if to := instance.Tokens[i].NodeID; to != from && options.Approval.Granted() {
+					moved[from] = to
+				}
 			}
 			// Everything else on the instance that is keyed by node id. The
 			// counters are live work and follow the mapping like the tokens
@@ -506,7 +604,8 @@ func (s *migrationService) apply(
 			//
 			// The two lists are a record of work done, read by compensation
 			// and by the question "has this instance passed that control".
-			// They follow a rename only, as a finished task does. Following a
+			// They follow a rename only — and onto a control, only a rename
+			// in place — as a finished task does. Following a
 			// redirect recorded a step the instance had finished as the step
 			// the mapping pointed at: with a finished step redirected onto a
 			// control the instance was only waiting at, the control read as
@@ -534,7 +633,7 @@ func (s *migrationService) apply(
 				// longer who had given it.
 				//
 				// What a finished task may take is its step's new id, and only
-				// where the mapping renames the step (renamedSteps): the work
+				// where the mapping renames the step (finishedWorkFollows): the work
 				// was done on that step, and a rule of the new version — who
 				// did this may not also do that — names it by the new id and
 				// reads finished tasks to find who. That one column is written,
@@ -584,27 +683,33 @@ func (s *migrationService) apply(
 				}
 			}
 
-			return s.remapSubscriptions(txCtx, uuid.UUID(instance.ID), nodeMapping, targetNodes)
+			if err := s.remapSubscriptions(txCtx, uuid.UUID(instance.ID), nodeMapping, targetNodes); err != nil {
+				return err
+			}
+			// The trail entry, in the rewrite's transaction, as the ledger
+			// rows above are: an instance is moved with the entry that says
+			// so, or it is not moved.
+			return s.recordMigration(txCtx, instance, source, target, moved, options, waived, runID, entryID)
 		})
 		if err != nil {
 			return result, fmt.Errorf("failed to migrate instance %s: %w (%d of %d instances had already been "+
-				"dealt with; run the same migration again to carry on from here)",
+				"dealt with"+resumeByRunningAgain+")",
 				instance.ID, err, done, len(instances))
 		}
 		if elsewhere {
 			// Nothing of this run's was written to it. Not counted among those
 			// dealt with either: it is no longer one of the source version's.
-			result.PassedOver = append(result.PassedOver, passedOver(instance, alreadyMoved(source)))
+			result.PassedOver = append(result.PassedOver, passedOver(instance, becauseAlreadyMoved(told)))
 			log.Info().Str("instance", uuid.UUID(instance.ID).String()).Str("run", runID.String()).
 				Msg("A migration passed over an instance that another run had already moved off the source version. " +
 					"It was not decided or moved again")
 			continue
 		}
 		if settled {
-			result.PassedOver = append(result.PassedOver, passedOver(instance, noLongerRunning(source)))
+			result.PassedOver = append(result.PassedOver, passedOver(instance, becauseItStopped(told)))
 			continue
 		}
-		if stuck != "" {
+		if !stuck.none() {
 			// Left exactly as its lock found it, on the version it is running.
 			// Not counted among those dealt with: the next run, or the next
 			// plan, finds it where it now stands.
@@ -614,7 +719,6 @@ func (s *migrationService) apply(
 					"It stays on the version it is running; the reply says what the work is and what to do")
 			continue
 		}
-		s.recordMigration(ctx, instance, source, target, moved, options, waived, runID, entryID)
 		done++
 		if !made.wrote {
 			result.Changed++
@@ -647,8 +751,30 @@ func (s *migrationService) recordControlLosses(
 	waived []entities.ComplianceHold,
 	options servicecontracts.MigrationOptions,
 	runID, entryID uuid.UUID,
+	nodeMapping map[string]string,
+	sourceNodes, targetNodes map[string]models.FlowNode,
 ) error {
-	for _, row := range controlLossDeviations(instance, sourceDefID, waived, migrationActor(options), runID, entryID) {
+	rows := withApproval(controlLossDeviations(instance, sourceDefID, waived, migrationActor(options), runID, entryID), options.Approval)
+	// A control renamed by ids onto a control of the new version, whose
+	// waiting instance is moved onto it, says where (movedOntoARenamedControl).
+	// It is decided here, once, and kept on the run's own copy of the hold
+	// for the trail entry that is written after the rewrite: the row and the
+	// entry say one thing.
+	if len(waived) > 0 {
+		renames := renamedByIDs(sourceNodes, targetNodes, nodeMapping)
+		for i, hold := range waived {
+			to, moved := movedOntoARenamedControl(instance, hold.NodeID, renames, targetNodes)
+			if !moved {
+				continue
+			}
+			waived[i].MovedOnto = to
+			if rows[i].Details == nil {
+				rows[i].Details = map[string]any{}
+			}
+			rows[i].Details[detailMappedTo] = to
+		}
+	}
+	for _, row := range rows {
 		if _, err := s.ledger.Record(ctx, row); err != nil {
 			return fmt.Errorf("recording that instance %s loses %q: %w", instance.ID, row.Node.ID, err)
 		}
@@ -656,12 +782,21 @@ func (s *migrationService) recordControlLosses(
 	return nil
 }
 
-// recordMigration writes the audit entry for one migrated instance.
+// recordMigration writes the trail entry of one migrated instance, in the
+// rewrite's unit of work (ctx): the entry is committed with the rewrite or
+// the rewrite is undone with it.
 //
-// Outside the unit of work on purpose: a migration that succeeded should not be
-// rolled back because the audit write failed, and an audit entry for a
-// migration that did not happen is worse than a missing one. A lost entry is
-// logged loudly because the trail is what somebody will be asked for later.
+// It used to be written after the rewrite had committed, so that a trail that
+// could not be written did not undo a migration that had succeeded; a write
+// that failed was logged. But the entry is what says how an instance came to
+// be on another version, with its work re-pointed — and for a redirect or a
+// loosened separation-of-duties rule a second administrator approved, which
+// write no ledger row, it is the only record on the instance of what was
+// approved. An instance moved with no entry is a change nobody can account
+// for. So a failure here is the rewrite's failure, told as the ledger's is:
+// the instance stays as it was, on the version it was running, and the run
+// stops there, naming it. One path, for every migrated instance, approved or
+// not.
 //
 // entryID is the id the instance's control-loss ledger rows already point at,
 // and waived the losses those rows record.
@@ -673,9 +808,9 @@ func (s *migrationService) recordMigration(
 	options servicecontracts.MigrationOptions,
 	waivedHolds []entities.ComplianceHold,
 	runID, entryID uuid.UUID,
-) {
+) error {
 	if s.audit == nil {
-		return
+		return nil
 	}
 	pairs := make([]string, 0, len(moved))
 	for from, to := range moved {
@@ -693,13 +828,30 @@ func (s *migrationService) recordMigration(
 	// Which control-bearing steps this instance lost, and only the ones it had
 	// not already performed — worked out once, before the rewrite, so this
 	// entry and the ledger rows that point at it agree.
-	var waived []string
+	//
+	// A control renamed by ids onto a control of the new version, at which
+	// the instance waited, is said apart: it was not carried across as the
+	// same step, and the instance was moved onto the step named. That was
+	// decided when the losses were recorded (recordControlLosses, MovedOnto)
+	// and is read here, not worked out again. Every other control lost keeps
+	// the sentence it always had.
+	var waived, lost []string
+	mappedTo := map[string]string{}
 	for _, hold := range waivedHolds {
 		waived = append(waived, hold.NodeID)
+		if hold.MovedOnto != "" {
+			mappedTo[hold.NodeID] = hold.MovedOnto
+			continue
+		}
+		lost = append(lost, hold.NodeID)
 	}
-	if len(waived) > 0 {
+	if len(lost) > 0 {
 		narrative += fmt.Sprintf(" It had not yet passed %s, and %s accepted that it never will.",
-			strings.Join(waived, ", "), actor)
+			strings.Join(lost, ", "), actor)
+	}
+	for _, from := range sortedKeys(mappedTo) {
+		narrative += fmt.Sprintf(" It had not yet passed %s, which was not carried across as the same step: "+
+			"it was moved from there onto %s, and %s accepted that.", from, mappedTo[from], actor)
 	}
 
 	entry := entities.AuditEntry{
@@ -720,13 +872,17 @@ func (s *migrationService) recordMigration(
 		Project:  &entities.Project{ID: uuid.UUID(instance.ProjectID)},
 		Instance: &entities.ProcessInstance{ID: uuid.UUID(instance.ID)},
 	}
-	if err := s.audit.RecordEvent(ctx, entry); err != nil {
-		log.Error().Err(err).
-			Str("instance", uuid.UUID(instance.ID).String()).
-			Int("source_version", source.Version).
-			Int("target_version", target.Version).
-			Msg("A migration audit event was lost; the trail cannot explain how this instance changed version")
+	if len(mappedTo) > 0 {
+		entry.Data[dataControlsMappedTo] = mappedTo
 	}
+	// A run a second administrator approved says so: one more sentence, and
+	// the request and the approver in the data. Any other run's entry is as
+	// it always was.
+	entry = approvedEntry(entry, options.Approval)
+	if err := s.audit.RecordEvent(ctx, entry); err != nil {
+		return fmt.Errorf("writing the trail entry that says instance %s was migrated: %w", instance.ID, err)
+	}
+	return nil
 }
 
 // surveyResult is what one pass over the running instances found.
@@ -1149,12 +1305,17 @@ func claimWarnings(moves []entities.NodeMove) []string {
 // where it bites — an instance in the plan has completed the step, or the step
 // carries a control obligation. The count is of running instances, which are
 // the ones a migration moves.
+//
+// A redirect, here, is every mapping finished work does not follow
+// (finishedWorkFollows): one that is no rename, and a rename onto a step
+// marked as a control that does not stand where the old step stood (inPlace
+// is the renames that do).
 func redirectWarnings(
-	sourceNodes map[string]models.FlowNode,
-	nodeMapping map[string]string,
+	sourceNodes, targetNodes map[string]models.FlowNode,
+	nodeMapping, inPlace map[string]string,
 	instances []models.ProcessInstanceModel,
 ) []string {
-	renames := renamedSteps(sourceNodes, nodeMapping)
+	renames := finishedWorkFollows(sourceNodes, targetNodes, nodeMapping, inPlace)
 	// How many of the instances this migration would move have completed each
 	// step: the running ones. The listing has every instance of the version,
 	// finished ones included, and those are not the plan's to count. Counted
@@ -1171,10 +1332,10 @@ func redirectWarnings(
 	}
 	var out []string
 	for from, to := range nodeMapping {
-		node, known := sourceNodes[from]
-		if _, renamed := renames[from]; renamed || !known || from == to {
+		if !redirects(sourceNodes, renames, from, to) {
 			continue
 		}
+		node := sourceNodes[from]
 		completed := completedBy[from]
 		controlled := boolProperty(node.Properties, "compliance_relevant")
 		if completed == 0 && !controlled {
@@ -1247,19 +1408,36 @@ func allFlows(def models.ProcessDefinitionModel) []models.SequenceFlow {
 	return flows
 }
 
-// renamedSteps is the part of a mapping that renames a step and does nothing
-// else: the id it maps to is not a step of the source version, and no other
-// step is mapped onto it.
+// renamedByIDs is the part of a mapping that renames a step and does nothing
+// else: the id it maps to is not a step of the source version, no other step
+// is mapped onto it, and the id it maps from is no longer a step of the
+// target.
 //
 // A mapping has two shapes and they mean different things for work already
-// done. "submit → request", where request is new, says the step has a new
-// name: whoever did the submit did the request. "opsApprove → salesApprove",
-// where the source version has both, sends the open operations approvals to
-// the sales manager, and says nothing of the kind about an operations approval
-// already given; nor do two steps mapped onto one new id, which cannot both
-// be it. Work in progress follows any mapping. Finished work follows only a
-// rename.
-func renamedSteps(sourceNodes map[string]models.FlowNode, nodeMapping map[string]string) map[string]string {
+// done. "submit → request", where request is new and submit is gone, says the
+// step has a new name: whoever did the submit did the request. "opsApprove →
+// salesApprove", where the source version has both, sends the open operations
+// approvals to the sales manager, and says nothing of the kind about an
+// operations approval already given; nor do two steps mapped onto one new id,
+// which cannot both be it. Work in progress follows any mapping. Finished
+// work follows only a rename.
+//
+// Nor is a step renamed while the new version still has it under its old id.
+// "prepare → audit", where the target keeps prepare and adds audit, sends
+// prepare's open work to a different step: audit is not prepare under a new
+// name, prepare is still there. Counted as a rename, a finished preparation
+// was recorded as the audit performed.
+//
+// It looks at ids alone, on purpose, and it is nobody's answer by itself. It
+// has two callers, each of which narrows it: renamedInPlace, which keeps the
+// renames whose neighbours are unchanged — what asks whether a mapping needs
+// anybody's approval — and finishedWorkFollows, which is this less a rename
+// onto a control that stands elsewhere. Finished work follows that second
+// notion (finishedWorkFollows), not this one: anything that moves a record
+// of work done asks there. By ids alone because finished work must go on
+// following a real rename even when the step's neighbours changed too, or a
+// separation-of-duties rule would stop finding who did the step.
+func renamedByIDs(sourceNodes, targetNodes map[string]models.FlowNode, nodeMapping map[string]string) map[string]string {
 	mappedOnto := make(map[string]int, len(nodeMapping))
 	for _, to := range nodeMapping {
 		mappedOnto[to]++
@@ -1267,6 +1445,9 @@ func renamedSteps(sourceNodes map[string]models.FlowNode, nodeMapping map[string
 	renames := map[string]string{}
 	for from, to := range nodeMapping {
 		if _, alsoASourceStep := sourceNodes[to]; alsoASourceStep || mappedOnto[to] != 1 || from == to {
+			continue
+		}
+		if _, stillAStep := targetNodes[from]; stillAStep {
 			continue
 		}
 		renames[from] = to
@@ -1278,8 +1459,9 @@ func renamedSteps(sourceNodes map[string]models.FlowNode, nodeMapping map[string
 //
 // Entries with no mapping are kept rather than dropped: CompletedNodes is the
 // record of what this instance actually ran, and a step the new version deleted
-// is still a step this instance performed. The rewrite gives it the renames of
-// a mapping only (renamedSteps), for the same reason.
+// is still a step this instance performed. Its callers hand it the renames
+// finished work follows (finishedWorkFollows), not a whole mapping, for the
+// same reason.
 func mapNodeList(nodeMapping map[string]string, ids []string) []string {
 	if len(ids) == 0 {
 		return ids
@@ -1748,8 +1930,11 @@ func (s *migrationService) cancelInstance(
 // is not made. The row names its entry even in a wiring with no audit writer
 // (tests only), where no entry is written.
 func (s *migrationService) recordDecision(ctx context.Context, d decisionRecord) error {
-	row := decisionDeviation(d, nodeNameIn(d.source.Nodes, d.nodeID))
-	if _, err := s.actions.record(ctx, row, decisionEntry(d)); err != nil {
+	// Under an approved request, the row and the entry name it, who asked and
+	// who approved. A decision made with no approval — a cancel, a hold — is
+	// recorded as it always was: both helpers answer what they are given.
+	row := withApproval([]entities.Deviation{decisionDeviation(d, nodeNameIn(d.source.Nodes, d.nodeID))}, d.options.Approval)[0]
+	if _, err := s.actions.record(ctx, row, approvedEntry(decisionEntry(d), d.options.Approval)); err != nil {
 		return fmt.Errorf("recording that %q was %s: %w", d.nodeID, d.action.Kind, err)
 	}
 	return nil

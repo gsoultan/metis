@@ -359,6 +359,11 @@ func migrationAuthoriser(ctx context.Context) (string, error) {
 // all. It is administrative and it defaults to a dry run: this rewrites durable
 // business commitments, so seeing the plan is the default and committing is the
 // thing you ask for.
+//
+// An apply whose plan needs a second administrator — it skips a step, or
+// drops a control instances have not passed — is not applied: it is recorded
+// as a request that waits, and the reply carries pending_approval beside the
+// plan. Applying it is the approval of that request, by somebody else.
 func MakeMigrateInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 	return func(ctx context.Context, request any) (any, error) {
 		req, ok := request.(MigrateInstancesRequest)
@@ -404,6 +409,20 @@ func MakeMigrateInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if req.dryRun() {
 			return MigrateInstancesResponse{Plan: plan, PassedOver: passedOverViews(nil)}, nil
 		}
+		// A plan that needs a second administrator (RequiresSecondApprover:
+		// a skip, a control taken, a redirect past one, a loosened rule) is
+		// not applied on this caller's say: it is asked for, and
+		// the reply says which request now waits for a second administrator.
+		// Nothing is moved. Only an apply asks — a dry run returned above —
+		// and the service refuses such an apply itself, should anything reach
+		// it without having asked.
+		if plan.Applicable() && plan.RequiresSecondApprover {
+			pending, err := s.RequestMigrationApproval(ctx, source, target, req.NodeMapping, opts...)
+			if err != nil {
+				return MigrateInstancesResponse{Plan: plan, PassedOver: passedOverViews(nil), Err: err}, nil
+			}
+			return MigrateInstancesResponse{Plan: plan, PassedOver: passedOverViews(nil), PendingApproval: &pending}, nil
+		}
 		result, err := s.ApplyInstanceMigration(ctx, source, target, req.NodeMapping, opts...)
 		if err != nil {
 			// The plan comes back with the refusal so the caller sees both what
@@ -413,11 +432,14 @@ func MakeMigrateInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		// The plan was made before the apply and says what would happen; the
 		// result says what did. An instance that left its step in between was
 		// left alone, and "applied" on its own would have said otherwise: it is
-		// true unless the run passed instances over and wrote to none.
+		// true unless the run passed instances over and wrote to none. That is
+		// asked of every instance it passed over, whatever the reply has room
+		// to list of them.
 		return MigrateInstancesResponse{
-			Plan:       plan,
-			Applied:    result.Changed > 0 || len(result.PassedOver) == 0,
-			PassedOver: passedOverViews(result.PassedOver),
+			Plan:            plan,
+			Applied:         result.Changed > 0 || len(result.PassedOver) == 0,
+			PassedOver:      passedOverViews(result.PassedOver),
+			PassedOverInAll: len(result.PassedOver),
 		}, nil
 	}
 }

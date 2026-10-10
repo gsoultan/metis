@@ -2,6 +2,7 @@ package bpmn_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -19,20 +20,131 @@ import (
 
 const waiveReason = "The operations manager is on leave; the CFO agreed by email, ticket FIN-2231."
 
-// waiver drives the in-place command as a signed-in administrator, ana.
-type waiver struct {
-	h   engineHarness
-	svc servicecontracts.InstanceDeviator
-	ctx context.Context
+// accountID is the account a test administrator signs in with, derived from
+// the name so one name is one account across a test.
+func accountID(name string) uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("metis-test-account:"+name))
 }
 
+// waiver drives the in-place command as a signed-in administrator, ana, in an
+// organization that has a second one, budi.
+type waiver struct {
+	h engineHarness
+	// svc is the command as such an organization uses it: what needs a second
+	// administrator is asked for by ana and approved by budi. Everything a
+	// scenario applies goes through it.
+	svc servicecontracts.InstanceDeviator
+	// asking is the service itself: a waive applied through it only asks.
+	asking    servicecontracts.InstanceDeviator
+	approvals servicecontracts.DeviationRequestService
+	ctx       context.Context // ana
+}
+
+// waiverAdministrators are the administrators the scenarios sign in: ana
+// asks, budi approves, and citra and dita are whoever else a scenario needs.
+var waiverAdministrators = []string{"ana", "budi", "citra", "dita"}
+
+// newWaiver is a waiver over h. Its administrators are accounts of the
+// harness's organization, written here, once: an approval asks whether
+// whoever made the request still administers the organization, of the
+// accounts — so a requester who is a principal in the context and nothing in
+// the database would be nobody, which no request in production is made by.
 func newWaiver(h engineHarness) waiver {
-	return waiver{
-		h:   h,
-		svc: serviceimpl.NewInstanceDeviationService(h.repo, h.engine),
-		ctx: context.WithValue(h.Ctx(), pkgauth.UserContextKey,
-			entities.User{Username: "ana", Roles: []string{entities.RoleAdmin}}),
+	tenant, _ := entities.TenantContextFrom(h.Ctx())
+	organization, err := uuid.Parse(tenant.TenantID)
+	if err != nil {
+		panic("the waiver's harness is for no organization: " + err.Error())
 	}
+	for _, name := range waiverAdministrators {
+		if err := testutils.EnrolAdministrator(h.Ctx(), h.repo, organization, accountID(name), name); err != nil {
+			panic(err)
+		}
+	}
+	w := waiver{h: h, asking: serviceimpl.NewInstanceDeviationService(h.repo, h.engine),
+		approvals: serviceimpl.NewDeviationRequestService(h.repo, h.engine)}
+	w.svc = secondedByBudi{asking: w.asking, approvals: w.approvals}
+	w.ctx = w.as("ana")
+	return w
+}
+
+func (w waiver) as(name string) context.Context { return w.asAccount(name, accountID(name)) }
+
+func (w waiver) asAccount(name string, id uuid.UUID) context.Context {
+	return context.WithValue(w.h.Ctx(), pkgauth.UserContextKey,
+		entities.User{ID: id, Username: name, Roles: []string{entities.RoleAdmin}})
+}
+
+// ask previews and applies cmd as ana through the service itself; a waive
+// comes back waiting for a second administrator.
+func (w waiver) ask(t *testing.T, cmd entities.DeviationCommand) entities.DeviationOutcome {
+	t.Helper()
+	cmd.VisitKey, cmd.DryRun = w.preview(t, cmd).VisitKey, false
+	out, err := w.asking.DeviateInstance(w.ctx, cmd)
+	if err != nil {
+		t.Fatalf("ask for %s of %q: %v", cmd.Kind, cmd.NodeID, err)
+	}
+	if out.Applied || out.PendingApproval == nil || out.PendingApproval.Status != entities.DeviationRequestPending {
+		t.Fatalf("asking for %s of %q answered %+v, want a request waiting for approval", cmd.Kind, cmd.NodeID, out)
+	}
+	return out
+}
+
+// approve has budi approve what asked waits on, and answers as an apply was
+// answered before a waive needed a second administrator.
+func (w waiver) approve(asked entities.DeviationOutcome) (entities.DeviationOutcome, error) {
+	return approvedByBudi(w.ctx, w.approvals, asked)
+}
+
+// sendApproval has an administrator approve a request on a goroutine of its
+// own. It gives up after lockWait, as sendApply does.
+func (w waiver) sendApproval(name string, requestID uuid.UUID) *sent[entities.DeviationRequestOutcome] {
+	return send(func() (entities.DeviationRequestOutcome, error) {
+		inTime, stop := context.WithTimeout(w.as(name), lockWait)
+		defer stop()
+		return w.approvals.ApproveDeviationRequest(inTime, requestID, "")
+	})
+}
+
+// secondedByBudi is the in-place command in an organization with two
+// administrators. A cancel, a hold, a preview and a refusal are the service's
+// own answer. A waive that the service answers as waiting is approved by
+// budi, and the approval's answer is given as the apply's: the same plan, the
+// same row, an error in the same words.
+type secondedByBudi struct {
+	asking    servicecontracts.InstanceDeviator
+	approvals servicecontracts.DeviationRequestService
+}
+
+func (s secondedByBudi) DeviateInstance(ctx context.Context, cmd entities.DeviationCommand) (entities.DeviationOutcome, error) {
+	asked, err := s.asking.DeviateInstance(ctx, cmd)
+	if err != nil || asked.PendingApproval == nil {
+		return asked, err
+	}
+	out, approveErr := approvedByBudi(ctx, s.approvals, asked)
+	if approveErr == nil {
+		return out, nil
+	}
+	// Somebody else's approval of the same request may have got there first:
+	// the request then reads as any retry of an act already made reads.
+	if again, err := s.asking.DeviateInstance(ctx, cmd); err == nil && again.Applied && again.Replayed {
+		return again, nil
+	}
+	return entities.DeviationOutcome{}, approveErr
+}
+
+// approvedByBudi approves a waiting request as budi, in the caller's request
+// (its tenant and its deadline), and answers it as an apply.
+func approvedByBudi(ctx context.Context, approvals servicecontracts.DeviationRequestService, asked entities.DeviationOutcome) (entities.DeviationOutcome, error) {
+	budi := context.WithValue(ctx, pkgauth.UserContextKey,
+		entities.User{ID: accountID("budi"), Username: "budi", Roles: []string{entities.RoleAdmin}})
+	approved, err := approvals.ApproveDeviationRequest(budi, asked.PendingApproval.RequestID, "")
+	if err != nil {
+		return entities.DeviationOutcome{}, err
+	}
+	if approved.WaivePlan == nil {
+		return entities.DeviationOutcome{}, errors.New("the approval of a waive answered no plan")
+	}
+	return entities.DeviationOutcome{Plan: *approved.WaivePlan, Applied: approved.Applied, Deviation: approved.Deviation}, nil
 }
 
 func deviationCommand(kind entities.DeviationKind, instanceID uuid.UUID, nodeID string, outputs map[string]any) entities.DeviationCommand {

@@ -62,8 +62,11 @@ type DeviationPlan struct {
 	CalledInstances      []uuid.UUID
 	CalledInstancesInAll int
 
-	// RequiresSecondApprover reports that the act waits for somebody else to
-	// agree to it before it is made.
+	// RequiresSecondApprover reports that an act of this kind is not made on
+	// one administrator's call: a second administrator has to agree to it.
+	// It is the kind's, not the moment's — a plan beside a waive that was
+	// approved and applied says it too; whether this act waits or was made is
+	// said beside the plan (Applied, PendingApproval).
 	RequiresSecondApprover bool
 
 	// Refusals is why the command cannot be applied; Warnings is what whoever

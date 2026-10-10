@@ -342,7 +342,21 @@ export const definitionService = {
     // Not raiseIfRefused: a refusal here is the answer, not a failure. The plan
     // lists what would strand, and throwing it away would leave the person
     // fixing the mapping with a toast and no detail.
-    return { plan: response.plan, applied: response.applied ?? false, err: response.err };
+    //
+    // An apply that needs a second administrator is answered 202, which
+    // requestJSON reads as the success it is. `applied` is false on it, and
+    // only `pending_approval` tells it from an apply that did nothing — so it
+    // is handed on, as are the instances a run passed over. `applied` alone
+    // read both as "nothing was moved".
+    const passedOver = response.passed_over ?? [];
+    return {
+      plan: response.plan,
+      applied: response.applied ?? false,
+      passed_over: passedOver,
+      passed_over_in_all: response.passed_over_in_all ?? passedOver.length,
+      pending_approval: response.pending_approval,
+      err: response.err,
+    };
   },
 
   async getDefinition(_projectId: string, id: string, signal?: AbortSignal) {

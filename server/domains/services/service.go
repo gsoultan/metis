@@ -1,6 +1,8 @@
 package services
 
 import (
+	"github.com/google/uuid"
+
 	"github.com/gsoultan/metis/server/domains/handlers/impl"
 	observercontracts "github.com/gsoultan/metis/server/domains/observers/contracts"
 	observerimpl "github.com/gsoultan/metis/server/domains/observers/impl"
@@ -64,6 +66,13 @@ type ServiceParams struct {
 }
 
 func NewService(p ServiceParams) ServiceFacade {
+	// The facade embeds each service as an interface, and a call through one
+	// that was not given is a nil dereference. The deviation service decides
+	// who may loosen a rule: built without it, the facade answers every one
+	// of its methods with a plain error that says so.
+	if p.DeviationService == nil {
+		p.DeviationService = serviceimpl.NewDeviationService(nil, nil, nil)
+	}
 	return &service{
 		OrganizationService:    p.OrganizationService,
 		ProjectService:         p.ProjectService,
@@ -92,6 +101,29 @@ func NewService(p ServiceParams) ServiceFacade {
 	}
 }
 
+// facadeSettings is what the services are built with beyond their
+// collaborators: what whoever puts the server together read of its
+// configuration and hands on. The services read no setting of this kind
+// themselves.
+type facadeSettings struct {
+	// soleAdministratorOrganizations are the organizations whose only
+	// administrator may approve a request they asked for themselves.
+	soleAdministratorOrganizations []uuid.UUID
+}
+
+// FacadeOption changes what the services are built with.
+type FacadeOption func(*facadeSettings)
+
+// WithSoleAdministratorOrganizations names the organizations whose only
+// administrator may approve a request they asked for themselves
+// (serviceimpl.EnvSoleAdministratorOrganizations). Built without it, the
+// services allow that in no organization, whatever the environment says:
+// the server reads the list once, when it starts, announces it, and passes
+// that same reading here.
+func WithSoleAdministratorOrganizations(organizations []uuid.UUID) FacadeOption {
+	return func(settings *facadeSettings) { settings.soleAdministratorOrganizations = organizations }
+}
+
 // NewServiceFacade creates and wires all sub-service implementations.
 func NewServiceFacade(
 	repo repositories.Repository,
@@ -109,6 +141,7 @@ func NewServiceFacade(
 	// accounts manages platform administrators, nil for the same reason: it is
 	// storm-backed.
 	accounts contracts.PlatformUserService,
+	options ...FacadeOption,
 ) ServiceFacade {
 	if participants == nil {
 		participants = serviceimpl.NewUnavailableWorkflowUserService()
@@ -195,6 +228,10 @@ func NewServiceFacade(
 	})
 
 	deviationLedger := serviceimpl.NewDeviationLedger(repo)
+	var settings facadeSettings
+	for _, option := range options {
+		option(&settings)
+	}
 
 	return NewService(ServiceParams{
 		OrganizationService:    orgSvc,
@@ -220,7 +257,10 @@ func NewServiceFacade(
 		SetupService:           setupSvc,
 		NotificationService:    notificationSvc,
 		SimulationService:      simulationSvc,
-		DeviationService:       serviceimpl.NewDeviationService(deviationLedger, serviceimpl.NewInstanceDeviationService(repo, engine)),
+		DeviationService: serviceimpl.NewDeviationService(deviationLedger,
+			serviceimpl.NewInstanceDeviationService(repo, engine),
+			serviceimpl.NewDeviationRequestService(repo, engine,
+				serviceimpl.WithSoleAdministratorOrganizations(settings.soleAdministratorOrganizations))),
 	})
 }
 

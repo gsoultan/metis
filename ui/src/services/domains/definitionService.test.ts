@@ -90,3 +90,67 @@ describe("fromDefinitionMessage", () => {
     expect(nodes.find((n) => n.id === "caught")?.error_code).toBe("ID_REJECTED");
   });
 });
+
+// The migrate route answers an apply in three ways that are not failures, and
+// the service handed on only `plan` and `applied`: a request sent to a second
+// administrator read as "applied: false" and nothing else, and the instances a
+// run passed over were dropped before anything could show them.
+describe("definitionService.migrateInstances", () => {
+  let restore = () => {};
+  afterEach(() => restore());
+
+  const plan = { source_key: "quotation", source_version: 2, target_version: 5, target_id: "d-5", instances: 3, requires_second_approver: true };
+  const pending = {
+    request_id: "0199c0de-0000-7000-8000-00000000aaaa",
+    status: "pending_approval",
+    requested_by: "Dita Larasati",
+    expires_at: "2026-10-06T09:12:00Z",
+    because: ["“Operations approve” would be skipped"],
+  };
+
+  test("reads an apply sent for approval — a 202 — as an answer, with the request it waits on", async () => {
+    const stub = stubFetch({ plan, applied: false, passed_over: [], passed_over_in_all: 0, pending_approval: pending }, 202);
+    restore = stub.restore;
+    const reply = await definitionService.migrateInstances("d-2", "d-5", {}, false);
+    expect(stub.sent[0].body).toMatchObject({ source_definition_id: "d-2", target_definition_id: "d-5", dry_run: false });
+    expect(reply.err).toBeUndefined();
+    expect(reply.applied).toBe(false);
+    expect(reply.pending_approval).toEqual(pending);
+    expect(reply.plan).toEqual(plan);
+    expect(reply.passed_over).toEqual([]);
+    expect(reply.passed_over_in_all).toBe(0);
+  });
+
+  test("hands on the instances a run passed over, and how many there were", async () => {
+    const passed = [{
+      instance_id: "0199c0de-0000-7000-8000-000000000001",
+      cause: "left_the_step",
+      steps: [{ node_id: "opsApprove", name: "Operations approve" }],
+      steps_in_all: 1,
+      reason: "It was no longer waiting there.",
+    }];
+    const stub = stubFetch({ plan, applied: true, passed_over: passed, passed_over_in_all: 340 });
+    restore = stub.restore;
+    const reply = await definitionService.migrateInstances("d-2", "d-5", {}, false);
+    expect(reply.applied).toBe(true);
+    expect(reply.pending_approval).toBeUndefined();
+    expect(reply.passed_over).toEqual(passed);
+    expect(reply.passed_over_in_all).toBe(340);
+  });
+
+  test("reads a reply from a server that says nothing of either as nobody passed over and nobody asked", async () => {
+    const stub = stubFetch({ plan, applied: true });
+    restore = stub.restore;
+    const reply = await definitionService.migrateInstances("d-2", "d-5", {}, false);
+    expect(reply.passed_over).toEqual([]);
+    expect(reply.passed_over_in_all).toBe(0);
+    expect(reply.pending_approval).toBeUndefined();
+  });
+
+  test("still raises a refusal: a 400 or a 403 is not an answer", async () => {
+    ({ restore } = stubFetch({ error: "forbidden: only an administrator may migrate running instances" }, 403));
+    await expect(definitionService.migrateInstances("d-2", "d-5", {}, false)).rejects.toThrow(
+      "forbidden: only an administrator may migrate running instances",
+    );
+  });
+});

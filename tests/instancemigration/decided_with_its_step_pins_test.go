@@ -75,7 +75,12 @@ func TestPinADecisionNamingAStepAndTheDeadlineOnIt(t *testing.T) {
 				"approve":  {Kind: kind, Reason: "the approval was dropped"},
 				"deadline": {Kind: kind, Reason: "the approval was dropped"},
 			})
-			told := f.planAndApply(t, v1, v2, nil, both, servicecontracts.WithActor("dita"))
+			// A skip waits for a second administrator; a cancel and a hold do not.
+			planned := f.planAndApplyOnOneCall
+			if kind == servicecontracts.NodeActionSkip {
+				planned = f.planAndApply
+			}
+			told := planned(t, v1, v2, nil, both, servicecontracts.WithActor("dita"))
 			assertToldAs(t, told+ledgerKinds(t, f), want[kind])
 			if kind != servicecontracts.NodeActionSkip {
 				return

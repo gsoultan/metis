@@ -15,6 +15,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/decisiondefinition"
 	"github.com/gsoultan/metis/server/repositories/store/decisionrelease"
 	"github.com/gsoultan/metis/server/repositories/store/deployment"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
 	"github.com/gsoultan/metis/server/repositories/store/environment"
 	"github.com/gsoultan/metis/server/repositories/store/externaltask"
 	"github.com/gsoultan/metis/server/repositories/store/form"
@@ -89,13 +90,14 @@ var FlushOrder = map[string]int{
 	"broadcast_events":            32,
 	"compensatable_activities":    33,
 	"deployment_resources":        34,
-	"event_subscriptions":         35,
-	"external_tasks":              36,
-	"instance_deviations":         37,
-	"jobs":                        38,
-	"notifications":               39,
-	"service_calls":               40,
-	"incidents":                   41,
+	"deviation_requests":          35,
+	"event_subscriptions":         36,
+	"external_tasks":              37,
+	"instance_deviations":         38,
+	"jobs":                        39,
+	"notifications":               40,
+	"service_calls":               41,
+	"incidents":                   42,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -1478,6 +1480,373 @@ func (p DeploymentWithResourcesQuery) All(ctx context.Context, ex runtime.Execut
 	return out, nil
 }
 
+// DeviationRequestWithProjectRow is deviation_requests with its Project loaded.
+type DeviationRequestWithProjectRow struct {
+	deviationrequest.Row
+	Project project.Row
+}
+
+type DeviationRequestWithProjectQuery struct {
+	q deviationrequest.Query
+}
+
+// DeviationRequestWithProject starts the plan.
+func DeviationRequestWithProject() DeviationRequestWithProjectQuery {
+	return DeviationRequestWithProjectQuery{q: deviationrequest.New()}
+}
+
+func (p DeviationRequestWithProjectQuery) Where(ps ...deviationrequest.Pred) DeviationRequestWithProjectQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p DeviationRequestWithProjectQuery) WhereIf(cond bool, pr deviationrequest.Pred) DeviationRequestWithProjectQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p DeviationRequestWithProjectQuery) Any(ps ...deviationrequest.Pred) DeviationRequestWithProjectQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p DeviationRequestWithProjectQuery) Not(pr deviationrequest.Pred) DeviationRequestWithProjectQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p DeviationRequestWithProjectQuery) NotAny(ps ...deviationrequest.Pred) DeviationRequestWithProjectQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p DeviationRequestWithProjectQuery) Order(ts ...deviationrequest.Sort) DeviationRequestWithProjectQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p DeviationRequestWithProjectQuery) Limit(n int64) DeviationRequestWithProjectQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p DeviationRequestWithProjectQuery) Offset(n int64) DeviationRequestWithProjectQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p DeviationRequestWithProjectQuery) After(r DeviationRequestWithProjectRow) DeviationRequestWithProjectQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p DeviationRequestWithProjectQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p DeviationRequestWithProjectQuery) All(ctx context.Context, ex runtime.Executor) ([]DeviationRequestWithProjectRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]DeviationRequestWithProjectRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = DeviationRequestWithProjectRow{Row: r}
+		key := r.ProjectID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := project.New().Unordered().
+		Where(project.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.ProjectID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "deviation_requests", "projects")
+		}
+		out[i].Project = targets[j]
+	}
+	return out, nil
+}
+
+// DeviationRequestWithSourceDefinitionRow is deviation_requests with its SourceDefinition loaded.
+type DeviationRequestWithSourceDefinitionRow struct {
+	deviationrequest.Row
+	// A pointer because the link is optional. nil means the row has no
+	// SourceDefinition, which is different from having one that failed to load.
+	SourceDefinition *processdefinition.Row
+}
+
+type DeviationRequestWithSourceDefinitionQuery struct {
+	q deviationrequest.Query
+}
+
+// DeviationRequestWithSourceDefinition starts the plan.
+func DeviationRequestWithSourceDefinition() DeviationRequestWithSourceDefinitionQuery {
+	return DeviationRequestWithSourceDefinitionQuery{q: deviationrequest.New()}
+}
+
+func (p DeviationRequestWithSourceDefinitionQuery) Where(ps ...deviationrequest.Pred) DeviationRequestWithSourceDefinitionQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p DeviationRequestWithSourceDefinitionQuery) WhereIf(cond bool, pr deviationrequest.Pred) DeviationRequestWithSourceDefinitionQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p DeviationRequestWithSourceDefinitionQuery) Any(ps ...deviationrequest.Pred) DeviationRequestWithSourceDefinitionQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p DeviationRequestWithSourceDefinitionQuery) Not(pr deviationrequest.Pred) DeviationRequestWithSourceDefinitionQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p DeviationRequestWithSourceDefinitionQuery) NotAny(ps ...deviationrequest.Pred) DeviationRequestWithSourceDefinitionQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p DeviationRequestWithSourceDefinitionQuery) Order(ts ...deviationrequest.Sort) DeviationRequestWithSourceDefinitionQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p DeviationRequestWithSourceDefinitionQuery) Limit(n int64) DeviationRequestWithSourceDefinitionQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p DeviationRequestWithSourceDefinitionQuery) Offset(n int64) DeviationRequestWithSourceDefinitionQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p DeviationRequestWithSourceDefinitionQuery) After(r DeviationRequestWithSourceDefinitionRow) DeviationRequestWithSourceDefinitionQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p DeviationRequestWithSourceDefinitionQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p DeviationRequestWithSourceDefinitionQuery) All(ctx context.Context, ex runtime.Executor) ([]DeviationRequestWithSourceDefinitionRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]DeviationRequestWithSourceDefinitionRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = DeviationRequestWithSourceDefinitionRow{Row: r}
+		key, ok := r.SourceDefinitionID.Get()
+		if !ok {
+			continue
+		}
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := processdefinition.New().Unordered().
+		Where(processdefinition.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key, ok := out[i].Row.SourceDefinitionID.Get()
+		if !ok {
+			continue
+		}
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "deviation_requests", "process_definitions")
+		}
+		out[i].SourceDefinition = &targets[j]
+	}
+	return out, nil
+}
+
+// DeviationRequestWithTargetDefinitionRow is deviation_requests with its TargetDefinition loaded.
+type DeviationRequestWithTargetDefinitionRow struct {
+	deviationrequest.Row
+	// A pointer because the link is optional. nil means the row has no
+	// TargetDefinition, which is different from having one that failed to load.
+	TargetDefinition *processdefinition.Row
+}
+
+type DeviationRequestWithTargetDefinitionQuery struct {
+	q deviationrequest.Query
+}
+
+// DeviationRequestWithTargetDefinition starts the plan.
+func DeviationRequestWithTargetDefinition() DeviationRequestWithTargetDefinitionQuery {
+	return DeviationRequestWithTargetDefinitionQuery{q: deviationrequest.New()}
+}
+
+func (p DeviationRequestWithTargetDefinitionQuery) Where(ps ...deviationrequest.Pred) DeviationRequestWithTargetDefinitionQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p DeviationRequestWithTargetDefinitionQuery) WhereIf(cond bool, pr deviationrequest.Pred) DeviationRequestWithTargetDefinitionQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p DeviationRequestWithTargetDefinitionQuery) Any(ps ...deviationrequest.Pred) DeviationRequestWithTargetDefinitionQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p DeviationRequestWithTargetDefinitionQuery) Not(pr deviationrequest.Pred) DeviationRequestWithTargetDefinitionQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p DeviationRequestWithTargetDefinitionQuery) NotAny(ps ...deviationrequest.Pred) DeviationRequestWithTargetDefinitionQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p DeviationRequestWithTargetDefinitionQuery) Order(ts ...deviationrequest.Sort) DeviationRequestWithTargetDefinitionQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p DeviationRequestWithTargetDefinitionQuery) Limit(n int64) DeviationRequestWithTargetDefinitionQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p DeviationRequestWithTargetDefinitionQuery) Offset(n int64) DeviationRequestWithTargetDefinitionQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p DeviationRequestWithTargetDefinitionQuery) After(r DeviationRequestWithTargetDefinitionRow) DeviationRequestWithTargetDefinitionQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p DeviationRequestWithTargetDefinitionQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p DeviationRequestWithTargetDefinitionQuery) All(ctx context.Context, ex runtime.Executor) ([]DeviationRequestWithTargetDefinitionRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]DeviationRequestWithTargetDefinitionRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = DeviationRequestWithTargetDefinitionRow{Row: r}
+		key, ok := r.TargetDefinitionID.Get()
+		if !ok {
+			continue
+		}
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := processdefinition.New().Unordered().
+		Where(processdefinition.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key, ok := out[i].Row.TargetDefinitionID.Get()
+		if !ok {
+			continue
+		}
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "deviation_requests", "process_definitions")
+		}
+		out[i].TargetDefinition = &targets[j]
+	}
+	return out, nil
+}
+
 // EnvironmentWithProjectRow is environments with its Project loaded.
 type EnvironmentWithProjectRow struct {
 	environment.Row
@@ -2781,6 +3150,131 @@ func (p InstanceDeviationWithProjectQuery) All(ctx context.Context, ex runtime.E
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "instance_deviations", "projects")
 		}
 		out[i].Project = targets[j]
+	}
+	return out, nil
+}
+
+// InstanceDeviationWithRequestRow is instance_deviations with its Request loaded.
+type InstanceDeviationWithRequestRow struct {
+	instancedeviation.Row
+	// A pointer because the link is optional. nil means the row has no
+	// Request, which is different from having one that failed to load.
+	Request *deviationrequest.Row
+}
+
+type InstanceDeviationWithRequestQuery struct {
+	q instancedeviation.Query
+}
+
+// InstanceDeviationWithRequest starts the plan.
+func InstanceDeviationWithRequest() InstanceDeviationWithRequestQuery {
+	return InstanceDeviationWithRequestQuery{q: instancedeviation.New()}
+}
+
+func (p InstanceDeviationWithRequestQuery) Where(ps ...instancedeviation.Pred) InstanceDeviationWithRequestQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithRequestQuery) WhereIf(cond bool, pr instancedeviation.Pred) InstanceDeviationWithRequestQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p InstanceDeviationWithRequestQuery) Any(ps ...instancedeviation.Pred) InstanceDeviationWithRequestQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithRequestQuery) Not(pr instancedeviation.Pred) InstanceDeviationWithRequestQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p InstanceDeviationWithRequestQuery) NotAny(ps ...instancedeviation.Pred) InstanceDeviationWithRequestQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithRequestQuery) Order(ts ...instancedeviation.Sort) InstanceDeviationWithRequestQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p InstanceDeviationWithRequestQuery) Limit(n int64) InstanceDeviationWithRequestQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p InstanceDeviationWithRequestQuery) Offset(n int64) InstanceDeviationWithRequestQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p InstanceDeviationWithRequestQuery) After(r InstanceDeviationWithRequestRow) InstanceDeviationWithRequestQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p InstanceDeviationWithRequestQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p InstanceDeviationWithRequestQuery) All(ctx context.Context, ex runtime.Executor) ([]InstanceDeviationWithRequestRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]InstanceDeviationWithRequestRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = InstanceDeviationWithRequestRow{Row: r}
+		key, ok := r.RequestID.Get()
+		if !ok {
+			continue
+		}
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := deviationrequest.New().Unordered().
+		Where(deviationrequest.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key, ok := out[i].Row.RequestID.Get()
+		if !ok {
+			continue
+		}
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "instance_deviations", "deviation_requests")
+		}
+		out[i].Request = &targets[j]
 	}
 	return out, nil
 }

@@ -47,6 +47,7 @@ type Row struct {
 	ApprovedBy   runtime.Null[string]
 	ApprovedByID runtime.Null[[16]byte]
 	DecidedAt    runtime.Null[time.Time]
+	LiveVisitKey runtime.Null[string]
 }
 
 // Operator ids. Argument-taking operators are numbered first, so the
@@ -85,7 +86,7 @@ const (
 	opNotExists runtime.Op = 27
 )
 
-const nCols = 27
+const nCols = 28
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -366,6 +367,13 @@ func (q *Query) cursor(col uint32, r Row) {
 		}
 		q.tims[q.ntm] = r.DecidedAt.V
 		q.ntm++
+	case 27:
+		if int(q.ns) >= len(q.strs) {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = r.LiveVisitKey.V
+		q.ns++
 	}
 }
 
@@ -551,6 +559,7 @@ var (
 	ApprovedBy   = NullTextCol{24}
 	ApprovedByID = NullUUIDCol{25}
 	DecidedAt    = NullTimeCol{26}
+	LiveVisitKey = NullTextCol{27}
 )
 
 // UUIDCol addresses a uuid column.
@@ -1023,6 +1032,13 @@ func (q *Query) leaf(p Pred) {
 			}
 			q.anyRaw[q.nar] = p.anyRaw
 			q.nar++
+		case 27:
+			if int(q.nas) >= 3 {
+				q.over = true
+				return
+			}
+			q.anyStr[q.nas] = p.anyStr
+			q.nas++
 		}
 		q.push(runtime.MakeLeaf(uint32(p.op), uint32(p.col)))
 		return
@@ -1221,6 +1237,13 @@ func (q *Query) leaf(p Pred) {
 		}
 		q.tims[q.ntm] = p.tim
 		q.ntm++
+	case 27:
+		if int(q.ns) >= 6 {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = p.str
+		q.ns++
 	}
 	q.push(runtime.MakeLeaf(uint32(p.op), uint32(p.col)))
 }
@@ -1443,8 +1466,21 @@ func (q Query) DecidedAtLt(v time.Time) Query           { return q.Where(Decided
 func (q Query) DecidedAtLte(v time.Time) Query          { return q.Where(DecidedAt.Lte(v)) }
 func (q Query) DecidedAtIsNull() Query                  { return q.Where(DecidedAt.IsNull()) }
 func (q Query) DecidedAtIsNotNull() Query               { return q.Where(DecidedAt.IsNotNull()) }
+func (q Query) LiveVisitKeyEq(v string) Query           { return q.Where(LiveVisitKey.Eq(v)) }
+func (q Query) LiveVisitKeyNotEq(v string) Query        { return q.Where(LiveVisitKey.NotEq(v)) }
+func (q Query) LiveVisitKeyGt(v string) Query           { return q.Where(LiveVisitKey.Gt(v)) }
+func (q Query) LiveVisitKeyGte(v string) Query          { return q.Where(LiveVisitKey.Gte(v)) }
+func (q Query) LiveVisitKeyLt(v string) Query           { return q.Where(LiveVisitKey.Lt(v)) }
+func (q Query) LiveVisitKeyLte(v string) Query          { return q.Where(LiveVisitKey.Lte(v)) }
+func (q Query) LiveVisitKeyEqLower(v string) Query      { return q.Where(LiveVisitKey.EqLower(v)) }
+func (q Query) LiveVisitKeyLike(v string) Query         { return q.Where(LiveVisitKey.Like(v)) }
+func (q Query) LiveVisitKeyILike(v string) Query        { return q.Where(LiveVisitKey.ILike(v)) }
+func (q Query) LiveVisitKeyIn(v ...string) Query        { return q.Where(LiveVisitKey.In(v...)) }
+func (q Query) LiveVisitKeyNotIn(v ...string) Query     { return q.Where(LiveVisitKey.NotIn(v...)) }
+func (q Query) LiveVisitKeyIsNull() Query               { return q.Where(LiveVisitKey.IsNull()) }
+func (q Query) LiveVisitKeyIsNotNull() Query            { return q.Where(LiveVisitKey.IsNotNull()) }
 
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "instance_id", "definition_id", "kind", "scope", "origin", "status", "node_id", "node_name", "task_id", "iteration_id", "actor", "actor_id", "reason", "before", "after", "details", "run_id", "audit_entry_id", "visit_key", "request_id", "approved_by", "approved_by_id", "decided_at" FROM "instance_deviations"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "instance_id", "definition_id", "kind", "scope", "origin", "status", "node_id", "node_name", "task_id", "iteration_id", "actor", "actor_id", "reason", "before", "after", "details", "run_id", "audit_entry_id", "visit_key", "request_id", "approved_by", "approved_by_id", "decided_at", "live_visit_key" FROM "instance_deviations"`
 const countPrefix = `SELECT count(*) FROM "instance_deviations"`
 const existsPrefix = `SELECT 1 FROM "instance_deviations"`
 const existsSuffix = ` LIMIT 1`
@@ -1643,6 +1679,12 @@ var orderTable = [nCols][4]string{
 		"\"decided_at\" ASC NULLS FIRST",
 		"\"decided_at\" DESC NULLS LAST",
 	},
+	{ // live_visit_key
+		"\"live_visit_key\"",
+		"\"live_visit_key\" DESC",
+		"\"live_visit_key\" ASC NULLS FIRST",
+		"\"live_visit_key\" DESC NULLS LAST",
+	},
 }
 
 // identTable is each column's bare quoted name, for the left side of a
@@ -1675,6 +1717,7 @@ var identTable = [nCols]string{
 	"\"approved_by\"",
 	"\"approved_by_id\"",
 	"\"decided_at\"",
+	"\"live_visit_key\"",
 }
 
 var lowering = runtime.Lowering{
@@ -1707,7 +1750,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [27][28]runtime.Frag{
+var fragTable = [28][28]runtime.Frag{
 	{ // id
 		{}, // opNone
 		{A: "\"id\" = $", B: ""},
@@ -2518,6 +2561,36 @@ var fragTable = [27][28]runtime.Frag{
 		{},
 		{},
 	},
+	{ // live_visit_key
+		{}, // opNone
+		{A: "\"live_visit_key\" = $", B: ""},
+		{A: "\"live_visit_key\" <> $", B: ""},
+		{A: "\"live_visit_key\" > $", B: ""},
+		{A: "\"live_visit_key\" >= $", B: ""},
+		{A: "\"live_visit_key\" < $", B: ""},
+		{A: "\"live_visit_key\" <= $", B: ""},
+		{A: "lower(\"live_visit_key\") = lower($", B: ")"},
+		{A: "\"live_visit_key\" LIKE $", B: ""},
+		{A: "\"live_visit_key\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"live_visit_key\" = ANY($", B: ")"},
+		{A: "\"live_visit_key\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"live_visit_key\" IS NULL", B: ""},
+		{A: "\"live_visit_key\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
 }
 
 func fragOf(op, col uint32) runtime.Frag {
@@ -2700,6 +2773,7 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 	r.ApprovedBy = runtime.NullText(rv[24], sl)
 	r.ApprovedByID = runtime.Nullable(rv[25], runtime.UUID)
 	r.DecidedAt = runtime.Nullable(rv[26], runtime.Timestamptz)
+	r.LiveVisitKey = runtime.NullText(rv[27], sl)
 	return nil
 }
 
@@ -2861,6 +2935,10 @@ func (q Query) bindPreds(b *binder) []any {
 				b.anyRaw[nar] = q.anyRaw[nar]
 				v = append(v, &b.anyRaw[nar])
 				nar++
+			case 27:
+				b.anyStr[nas] = q.anyStr[nas]
+				v = append(v, &b.anyStr[nas])
+				nas++
 			}
 			continue
 		}
@@ -2973,6 +3051,10 @@ func (q Query) bindPreds(b *binder) []any {
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
+		case 27:
+			b.strs[ns] = q.strs[ns]
+			v = append(v, &b.strs[ns])
+			ns++
 		}
 	}
 	b.vals = v
@@ -3110,7 +3192,7 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "instance_deviations" ("id", "created_at", "updated_at", "project_id", "instance_id", "definition_id", "kind", "scope", "origin", "status", "node_id", "node_name", "task_id", "iteration_id", "actor", "actor_id", "reason", "before", "after", "details", "run_id", "audit_entry_id", "visit_key", "request_id", "approved_by", "approved_by_id", "decided_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27) RETURNING "id", "created_at", "updated_at", "project_id", "instance_id", "definition_id", "kind", "scope", "origin", "status", "node_id", "node_name", "task_id", "iteration_id", "actor", "actor_id", "reason", "before", "after", "details", "run_id", "audit_entry_id", "visit_key", "request_id", "approved_by", "approved_by_id", "decided_at"`
+const insertSQL = `INSERT INTO "instance_deviations" ("id", "created_at", "updated_at", "project_id", "instance_id", "definition_id", "kind", "scope", "origin", "status", "node_id", "node_name", "task_id", "iteration_id", "actor", "actor_id", "reason", "before", "after", "details", "run_id", "audit_entry_id", "visit_key", "request_id", "approved_by", "approved_by_id", "decided_at", "live_visit_key") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28) RETURNING "id", "created_at", "updated_at", "project_id", "instance_id", "definition_id", "kind", "scope", "origin", "status", "node_id", "node_name", "task_id", "iteration_id", "actor", "actor_id", "reason", "before", "after", "details", "run_id", "audit_entry_id", "visit_key", "request_id", "approved_by", "approved_by_id", "decided_at", "live_visit_key"`
 
 const updatePrefix = `UPDATE "instance_deviations" SET `
 const deletePrefix = `DELETE FROM "instance_deviations"`
@@ -3143,9 +3225,10 @@ const (
 	dApprovedBy   uint64 = 1 << 22
 	dApprovedByID uint64 = 1 << 23
 	dDecidedAt    uint64 = 1 << 24
+	dLiveVisitKey uint64 = 1 << 25
 )
 
-const nUpdatable = 25
+const nUpdatable = 26
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
@@ -3174,6 +3257,7 @@ var setFrags = [nUpdatable]runtime.Frag{
 	{A: "\"approved_by\" = $", B: ""},    // approved_by
 	{A: "\"approved_by_id\" = $", B: ""}, // approved_by_id
 	{A: "\"decided_at\" = $", B: ""},     // decided_at
+	{A: "\"live_visit_key\" = $", B: ""}, // live_visit_key
 }
 
 // exprFrags is the SERVER-side assignment each column may take instead
@@ -3205,6 +3289,7 @@ var exprFrags = [nUpdatable]runtime.Frag{
 	{},                                   // approved_by has no server-side form
 	{},                                   // approved_by_id has no server-side form
 	{A: "\"decided_at\" = now()", B: ""}, // decided_at = the database's clock
+	{},                                   // live_visit_key has no server-side form
 }
 
 // pkFrags addresses one row.
@@ -3243,9 +3328,10 @@ const (
 	iApprovedBy   uint64 = 1 << 24
 	iApprovedByID uint64 = 1 << 25
 	iDecidedAt    uint64 = 1 << 26
+	iLiveVisitKey uint64 = 1 << 27
 )
 
-const nInsertable = 27
+const nInsertable = 28
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -3276,6 +3362,7 @@ var insCols = [nInsertable]string{
 	"\"approved_by\"",
 	"\"approved_by_id\"",
 	"\"decided_at\"",
+	"\"live_visit_key\"",
 }
 
 // insParts and insPlaceholder come from the back end at build time; the
@@ -3284,7 +3371,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"instance_deviations\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"definition_id\", \"kind\", \"scope\", \"origin\", \"status\", \"node_id\", \"node_name\", \"task_id\", \"iteration_id\", \"actor\", \"actor_id\", \"reason\", \"before\", \"after\", \"details\", \"run_id\", \"audit_entry_id\", \"visit_key\", \"request_id\", \"approved_by\", \"approved_by_id\", \"decided_at\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"definition_id\", \"kind\", \"scope\", \"origin\", \"status\", \"node_id\", \"node_name\", \"task_id\", \"iteration_id\", \"actor\", \"actor_id\", \"reason\", \"before\", \"after\", \"details\", \"run_id\", \"audit_entry_id\", \"visit_key\", \"request_id\", \"approved_by\", \"approved_by_id\", \"decided_at\", \"live_visit_key\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -3303,7 +3390,7 @@ var updOpCache = runtime.NewMaskCache()
 // part of it. Without it m.Row() would hold what the row held BEFORE
 // the statement, so a caller reading back the counter it just
 // incremented would get the old number and never know.
-const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"definition_id\", \"kind\", \"scope\", \"origin\", \"status\", \"node_id\", \"node_name\", \"task_id\", \"iteration_id\", \"actor\", \"actor_id\", \"reason\", \"before\", \"after\", \"details\", \"run_id\", \"audit_entry_id\", \"visit_key\", \"request_id\", \"approved_by\", \"approved_by_id\", \"decided_at\""
+const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"definition_id\", \"kind\", \"scope\", \"origin\", \"status\", \"node_id\", \"node_name\", \"task_id\", \"iteration_id\", \"actor\", \"actor_id\", \"reason\", \"before\", \"after\", \"details\", \"run_id\", \"audit_entry_id\", \"visit_key\", \"request_id\", \"approved_by\", \"approved_by_id\", \"decided_at\", \"live_visit_key\""
 
 // Masks reports how many distinct UPDATE shapes have compiled.
 func Masks() int { return updCache.Masks() }
@@ -3627,6 +3714,20 @@ func (m *Mut) SetDecidedAtNull() {
 	m.expr &^= dDecidedAt
 }
 
+func (m *Mut) SetLiveVisitKey(v string) {
+	m.row.LiveVisitKey = runtime.Null[string]{V: v, Valid: true}
+	m.dirty |= dLiveVisitKey
+	m.expr &^= dLiveVisitKey
+}
+
+// SetLiveVisitKeyNull writes SQL NULL. It is a separate method because a
+// zero value and an absent value are different facts.
+func (m *Mut) SetLiveVisitKeyNull() {
+	m.row.LiveVisitKey = runtime.Null[string]{}
+	m.dirty |= dLiveVisitKey
+	m.expr &^= dLiveVisitKey
+}
+
 // Ins stages a new row. Unlike Mut it has a setter for every insertable
 // column including the primary key and Immutable ones — supplying your
 // own id is legitimate, changing it later is not.
@@ -3878,6 +3979,18 @@ func (n *Ins) SetDecidedAtNull() {
 	n.set |= iDecidedAt
 }
 
+func (n *Ins) SetLiveVisitKey(v string) {
+	n.row.LiveVisitKey = runtime.Null[string]{V: v, Valid: true}
+	n.set |= iLiveVisitKey
+}
+
+// SetLiveVisitKeyNull writes SQL NULL explicitly, which is not the same as
+// leaving the column unset and taking its default.
+func (n *Ins) SetLiveVisitKeyNull() {
+	n.row.LiveVisitKey = runtime.Null[string]{}
+	n.set |= iLiveVisitKey
+}
+
 // The conflict encoding. One byte holds both which unique index an
 // upsert names and what it does on collision, so the insert statement
 // cache stays keyed by one mask and one byte:
@@ -3919,12 +4032,12 @@ func upsertTail(conflict uint8, mask uint64) string {
 // row that collides, which a test inserting distinct rows never sees.
 var conflictSpecs = []string{
 	" ON CONFLICT (\"id\")",
-	" ON CONFLICT (\"instance_id\", \"visit_key\")",
+	" ON CONFLICT (\"instance_id\", \"live_visit_key\")",
 }
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 25)
+	set := make([]string, 0, 26)
 	switch i {
 	case 0:
 		if mask&(1<<2) != 0 {
@@ -4002,6 +4115,9 @@ func assignable(i uint8, mask uint64) []string {
 		if mask&(1<<26) != 0 {
 			set = append(set, "decided_at")
 		}
+		if mask&(1<<27) != 0 {
+			set = append(set, "live_visit_key")
+		}
 	case 1:
 		if mask&(1<<2) != 0 {
 			set = append(set, "updated_at")
@@ -4060,6 +4176,9 @@ func assignable(i uint8, mask uint64) []string {
 		if mask&(1<<21) != 0 {
 			set = append(set, "audit_entry_id")
 		}
+		if mask&(1<<22) != 0 {
+			set = append(set, "visit_key")
+		}
 		if mask&(1<<23) != 0 {
 			set = append(set, "request_id")
 		}
@@ -4086,12 +4205,12 @@ func (n *Ins) OnConflictID() *Ins {
 	return n
 }
 
-// OnConflictInstanceIDVisitKey upserts on the unique index over (instance_id, visit_key).
+// OnConflictInstanceIDLiveVisitKey upserts on the unique index over (instance_id, live_visit_key).
 //
 // The row that already exists keeps every column this insert did
 // not assign. Follow with DoNothing() to leave it untouched
 // entirely.
-func (n *Ins) OnConflictInstanceIDVisitKey() *Ins {
+func (n *Ins) OnConflictInstanceIDLiveVisitKey() *Ins {
 	n.conflict = 4
 	return n
 }
@@ -4155,6 +4274,7 @@ var assignFor = map[string]string{
 	"approved_by":    "\"approved_by\" = EXCLUDED.\"approved_by\"",
 	"approved_by_id": "\"approved_by_id\" = EXCLUDED.\"approved_by_id\"",
 	"decided_at":     "\"decided_at\" = EXCLUDED.\"decided_at\"",
+	"live_visit_key": "\"live_visit_key\" = EXCLUDED.\"live_visit_key\"",
 }
 
 func assignExcluded(c string) string { return assignFor[c] }
@@ -4252,6 +4372,8 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 			args = append(args, n.row.ApprovedByID.Arg())
 		case 26:
 			args = append(args, n.row.DecidedAt.Arg())
+		case 27:
+			args = append(args, n.row.LiveVisitKey.Arg())
 		}
 	}
 	var out Row
@@ -4289,7 +4411,7 @@ func Inserts() int { return insCache.Masks() }
 // not treat a zero as 'unset': that guess is why other ORMs cannot insert
 // a false, a 0 or an empty string into a column with a default.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 27)
+	args := make([]any, 0, 28)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -4317,6 +4439,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.ApprovedBy.Arg())
 	args = append(args, r.ApprovedByID.Arg())
 	args = append(args, r.DecidedAt.Arg())
+	args = append(args, r.LiveVisitKey.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
 		return err
@@ -4370,13 +4493,14 @@ var copyCols = []string{
 	"approved_by",
 	"approved_by_id",
 	"decided_at",
+	"live_visit_key",
 }
 
 // rowSource walks a []Row for CopyFrom without copying any of it.
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [27]any
+	buf  [28]any
 }
 
 func (s *rowSource) Next() bool {
@@ -4421,6 +4545,7 @@ func (s *rowSource) Values() []any {
 	s.buf[24] = r.ApprovedBy.Ptr()
 	s.buf[25] = r.ApprovedByID.Ptr()
 	s.buf[26] = r.DecidedAt.Ptr()
+	s.buf[27] = r.LiveVisitKey.Ptr()
 	return s.buf[:]
 }
 
@@ -4478,8 +4603,9 @@ func InsertOp(r Row) runtime.BatchOp {
 	mask |= 1 << 24
 	mask |= 1 << 25
 	mask |= 1 << 26
+	mask |= 1 << 27
 	st := stmtForInsertNoReturn(mask, 0)
-	args := make([]any, 0, 27)
+	args := make([]any, 0, 28)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -4507,6 +4633,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.ApprovedBy.Arg())
 	args = append(args, r.ApprovedByID.Arg())
 	args = append(args, r.DecidedAt.Arg())
+	args = append(args, r.LiveVisitKey.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
 
@@ -4594,6 +4721,8 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 			args = append(args, n.row.ApprovedByID.Arg())
 		case 26:
 			args = append(args, n.row.DecidedAt.Arg())
+		case 27:
+			args = append(args, n.row.LiveVisitKey.Arg())
 		}
 	}
 	return runtime.BatchOp{SQL: st.SQL, Args: args}, nil
@@ -4690,6 +4819,8 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 			args = append(args, m.row.ApprovedByID.Arg())
 		case 24:
 			args = append(args, m.row.DecidedAt.Arg())
+		case 25:
+			args = append(args, m.row.LiveVisitKey.Arg())
 		}
 	}
 	args = append(args, m.row.ID)
@@ -4822,6 +4953,8 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 			args = append(args, m.row.ApprovedByID.Arg())
 		case 24:
 			args = append(args, m.row.DecidedAt.Arg())
+		case 25:
+			args = append(args, m.row.LiveVisitKey.Arg())
 		}
 	}
 	args = append(args, m.row.ID)

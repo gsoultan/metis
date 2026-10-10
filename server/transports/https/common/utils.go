@@ -1,6 +1,7 @@
 package common
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/rs/zerolog/log"
 
@@ -18,6 +20,25 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 )
 
+// EncodeResponse writes a reply as JSON.
+//
+// A reply that failed is answered as its failure, with the status of the
+// failure's class, and nothing of the reply. That is asked first: a reply
+// that also names a status of its own never gets to give it for a failure.
+//
+// A reply that names its status is answered with it. It is for a reply that
+// is not "done" — a request that was taken and now waits for somebody else is
+// a 202 — and every reply that names none is the 200 it always was.
+//
+// The reply is written out in full before anything is sent. A status, once
+// sent, cannot be taken back: were it sent first, a reply that then could not
+// be written would be answered "accepted", or "ok", over a body that says the
+// server failed. So a reply that cannot be written is returned as the error
+// it is, with nothing sent, and whoever serves the route answers it as the
+// server's — a 500, as it was before any reply named a status.
+//
+// What is sent is what the stream encoder wrote, byte for byte: the same
+// encoder writes it, into memory first, the line it ends with included.
 func EncodeResponse(ctx context.Context, w http.ResponseWriter, response any) error {
 	if f, ok := response.(endpoints.Failer); ok && f.Failed() != nil {
 		// EncodeError has written the failure to the caller. Returning it again
@@ -25,8 +46,39 @@ func EncodeResponse(ctx context.Context, w http.ResponseWriter, response any) er
 		EncodeError(ctx, f.Failed(), w)
 		return nil //nolint:nilerr // the error is reported to the caller by EncodeError, not swallowed
 	}
+	body, pooled := replyBuffers.Get().(*bytes.Buffer)
+	if !pooled {
+		body = new(bytes.Buffer)
+	}
+	defer keepReplyBuffer(body)
+	body.Reset()
+	if err := json.NewEncoder(body).Encode(response); err != nil {
+		return err
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	return json.NewEncoder(w).Encode(response)
+	if coder, ok := response.(interface{ StatusCode() int }); ok {
+		w.WriteHeader(coder.StatusCode())
+	}
+	_, err := w.Write(body.Bytes())
+	return err
+}
+
+// replyBuffers holds the memory replies are written into before they are
+// sent, so that writing a reply out first costs a route no allocation of its
+// own once the server is warm.
+var replyBuffers = sync.Pool{New: func() any { return new(bytes.Buffer) }}
+
+// maxKeptReplyBuffer is the largest buffer kept for the next reply. One reply
+// of many megabytes must not leave that much held for as long as the server
+// runs.
+const maxKeptReplyBuffer = 256 << 10
+
+// keepReplyBuffer hands a buffer back for the next reply, unless it has grown
+// past what is worth keeping.
+func keepReplyBuffer(body *bytes.Buffer) {
+	if body.Cap() <= maxKeptReplyBuffer {
+		replyBuffers.Put(body)
+	}
 }
 
 func EncodeError(_ context.Context, err error, w http.ResponseWriter) {

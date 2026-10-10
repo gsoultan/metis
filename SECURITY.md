@@ -103,6 +103,25 @@ believed from peers named in `METIS_TRUSTED_PROXIES`.
   against `JWT_SECRET` (`server/interceptors/auth/token_kind.go`). Turning OIDC
   on does not switch local accounts off; an operator who wants them gone
   deletes them.
+- **The second administrator is a check on a decision, not on an
+  administrator.** A waive of a step, and a migration that skips a step, does
+  not carry a control across, redirects past one or takes a
+  separation-of-duties rule away, wait for a different administrator's account
+  to approve — or, in an organization named in
+  `METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS` that nobody else administers, for
+  the same administrator's own approval, given with a reason and recorded as
+  nobody else's. That protects against a mistake and against a decision nobody
+  else looked at. It does not protect against an administrator who creates,
+  removes or displaces accounts: one who can manage accounts can make a second
+  administrator account and approve as it. An account-based control cannot
+  prevent that, so what there is instead is evidence: each change to who holds
+  which role is written to the server's log with who made it, and nowhere
+  else. The requester's own approval is accepted only in organizations the
+  operator names in `METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS`, and only while
+  nobody else administers them; it is recorded as approved by nobody else.
+  The second administrator is asked about those things, and does not review
+  the whole difference between two versions of a process. See
+  [What it does not protect against](docs/process-change-in-flight.md#what-it-does-not-protect-against).
 
 ## What has already been looked at
 

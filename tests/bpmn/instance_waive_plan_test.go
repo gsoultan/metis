@@ -41,7 +41,9 @@ func TestThePlanNamesTheWorkAndItsKeyChangesOnlyWhenTheWorkDoes(t *testing.T) {
 			Status: entities.TaskClaimed, Assignee: "ollie"}},
 		OpenWorkInAll: 1,
 		Outputs:       map[string]any{"approved": true},
-		Warnings:      []string{"“Operations approve” is with ollie, who will be told it was withdrawn."},
+		// A waive is asked of a second administrator; the plan says so.
+		RequiresSecondApprover: true,
+		Warnings:               []string{"“Operations approve” is with ollie, who will be told it was withdrawn."},
 	}
 	if !reflect.DeepEqual(plan, want) {
 		t.Fatalf("the plan for a waive:\n got  %+v\n want %+v", plan, want)

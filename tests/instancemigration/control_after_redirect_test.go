@@ -87,7 +87,7 @@ func TestAControlAnInstanceOnlyWaitedAtIsStillHeldAfterARedirectOntoIt(t *testin
 	if !first.Applicable() {
 		t.Fatalf("a warning must not refuse: %v", first.Refusals)
 	}
-	if _, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, redirect, servicecontracts.WithActor("dita")); err != nil {
+	if _, err := f.applyWithApproval(t, v1, v2, redirect, servicecontracts.WithActor("dita")); err != nil {
 		t.Fatalf("apply the first: %v", err)
 	}
 	moved := f.assertWaitingAt(t, v2, "control")
@@ -119,7 +119,7 @@ func TestAControlAnInstanceOnlyWaitedAtIsStillHeldAfterARedirectOntoIt(t *testin
 	}
 
 	// Accepted by name, it goes through, and the loss is in the ledger.
-	if err := f.svc.MigrateInstances(f.ctx, v2, v3, drop,
+	if err := f.migrateWithApproval(t, v2, v3, drop,
 		servicecontracts.WithAcknowledgedHolds("control"), servicecontracts.WithActor("dita")); err != nil {
 		t.Fatalf("an acknowledged hold was still refused: %v", err)
 	}

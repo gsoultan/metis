@@ -10,6 +10,14 @@ type Repository interface {
 	// written only inside the transaction that does it.
 	Deviation() contracts.DeviationRepository
 
+	// DeviationRequest is the requests waiting for a second administrator;
+	// written only inside the change that asks, and decided once.
+	DeviationRequest() contracts.DeviationRequestRepository
+
+	// DeviationDecider decides a ledger row that waited for approval, once,
+	// inside the change that decides its request.
+	DeviationDecider() contracts.DeviationDecider
+
 	// SharedCounter holds the counts that rate limits and circuit breakers
 	// enforce across replicas rather than per process.
 	SharedCounter() contracts.SharedCounterRepository

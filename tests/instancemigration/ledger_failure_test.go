@@ -36,6 +36,7 @@ func newFixtureOver(t *testing.T, wrap func(repositories.Repository) repositorie
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
+	enrolAdministrators(t, tenantCtx, repo, org.ID)
 	return &fixture{svc: svc, ctx: tenantCtx, project: project.ID, dispatcher: dispatcher, db: db}
 }
 
@@ -213,7 +214,7 @@ func TestAReasonAsLongAsTheLedgerTakesIsAccepted(t *testing.T) {
 	if err != nil || !plan.Applicable() {
 		t.Fatalf("a reason of exactly the ledger's length was refused: %v (err %v)", plan.Refusals, err)
 	}
-	if err := f.svc.MigrateInstances(f.ctx, uuidOf(t, v1), uuidOf(t, v2), nil, opts...); err != nil {
+	if err := f.migrateWithApproval(t, uuidOf(t, v1), uuidOf(t, v2), nil, opts...); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	if rows := f.ledger(t, f.onlyInstance(t).ID); len(rows) != 1 || rows[0].Reason != strings.TrimSpace(reason) {
@@ -231,7 +232,7 @@ func TestADecisionWhoseTrailEntryCannotBeWrittenIsNotMade(t *testing.T) {
 				return trailRefusingRepository{Repository: repo, refused: migrationEntries[:3]}
 			})
 			v1, v2 := f.parkedOnOpsApprove(t)
-			err := f.svc.MigrateInstances(f.ctx, uuidOf(t, v1), uuidOf(t, v2), nil,
+			err := f.migrateDecided(t, kind, uuidOf(t, v1), uuidOf(t, v2), nil,
 				servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{"opsApprove": {Kind: kind, Reason: "policy"}}),
 				servicecontracts.WithActor("dita"))
 			if err == nil {
@@ -256,7 +257,7 @@ func TestALedgerFailureOnTheSecondInstanceLeavesTheFirstDoneAndTheRestUntouched(
 	})
 	v1, v2 := f.severalParkedOnOpsApprove(t, 3)
 
-	err := f.svc.MigrateInstances(f.ctx, v1, v2, nil, skipOps("the operations manager role was eliminated")...)
+	err := f.migrateWithApproval(t, v1, v2, nil, skipOps("the operations manager role was eliminated")...)
 	if err == nil {
 		t.Fatal("a migration whose second skip could not be ledgered reported success")
 	}
@@ -331,7 +332,7 @@ func TestAStepWithAVeryLongNameIsStillLedgered(t *testing.T) {
 	if plan, err := f.svc.PlanInstanceMigration(f.ctx, v1, v2, nil, opts...); err != nil || !plan.Applicable() {
 		t.Fatalf("plan: %v (err %v)", plan.Refusals, err)
 	}
-	if err := f.svc.MigrateInstances(f.ctx, v1, v2, nil, opts...); err != nil {
+	if err := f.migrateWithApproval(t, v1, v2, nil, opts...); err != nil {
 		t.Fatalf("the dry run called this applicable, and apply answered: %v", err)
 	}
 	rows := f.ledger(t, f.onlyInstance(t).ID)

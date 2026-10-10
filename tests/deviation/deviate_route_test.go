@@ -59,19 +59,23 @@ func newDeviationRouteHarness(t *testing.T) *deviationHarness {
 	return &deviationHarness{server: server, svc: svc, repo: repo, db: db, orgID: org.ID, projID: project.ID}
 }
 
-// deviateReply is what the route answers with a 200.
+// deviateReply is what the route answers with a 200, and with the 202 of a
+// waive that waits for a second administrator.
 type deviateReply struct {
 	Plan struct {
-		NodeID     string         `json:"node_id"`
-		VisitKey   string         `json:"visit_key"`
-		Outputs    map[string]any `json:"outputs"`
-		Refusals   []string       `json:"refusals"`
-		Warnings   []string       `json:"warnings"`
-		Applicable bool           `json:"applicable"`
+		NodeID                 string         `json:"node_id"`
+		VisitKey               string         `json:"visit_key"`
+		Outputs                map[string]any `json:"outputs"`
+		RequiresSecondApprover bool           `json:"requires_second_approver"`
+		Refusals               []string       `json:"refusals"`
+		Warnings               []string       `json:"warnings"`
+		Applicable             bool           `json:"applicable"`
 	} `json:"plan"`
 	Applied   bool           `json:"applied"`
 	Replayed  bool           `json:"replayed"`
 	Deviation map[string]any `json:"deviation"`
+	// PendingApproval is the request a 202 waits on; nil in every other reply.
+	PendingApproval *pendingView `json:"pending_approval"`
 }
 
 func deviationsPath(instanceID uuid.UUID) string {
@@ -119,7 +123,7 @@ func (h *deviationHarness) deviateWith(t *testing.T, token string, instanceID uu
 	t.Helper()
 	status, raw := h.send(t, token, deviationsPath(instanceID), body)
 	var reply deviateReply
-	if status == http.StatusOK {
+	if status == http.StatusOK || status == http.StatusAccepted {
 		if err := json.Unmarshal([]byte(raw), &reply); err != nil {
 			t.Fatalf("decode: %v (%s)", err, raw)
 		}
@@ -206,9 +210,7 @@ func (h *deviationHarness) signInToBoth(t *testing.T, name string) (token string
 		ID: uuid.Must(uuid.NewV7()), Username: name,
 		Organizations: []*entities.Organization{{ID: h.orgID}, {ID: org.ID}},
 	}
-	if err := h.svc.CreateUser(entities.WithSystemContext(context.Background()), account, harnessPassword); err != nil {
-		t.Fatalf("create %s: %v", name, err)
-	}
+	h.createAccount(t, account)
 	there := entities.WithTenantContext(entities.WithSystemContext(context.Background()), entities.TenantContext{TenantID: org.ID.String()})
 	if err := h.svc.SetOrganizationRoles(there, account.ID, []string{entities.RoleAdmin}); err != nil {
 		t.Fatalf("make %s an administrator of the other organization: %v", name, err)
@@ -262,6 +264,9 @@ func TestOnlyAnAdministratorOfTheOrganizationDeviatesAnInstance(t *testing.T) {
 	// here: the role counts where it is held.
 	both, elsewhere := h.signInToBoth(t, "boss-elsewhere")
 	outsider := h.signInElsewhere(t, "outsider-boss", entities.RoleAdmin)
+	// The second administrator, who approves the waive at the end, signs in
+	// here with the others.
+	h.secondAdministrator(t)
 	callers = append(callers,
 		caller{name: "an administrator of another organization, acting in this one", token: both,
 			headers: []string{"X-Organization-ID", h.orgID.String()}, status: http.StatusForbidden, reply: forbidden},
@@ -309,16 +314,21 @@ func TestOnlyAnAdministratorOfTheOrganizationDeviatesAnInstance(t *testing.T) {
 		t.Fatal("refused requests closed the step")
 	}
 
-	// The administrator is not refused, and the reply names them and carries
-	// no account id.
-	status, applied, raw := h.deviateWith(t, admin, instanceID, requests["waive apply"])
-	if status != http.StatusOK || !applied.Applied || applied.Replayed || applied.Deviation["kind"] != "waive" || applied.Deviation["actor"] != "boss" {
-		t.Fatalf("the administrator's apply: %d (%s)", status, raw)
+	// The administrator is not refused: the waive they ask for waits, a second
+	// administrator approves it, and it is applied. The reply names them both
+	// and carries no account id.
+	status, applied, raw := h.secondedWith(t, admin, instanceID, requests["waive apply"])
+	if status != http.StatusOK || !applied.Applied || applied.Deviation["kind"] != "waive" || applied.Deviation["actor"] != "boss" {
+		t.Fatalf("the administrator's apply, approved by a second: %d (%s)", status, raw)
+	}
+	if applied.Deviation["approved_by"] != seconderName {
+		t.Fatalf("the waive does not say who approved it: %s", raw)
 	}
 	if applied.Deviation["actor_is_server"] != false {
 		t.Fatalf("an administrator's waive reads as the server's: %s", raw)
 	}
-	for _, forbidden := range []string{`"actor_id"`, `"approved_by_id"`, h.accountID(t, "boss").String()} {
+	for _, forbidden := range []string{`"actor_id"`, `"approved_by_id"`, `"requested_by_id"`, `"decided_by_id"`,
+		h.accountID(t, "boss").String(), h.accountID(t, seconderName).String()} {
 		if strings.Contains(raw, forbidden) {
 			t.Fatalf("the reply carries %s: %s", forbidden, raw)
 		}

@@ -19,26 +19,32 @@ import (
 // word that keeps it from reading as a step somebody performed.
 const outcomeWaived = "waived"
 
-// waiveStep ends the step an instance waits at as waived: what the waiver
-// counts as is set, the work open on the step is withdrawn and whoever held
-// it told, the step is ended whole and the instance moved on from it once —
-// and the ledger and the trail say it was waived, by whom and why.
+// waived ends the step an instance waits at as waived and answers the ledger
+// row that says so — made, and not yet recorded: what the waiver counts as is
+// set, the work open on the step is withdrawn and whoever held it told, and
+// the step is ended whole and the instance moved on from it once.
+//
+// The row is its caller's to write, and its one caller is the approval of a
+// second administrator (applyApproved), which writes it over the row that
+// waited for it — so that an approved waive leaves exactly the row a waive
+// left when one administrator could make it. Nothing else calls this: the
+// request that asks for a waive makes none. control says the step is marked
+// as a control, for the trail entry the caller writes beside the row.
 //
 // The values are set before the instance moves on, so what follows the step
 // decides from what the waiver counts as and not from what an earlier visit
 // left. They are saved with the instance as the advance saves it.
 //
-// The record is made from the tasks the effect held and withdrew, not from
-// the plan's open work: the plan read them without their rows, and whoever
-// holds a task may have changed since. It counts every one and names the
-// first maxRecordedInPlace of them, by id, as a cancel's does: a step done
-// once for each of five thousand people has five thousand runs, and a row is
-// read whole.
+// The row is made from the tasks the effect held and withdrew, not from the
+// plan's open work: the plan read them without their rows, and whoever holds
+// a task may have changed since. It counts every one and names the first
+// maxRecordedInPlace of them, by id, as a cancel's does: a step done once for
+// each of five thousand people has five thousand runs, and a row is read
+// whole.
 //
-// An advance that fails — a gateway after the step with no flow for the
-// value given — fails the unit of work: nothing is set, withdrawn or
-// recorded. What the caller is told of it is waiveFailed's to say.
-func (s *instanceDeviationService) waiveStep(
+// An advance that fails is told by waiveFailed, and fails the caller's unit
+// of work.
+func (s *instanceDeviationService) waived(
 	ctx context.Context,
 	locked models.ProcessInstanceModel,
 	live *entities.ProcessInstance,
@@ -46,11 +52,8 @@ func (s *instanceDeviationService) waiveStep(
 	plan entities.DeviationPlan,
 	command entities.DeviationCommand,
 	actor string,
-) (entities.Deviation, error) {
-	runID, err := uuid.NewV7()
-	if err != nil {
-		return entities.Deviation{}, err
-	}
+	runID uuid.UUID,
+) (row entities.Deviation, control bool, err error) {
 	// Read before anything is set: live shares its values with locked.
 	held := valuesHeld(live.Variables, command.Outputs)
 	for name, value := range command.Outputs {
@@ -58,10 +61,10 @@ func (s *instanceDeviationService) waiveStep(
 	}
 	withdrawn, err := s.actions.waive(ctx, live, def, command.NodeID)
 	if err != nil {
-		return entities.Deviation{}, waiveFailed(uuid.UUID(locked.ID), callerOf(locked), plan.NodeName, len(command.Outputs) > 0, err)
+		return entities.Deviation{}, false, waiveFailed(uuid.UUID(locked.ID), callerOf(locked), plan.NodeName, len(command.Outputs) > 0, err)
 	}
 
-	row := inPlaceDeviation(locked, plan, command, actor, runID)
+	row = inPlaceDeviation(locked, plan, command, actor, runID)
 	if len(withdrawn) == 1 {
 		row.Task = &entities.Task{ID: uuid.UUID(withdrawn[0].ID)}
 	}
@@ -78,16 +81,11 @@ func (s *instanceDeviationService) waiveStep(
 	// no more than a screenful of them and a list here would read as all.
 	row.Details = map[string]any{"withdrawn": len(withdrawn), "tasks_listed": len(named), "decision_points": plan.DecisionPointsInAll}
 	// Said only of a control: a row with no mark is a step that was not one.
-	control := isControl(def.FindNode(command.NodeID))
+	control = isControl(def.FindNode(command.NodeID))
 	if control {
 		row.Details[detailControl] = true
 	}
-
-	recorded, err := s.actions.record(ctx, row, waiveEntry(locked, plan, command, actor, runID, control))
-	if err != nil {
-		return entities.Deviation{}, effectFailed(fmt.Sprintf("recording that “%s” was waived", plan.NodeName), err)
-	}
-	return recorded, nil
+	return row, control, nil
 }
 
 // waiveFailed is what somebody who asked for a waive is told when the effect

@@ -125,7 +125,18 @@ func (s *userService) CreateUser(ctx context.Context, u entities.User, password 
 		u.CreatedAt = time.Now()
 	}
 
-	return s.repo.User().Create(ctx, adapters.UserModelAdapter{User: u}.ToModel(), string(hash))
+	if err := s.repo.User().Create(ctx, adapters.UserModelAdapter{User: u}.ToModel(), string(hash)); err != nil {
+		return err
+	}
+	memberOf := make([]uuid.UUID, 0, len(u.Organizations))
+	for _, organization := range u.Organizations {
+		if organization != nil {
+			memberOf = append(memberOf, organization.ID)
+		}
+	}
+	traceAccountChange(ctx, accountCreated, u.ID, u.Username, accountRoles{},
+		accountRoles{global: u.Roles, byOrganization: u.RolesByOrganization}.in(memberOf))
+	return nil
 }
 
 // dummyHash is compared against when no user matches, so that a login attempt
@@ -276,6 +287,10 @@ func (s *userService) UpdateUser(ctx context.Context, u entities.User) error {
 		}
 	}
 
+	// What the account held, and whether this changes it, are told before
+	// the stored copy is written over.
+	before, rolesChange := rolesOf(stored), u.Roles != nil && !sameRoles(stored.Roles, u.Roles)
+
 	stored.FullName = u.FullName
 	stored.DisplayName = u.DisplayName
 	stored.Email = u.Email
@@ -295,6 +310,9 @@ func (s *userService) UpdateUser(ctx context.Context, u entities.User) error {
 	// An update can change roles, which is an authorization decision; a cached
 	// caller would keep the ones they had.
 	s.principals.forget(u.ID)
+	if rolesChange {
+		traceAccountChange(ctx, accountRolesChanged, u.ID, stored.Username, before, rolesOf(stored))
+	}
 	return nil
 }
 
@@ -351,7 +369,8 @@ func (s *userService) ChangePassword(ctx context.Context, userID uuid.UUID, curr
 	return nil
 }
 
-// SetPassword replaces an account's password. It is what --reset-password runs.
+// SetPassword replaces an account's password. It is what --reset-password
+// runs, and nothing else calls it: the line it logs says so.
 //
 // There was no way to change one at all: the only path that wrote a hash was
 // Create. A forgotten password therefore had no answer for the person who
@@ -389,6 +408,12 @@ func (s *userService) SetPassword(ctx context.Context, username, newPassword str
 		return err
 	}
 	s.principals.forget(uuid.UUID(user.ID))
+	// Nothing but --reset-password calls this, and whoever can run it can
+	// take any local account's sign-in — an administrator's among them. So
+	// it is said, in the shape a change of role is said in: whose account,
+	// what it holds, and that it was done on the server by nobody signed in.
+	held := rolesOf(user)
+	traceUnattended(madeThroughResetPassword, accountResetOnServer, uuid.Nil, uuid.UUID(user.ID), user.Username, held, held)
 	return nil
 }
 
@@ -436,6 +461,7 @@ func (s *userService) DeleteUser(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 	s.principals.forget(id)
+	traceAccountChange(ctx, accountDeleted, id, stored.Username, rolesOf(stored).in(membershipsOf(stored)), accountRoles{})
 	return nil
 }
 

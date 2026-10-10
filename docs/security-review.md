@@ -78,6 +78,34 @@ memberships are read and how a request is scoped.
   somebody else holds, and reading and clearing somebody's notifications, took
   only a login until this cycle; any other endpoint that takes a person or a
   record from the request without asking whose it is is a suspect.
+- **A second administrator.** A waive of a step of one instance, and a
+  migration that skips a step, does not carry a control across, redirects a
+  step past a control or takes a separation-of-duties rule away, are recorded
+  as a request and made only when a different administrator of the
+  organization approves — or, in an organization the operator has named in
+  `METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS` and that nobody else administers,
+  when the administrator who asked approves it, with a reason, recorded as
+  approved by nobody else (`server/domains/services/impl/deviation_request_admit.go`
+  for who may; `migration_gate.go` for the check a migration's run makes of
+  the stored request; `migration_second_approver.go` for what a plan asks
+  about). The requester and the approver are told apart by account id. Wanted:
+  a call, a route or an in-process path that makes one of those changes on one
+  account's authority; an approval that carries out something other than what
+  was asked; a request decided twice; a way to approve one's own request in an
+  organization `METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS` does not name, or in a
+  named one that has a second administrator; a request, header or setting an
+  organization controls that adds to that list. Three paths round a control
+  through a mapping were found and closed while this was built
+  (`CHANGELOG.md`, Fixed); a fourth is the likeliest next finding.
+
+  **What this control is not**, so that it is not reported as a finding and is
+  not relied on for more: it does not protect against an administrator who
+  creates, removes or displaces accounts, and it does not review the whole
+  difference between two versions.
+  [What it does not review](process-change-in-flight.md#what-it-does-not-review)
+  and
+  [What it does not protect against](process-change-in-flight.md#what-it-does-not-protect-against)
+  list both in full.
 
 ### 3. Process definitions, which are untrusted input
 
@@ -149,6 +177,29 @@ is part of the review.
    instances waiting for it (`engine.triggerSubscription`); `BroadcastSignal`,
    an operator's, does the same. It is the shape a task completion had before
    it was held to its form.
+4. **A change to who administers has no durable record.** Creating an
+   account, changing its roles and deleting it write one line each to the
+   server's log, naming who did it, and nothing else: no trail, no table, and
+   a membership carries no dates. The first administrator that set-up creates
+   and a password reset from the command line each write a line of the same
+   shape, naming no actor. A sign-in through the identity provider that
+   changes an account's organizations, and a rename of an account, are not
+   logged at all. So an administrator who creates a second
+   administrator account, approves their own request as it and deletes it
+   leaves an ordinary second approval in the ledger, and the only evidence is
+   in the log. A durable trail of account changes, with a refusal of a
+   self-approval that follows a recent change of roles, is the planned fix.
+5. **The second administrator does not see everything a migration loosens.**
+   Wider candidate groups, a lower completion condition, a changed gateway
+   condition, the same step ids rearranged with a control moved behind an
+   instance or bypassed, a redirect of a step a separation-of-duties rule
+   names (in a process that marks no control), and an unmarked step that
+   carries a rule removed outright are not detected, and such a migration
+   applies on one administrator's call.
+6. **A waive that waits is found stale only when somebody tries to approve
+   it**, and the plan an approver reads is the one the requester was shown.
+   An approver who does not preview the instance again approves on what was
+   true when it was asked.
 
 ## Out of scope
 

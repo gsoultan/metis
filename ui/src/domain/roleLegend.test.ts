@@ -97,4 +97,13 @@ describe('an action in the legend', () => {
     expect(actionLabel(grant, inCatalogue(en))).toBe('Set organization roles');
     expect(actionLabel(grant, inCatalogue(id))).toBe('Tetapkan peran organisasi');
   });
+
+  // Approving is usually of somebody else's request, and not always: an
+  // installation can let an organization's only administrator approve their
+  // own. So the legend says what is approved, and not whose it is.
+  it('words approving a request without saying whose it is, in both languages', () => {
+    const approve: ApiRoleAction = { method: 'ApproveDeviationRequest', area: 'instances', label: 'Approve deviation request' };
+    expect(actionLabel(approve, inCatalogue(en))).toBe('Approve a request waiting for a second administrator');
+    expect(actionLabel(approve, inCatalogue(id))).toBe('Setujui permintaan yang menunggu administrator kedua');
+  });
 });

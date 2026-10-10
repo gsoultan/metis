@@ -181,7 +181,7 @@ func TestWorkLeftOnADecidedStepIsNotCarriedToAVersionWithoutTheStep(t *testing.T
 				t.Fatalf("leave %s on the operations approval: %v", what, err)
 			}
 
-			result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, skipOps("the role was eliminated")...)
+			result, err := f.applyWithApproval(t, v1, v2, nil, skipOps("the role was eliminated")...)
 			if err != nil {
 				t.Fatalf("apply: %v", err)
 			}

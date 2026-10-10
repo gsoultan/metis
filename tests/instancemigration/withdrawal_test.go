@@ -36,7 +36,7 @@ func TestSkippingAStepAnnouncesItToWhoeverHeldIt(t *testing.T) {
 
 	v1, v2 := f.parkedOnOpsApprove(t)
 
-	if err := f.svc.MigrateInstances(f.ctx, uuidOf(t, v1), uuidOf(t, v2), nil,
+	if err := f.migrateWithApproval(t, uuidOf(t, v1), uuidOf(t, v2), nil,
 		servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{
 			"opsApprove": {Kind: servicecontracts.NodeActionSkip, Reason: "the role was eliminated"},
 		}),
@@ -102,7 +102,7 @@ func TestAMigrationWithdrawingADelegatedTaskNamesItsOwnerToo(t *testing.T) {
 				t.Fatalf("delegate the operations approval: %v", err)
 			}
 
-			if err := f.svc.MigrateInstances(f.ctx, uuidOf(t, v1), uuidOf(t, v2), nil,
+			if err := f.migrateDecided(t, kind, uuidOf(t, v1), uuidOf(t, v2), nil,
 				servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{
 					"opsApprove": {Kind: kind, Reason: "the role was eliminated"},
 				}),

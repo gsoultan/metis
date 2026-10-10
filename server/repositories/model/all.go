@@ -61,6 +61,8 @@ func All() []any {
 		&ServiceCall{},
 		// What was done to an instance that its process did not decide.
 		&InstanceDeviation{},
+		// Requests waiting for a second administrator.
+		&DeviationRequest{},
 
 		// The inbound surface and the machinery underneath it.
 		&Webhook{},

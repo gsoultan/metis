@@ -9,8 +9,9 @@ import (
 	"github.com/gsoultan/metis/server/repositories/models"
 )
 
-// whyNotMoved says why an instance must be left on the version it is running,
-// and nothing when it may be moved. It is asked of the row the rewrite's lock
+// whyNotMoved says why an instance must be left on the version it is running —
+// the cause, the steps it is about and the sentence — and nothing (the zero
+// value) when it may be moved. It is asked of the row the rewrite's lock
 // returned, inside the rewrite's transaction, before anything is written.
 //
 // The planner answers the same question — can everything this instance holds
@@ -47,31 +48,32 @@ import (
 func (s *migrationService) whyNotMoved(
 	ctx context.Context,
 	locked models.ProcessInstanceModel,
-	source, target models.ProcessDefinitionModel,
+	source sourceSteps,
+	target models.ProcessDefinitionModel,
 	targetNodes map[string]models.FlowNode,
 	nodeMapping map[string]string,
 	actions map[string]servicecontracts.NodeAction,
-) (string, error) {
+) (leftAlone, error) {
 	if undecided := undecidedSteps(locked, actions); len(undecided) > 0 {
-		return waitingToBeDecided(source, undecided), nil
+		return becauseUndecided(source, undecided), nil
 	}
 	found, err := s.survey(ctx, []models.ProcessInstanceModel{locked}, targetNodes, nodeMapping, actions)
 	if err != nil {
-		return "", fmt.Errorf("checking where the work of instance %s would land: %w", locked.ID, err)
+		return leftAlone{}, fmt.Errorf("checking where the work of instance %s would land: %w", locked.ID, err)
 	}
 	if nowhere := nodesOf(found.unlandable, found.stateStranded); len(nowhere) > 0 {
-		return nowhereToLand(source, target, nowhere), nil
+		return becauseNowhereToLand(source, target, nowhere), nil
 	}
 	// No token is on a decided step by now, so a task or a waiting event still
 	// on one is work no decision can reach, and the plan's exemption would
 	// carry it to a version that has no such step.
 	if len(found.leftOnDecided) > 0 {
-		return leftWhereNothingDecides(source, target, found.leftOnDecided), nil
+		return becauseNothingDecidesThere(source, target, found.leftOnDecided), nil
 	}
 	if len(found.stateCollisions) > 0 {
-		return countersWouldMerge(source), nil
+		return becauseCountersWouldMerge(source), nil
 	}
-	return "", nil
+	return leftAlone{}, nil
 }
 
 // undecidedSteps are the steps the migration decides that the instance still

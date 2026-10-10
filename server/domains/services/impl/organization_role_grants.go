@@ -51,6 +51,13 @@ func (s *userService) SetOrganizationRoles(ctx context.Context, userID uuid.UUID
 	// What the account may do is read from it on every request, through a
 	// cache that would otherwise keep the roles it had for its lifetime.
 	s.principals.forget(userID)
+	// A change that changes nothing is not logged as one, here as in an
+	// update of the account: the same roles, in whatever order or case.
+	before := rolesOf(stored)
+	if sameRoles(before.byOrganization[organization], roles) {
+		return nil
+	}
+	traceAccountChange(ctx, accountOrganizationRolesChanged, userID, stored.Username, before, before.holdingIn(organization, roles))
 	return nil
 }
 

@@ -66,7 +66,7 @@ func TestASkipThatCannotAdvanceLeavesTheStepToBeDone(t *testing.T) {
 		t.Fatalf("deploy v2: %v", err)
 	}
 
-	err = f.svc.MigrateInstances(f.ctx, v1, v2, nil,
+	err = f.migrateWithApproval(t, v1, v2, nil,
 		servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{
 			"review": {Kind: servicecontracts.NodeActionSkip, Reason: "reviews are no longer needed"},
 		}),

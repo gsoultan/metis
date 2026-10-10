@@ -71,6 +71,29 @@ const (
 	// sub-process no flow reaches a step: somebody chose it. This entry names
 	// who, and the reason when they gave one.
 	EventStepActivated = "step_activated"
+	// EventDeviationRequested marks a deviation one administrator asked for
+	// that waits for a second: nothing about the instance has changed, and
+	// the entry says so.
+	EventDeviationRequested = "deviation_requested"
+	// EventDeviationApproved marks a request a second administrator approved.
+	// It stands beside the entry of what was then done — a waived step's
+	// node_skipped — and is where the trail says who approved: that entry's
+	// own sentence does not, so that it never reads as the step's approval.
+	EventDeviationApproved = "deviation_approved"
+	// EventDeviationSelfApproved marks a request approved by whoever asked for
+	// it, in an installation that allows a sole administrator to. It says in
+	// so many words that no second person approved.
+	EventDeviationSelfApproved = "deviation_self_approved"
+	// EventDeviationRejected marks a request somebody rejected, or its
+	// requester withdrew. Nothing was changed.
+	EventDeviationRejected = "deviation_rejected"
+	// EventDeviationExpired marks a request nobody decided before its
+	// deadline. Nothing was changed.
+	EventDeviationExpired = "deviation_expired"
+	// EventDeviationStale marks a request that no longer held when somebody
+	// came to approve it: the instance had moved, or ended. Nothing was
+	// changed.
+	EventDeviationStale = "deviation_stale"
 )
 
 // auditWriter is the default AuditWriter implementation. It enriches each

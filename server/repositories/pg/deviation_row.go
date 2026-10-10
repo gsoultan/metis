@@ -91,6 +91,7 @@ func stageDeviationOptionals(ins *instancedeviation.Ins, d entities.Deviation) {
 	setOrNullString(ins.SetReason, ins.SetReasonNull, d.Reason)
 	setOrNullUUID(ins.SetAuditEntryID, ins.SetAuditEntryIDNull, d.AuditEntryID)
 	setOrNullString(ins.SetVisitKey, ins.SetVisitKeyNull, d.VisitKey)
+	setOrNullString(ins.SetLiveVisitKey, ins.SetLiveVisitKeyNull, liveVisitKey(d))
 	setOrNullUUID(ins.SetRequestID, ins.SetRequestIDNull, d.RequestID)
 	setOrNullString(ins.SetApprovedBy, ins.SetApprovedByNull, d.ApprovedBy)
 	setOrNullUUID(ins.SetApprovedByID, ins.SetApprovedByIDNull, d.ApprovedByID)
@@ -99,6 +100,17 @@ func stageDeviationOptionals(ins *instancedeviation.Ins, d entities.Deviation) {
 	} else {
 		ins.SetDecidedAtNull()
 	}
+}
+
+// liveVisitKey is what holds a visit: the row's visit key while the row is
+// applied or awaiting approval, and nothing once it is rejected, expired or
+// stale. The ledger is unique on it per instance, so a second live row for a
+// visit is refused and a decided one no longer refuses a new request.
+func liveVisitKey(d entities.Deviation) string {
+	if !d.Status.Live() {
+		return ""
+	}
+	return d.VisitKey
 }
 
 func setOrNullUUID(set func([16]byte), setNull func(), id uuid.UUID) {

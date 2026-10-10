@@ -279,7 +279,12 @@ Four questions, in order. Stop at the first that decides.
 - A **redirect of a step running instances have completed, or one that carries a control**: open work
   moves to the step mapped to, and work already done on the old step does not count as done
   on the new one, so a control or a separation-of-duties rule there will not see it. See *A
-  rename and a redirect*, below.
+  rename and a redirect*, below. A step given a new id that is marked as a control and does
+  not stand where the old step stood is warned of the same way.
+
+A warning does not block an apply, and it does not ask anybody either. Some of what a plan
+does is not one administrator's to apply at all: see
+[A second administrator](#a-second-administrator).
 
 Warnings are kept separate from refusals deliberately: a warning dressed as an error teaches
 people to click past the list, and then a real refusal gets clicked past too.
@@ -304,20 +309,38 @@ Three properties make this worth having:
 
 - **Only pending instances count.** An instance that already gave the approval waived
   nothing and must not read as though it did. "Already gave" is read from the instance's own
-  record of completed steps, and that record follows a mapping only where it renames a step.
+  record of completed steps, and that record follows a mapping only where it renames a step
+  — and onto a step marked as a control, only where the step is renamed where it stands
+  (*A rename and a redirect*, below).
   It used to follow every mapping: a finished step redirected onto a control the instance was
   only waiting at made the control read as passed, and a later migration that dropped it held
   nothing and asked nobody (`control_after_redirect_test.go`).
-- **The obligation must *land* on a node that carries one too.** Existing is not enough:
-  mapping `opsApprove` onto `salesApprove` lands the token perfectly and still means nobody
-  performs the check. A version that keeps the node ID but drops the marking has removed the
-  control just as surely as deleting the node would.
+- **The obligation survives only if the step itself survives, still marked.** That is the
+  same id, or the step renamed where it stands, landing on a node that is marked too.
+  Existing is not enough: a version that keeps the node ID but drops the marking has removed
+  the control just as surely as deleting the node would. Landing on a marked step is not
+  enough either: mapping `firstCheck` onto `secondCheck` lands the token on a control and
+  still means nobody performs the first. That used to count as carried across, so a mapping
+  could take an instance past a control with nothing held and nobody asked
+  (`TestAControlRedirectedOntoAnotherControlIsAControlNotCarriedAcross`). And a new id is not
+  enough to make it the same step: `firstCheck` mapped onto a third check the new version
+  adds after the second is a hold too
+  (`TestAControlMappedOntoAControlNewInTheTargetIsAControlNotCarriedAcross`).
 - **Node IDs, not a blanket flag.** An override people set once and forget is one they stop
   reading, and it would carry over to whatever the plan holds next time.
 
+A hold is counted over every instance the plan lists that has not passed the step, ended
+ones included, so a plan can hold for a control only finished instances missed.
+
+**An acknowledgement is not the end of it.** Acknowledging a hold makes the plan
+applicable. Where at least one instance that has not ended has not passed the step, the
+plan then says `requires_second_approver: true`, and an apply is not made: it is sent to a
+second administrator. See [A second administrator](#a-second-administrator).
+
 The acknowledgement and the authoriser's name are written to every affected instance's
-timeline. This is entirely additive: a definition that marks nothing behaves exactly as
-before.
+timeline. A definition that marks nothing has no hold. It is not untouched by the second
+administrator, though: a skip asks whatever is marked, and so does a version that takes a
+separation-of-duties rule away.
 
 ### Node actions — deciding work instead of moving it
 
@@ -364,6 +387,12 @@ POST /api/v1/definitions/versions/migrate
 - **`hold`** leaves the instance on the source version and raises an incident at the node for
   somebody to decide. An instance already held at that node keeps its one open incident, and
   nothing more is recorded for it.
+
+**A skip is not one administrator's call.** A `cancel` and a `hold` are applied by the
+request that asks for them. A plan with a `skip` in it, over a version at least one
+unfinished instance runs on, says `requires_second_approver: true`, and its apply is
+answered 202: the migration is recorded as a request and nothing is moved until a different
+administrator approves it. See [A second administrator](#a-second-administrator).
 
 **A decision is made on the instance as its lock finds it.** The listing is as old as the
 run, so before it decides an instance's work the apply reads the instance again, and tries an
@@ -455,13 +484,23 @@ the apply and says what would happen; `passed_over` says what did not:
   "applied": true,
   "passed_over": [
     { "instance_id": "0199…",
+      "cause": "left_the_step",
+      "steps": [ { "node_id": "opsApprove", "name": "Operations approve" } ],
+      "steps_in_all": 1,
       "reason": "It was no longer waiting at \"Operations approve\" when the migration reached it, so nothing was decided there and it was not moved. It stays on version 1; if it is still running, run the same migration again to plan for where it now stands." }
-  ]
+  ],
+  "passed_over_in_all": 1
 }
 ```
 
 `passed_over` is always present: `[]` when the run left nobody behind, and for a dry run,
-which writes nothing. An instance that finished before the run reached it — which a
+which writes nothing. It lists the first 200 instances the run passed over, in the order
+the run came to them, and `passed_over_in_all` is how many there were. `cause` says why as
+one of eight codes, for a client that words it in its own language or acts on it; `steps`
+is the steps the cause is about, by id and by name, at most ten of `steps_in_all`; `reason`
+is the same thing as a sentence, and still names every step. The codes are set out in
+[Integrating with Metis](integration.md#the-instances-a-run-passed-over). The reply to an
+approval of a migration lists them the same way. An instance that finished before the run reached it — which a
 migration already left unmoved, whether it decides work or only moves it — is listed
 there too, as *no longer running when the migration reached it*. So is one whose work would
 not land, in a migration that decides work or one that only moves it, with one of these
@@ -631,7 +670,10 @@ POST /api/v1/instances/{id}/deviations
 `kind` is `waive`, `cancel` or `hold`. What each does to the instance is what a migration's
 `skip`, `cancel` and `hold` do: one implementation, called by both. What differs is who
 decides and how. It is an administrator of the instance's organization, about one instance,
-after a preview of that instance. The request and the reply are set out in
+after a preview of that instance. A cancel and a hold are made by that administrator's
+apply. **A waive is not: its apply asks for it, and it is made when a different
+administrator approves** ([A second administrator](#a-second-administrator)). The request
+and the reply are set out in
 [Integrating with Metis](integration.md#waiving-cancelling-or-holding-one-instance), and
 what an operator does in [the runbooks](runbooks.md#waiving-cancelling-or-holding-one-instance).
 
@@ -646,7 +688,9 @@ instance's row is locked first, and everything below is asked of that row:
 
 1. Was this request already made? Then it is answered with the record the first one wrote
    and `replayed: true`, whatever the instance has become since, and nothing is done again.
-   That is what makes a lost answer safe to ask for again.
+   That is what makes a lost answer safe to ask for again. For a waive that still waits,
+   the record is the waiting row and the answer is the 202 again, to whoever asked and to
+   nobody else.
 2. Is the instance still running? One that has ended is refused: *this instance is
    cancelled, so it can no longer be waived; preview again*.
 3. Is the plan, made again from the locked row, the plan that was previewed? The
@@ -654,15 +698,24 @@ instance's row is locked first, and everything below is asked of that row:
    moved since you previewed it; preview again*. Then the plan's own refusals, which are
    what a preview of the same request shows.
 4. Does the instance still wait where the act is made?
-5. The act, its ledger row and its trail entry, together. If any of them fails, none is
-   kept.
+5. For a cancel or a hold: the act, its ledger row and its trail entry, together. If any
+   of them fails, none is kept. For a waive: the request, a ledger row that waits
+   (`pending_approval`) and a `deviation_requested` trail entry, together, and nothing
+   else. No task is withdrawn, nothing is set, nobody is told, and the instance does not
+   move.
+
+An approval of the waive asks 2 to 4 again, of the row its own lock returns, and then makes
+the waive: an approved waive is applied to the instance as it stands when it is approved,
+not as it stood when it was asked for.
 
 A completion of the step takes the instance's lock too, so a completion and a waive of one
 step take turns, and the second finds what the first left
 (`TestACompletionThatArrivesWhileItsStepIsBeingWaivedIsRefused`,
 `TestAWaiveAppliedAfterItsHolderFinishedTheStepIsRefused`). Two applies of one preview sent
 at the same moment act once (`TestTwoAppliesOfOnePreviewWaiveOnce`,
-`TestAppliesOfOnePreviewSentTogetherActOnce`).
+`TestAppliesOfOnePreviewSentTogetherActOnce`). So do an approval and a completion
+(`TestAnApprovalAndACompletionTakeTurnsAtTheInstance`), and two approvals of one request
+(`TestTwoApprovalsAtOnceWaiveOnce`).
 
 **The visit key says what work the plan was made for.** It is made from the instance, the
 version it runs, the kind of act, the step, and:
@@ -682,12 +735,18 @@ token, whether the plan lists it or not.
 
 A second request naming a key that has had its act, and asking for something else (another
 reason, other values), is refused with who acted: *this step was already waived by boss*.
+While a waive of the visit waits, anything else asked of the visit, and the same waive
+asked by anybody but its requester, is refused with the request that waits: *A request to
+waive “Operations approve” is already waiting for approval (request 0199…, asked by boss);
+approve or reject that one.* A preview says so too, as a refusal, before an apply would.
 
 #### Waive
 
 A waive ends a step somebody was to do without anybody doing it: its open tasks are
 withdrawn, each holder is told theirs was withdrawn, and the instance moves on from the step
-once. It is recorded as **waived**, never as performed. The tasks end `canceled`, not
+once. None of that happens when it is asked for. It happens when a second administrator
+approves the request, and until then the step's work can still be done by whoever holds
+it. It is recorded as **waived**, never as performed. The tasks end `canceled`, not
 `completed`. No completion is announced. The trail's entry is the `node_skipped` a
 migration's skip writes, with `outcome: "waived"`, and reads
 
@@ -699,7 +758,10 @@ waived step, as it does after a migration's skip. To tell waived from performed,
 task (`canceled`), the trail (`node_skipped`, `outcome: waived`) or the ledger, not the
 instance.
 
-**A step marked as a control is waived like any other, and says so.** A waive asks for no
+**A step marked as a control is waived like any other, and says so.** It waits for a
+second administrator as every waive does, and the warning below is in the plan the request
+keeps for them to read
+(`TestAWaiveOfAControlWaitsWithItsWarningAndIsApprovedWithItsMark`). A waive asks for no
 acknowledgement of a step marked `compliance_relevant`. Its plan warns *“Operations approve”
 is marked as a control. Waiving it is recorded as a control that was not performed.*, and
 the waive's ledger row and trail entry carry `control: true` (in the row's `details`, and
@@ -806,12 +868,16 @@ it. Check before applying.
   that other variable is not listed.
 
 **When a value fits no branch.** A waive whose value no flow of a gateway accepts, where
-the gateway has no default, is refused at the apply with a 400 that names the gateway, and
-nothing is changed: *The values given fit no way out of “Large order?”, so the waive was not
-applied and nothing was changed. Preview again and give a value one of its branches
-accepts.* The gateway may be one of another instance the advance reached: the caller's, or
-a process a later step calls. The sentence then says whose
-(`TestAWaiveAGatewayCannotFollowIsA400ThatSaysWhoseGatewayItWas`).
+the gateway has no default, is found out when the waive is made, which is at the approval.
+The approver is refused with a 400 that names the gateway, and nothing is changed: *The
+values given fit no way out of “Large order?”, so the waive was not applied and nothing was
+changed. Preview again and give a value one of its branches accepts. The request is still
+waiting: reject it, and the waive can be asked for again.* The approver cannot change the
+values, and a corrected request is refused while this one waits, which is why the sentence
+says what to do. The gateway may be one of another instance the advance reached: the
+caller's, or a process a later step calls. The sentence then says whose
+(`TestAWaiveAGatewayCannotFollowIsA400ThatSaysWhoseGatewayItWas`,
+`TestAWaiveWhoseApprovalCouldNotAdvanceIsWithdrawnAndAskedAgain`).
 
 #### Cancel
 
@@ -926,18 +992,505 @@ Three things about a hold that are gaps, not design:
   too few. The refusals are worked out from everything, not from what is listed, and
   `applicable` is the one answer to "can this be applied". An empty list does not mean
   nothing.
-- **An apply waits.** It waits for the instance's lock, and a waive or a cancel then waits
-  for the row of each task it withdraws, behind a claim, a hand-over or an edit under way.
-  There is no deadline on the server: the wait ends when the lock is free or the client
-  goes away.
+- **An apply waits.** It waits for the instance's lock, and a cancel, or the approval of a
+  waive, then waits for the row of each task it withdraws, behind a claim, a hand-over or
+  an edit under way. There is no deadline on the server: the wait ends when the lock is
+  free or the client goes away.
 - **A suspended instance is refused.** A preview lists *This instance is suspended; only a
   running instance can be held.* An apply answers *this instance is suspended, and a
   suspended instance is not waived, cancelled or held in place*, for all three kinds.
   Nothing in the product suspends an instance or resumes one today, so this is met only on
-  a row changed outside it.
-- **No second approver.** One administrator decides and applies. A cancel and a hold are
-  one administrator's decision and stay so. A waive is too in this release; the next adds
-  a second approver for a waive.
+  a row changed outside it. An approval of a waive of a suspended instance is refused in
+  the apply's sentence and the request goes on waiting
+  (`TestAWaiveRequestForASuspendedInstanceWaits`).
+- **A cancel and a hold are one administrator's decision, and stay so.** Each is applied by
+  the request that asks for it and answers 200
+  (`TestACancelAndAHoldStillApplyOnOneAdministratorsCall`). Only a waive waits for a second
+  administrator.
+
+### A second administrator
+
+A waive, and a migration that loosens a rule on work still running, are not applied by the
+administrator who asks for them. The apply records a **request**, answers 202 and changes
+nothing. A different administrator of the same organization approves it, and the approval
+is what makes the change. The one exception is an organization the operator has named as
+having one administrator, and that nobody else administers: there the administrator who
+asked may approve, with a reason, and the record says no second person did
+([below](#an-organization-with-one-administrator)). What an approver does is in
+[the runbooks](runbooks.md#approving-a-request-for-a-second-administrator); the routes are
+in [Integrating with Metis](integration.md#requests-for-a-second-administrator); what an
+upgrade changes is in
+[Upgrading](upgrading.md#a-second-administrator-approves-waivers-and-skips-migration-34).
+
+#### What asks
+
+**A waive in place, always.** Every plan of a waive says `requires_second_approver: true`,
+and the service sends a waive to a request whatever its plan says
+(`TestAWaiveNeedsASecondAdministratorWhateverItsPlanSays`). A cancel and a hold in place
+never ask.
+
+**A migration, for four things.** Each is counted over the instances the plan lists that
+have **not ended**: active ones, suspended ones, and any in a state the server does not
+know. A plan over a version nothing unfinished runs on asks nobody, whatever it does
+(`TestASkipOverAVersionWithNothingRunningAsksNobody`). An instance has **passed** a step
+when the step's id is in the instance's list of completed steps, and nothing else is
+asked.
+
+| The plan | Asks when | In the plan's words |
+| :-- | :-- | :-- |
+| **Skips a step** (`node_actions`, `kind: skip`) | always, whether or not anything waits at the step now | *“Operations approve” would be skipped for every listed instance waiting at it when the migration runs — not only those waiting there when this was asked for — and nobody would perform it* |
+| **Does not carry a control across**: a step marked `compliance_relevant` that the new version drops or unmarks, or that the mapping sends to a different step (a new id that is not a rename in place counts), its loss acknowledged | at least one unfinished instance has not passed it | *“Operations approve” carries a control 3 instance(s) have not passed, and they never would* |
+| **Redirects a step**: a mapping entry whose key is a step of the version being migrated from, that maps it to another id, and that is not a rename in place (below). An entry from a step to itself, or from an id that version does not have, is none | some unfinished instance has not passed some step, marked as a control, of the version being migrated from. One sentence for each such entry | *“Prepare” would be redirected to “Sign” for every listed instance waiting at it when the migration runs — 2 wait(s) there now — and a control such an instance has not passed may no longer be ahead of it: “Legal review”* |
+| **Loosens separation of duties**: a step's `separation_of_duties` rule names a step that the rule of a step an unpassed instance can come to perform in its place no longer names — the step the mapping lands on, and the step the new version keeps under the same id when the mapping sends it elsewhere — or that every such rule still names though the new version no longer has it | some unfinished instance has not passed the step that carries the rule | *“Approve” would no longer be refused to whoever performed “Submit”: the new version does not keep that separation of duties, and 2 instance(s) have not passed “Approve”* |
+
+A `cancel`, a `hold`, and a mapping that does none of these apply on one call, as before
+(`TestCancelHoldAndMappingOnlyMigrationsStillApplyOnOneCall`).
+
+The redirect's sentence has two more wordings, for a step nobody waits at now and for one
+where everybody waiting has passed every control; each says a control *may* no longer be
+ahead, never that it is lost. The separation-of-duties sentence has a second wording where
+the new version kept the rule under the id a mapping sends the named step to, and the work
+already done on that step does not follow the mapping — *…the new version's rule names the
+step that is mapped onto, but work already done does not follow that mapping, so the rule
+would not find who did it…* — and a third for a
+rule left naming a step the new version dropped: *…whoever performed it before the
+migration is still refused, but nobody can perform it afterwards, so the rule refuses
+nobody new…*. A rule that is unchanged and names a step neither version has asks nobody
+(`TestAnUnchangedRuleNamingAStepNeitherVersionHasAsksNobody`).
+
+`second_approver_reasons` lists the first ten sentences, sorted, and one more that counts
+the rest: *and 4 more reason(s) of the same kinds, not listed here*. Whether somebody is
+asked is decided from all of them. A step is named by its name, or by its id when it has
+none, cut at 255 characters
+(`TestTheReasonsAPlanListsAreBoundedWhereverTheyAreSaid`).
+
+**A rename in place asks nobody; any other mapping of a step is a redirect.** A mapping
+entry `from → to` is a rename in place when all of these hold:
+
+- `to` is not a step of the old version, and no other step is mapped onto it;
+- `from` is not a step of the new version: the old id is gone;
+- the same steps lead to it and follow it. The steps the old version's flows into `from`
+  come from, read through the mapping, are the steps the new version's flows into `to`
+  come from; and the same for the flows out.
+
+Only the step's own flows are compared. What lies beyond its neighbours is not looked at.
+A boundary event, an event sub-process, a step with no sequence flow at all, and a mapping
+onto an id the new version lacks are never in place
+(`TestAShapeWithNoPlaceOfItsOwnIsNeverRenamedInPlace`). So, in a sentence an administrator
+can use: *to rename a step without anybody being asked, give it a new id and change nothing
+else about where it stands; rename it and move it, and it is a redirect.*
+
+**What this asks for that you might not expect.** The rule over-asks on purpose, because
+the other direction is an instance past a control with nobody asked.
+
+- **Any redirect in a process with a control somebody has not passed asks**, even when the
+  control is still ahead of where the instance lands. Nothing walks the graph to find out.
+- **A renamed step whose neighbours also changed asks**, in such a process: a step added
+  or removed next to it, a flow added to or taken from it, a neighbour that was itself
+  redirected. If the renamed step is itself a control, it is a hold to acknowledge.
+- **A skip asks even when nobody waits at the step.** What is approved is the decision.
+- **A version whose only instance is suspended asks**
+  (`TestASkipOverAVersionWhoseOnlyInstanceIsSuspendedStillAsks`).
+- **A hold can need an acknowledgement and no second administrator**: when only ended
+  instances had not passed the control.
+
+#### What it does not review
+
+**The second administrator is asked about skips, controls not carried across, redirects
+past controls and separation-of-duties rules taken away. Nobody reviews the whole
+difference between two versions.** A new version can be laxer in ways the planner does not
+detect, and a migration onto it then applies on one administrator's call. Each of these is
+read from the planner's code, not run:
+
+- **Wider candidate groups, a lower completion condition** on an approval several people
+  give ("2 of 3" to "1 of 3"), **a changed gateway condition.** None is read.
+- **The same step ids rearranged, or a control bypassed.** A version that keeps every id
+  and every marking and moves a control to behind where an instance stands, or routes the
+  flow round it, needs no mapping, so nothing is a redirect and nothing is dropped.
+- **A redirect of a step a `separation_of_duties` rule names.** The rule still names the
+  step, and the new version still has it, so nothing is counted as lost — but the work
+  that waited there is now done at the step the mapping sends it to, by somebody the rule
+  does not look for. In a process that marks a control some instance has not passed, the
+  redirect itself asks; in one that marks nothing, nothing does.
+- **A step renamed in place in front of a control that moved.** In place compares one
+  step's own flows.
+- **A step that carries a rule, removed outright, when it is not marked as a control.** An
+  approval protected only by `separation_of_duties`, in a process that marks nothing, can
+  be redirected past or dropped.
+- **Controls that exist only in the new version.** Nothing asks whether an instance lands
+  beyond one.
+- **"Passed" means "in the instance's list of completed steps".** A step that was waived,
+  a step a migration skipped, and a step completed once before a loop brought the instance
+  back to it all count as passed. So a control waived in place does not make a later
+  migration that drops it ask for that instance.
+
+Mark the steps that are controls. An unmarked approval is protected only against its rule
+being taken away, and only where a `separation_of_duties` rule names it and the step that
+carries the rule survives. A redirect past it, or a redirect of the step its rule names, is
+not detected in a process that marks nothing.
+
+What *is* compared, for a step that carries a rule: the rule of every step of the new
+version that an instance which has not passed the step can come to perform in its place.
+That is the step the mapping lands on, and — when the mapping sends the step elsewhere
+while the new version keeps a step under the same id — that step too, because an instance
+that has not reached the step yet is not there to be moved and comes to the one under the
+old id. A name counts as kept only when each of those rules keeps it, so a mapping entry
+is no way round a rule the step under the old id has lost
+(`TestAMappingDoesNotSilenceALoosenedSeparationOfDuties`).
+
+The other direction over-asks, and is left that way: a control in a branch an instance
+never takes stays "not passed" for that instance for ever, so every redirect in that
+process keeps asking for as long as such an instance runs.
+
+#### What it does not protect against
+
+**The second approver protects against a mistake, and against a decision nobody else
+looked at. It does not protect against an administrator who creates, removes or displaces
+accounts.** The requester and the approver are told apart by account id
+(`TestTheRequesterNeverApprovesTheirOwnWaiveEvenRenamed`). The check is that two accounts
+were used. It cannot tell that two people used them.
+
+- **An administrator can create a second administrator account and approve as it.** The
+  approval is recorded as an ordinary second approval, and the account can then be
+  deleted. No setting is needed for this (read from the code, not run).
+- **In an organization named as having one administrator**, an administrator can take
+  another administrator's role away, approve their own request, and give the role back
+  (run once over the routes when the exception was built, and not kept as a test).
+- **What is left is evidence, in one place.** Creating an account, changing its roles,
+  changing its roles in one organization and deleting it each write one line to the
+  server's log with who did it and to whom — a change that changes nothing writes none —
+  (`TestEveryChangeToWhoHoldsWhichRoleIsLoggedWithWhoMadeIt`). Nothing else records them:
+  there is no trail of changes to accounts, and a membership carries no dates. Keep the
+  server's log somewhere an administrator of Metis cannot edit it.
+- **Also logged, in a line of the same shape that names no actor:** the first administrator
+  that set-up creates (`made_through: set-up`), and a password set with `--reset-password`
+  (`made_through: --reset-password, run on the server`).
+- **Not logged at all:** a sign-in through the identity provider that changes which
+  organizations an account belongs to, and a rename of an account that changes no role.
+- **One administrator the others cannot displace.** On an installation with more than one
+  organization, the Administrator role held on the account, which acts in every
+  organization the account belongs to, is granted and taken away, and such an account
+  deleted, only by a platform administrator: one the operator names in
+  `METIS_PLATFORM_ADMINS`. An organization's own administrators cannot remove it. On an
+  installation with one organization any holder of that role can strip or delete another.
+- **Two smaller windows.** An account the identity provider signs in is counted as an
+  administrator of the organizations its latest sign-in placed it in
+  (`TestAnAccountAnIdentityProviderPlacesIsCountedWhereItsLatestSignInPutIt`). And the
+  role check on a route reads a caller that may have been cached for up to
+  `METIS_AUTH_CACHE_TTL` (five seconds unless set), while the count of other
+  administrators reads the database: for that long the two can disagree.
+- **A request does not outlive its requester's standing — at the approval.** An approval
+  asks whether the account that made the request is still there, still belongs to the
+  organization and still holds the administrator role in it, and closes the request as
+  `stale` when it does not
+  (`TestAWaiveIsNotApprovedOnceItsRequesterNoLongerAdministers`,
+  `TestAMigrationIsNotApprovedOnceItsRequesterNoLongerAdministers`). It is asked once,
+  when the approval is made, of the accounts as committed then: a role taken away a moment
+  later is not seen, and a role taken away and given back between the asking and the
+  approval leaves no mark on the request. A rejection does not ask.
+- **Whoever holds the database or the server's command line is not bound by any of it.**
+
+**And it covers what it covers.** One administrator can still, alone: cancel or hold an
+instance; hand an open task to anybody in the organization the step's separation of duties
+does not bar, themselves included, with a reason, after which that person can complete it —
+recorded as performed by them, with a ledger row for the hand-over, not as waived (read
+from the hand-over's code, not run here); and migrate onto a version that is laxer in one
+of the ways above. "A waive needs a second administrator" does not mean one administrator
+can never act alone.
+
+**Nor does it keep a waiting waive from being read.** A waive that waits can be read
+before it is decided. Anyone signed in to the instance's organization reads its row with
+`GET /api/v1/instances/{id}/deviations`: the reason, the values it asks for
+(`after.variables`), who asked and the request's id. Only an administrator can read or
+decide the request itself. The same read goes on returning the rows of requests that were
+never carried out — rejected, expired, stale — each saying so in its `status`.
+
+#### The request
+
+A request keeps what was asked (the command, as it will be carried out), what the
+requester was shown (the plan, with why it needs somebody else in `because`), who asked,
+and a deadline fixed when it was made: 72 hours on unless `METIS_DEVIATION_APPROVAL_TTL`
+says otherwise (`TestTheApprovalWindowIsFixedWhenTheRequestIsMade`). The command and the
+plan are stored encrypted, as process variables are. The reason, who asked and who
+decided, the list of instances and the outcome are stored in plain text.
+
+**One request for one thing.** A request for a waive is for one visit of one step. A
+request for a migration is for one policy: both versions, the mapping, each decision with
+its reason, the controls acknowledged, the controls the plan found dropped, and the
+instances it was narrowed to. Who asks is not part of it. So the same thing asked again by
+whoever asked is answered with the request that waits, and asked by anybody else it is
+refused with that request's id: a second administrator does not get a request of their own
+to approve by asking for the same thing
+(`TestAWaiveAskedForAgainIsAnsweredWithTheRequestThatWaits`,
+`TestTwoAsksForOneMigrationAtOnceMakeOneRequest`).
+
+**Who may decide.** An administrator of the request's organization, with an account.
+
+- *Approve:* anybody but the requester — or the requester too, with a reason, in an
+  organization the operator has named as having one administrator and that nobody else
+  administers ([below](#an-organization-with-one-administrator)). A note is optional.
+  Anywhere else the requester is refused, 403:
+  *You asked for this. A different administrator has to approve it.* The attempt changes
+  nothing and is written to the server's log, where alone it leaves a mark.
+- *Reject:* any administrator, with a reason. The requester among them: that is a
+  withdrawal, and the record says which it was. There is no route of its own for it.
+
+**A request's life.**
+
+| Status | Means | Reached from |
+| :-- | :-- | :-- |
+| `pending_approval` | It waits. Nothing has changed. | made |
+| `approved` | A migration only: approved, and its run is going. Never where a request rests. | `pending_approval` |
+| `applied` | What it asked for was carried out. For a migration: its run ended without failing, which can be with nothing changed. | `pending_approval` (a waive), `approved` (a migration), `interrupted` (a migration whose run outlived its window, was marked, and then reported) |
+| `interrupted` | A migration only: approved, and the run stopped part-way, was refused before it began, or never reported. What it had done stands. | `approved` |
+| `rejected` | An administrator said no, or the requester withdrew it. | `pending_approval` |
+| `expired` | Nobody decided it before its deadline. | `pending_approval` |
+| `stale` | Somebody came to approve it and it no longer held, or whoever asked for it no longer administers the organization. | `pending_approval` |
+
+Nothing leaves `applied`, `rejected`, `expired` or `stale`, and nothing becomes live
+again. What is over stays over, and the same thing is asked for afresh
+(`TestARequestsStatusMovesOnlyTheWayTheClosedSetAllows`). A waive is never `approved` or
+`interrupted`: it is approved and made in one change.
+
+**The clock decides; a pass writes it down.** A request past its deadline reads `expired`
+to every reader and cannot be approved from that moment, whether or not anything has
+recorded it (`TestAnOverdueRequestReadsAsExpiredBeforeTheSweep`). Every ten minutes, and
+once at start-up, each replica records what the clock has decided, on each database. A
+pass does two things, in this order: approved runs that never reported are recorded
+`interrupted`, then requests past their deadline are recorded `expired`
+(`TestTheSweepClosesUnreportedRunsBeforeOverdueRequests`). Each request is closed in a
+transaction of its own, so one that cannot be closed is logged and passed, and the rest
+are still reached (`TestTheSweepReachesWhatIsBehindRequestsItCannotClose`). A request left
+only because another transaction held a row its closing needs is counted apart (`held`),
+and a pass that has waited out thirty of those ends there — two seconds each, so a minute
+for each of its two reads — and leaves the rest to the next pass
+(`TestAPassCountsHeldRequestsApartAndEndsOnceItHasWaitedForEnough`,
+`TestAPassCountsARequestSomebodyHoldsApartFromOneItCannotClose`). So
+does whoever next meets the request: an approval or a rejection that finds it overdue
+records the expiry and is then refused, and asking again for the same thing closes the
+overdue request and makes a fresh one
+(`TestAWaiveCanBeAskedAgainOnceItsRequestHasExpired`,
+`TestAMigrationCanBeAskedAgainOnceItsRequestHasExpired`).
+
+**`stale` is found only by trying to approve.** Nothing watches a waiting request. One
+whose instance has moved on, been cancelled or been migrated goes on reading
+`pending_approval` until somebody tries to approve it, or it expires
+(`TestAWaiveRequestGoesStaleWhenTheHolderCompletesTheStep`,
+`TestAWaiveRequestGoesStaleWhenTheInstanceIsMigratedOrCancelled`). The queue of waiting
+requests can therefore hold requests that no longer hold.
+
+#### What an approval does
+
+**Of a waive**, in one transaction. The request's row is locked, then the instance's. The
+instance must still be running; the plan, made again from the locked row, must be the one
+the request pinned — the same `visit_key` — and refuse nothing; the instance must still
+wait at the step. Then the waive is made, as an apply made it before this release, and
+recorded: the row that waited becomes the row of the waive, naming who asked (`actor`) and
+who approved (`approved_by`).
+
+- If whoever asked no longer administers the organization — the account deleted, out of
+  the organization, or without the administrator role in it — the request is recorded
+  `stale` and the approver is told *The administrator who asked for this, boss, no longer
+  administers this organization, so nothing was applied. It has to be asked for afresh by
+  somebody who does.* This is asked once the request is known to be waiting, in time and
+  one this caller may approve, and before anything the request stored is used or anything
+  of the instance is read.
+- If the instance has ended, or has moved, or the plan now refuses: the request is
+  recorded `stale` and the approver is told *This request no longer holds — the instance
+  has moved since it was asked for — so nothing was applied. Preview again and ask
+  afresh.* The record is kept; the 400 comes after it.
+- If the instance is suspended, or a gateway has no way out for the values asked for, or
+  the server fails: nothing is changed and the request waits as it did.
+
+The plan the request keeps is what the requester was shown. It is for reading, and nothing
+is decided from it (`TestWhatASecondAdministratorReadsIsThePlanTheRequesterWasShown`).
+
+**Of a migration**, in three steps, none inside another's transaction.
+
+1. *The approval.* The request's row is locked. Whoever asked must still administer the
+   organization, as for a waive, or the request is recorded `stale`. The stored migration
+   is planned again. If
+   what it asks for can no longer be planned, if the plan now refuses, if it is no longer
+   the policy that was asked for, or if an unfinished instance is on the version that the
+   request did not list, the request is recorded `stale` and the approver refused.
+   Otherwise it is recorded `approved`, and that is committed. A plan that could not be
+   made because a read failed leaves the request waiting
+   (`TestAnApprovalThatCannotPlanJustNowLeavesTheRequestWaiting`).
+2. *The run.* The migration is applied as any migration is, in the approver's call, under
+   the request's id. Its gate plans once more and checks the stored request against that
+   plan: approved, within its time, asked for by the account the run names as authorising
+   it (compared by account id — both ids have to be there and be the same; a name is not
+   read, and a run that names no account is refused:
+   `TestTheGateAdmitsAnApprovedRunOnTheRequestersAccountNotTheName`), the same policy,
+   and no unfinished instance the request did not list. What was approved
+   is what runs, or nothing does. An instance that arrived between the approval and the
+   run stops the run at the gate, before anything is moved
+   (`TestAnInstanceThatArrivesAfterTheApprovalStopsTheRunAtTheGate`).
+3. *The report.* What the run did is written on the request: `applied`, or `interrupted`.
+
+**What an approval pins, and what it does not.** *An approval is of the decision and of the
+instances the request lists. The decision applies to every listed instance waiting at the
+step when the migration runs, not only those waiting there when it was asked for.* The
+approver read "1 waits there now"; if a second listed instance reaches the step before the
+run, it is skipped or redirected under the same approval. An instance the request did not
+list is never acted on under it: one that arrives before the approval makes the request
+stale (`TestANewcomerMakesAMigrationRequestStaleAndALeaverDoesNot`), and one that arrives
+while the run is going is passed over as `not_planned_for`. Fewer instances is still
+covered: one that finished or was moved since is simply not acted on.
+
+**An approved run has a window.** It may start until the request's deadline, or one hour
+after the approval, whichever comes first. The gate checks that itself, with no pass
+having to run (`TestAnApprovedRequestPastItsWindowIsRefusedByTheGateWithNoSweep`). A
+request still `approved` when its window closes — the server stopped mid-run, or the run
+is still going — reads `interrupted`, and the ten-minute pass records it. A run that was
+in fact still going writes its own report over that mark when it ends, with
+`reported_after_sweep: true` (`TestARunsOwnReportWinsOverTheSweeps`). While a run is
+going, the same migration cannot be asked for again
+(`TestAMigrationBeingAppliedIsNotAskedForAgain`); once its window has closed it can, and
+asking closes the old request first
+(`TestAMigrationLeftApprovedByADeadProcessCanBeAskedAgain`).
+
+**A run that stops part-way.** The approver's call is answered 500, never 200
+(`TestARunThatStoppedPartWayIsAnsweredAsAFailureAndTheRequestSaysHowFarItGot`). The request
+reads `interrupted`, and its `outcome` says how far the run got: `changed`, `passed_over`
+(a count) and `error`, one sentence of the server's own. The failure's own words go to the
+server's log and are not stored on the request. After a panic the outcome says
+`count_unknown: true` in place of the two counts. What the run had done stands. See
+*Resuming a partial run*, below, for what to do next.
+
+#### The record
+
+- **A waive** leaves, on the instance's trail: `deviation_requested` when it is asked for;
+  then `deviation_approved` beside the `node_skipped` entry of the waive, or
+  `deviation_rejected` (with `rejected_by`, and `withdrawn: true` when the requester ended
+  it), `deviation_expired` or `deviation_stale` (with `attempted_by`). Each names the
+  request (`request_id`) and who asked (`requested_by`). The `node_skipped` entry keeps
+  the sentence it always had, to the letter, and gains `request_id` and `approved_by` in
+  its data: the word "approved" is kept out of the sentence of a step nobody performed.
+  The ledger row carries `request_id`, `approved_by` and `decided_at`
+  (`TestAnApprovedWaiveSaysWhoAskedWhoApprovedAndWhen`).
+- **A migration's request has no entry of its own**, because it is for a version and not
+  for an instance. Each instance an approved run acts on says so: its `instance_migrated`
+  entry, and the entry of each decision made on it, end with *A second administrator,
+  deputy, approved this migration (request 0199…).* and carry `request_id` and
+  `approved_by`. Its ledger rows name the request, who asked and who approved. **A
+  migration request that is rejected, expires or goes stale leaves no trail entry
+  anywhere**: the request's own row is the whole record, read with
+  `GET /api/v1/deviation-requests/{id}`
+  (`TestAMigrationRequestIsRejectedAndExpiredOnItsRowAlone`).
+- **An approved redirect leaves no ledger row.** The `instance_migrated` entry is its
+  only record on the instance, and so it is written with the move or the move is not
+  made: it is the last write of the rewrite's own transaction, and an entry that cannot
+  be written undoes that instance's rewrite and stops the run
+  (`TestAnApprovedRedirectIsNotMadeWhenItsEntryCannotBeWritten`). The same holds for an
+  approved loosening of a separation-of-duties rule, which writes no ledger row either.
+  Under an approval the entry lists each step the instance was moved from and to,
+  whether or not anybody held a task there
+  (`TestAnApprovedRedirectOfAStepNobodyHoldsSaysWhereItMovedFromAndTo`). A redirected
+  boundary event's timer or waiting message with no token under it is not listed, and the
+  entry does not tell a rename from a redirect (both read from the code, not run).
+- **A self-approved migration whose run touched no instance is recorded only on the
+  request and in the server's log.** Its request's `outcome` carries `self_approved`,
+  `other_administrators` and `organization_id`; no instance has an entry or a row of it,
+  because the run wrote to none (read from the code, not run).
+- **Trail entries carry names, not account ids.** Who asked and who approved are on the
+  request and on the ledger row by account id as well; a trail entry's sentence and its
+  data name people by username, as the trail always has.
+- **The approver's note is on the request (`decision_reason`), never on the ledger row.**
+  A waive's `deviation_approved` entry also says it (*Note: …*), and a
+  `deviation_self_approved` entry its reason (*Reason: …*). A migration's entries name who
+  approved and the request and do not carry the note, nor a sole administrator's reason:
+  for a migration that is on the request alone.
+- **A waive's request and a migration's record the same things the same way.** A request
+  its requester approved says so in its `outcome` (`self_approved`,
+  `other_administrators`, `organization_id`) for both kinds, and a request found `stale`
+  says who found it (`attempted_by`) in its `outcome` for both; a waive says it on the
+  instance's `deviation_stale` entry as well
+  (`TestAWaivesRequestRecordsASelfApprovalAndAStaleFindingAsAMigrationsDoes`).
+- **A rejected waive's ledger row does not say who rejected it.** It says `rejected` and
+  when. Who is on the request (`decided_by`) and in the trail entry.
+- **A refused attempt leaves a line in the server's log and nothing else**: a requester's
+  attempt to approve their own request, and an approval that could not be applied
+  (`TestARefusedSelfApprovalAndAnApprovalThatCouldNotAdvanceLeaveATrace`).
+
+#### An organization with one administrator
+
+By default nothing is relaxed: a sole administrator's request waits, and their own
+approval is refused (403) in a sentence that begins *You asked for this, and nobody else
+administers this organization, so it waits.* They can withdraw it, let it expire, or have
+a second **person** made an administrator
+(`TestASoleAdministratorsOwnApprovalWaitsUnlessTheirOrganizationIsNamed`,
+`TestARequesterAloneInTheOrganizationMayAlwaysWithdraw`).
+
+Whoever operates the installation can name organizations in
+`METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS`. In a named organization the requester may
+approve their own request while nobody else administers it, and only then:
+
+- "Somebody else administers it" means another account that is not deleted, belongs to
+  the organization, and holds the Administrator role there or on the account: exactly the
+  accounts whose own approval would be let through
+  (`TestWhoCountsAsAnotherAdministratorIsWhoCouldApprove`). It is asked when the approval
+  is made, under the request's lock. With one, the requester is refused as anywhere else
+  (`TestWithAnotherAdministratorTheRequesterIsRefusedWhateverTheSetting`).
+- A reason is required: *Say why you are approving your own request: with nobody else to
+  approve it, the reason is the record.*
+- The record says nobody else approved
+  (`TestASoleAdministratorApprovesTheirOwnRequestAndTheRecordSaysNobodyElseDid`). For a
+  waive: a `deviation_self_approved` trail entry that begins *No second administrator
+  approved this.*, carrying `self_approved: true`, `other_administrators: 0` and
+  `organization_id`; the same three in the ledger row's `details`; and
+  `self_approved: true` on the `node_skipped` entry. For a migration: the same three on
+  every entry and ledger row of the run and in the request's `outcome`, and each entry
+  ends *No second administrator approved this migration: boss approved their own request
+  (request 0199…).* The request reads `self_approved: true`. A line is written to the
+  server's log.
+
+What the setting is, what the server says at start-up, and when to take an organization
+off the list are in
+[the runbooks](runbooks.md#an-organization-with-one-administrator). What it does not
+close is above: in a named organization an administrator who can change roles can make
+themselves the only one.
+
+#### In the migration dialog
+
+The dialog that moves running work to another version reads the plan before anything is
+applied. When the plan needs an approval it says so under the heading *This has to be
+approved before anything moves*, says the rule — *Nothing moves until it is approved. The
+administrator who asked cannot approve it, unless this organization has been set up as
+having one administrator and nobody else administers it.* — lists the plan's reasons, and
+its button reads *Send for approval* in place of *Move N instances*. Neither heading says
+"a second administrator": that is untrue of an organization set up as having one.
+
+After the press it stays open under *Sent for approval*, with who asked, the same rule,
+when the request expires — the date names its time zone — that it is approved or rejected
+through the API, there being no screen for it yet, and **the request's reference** (its
+id), under *Why an approval is asked* and the plan's reasons. The button beside it reads
+*Close*, not *Cancel*: closing does not withdraw the request. It no longer answers a
+request that was sent as though nothing had been done.
+
+**A request that was sent is always said.** Closing the dialog over a waiting request — by
+*Close*, the "×", Escape or a click outside — raises a toast that says all of the above in
+one and **stays until it is dismissed**: once the dialog has gone it is the only place the
+reference is. If the form was edited while the apply was on its way, the dialog no longer
+shows the request that was sent, so the answer is said in that toast instead. Its title
+names the two versions as they were when the button was pressed — *Sent for approval:
+v2 → v5* — because the dialog under it may show another plan by then.
+
+An apply that passed instances over stays open too, under *Applied, but not to every
+instance* or *This run moved no instance*, and lists them under *Instances that were not
+moved*, each with its cause in the reader's language where the catalogue has words for it
+and in the server's sentence where it does not.
+
+An answer the dialog cannot read — a 200 or a 202 whose body is not what the route writes
+— is said as *The server's answer could not be read*, never as "nothing was moved": the
+migration may have been applied, or sent for approval. The message says to check the
+instances first, where a request that was sent is found
+(`GET /api/v1/deviation-requests`), and that sending the same migration again answers with
+that request and makes no second one.
+
+There is no approval screen in this release. The dialog does not list requests, approve,
+reject or withdraw one, or show what later became of one. A second administrator decides
+through the API, and nobody is notified that a request waits.
 
 ### Re-derived assignment
 
@@ -966,7 +1519,7 @@ each kind of row does now:
 | Row | Follows the mapping | Left exactly as it is |
 | :-- | :-- | :-- |
 | The instance's tokens, and its join and multi-instance counters | All of them, under any mapping: live work, read against the graph the instance now runs | — |
-| The instance's lists of completed and compensated steps | Under a **rename** only | Under a redirect: the step stays in the record under its own id |
+| The instance's lists of completed and compensated steps | Under a **rename** only, and onto a step marked as a control only a rename in place | Under a redirect: the step stays in the record under its own id |
 | Tasks `unclaimed`, `claimed`, `delegated` — the statuses the landing check counts and the engine withdraws | Rebuilt from the step they land on, under any mapping | — |
 | Tasks in every other status, which is `completed` and `canceled` (the engine sets no other) | Under a **rename** only, and then the step's id alone: one column, written by a statement guarded by the status | Everything else always, and under a redirect the whole row |
 | Jobs (timers, queued service calls) | `pending`, `running`, and `failed` — a failed job runs again when its incident is resolved — pointed at the new version and the mapped step | `completed`: still names the version and the step it ran on |
@@ -979,17 +1532,47 @@ each kind of row does now:
 A mapping has two shapes, and they mean different things for work already done.
 
 - A **rename** says *this step is that step*: the id it maps to is not a step of the version
-  being migrated from, and no other step is mapped onto it (`submit → request`, where
-  `request` is new). Whoever did the submit did the request.
+  being migrated from, no other step is mapped onto it, and the id it maps from is no
+  longer a step of the new version (`submit → request`, where `request` is new and `submit`
+  is gone). Whoever did the submit did the request.
 - A **redirect** says *send the open work over there*: the id it maps to is a step of the old
-  version too (`opsApprove → salesApprove`), or several steps are sent to one. It says
-  nothing of the kind about an operations approval already given.
+  version too (`opsApprove → salesApprove`), or several steps are sent to one, or the new
+  version still has the step under its old id (`prepare → audit`, where the new version
+  keeps `prepare` and adds `audit`). It says nothing of the kind about work already done.
 
 Work in progress follows either. Finished work follows only a rename, and then only by its
 step's id: a completed or cancelled task keeps its status, its assignee, its name, its form
 and its timestamps, and the instance's record of completed steps names the step by its new
-id. Under a redirect neither is written: the record must not say somebody did a step they
-did not do.
+id. Under a redirect neither is written, so that the record does not say somebody did the
+step the work was sent to. (It then keeps the old id, which is right unless the new version
+gives that id to another step: the second cost, below.)
+
+**Onto a control, finished work follows only a rename in place.** A rename looks at ids and
+nothing else, on purpose: finished work must go on following a real rename even when the
+step's neighbours changed, or a separation-of-duties rule would stop finding who did the
+step. One case is taken out. A rename onto a step the new version marks
+`compliance_relevant` carries finished work only when the step is renamed where it stands
+(*A rename in place*, under [A second administrator](#a-second-administrator)). Otherwise
+the completed list and the finished task keep the old id, and the plan warns as for a
+redirect. A finished ordinary step must never become evidence that a control was performed
+(`TestFinishedWorkDoesNotFollowARenameOntoAControlThatStandsElsewhere`,
+`TestAControlRenamedInPlaceCarriesItsFinishedWork`). The cost: a control that really was
+renamed while its neighbours changed is not carried for an instance that passed it. That
+instance reads as not having passed the new one, and a later migration that drops it holds
+for that instance too.
+
+A second cost, of "the old id must be gone": where the new version gives a step's old id to
+another step, a mapping of that id is no rename. With `{a → b, b → c}`, where the new `b`
+is the old `a`, `b → c` is a redirect, so work finished on the old `b` stays under an id the
+new version gives to another step — and there the kept record does read as though whoever
+did the old `b` did the new one. The plan warns, a redirect with an unpassed control asks,
+and a rule that named `b` asks. Do not reuse a step's id for another step in the next
+version.
+
+So there are two questions, and they are answered differently. *Does finished work follow
+this mapping?* A rename, by ids; onto a control, only in place. *Does this mapping ask for
+a second administrator?* Anything that is not a rename in place can, whatever finished
+work does.
 
 This matters to two things that read the record against the version the instance now runs.
 A `separation_of_duties` rule finds who performed a step by reading the instance's completed
@@ -1008,7 +1591,10 @@ the warning is of running instances: the ones the migration would move.
 ### Audit
 
 Every migrated instance gets an `instance_migrated` entry naming the source and target
-version, which work was re-pointed, who authorised it, and which controls were waived.
+version, which work was re-pointed, who authorised it, and which controls were waived. In a
+run a second administrator approved it also says who approved, names the request, and
+lists each step the instance was moved from and to
+(*The record*, under [A second administrator](#a-second-administrator)).
 Written outside the unit of work: a migration that succeeded should not roll back because
 the audit write failed, and a lost entry is logged loudly. The decisions above are not
 written that way: their entries are part of the change.
@@ -1023,21 +1609,54 @@ migration share its `run_id`:
 | `skip` | `waive` | the task | the tasks withdrawn, as they were and as they are (status and assignee), and how many |
 | `cancel` | `cancel` | the instance | its status, `active` to `cancelled`, the tasks withdrawn, and in `details`, when there were any, how much parked work it withdrew (`external_tasks_withdrawn`) and how many incidents it closed (`incidents_closed`) |
 | `hold` | `hold` | the instance | the incident raised |
-| an acknowledged control the instance had not yet performed | `control_waived` | the instance | the step, and its `compliance_note` when it has one |
+| an acknowledged control the instance had not yet performed | `control_waived` | the instance | the step, its `compliance_note` when it has one, and `details.mapped_to` when the instance was moved off it onto another control (below) |
 
 A `control_waived` row has no reason, because whoever acknowledged the loss signed for every
 instance at once; it is written once per lost step, in the same transaction as the rewrite and
 before any of it, and an instance that had already performed the step gets none. Each row
 names the trail entry that tells the same act, and the entries of a skip, cancel or hold name
-their row in `deviation_id`. The `instance_migrated` entry, written after the rewrite commits,
-is the one a control-loss row names; if that entry is lost, which is logged, the row names an
-entry that does not exist. A migration that only moves work and waives no control writes no
-row.
+their row in `deviation_id`. The `instance_migrated` entry is the one a control-loss row names.
+It is written in the rewrite's own transaction, last, for every migrated instance: an instance
+is moved with the entry that says so, or it is not moved. A trail that cannot be written undoes
+that instance's rewrite and stops the run there, naming the instance, as a ledger row that
+cannot be written does (`TestAnInstanceIsNotMovedWhenItsMigrationEntryCannotBeWritten`). It
+used to be written after the rewrite had committed, and a lost entry was only logged. A
+migration that only moves work and waives no control writes no row.
+
+**A `control_waived` row with `details.mapped_to` is a control not carried across as the
+same step, whose waiting instance was moved onto a step the new version adds under a new
+id.** That step may be the same control renamed, or another control: the record cannot
+know, and whoever reads it compares the two versions. A control that a mapping sends onto
+a step that is not the same step in place is a hold, and its loss has to be acknowledged
+and approved, because the planner cannot tell a control renamed with its neighbours changed
+from one replaced by a different control. The row carries `mapped_to` in one shape only:
+the mapping is a rename by ids — the id it maps to is new in the new version, nothing else
+is mapped onto it, and the control's old id is gone from the new version — the step under
+the new id is marked `compliance_relevant`, and the instance was waiting at the control.
+The `instance_migrated` entry then says *It had not yet passed control, which was not
+carried across as the same step: it was moved from there onto check, and dita accepted
+that.* and carries `controls_mapped_to`. It does not say the control will be performed, and
+it does not say it never will.
+
+In every other shape the control the instance waited at is certainly not performed, and
+the row and the entry say what they always said, *…accepted that it never will*, with no
+`mapped_to` — whatever the step the work was sent to is marked as: the new version still
+has the control under its old id (the instance is put past it); the step it is mapped onto
+was already a step of the old version (the instance is put on a control it had to perform
+anyway); two controls are mapped onto one step; the step it is mapped onto is no control;
+or the new version drops or unmarks the control
+(`TestAControlRenamedWithItsNeighboursChangedIsRecordedAsMovedOntoTheNewStep`,
+`TestAControlThatIsCertainlyLostIsRecordedAsLostWhateverItIsMappedOnto`). To rename a control and change
+what stands round it without anybody being asked or any such row being written, do it in
+two versions: rename it with its neighbours unchanged in one, and change the neighbours in
+the next.
 
 **A `hold` row says the hold was placed, not that it is still open.** A hold is an incident
 raised at the step, and resolving that incident (`POST /api/v1/incidents/{id}/resolve`, an
-operator's call) writes no row and changes none: nothing rewrites a ledger row once it is
-written, so `after.incident.status` reads `open` for ever. Resolving it leaves no trail entry
+operator's call) writes no row and changes none: nothing rewrites the row of an act once it
+is written, so `after.incident.status` reads `open` for ever. (The one row that is ever
+rewritten is a waive's while it waits for a second administrator: once, when its request is
+decided.) Resolving it leaves no trail entry
 and names nobody either; the incident's own `status` and `resolved_at` are all that say it
 happened. To see whether a hold is still open, read the instance's incidents
 (`GET /api/v1/incidents/{instanceId}`) and find the one whose `id` is the row's
@@ -1142,6 +1761,32 @@ These make that true rather than merely plausible:
 A failure reports how many instances had already been dealt with, and says to run the same
 migration again to carry on.
 
+**Under a second administrator's approval, running it again is asking again.** An approved
+request is spent by its run, however the run ended. What remains needs a new request and a
+new approval:
+
+- **A run that stopped part-way.** The approver gets a 500 whose message ends *what its run
+  had done stands, and what remains has to be asked for again*, and the request reads
+  `interrupted`. Preview the migration again to see which instances remain, and apply it
+  again: that makes a fresh request
+  (`TestARunThatFailsAfterActingOnOneInstanceIsFinishedUnderAnotherRequest`).
+- **A run that passed instances over.** The request reads `applied`. The reply to the
+  approval lists who was passed over and why, to whoever approved, and to nobody else: it
+  is not kept on the request, which holds only the count. Apply the migration again for
+  those that remain, as a new request.
+- **A request narrowed to named instances.** An instance the first run already moved is no
+  longer on the version being migrated from, and a plan that names it is refused: *version
+  1 of "quotation-approval" is not running instance(s) 0199…*. Leave it out of `instances`
+  when asking again.
+- **A repeating step nobody does by hand.** A skip of a repeating step that is not a user
+  or manual task — one parked for an outside worker, say — skips one run of the step and
+  passes the instance over
+  (`TestASkipThatLeavesPartOfARepeatingStepBehindDoesNotMoveItToAVersionWithoutTheStep`).
+  Asking again does not finish it. Seen once with a test that was not kept: the step's
+  tokens never left it, and from the third run of the migration on, each run put one more
+  token on the step after it. Do not skip such a step; cancel the instance or hold it.
+  This is in the roadmap.
+
 ## 7. The two that were open
 
 Both are now closed, and neither the way it was first written down.
@@ -1199,8 +1844,14 @@ things worse.
 - [`recovery.md`](recovery.md) — the migration runner only goes forward
 - [`../AGENTS.md`](../AGENTS.md) §0 — why a silent default at a decision point is an incident
 - `server/domains/services/impl/migration.go` — the planner and the apply
+- `server/domains/services/impl/migration_second_approver.go`,
+  `migration_renamed_in_place.go` — what a plan asks a second administrator for;
+  `migration_gate.go`, `migration_approve.go` — the gate and the three steps of an approval
 - `server/domains/services/impl/instance_deviation.go` — the waive, cancel and hold of one
-  instance in place: the lock, the replay and what an apply asks of the locked row
+  instance in place: the lock, the replay and what an apply asks of the locked row;
+  `instance_deviation_request.go`, `instance_deviation_approve.go` — asking for a waive,
+  and approving one
+- `server/domains/services/impl/deviation_request_admit.go` — who may decide a request
 - `tests/bpmn/instance_waive_test.go`, `tests/bpmn/instance_cancel_hold_test.go` — what
   each does; `tests/deviation/deviate_route_test.go` — who may ask
 - `tests/instancemigration/state_test.go` — every case in §2 that has a test

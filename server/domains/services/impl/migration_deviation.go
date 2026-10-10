@@ -179,7 +179,15 @@ func controlLossDeviations(
 
 // migrationActor is who authorised a migration, or "System" when nobody was
 // named — what its trail entries have always said.
+//
+// For a run under an approval it is whoever the stored request says asked,
+// as it is on the run's ledger rows (withApproval): the gate admits such a
+// run on the account it names and does not read the name, so the name a
+// caller wrote beside that account is not what the record says.
 func migrationActor(options servicecontracts.MigrationOptions) string {
+	if options.Approval.Granted() && options.Approval.RequestedBy != "" {
+		return options.Approval.RequestedBy
+	}
 	if options.Actor == "" {
 		return "System"
 	}

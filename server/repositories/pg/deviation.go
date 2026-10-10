@@ -135,7 +135,7 @@ func (r *deviationRepository) ListByInstance(ctx context.Context, instanceID uui
 // FindLiveByVisit answers the row of a visit that is applied or awaiting
 // approval, if there is one.
 //
-// Value predicates only, so the bound statement can use the unique index on
+// Value predicates only, so the bound statement can use the index on
 // (instance_id, visit_key) whatever plan the server settles on.
 func (r *deviationRepository) FindLiveByVisit(ctx context.Context, instanceID uuid.UUID, visitKey string) (entities.Deviation, bool, error) {
 	if err := r.requireInstanceInTenant(ctx, instanceID); err != nil {
