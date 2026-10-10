@@ -190,3 +190,27 @@ func TestAStreamIsCountedAsAStreamNotAsARequest(t *testing.T) {
 		t.Errorf("the stream's outcome was not counted: %v", got)
 	}
 }
+
+// TestMethodLabelIsBounded: net/http accepts any token as a method, and the
+// collector wraps outside sign-in and the rate limiter. Each invented method
+// was a new series per bucket, held for the life of the process — memory any
+// caller could spend without signing in.
+func TestMethodLabelIsBounded(t *testing.T) {
+	c := New()
+	handler := c.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+
+	for i := range 500 {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/tasks", nil)
+		req.Method = fmt.Sprintf("INVENTED%d", i)
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+	}
+
+	if got := testutil.CollectAndCount(c.requestsTotal); got != 1 {
+		t.Fatalf("500 invented methods produced %d series, want 1", got)
+	}
+	if body := scrape(t, c); !strings.Contains(body, `method="OTHER"`) {
+		t.Error("an unknown method should be recorded as OTHER")
+	}
+}

@@ -150,8 +150,8 @@ func (c *Collector) Wrap(next http.Handler) http.Handler {
 		route := c.trackRoute(normalizeRoute(r.URL.Path))
 		status := strconv.Itoa(recorder.status)
 
-		c.requestDuration.WithLabelValues(r.Method, route, status).Observe(time.Since(start).Seconds())
-		c.requestsTotal.WithLabelValues(r.Method, route, statusClass(recorder.status)).Inc()
+		c.requestDuration.WithLabelValues(methodLabel(r.Method), route, status).Observe(time.Since(start).Seconds())
+		c.requestsTotal.WithLabelValues(methodLabel(r.Method), route, statusClass(recorder.status)).Inc()
 	})
 }
 
@@ -165,7 +165,19 @@ func (c *Collector) serveStream(next http.Handler, w http.ResponseWriter, r *htt
 	next.ServeHTTP(recorder, r)
 
 	route := c.trackRoute(normalizeRoute(r.URL.Path))
-	c.requestsTotal.WithLabelValues(r.Method, route, statusClass(recorder.status)).Inc()
+	c.requestsTotal.WithLabelValues(methodLabel(r.Method), route, statusClass(recorder.status)).Inc()
+}
+
+// methodLabel bounds the method label. net/http accepts any token as a method,
+// and this collector runs before sign-in, so an unbounded label was a new
+// series per invented method — memory anyone could spend.
+func methodLabel(method string) string {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch,
+		http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace:
+		return method
+	}
+	return "OTHER"
 }
 
 // trackRoute returns route if it is already known or there is room for it, and

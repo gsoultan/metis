@@ -1,6 +1,7 @@
 package loginthrottle
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -155,5 +156,30 @@ func TestTheMapIsBounded(t *testing.T) {
 	}
 	if got := th.accounts.Len(); got > Capacity {
 		t.Errorf("tracking %d accounts against a capacity of %d", got, Capacity)
+	}
+}
+
+// TestAHugeUsernameIsNotKeptWhole: the cache bounds entries, not bytes, and a
+// failed sign-in for a name nobody has was recorded under the name exactly as
+// sent. Ten thousand 2 MB names was 20 GB held for an hour.
+func TestAHugeUsernameIsNotKeptWhole(t *testing.T) {
+	huge := strings.Repeat("x", 2<<20)
+	if got := len(keyOf(huge)); got > maxKeyBytes {
+		t.Fatalf("a %d-byte name is kept as %d bytes, want at most %d", len(huge), got, maxKeyBytes)
+	}
+	if keyOf(huge) == keyOf(huge+"y") {
+		t.Fatal("two different long names share one count")
+	}
+	if keyOf("ada") != "ada" {
+		t.Fatal("an ordinary name should be kept as it is")
+	}
+
+	// And it is still throttled like any other name.
+	th := New()
+	for range FreeAttempts + 1 {
+		th.Failed(huge, start)
+	}
+	if _, wait := th.RetryAfter(huge, start); !wait {
+		t.Error("a long name escaped the throttle")
 	}
 }

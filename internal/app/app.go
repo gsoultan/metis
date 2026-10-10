@@ -235,7 +235,7 @@ func newPprofHandler() http.Handler {
 func newHTTPServer(address string, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              address,
-		Handler:           handler,
+		Handler:           withBodyReadDeadline(defaultHTTPBodyReadTimeout, handler),
 		ReadHeaderTimeout: defaultHTTPReadHeaderTimeout,
 		IdleTimeout:       defaultHTTPIdleTimeout,
 		MaxHeaderBytes:    defaultHTTPMaxHeaderBytes,

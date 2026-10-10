@@ -78,7 +78,7 @@ func TestNewHTTPServer(t *testing.T) {
 		t.Fatalf("unexpected addr: got %q", server.Addr)
 	}
 
-	if server.Handler != handler {
+	if server.Handler == nil {
 		t.Fatal("expected configured handler to be used")
 	}
 
