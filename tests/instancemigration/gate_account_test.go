@@ -50,6 +50,32 @@ func TestTheGateAdmitsAnApprovedRunOnTheRequestersAccountNotTheName(t *testing.T
 		})
 	}
 
+	// Absent means deny on the request's side too. A request whose row holds
+	// no account for whoever asked — nothing this server writes; a statement
+	// run by hand could — admits nobody, the run that names no account
+	// either: two ids that are both missing are not one account.
+	t.Run("a request with no account behind it", func(t *testing.T) {
+		f := newFixture(t)
+		_, v1, v2, requestID := f.askToSkipOps(t)
+		f.leftApproved(t, requestID, "1 minute")
+		if err := f.db.Exec(`UPDATE deviation_requests SET requested_by_id = ? WHERE id = ?`, uuid.Nil, requestID).Error; err != nil {
+			t.Fatalf("take the account off the request: %v", err)
+		}
+		for name, naming := range map[string][]servicecontracts.MigrationOption{
+			"no account":             nil,
+			"the nil account":        {servicecontracts.WithActorAccount(uuid.Nil)},
+			"the account that asked": {asDita()},
+		} {
+			under := append(slices.Clip(skipOps("the role was eliminated")), naming...)
+			under = append(under, servicecontracts.WithApprovedRequest(requestID))
+			_, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, under...)
+			if !errors.Is(err, apierr.ErrForbidden) || !strings.Contains(err.Error(), "was asked for by dita") {
+				t.Fatalf("an apply naming %s, under a request with no account behind it: %v, want it refused at the gate", name, err)
+			}
+			f.assertNothingMoved(t, v1)
+		}
+	})
+
 	// The same apply naming the account that asked is the one admitted: what
 	// the cases above were refused for is the account, and nothing else.
 	t.Run("the requester's account", func(t *testing.T) {
