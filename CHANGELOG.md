@@ -401,6 +401,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   the next person to sign in in that tab was shown it. Signing out now goes to
   the sign-in page and empties the cache.
 
+- **The rate-limit sweep scanned all of `shared_counters` for every 5,000
+  rows it removed.** It removes the windows that started more than five
+  minutes ago, and `window_start` is the last column of the table's primary
+  key, so no index could answer the range. Migration 34 adds
+  `ix_shared_counters_window_start`, built `CONCURRENTLY` on PostgreSQL so
+  rate-limited requests are not held up while it builds. Which rows a sweep
+  removes is unchanged.
 - **Somebody in two organizations could be shown no notifications in one of
   them.** `GET /api/v1/notifications` read the person's newest
   thousand notifications across every organization and then dropped those the
