@@ -156,8 +156,10 @@ func TestAStaleRequestNamesFiveOfTheInstancesThatNoLongerRunAndCountsTheRest(t *
 	if got := becauseItCannotBePlanned(few); got != `the migration can no longer be planned: version 3 of "quotation" is not running instance(s) `+strings.Join(gone[:2], ", ") {
 		t.Fatalf("two instances are said as %q", got)
 	}
-	// Two such refusals can be compared without a panic, and are two.
-	if error(planned) == error(few) || error(planned) != error(planned) {
+	// Two such refusals can be compared without a panic, and are two: as
+	// keys of a map, which compares them — a value that held the list could
+	// not be one.
+	if met := map[error]bool{planned: true, few: true}; len(met) != 2 || !met[planned] {
 		t.Fatal("two refusals compare as one, or one does not compare as itself")
 	}
 	// Any other reason it cannot be planned is said as it is.
