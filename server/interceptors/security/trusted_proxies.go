@@ -185,13 +185,17 @@ func (s *trustedProxySet) clientAddr(remoteAddr, forwardedFor string) string {
 		if hop == "" {
 			continue
 		}
-		addr, err := netip.ParseAddr(hop)
-		if err != nil {
-			// A garbage entry cannot be trusted to be one of ours, so it is
-			// treated as the client — which is the conservative direction: it
-			// stops the walk rather than letting it run past into
-			// client-controlled territory.
-			return hop
+		addr, ok := parseHop(hop)
+		if !ok {
+			// A garbage entry stops the walk, because it cannot be trusted to
+			// be one of ours and walking past it would run into
+			// client-controlled territory. But it is not a client address
+			// either: it used to be returned verbatim and became the
+			// rate-limit key, so any string the header could carry — up to
+			// the ~1 MB header limit, different on every request — was a fresh
+			// bucket and a fresh entry in the shared counter. The peer is the
+			// most specific thing we actually know.
+			return peer
 		}
 		if s.isKnownHop(addr) {
 			continue
@@ -202,4 +206,21 @@ func (s *trustedProxySet) clientAddr(remoteAddr, forwardedFor string) string {
 	// Every hop was our own infrastructure, or there were none. The peer is the
 	// most specific thing we actually know.
 	return peer
+}
+
+// parseHop reads one X-Forwarded-For entry as an address.
+//
+// A port is tolerated because some proxies write one. A zone is dropped: it is
+// free text after the '%', so keeping it would let the header choose the key
+// again.
+func parseHop(hop string) (netip.Addr, bool) {
+	addr, err := netip.ParseAddr(hop)
+	if err != nil {
+		addrPort, portErr := netip.ParseAddrPort(hop)
+		if portErr != nil {
+			return netip.Addr{}, false
+		}
+		addr = addrPort.Addr()
+	}
+	return addr.WithZone("").Unmap(), true
 }

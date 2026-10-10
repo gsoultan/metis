@@ -2,6 +2,7 @@ package security
 
 import (
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -156,8 +157,30 @@ func (i *rateLimitInterceptor) cleanupStaleWindows(staleBefore time.Time) {
 // fresh bucket every time and the limit never applied: measured, one address
 // got 30 requests through a limit of 3. The header is now only consulted when
 // the request actually arrived from a proxy we trust — see trustedProxySet.
+//
+// An IPv6 client is charged by its /64. That is the smallest block an ISP
+// hands a subscriber, so a single host can rotate through 2^64 source
+// addresses without asking anyone, and keying on the full address would give
+// it that many buckets.
 func (i *rateLimitInterceptor) clientKey(r *http.Request) string {
-	return i.trusted.clientAddr(r.RemoteAddr, r.Header.Get("X-Forwarded-For"))
+	return bucketFor(i.trusted.clientAddr(r.RemoteAddr, r.Header.Get("X-Forwarded-For")))
+}
+
+const ipv6SubscriberBits = 64
+
+func bucketFor(client string) string {
+	addr, err := netip.ParseAddr(client)
+	if err != nil {
+		return client
+	}
+	addr = addr.WithZone("").Unmap()
+	// Private, link-local and loopback IPv6 stay per address, as private IPv4
+	// does: an office LAN is one /64, and charging it as one subscriber would
+	// give every internal user a single shared allowance.
+	if !addr.Is6() || addr.IsPrivate() || addr.IsLinkLocalUnicast() || addr.IsLoopback() {
+		return addr.String()
+	}
+	return netip.PrefixFrom(addr, ipv6SubscriberBits).Masked().String()
 }
 
 func hostFromRemoteAddr(remoteAddr string) (string, bool) {

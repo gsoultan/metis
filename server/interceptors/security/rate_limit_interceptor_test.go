@@ -176,9 +176,9 @@ func TestClientKeyFromRequest(t *testing.T) {
 			expected: "10.0.0.1",
 		},
 		{
-			name:     "extracts host from ipv6 remote addr",
+			name:     "charges an ipv6 remote addr by its /64",
 			remote:   "[2001:db8::1]:8443",
-			expected: "2001:db8::1",
+			expected: "2001:db8::/64",
 		},
 		{
 			name:     "falls back to remote addr when host port is missing",
@@ -188,7 +188,35 @@ func TestClientKeyFromRequest(t *testing.T) {
 		{
 			name:     "falls back to raw ipv6 address when host port is missing",
 			remote:   "2001:db8::1",
-			expected: "2001:db8::1",
+			expected: "2001:db8::/64",
+		},
+		{
+			// A hop that is not an address is not a client: it is whatever the
+			// header's author wanted the key to be.
+			name:      "falls back to the peer when the rightmost hop is not an address",
+			remote:    "10.0.0.1:1234",
+			forwarded: "203.0.113.10, not-an-address",
+			expected:  "10.0.0.1",
+		},
+		{
+			name:      "reads a hop that carries a port",
+			remote:    "10.0.0.1:1234",
+			forwarded: "198.51.100.20:4711",
+			expected:  "198.51.100.20",
+		},
+		{
+			// The zone is free text; keeping it would let the header pick the
+			// key again.
+			name:      "drops the zone from a forwarded ipv6 hop",
+			remote:    "10.0.0.1:1234",
+			forwarded: "fe80::1%attacker-chosen",
+			expected:  "fe80::1",
+		},
+		{
+			// An internal LAN is one /64; its users are not one subscriber.
+			name:     "keeps a unique-local ipv6 client per address",
+			remote:   "[fd00:1:2:3::42]:8443",
+			expected: "fd00:1:2:3::42",
 		},
 		{
 			name:     "returns unknown for empty address",
