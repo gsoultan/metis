@@ -9,22 +9,62 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/app"
 	"github.com/gsoultan/metis/internal/pkg/health"
+	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
 	observersimpl "github.com/gsoultan/metis/server/domains/observers/impl"
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
 const harnessPassword = "deviation-test-password"
+
+// harnessHash is harnessPassword as every account of the harness stores it:
+// hashed once for the package, at the lowest cost bcrypt has.
+//
+// The account service hashes each new password at the cost production uses,
+// and a sign-in compares at the cost the stored hash carries. Under the race
+// detector that is about a second for each account a test signs in, and this
+// package signs in some hundred and fifty: most of the package's time, spent
+// proving nothing these tests are about. So the harness writes its accounts
+// through the repository with this one hash, and each still signs in over
+// the login route, against the real comparison. Nothing in production reads
+// a cost from anywhere: this is a hash a test stored.
+var harnessHash = sync.OnceValue(func() string {
+	hash, err := bcrypt.GenerateFromPassword([]byte(harnessPassword), bcrypt.MinCost)
+	if err != nil {
+		panic("hash the harness's password: " + err.Error())
+	}
+	return string(hash)
+})
+
+// createAccount writes one of the harness's accounts — as given: its id when
+// it has one, its roles on the account, the organizations it belongs to —
+// with the harness's password (harnessHash). It is what the account service
+// writes for the same account, less the cost of hashing.
+func (h *deviationHarness) createAccount(t *testing.T, account entities.User) {
+	t.Helper()
+	if account.ID == uuid.Nil {
+		account.ID = uuid.Must(uuid.NewV7())
+	}
+	if account.CreatedAt.IsZero() {
+		account.CreatedAt = time.Now()
+	}
+	system := entities.WithSystemContext(context.Background())
+	if err := h.repo.User().Create(system, adapters.UserModelAdapter{User: account}.ToModel(), harnessHash()); err != nil {
+		t.Fatalf("create %s: %v", account.Username, err)
+	}
+}
 
 type deviationHarness struct {
 	server   *httptest.Server
@@ -34,6 +74,9 @@ type deviationHarness struct {
 	orgID    uuid.UUID
 	projID   uuid.UUID
 	deployed int
+	// seconder is the token of the organization's second administrator, once
+	// a test has asked for one (secondAdministrator).
+	seconder string
 }
 
 func newDeviationHarness(t *testing.T) *deviationHarness {
@@ -88,12 +131,7 @@ func (h *deviationHarness) signInElsewhere(t *testing.T, name string, roles ...s
 
 func (h *deviationHarness) signInTo(t *testing.T, orgID uuid.UUID, name string, roles ...string) string {
 	t.Helper()
-	tctx := entities.WithTenantContext(context.Background(), entities.TenantContext{TenantID: orgID.String()})
-	if err := h.svc.CreateUser(tctx, entities.User{
-		Username: name, Roles: roles, Organizations: []*entities.Organization{{ID: orgID}},
-	}, harnessPassword); err != nil {
-		t.Fatalf("create %s: %v", name, err)
-	}
+	h.createAccount(t, entities.User{Username: name, Roles: roles, Organizations: []*entities.Organization{{ID: orgID}}})
 	status, body := h.do(t, http.MethodPost, "", "/api/v1/login", map[string]string{"username": name, "password": harnessPassword})
 	if status != http.StatusOK {
 		t.Fatalf("login %s: %d (%s)", name, status, body)

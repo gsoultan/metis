@@ -126,6 +126,55 @@ const id: Catalogue = {
   'handover.dueDate': 'Tenggat',
   'handover.saveChanges': 'Simpan Perubahan',
 
+  // Migrasi instansi: mengapa sebuah instansi dibiarkan di versinya. See the
+  // English catalogue.
+  'migration.passedOver.already_moved':
+    'Migrasi lain sudah memindahkannya, jadi tidak dipindahkan lagi.',
+  'migration.passedOver.counters_would_merge':
+    'Instansi ini sedang berada di tengah dua langkah yang oleh pemetaan ini digabung menjadi satu, dan kemajuannya tidak dapat dijumlahkan. Instansi tetap di v{version}; petakan kedua langkah itu secara terpisah, lalu rencanakan lagi.',
+  'migration.passedOver.left_the_step':
+    'Instansi ini sudah tidak menunggu di {steps} saat migrasi sampai padanya, jadi tidak ada yang diputuskan di sana. Instansi tetap di v{version}; jika masih berjalan, terapkan migrasi yang sama lagi untuk merencanakan dari posisinya sekarang.',
+  'migration.passedOver.left_where_nothing_decides':
+    'Instansi ini memiliki tugas atau peristiwa yang menunggu di {steps} tetapi tidak sedang menunggu di sana, jadi tidak ada keputusan yang menjangkau pekerjaan itu dan versi baru tidak punya tempat untuknya. Instansi tetap di v{version}.',
+  'migration.passedOver.no_longer_running':
+    'Instansi ini sudah selesai atau dihentikan sebelum migrasi sampai padanya. Instansi tetap di v{version}, versi yang dijalankannya.',
+  'migration.passedOver.not_planned_for':
+    'Instansi ini masuk ke v{version} setelah migrasi ini direncanakan, jadi tidak ada yang diputuskan tentangnya. Rencanakan migrasi lagi untuk menyertakannya.',
+  'migration.passedOver.nowhere_to_land':
+    'Instansi ini punya pekerjaan di {steps}, yang tidak punya tempat di versi baru. Instansi tetap di v{version}; rencanakan lagi dengan pemetaan atau keputusan untuk pekerjaan itu.',
+  'migration.passedOver.waiting_to_be_decided':
+    'Instansi ini menunggu di {steps}, tempat migrasi ini memutuskan pekerjaan alih-alih memindahkannya, dan belum ada keputusan yang menyelesaikannya. Instansi tetap di v{version}; terapkan migrasi yang sama lagi.',
+  // Kata-kata dialog migrasi sendiri: instansi yang tidak dipindahkan, migrasi
+  // yang dikirim kepada administrator kedua, dan jawaban yang tidak terbaca.
+  // See the English catalogue.
+  'migration.failedTitle': 'Migrasi berakhir dengan kesalahan',
+  'migration.moveInstances': '{count, plural, other {Pindahkan # instansi}}',
+  'migration.passedOverAllTitle': 'Migrasi ini tidak memindahkan instansi mana pun',
+  'migration.passedOverInstance': 'Instansi {reference}',
+  'migration.passedOverListTitle': 'Instansi yang tidak dipindahkan',
+  'migration.passedOverMore': '{count, plural, other {dan # instansi lainnya}}',
+  'migration.passedOverSomeTitle': 'Diterapkan, tetapi tidak pada semua instansi',
+  'migration.passedOverStepsMore': '{count, plural, other {dan # lainnya}}',
+  'migration.passedOverSummary':
+    '{count, plural, other {# instansi tidak dipindahkan. Daftar di bawah menjelaskan alasannya.}}',
+  'migration.passedOverToast': '{count, plural, other {# instansi tidak dipindahkan.}}',
+  'migration.pendingAskedBy': 'Diminta oleh {name}.',
+  'migration.pendingExpires': 'Permintaan ini kedaluwarsa pada {date}.',
+  'migration.pendingHow': 'Belum ada layar untuk ini: administrator menyetujui atau menolaknya melalui API.',
+  'migration.pendingMessage':
+    'Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya tidak dapat menyetujuinya, kecuali organisasi ini telah ditetapkan hanya memiliki satu administrator dan tidak ada orang lain yang menjadi administratornya.',
+  'migration.pendingReference': 'Referensi permintaan ini adalah {reference}.',
+  'migration.pendingTitle': 'Dikirim untuk persetujuan',
+  'migration.pendingToastTitle': 'Dikirim untuk persetujuan: v{source} → v{target}',
+  'migration.pendingWhy': 'Mengapa persetujuan diminta',
+  'migration.secondApproverMessage':
+    'Tidak ada yang dipindahkan sampai ini disetujui. Administrator yang memintanya tidak dapat menyetujuinya, kecuali organisasi ini telah ditetapkan hanya memiliki satu administrator dan tidak ada orang lain yang menjadi administratornya.',
+  'migration.secondApproverTitle': 'Ini harus disetujui sebelum ada yang dipindahkan',
+  'migration.sendForApproval': 'Kirim untuk persetujuan',
+  'migration.unreadableMessage':
+    'Server menjawab, tetapi jawabannya tidak dapat dibaca. Migrasi mungkin sudah diterapkan, atau dikirim untuk persetujuan: periksa instansinya sebelum mencoba lagi. Permintaan yang sudah terkirim ada di antara yang menunggu persetujuan (GET /api/v1/deviation-requests), dan mengirim ulang migrasi yang sama dijawab dengan permintaan itu, tanpa membuat permintaan kedua.',
+  'migration.unreadableTitle': 'Jawaban server tidak dapat dibaca',
+
   'offline.title': 'Anda sedang luring',
   'offline.body':
     'Anda masih dapat membaca yang sudah dimuat, dan menyelesaikan tugas di kotak masuk. Semuanya akan dikirim saat Anda kembali daring.',
@@ -270,6 +319,10 @@ const id: Catalogue = {
   'access.action.BroadcastSignal': 'Siarkan sinyal',
   'access.action.MigrateInstances': 'Migrasikan instansi',
   'access.action.DeviateInstance': 'Abaikan, batalkan, atau tahan instansi',
+  'access.action.ApproveDeviationRequest': 'Setujui permintaan yang menunggu administrator kedua',
+  'access.action.GetDeviationRequest': 'Baca permintaan yang menunggu administrator kedua',
+  'access.action.ListDeviationRequests': 'Daftar permintaan yang menunggu administrator kedua',
+  'access.action.RejectDeviationRequest': 'Tolak permintaan yang menunggu administrator kedua',
   'access.action.ResolveIncident': 'Selesaikan insiden',
   'access.action.ImportParticipants': 'Impor peserta',
   'access.action.RemoveParticipant': 'Hapus peserta',

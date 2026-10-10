@@ -177,7 +177,7 @@ func TestEveryEntryOfOneRunSharesARunID(t *testing.T) {
 		}),
 		servicecontracts.WithActor("dita"),
 	}
-	if err := f.svc.MigrateInstances(f.ctx, uuidOf(t, v1), uuidOf(t, v2), nil, opts...); err != nil {
+	if err := f.migrateWithApproval(t, uuidOf(t, v1), uuidOf(t, v2), nil, opts...); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 

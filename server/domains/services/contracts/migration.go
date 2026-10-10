@@ -28,6 +28,13 @@ type MigrationService interface {
 	// uses this one, so that "applied" is not said of a run that left an
 	// instance running the old version.
 	ApplyInstanceMigration(ctx context.Context, sourceDefID uuid.UUID, targetDefID uuid.UUID, nodeMapping map[string]string, opts ...MigrationOption) (entities.MigrationResult, error)
+
+	// A migration whose plan needs a second administrator — it skips a step,
+	// takes a control from instances that have not passed it, redirects a
+	// step past such a control, or loosens a separation-of-duties rule — is
+	// not applied on one administrator's call: it is asked for
+	// here, and applied when a second administrator approves the request.
+	MigrationApprovalRequester
 }
 
 // MigrationOption adjusts one migration.
@@ -116,6 +123,19 @@ type MigrationOptions struct {
 	// trail, because "a step was skipped" is only half an audit answer; the
 	// other half is who decided that.
 	Actor string
+	// ActorID is the account of whoever authorised the migration, when the
+	// caller names one (WithActorAccount). A run under an approved request
+	// has to: the apply's gate admits it on this account being the one that
+	// asked, never on the name — a name is what a caller writes, and one
+	// account may come to hold a name another once had. A migration that
+	// offers no request needs none.
+	ActorID uuid.UUID
+	// Approval is the second administrator's approval the migration runs
+	// under. Filled by the apply's gate from the stored request, never by a
+	// caller: see MigrationApproval. A caller names a request with
+	// WithApprovedRequest, and the apply overwrites whatever is here with
+	// what it verified.
+	Approval MigrationApproval
 }
 
 // WithAcknowledgedHolds accepts the loss of named compliance-relevant nodes.
@@ -143,6 +163,12 @@ func WithInstances(ids ...uuid.UUID) MigrationOption {
 // WithActor records who authorised the migration.
 func WithActor(actor string) MigrationOption {
 	return func(o *MigrationOptions) { o.Actor = actor }
+}
+
+// WithActorAccount names the account that authorised the migration: the one
+// a run under an approved request is admitted on (see MigrationOptions).
+func WithActorAccount(id uuid.UUID) MigrationOption {
+	return func(o *MigrationOptions) { o.ActorID = id }
 }
 
 // ApplyMigrationOptions folds a list of options into one value.

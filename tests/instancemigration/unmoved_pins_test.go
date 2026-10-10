@@ -226,7 +226,7 @@ func TestPinADecisionAboutAnUnmovedInstance(t *testing.T) {
 			first, second := f.parkedOnOpsApprove(t)
 			v1, v2 := uuidOf(t, first), uuidOf(t, second)
 			before := f.beforeMigrating(t)
-			result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
+			result, err := f.applyDecided(t, kind, v1, v2, nil, decideOps(kind, "the role was eliminated")...)
 			assertToldAs(t, before.told(t, v1, v2, result, err), want[kind])
 		})
 	}
@@ -254,7 +254,7 @@ func TestPinASkipLeavesAnInstanceElsewhereToBeMoved(t *testing.T) {
 		t.Fatalf("deploy v2: %v", err)
 	}
 	before := f.beforeMigrating(t)
-	result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, decideOps(servicecontracts.NodeActionSkip, "the role was eliminated")...)
+	result, err := f.applyWithApproval(t, v1, v2, nil, decideOps(servicecontracts.NodeActionSkip, "the role was eliminated")...)
 	assertToldAs(t, before.told(t, v1, v2, result, err), pinSkipOfOneOfTwo)
 }
 
@@ -284,8 +284,8 @@ instance 1: status=active on=v2 tokens=[salesApprove] completed=[start superviso
   task: node=salesApprove name="Sales approve" status=claimed assignee=sasha owner=<nobody>
   row: kind=waive scope=task origin=migration status=applied actor="dita" reason="the role was eliminated" node=opsApprove/Operations approve task=id1 definition=v1 run=id2 entry=id3 before=map[tasks:map[id1:map[assignee:ollie status:claimed]]] after=map[tasks:map[id1:map[status:canceled]]] details=map[withdrawn:1]
   entry: id=id4 type=task_created node=salesApprove/Sales approve message="" narrative="Task \"Sales approve\" became available" data=map[actor:]
-  entry: id=id3 type=node_skipped node=opsApprove message="skip opsApprove during migration" narrative="\"opsApprove\" was skipped without being performed, by dita, when \"quotation\" moved from version 1 to version 2. Reason: the role was eliminated." data=map[action:skip actor:dita deviation_id:id5 node_id:opsApprove reason:the role was eliminated run_id:id2]
-  entry: id=id6 type=instance_migrated node= message="migrated from version 1 to version 2" narrative="This instance was moved from version 1 to version 2 of \"quotation\" by a migration, authorised by dita." data=map[actor:dita process_key:quotation run_id:id2 source_version:1 target_version:2 task_moves:[] waived_controls:<nil>]
+  entry: id=id3 type=node_skipped node=opsApprove message="skip opsApprove during migration" narrative="\"opsApprove\" was skipped without being performed, by dita, when \"quotation\" moved from version 1 to version 2. Reason: the role was eliminated. A second administrator, omar, approved this migration (request id5)." data=map[action:skip actor:dita approved_by:omar deviation_id:id6 node_id:opsApprove reason:the role was eliminated request_id:id5 run_id:id2]
+  entry: id=id7 type=instance_migrated node= message="migrated from version 1 to version 2" narrative="This instance was moved from version 1 to version 2 of \"quotation\" by a migration, authorised by dita. A second administrator, omar, approved this migration (request id5)." data=map[actor:dita approved_by:omar process_key:quotation request_id:id5 run_id:id2 source_version:1 target_version:2 task_moves:[] waived_controls:<nil>]
 `
 
 const pinCancel = `
@@ -318,9 +318,9 @@ instance 1: status=active on=v2 tokens=[salesApprove] completed=[start superviso
   task: node=salesApprove name="Sales approve" status=claimed assignee=sasha owner=<nobody>
   row: kind=waive scope=task origin=migration status=applied actor="dita" reason="the role was eliminated" node=opsApprove/Operations approve task=id1 definition=v1 run=id2 entry=id3 before=map[tasks:map[id1:map[assignee:ollie status:claimed]]] after=map[tasks:map[id1:map[status:canceled]]] details=map[withdrawn:1]
   entry: id=id4 type=task_created node=salesApprove/Sales approve message="" narrative="Task \"Sales approve\" became available" data=map[actor:]
-  entry: id=id3 type=node_skipped node=opsApprove message="skip opsApprove during migration" narrative="\"opsApprove\" was skipped without being performed, by dita, when \"quotation\" moved from version 1 to version 2. Reason: the role was eliminated." data=map[action:skip actor:dita deviation_id:id5 node_id:opsApprove reason:the role was eliminated run_id:id2]
-  entry: id=id6 type=instance_migrated node= message="migrated from version 1 to version 2" narrative="This instance was moved from version 1 to version 2 of \"quotation\" by a migration, authorised by dita." data=map[actor:dita process_key:quotation run_id:id2 source_version:1 target_version:2 task_moves:[] waived_controls:<nil>]
+  entry: id=id3 type=node_skipped node=opsApprove message="skip opsApprove during migration" narrative="\"opsApprove\" was skipped without being performed, by dita, when \"quotation\" moved from version 1 to version 2. Reason: the role was eliminated. A second administrator, omar, approved this migration (request id5)." data=map[action:skip actor:dita approved_by:omar deviation_id:id6 node_id:opsApprove reason:the role was eliminated request_id:id5 run_id:id2]
+  entry: id=id7 type=instance_migrated node= message="migrated from version 1 to version 2" narrative="This instance was moved from version 1 to version 2 of \"quotation\" by a migration, authorised by dita. A second administrator, omar, approved this migration (request id5)." data=map[actor:dita approved_by:omar process_key:quotation request_id:id5 run_id:id2 source_version:1 target_version:2 task_moves:[] waived_controls:<nil>]
 instance 2: status=active on=v2 tokens=[supervisorReview] completed=[start]
   task: node=supervisorReview name="Supervisor review" status=claimed assignee=sam owner=<nobody>
-  entry: id=id7 type=instance_migrated node= message="migrated from version 1 to version 2" narrative="This instance was moved from version 1 to version 2 of \"quotation\" by a migration, authorised by dita." data=map[actor:dita process_key:quotation run_id:id2 source_version:1 target_version:2 task_moves:[] waived_controls:<nil>]
+  entry: id=id8 type=instance_migrated node= message="migrated from version 1 to version 2" narrative="This instance was moved from version 1 to version 2 of \"quotation\" by a migration, authorised by dita. A second administrator, omar, approved this migration (request id5)." data=map[actor:dita approved_by:omar process_key:quotation request_id:id5 run_id:id2 source_version:1 target_version:2 task_moves:[] waived_controls:<nil>]
 `

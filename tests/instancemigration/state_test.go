@@ -545,7 +545,7 @@ func TestDroppingAControlStepIsHeldUntilSomebodyAcceptsIt(t *testing.T) {
 		servicecontracts.WithAcknowledgedHolds("opsApprove"),
 		servicecontracts.WithActor("dita"),
 	}
-	if err := f.svc.MigrateInstances(f.ctx, v1, v2, mapping, accepted...); err != nil {
+	if err := f.migrateWithApproval(t, v1, v2, mapping, accepted...); err != nil {
 		t.Fatalf("an acknowledged hold was still refused: %v", err)
 	}
 

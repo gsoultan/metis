@@ -18,6 +18,364 @@ The first version of one of them silently left every form without its
 definition. `tests/upgrade` is the automated version of the same rehearsal and
 runs in CI; this is the one that uses your data.
 
+## A second administrator approves waivers and skips (migration 34)
+
+Some things one administrator could do to running work alone now wait for a
+second administrator of the same organization. The upgrade runs migration 34
+to make the table the requests are kept in. What the control is, and what it
+does not cover, is in
+[A second administrator](process-change-in-flight.md#a-second-administrator);
+what an approver does is in
+[the runbooks](runbooks.md#approving-a-request-for-a-second-administrator);
+the routes are in
+[Integrating with Metis](integration.md#requests-for-a-second-administrator).
+This is what the upgrade does and what it changes for you.
+
+**What now waits, and what does not.**
+
+- **A waive of a step of one instance**
+  (`POST /api/v1/instances/{id}/deviations`, `kind: waive`, `dry_run: false`)
+  is no longer applied by the request that asks for it. The answer is **202**
+  with `applied: false` and `pending_approval`; nothing about the instance
+  has changed. The waive is made when a different administrator approves the
+  request (or, in an organization you have named as having one administrator
+  and that nobody else administers, when that administrator approves their own
+  with a reason: below).
+- **A migration** (`POST /api/v1/definitions/versions/migrate`,
+  `dry_run: false`) waits the same way, with a **202**, when its plan says
+  `requires_second_approver: true`. That is when, over at least one instance
+  that has not ended, it does one of these:
+  - skips a step (`node_actions` with `kind: skip`);
+  - takes a step marked `compliance_relevant` from an instance that has not
+    passed it (the apply is refused until the loss is acknowledged, and then
+    waits);
+  - sends a step's work to a different step, while some instance has not
+    passed some step marked `compliance_relevant`;
+  - moves instances onto a version that takes away part of a step's
+    `separation_of_duties` rule, while some instance has still to pass that
+    step.
+- **Unchanged, one administrator's call, answered 200:** a cancel or a hold of
+  one instance in place; a migration's `cancel` and `hold`; a migration that
+  only moves work and does none of the four things above; any migration of a
+  version nothing unfinished runs on.
+
+A script that waived a step, or migrated with a `skip`, in one call must now
+do three things: read the 202, hand the request's id to a second
+administrator, and have that account approve it
+(`POST /api/v1/deviation-requests/{id}/approve`). A client that treats only
+200 as success will take the 202 for a failure. One that reads `applied` is
+already right: it is `false`.
+
+**Three migrations that applied on one call and now ask, which you may not
+expect.** Each is the direction that asks too often rather than too seldom.
+
+- *Any redirect in a process with a control somebody has not passed.* The
+  planner does not work out whether the control is still ahead of where the
+  instance lands. It asks whenever there is anything to lose.
+- *A step given a new id whose neighbours also changed.* A mapping onto a new
+  id asks nobody only when the step is renamed where it stands: its old id is
+  gone from the new version, and the same steps lead to it and follow it. A
+  step renamed and moved, a renamed boundary event, a renamed event
+  sub-process and a renamed step with no sequence flow all count as
+  redirected. To rename a step without anybody being asked, give it a new id
+  and change nothing else about where it stands.
+- *A version whose only instances are suspended.* A suspended instance has
+  not ended, so it is counted.
+
+**A mapping that sends a control onto a different step is now a hold.** A step
+marked `compliance_relevant` mapped onto another step used to count as carried
+across whenever the step it landed on was marked too. It is now a control not
+carried across, whatever the landing step is marked as: the plan lists it in
+`compliance_holds` and refuses the apply until its id is in `acknowledge`.
+Acknowledged, it waits for a second administrator. The same holds for a
+control mapped onto a new id that does not stand where the old step stood.
+
+**Finished work follows fewer mappings.** A finished task, and the instance's
+list of completed steps, take a step's new id only under a rename. Two
+mappings that counted as renames no longer do:
+
+- a mapping of a step the new version still has under its old id;
+- a rename onto a step marked `compliance_relevant` that does not stand where
+  the old step stood.
+
+Under either, finished work stays under the old id and the plan warns of it as
+of any redirect. Before, such a mapping recorded the old step's finished work
+as the control performed. The cost: a control that really was renamed while
+its neighbours changed is not carried for the instances that passed it, so a
+later migration that drops it holds for them too.
+
+**What migration 34 does.** Six steps, each safe to repeat, so a run that
+stops part-way finishes when the server is started again
+(`TestMigration34KeepsTheOldVisitIndexUntilTheNewOneIsBuiltAndFinishesWhenStartedAgain`):
+
+1. It creates `deviation_requests` and its indexes.
+2. It adds `instance_deviations.live_visit_key`, and a reference from
+   `instance_deviations.request_id` to the new table, not yet checked.
+3. It gives every ledger row that holds its visit (`applied` or
+   `pending_approval`) its live key, in batches of 5,000.
+4. It builds three indexes on the ledger without locking it against writes.
+5. It drops migration 33's unique index on the visit key, and only now: until
+   the new unique index is valid, the old one is what refuses a second live
+   row for a visit.
+6. It checks the reference against every row.
+
+The ledger's rule of one live row per visit moves from the visit key onto the
+live key, which a row holds only while it is `applied` or `pending_approval`.
+Under the old index a waive somebody rejected could never be asked for again.
+PostgreSQL only, as migrations 21 to 33 are.
+
+**It can stop the upgrade, on purpose.** Each step waits two seconds for a
+lock and then stops, with one of six sentences followed by the database's
+own error. For the first four, start the server again once the long query or
+transaction has ended; nothing it had done is undone.
+
+```
+projects or process_definitions was held for more than 2s by a long query or
+transaction; the upgrade stopped rather than hold every writer of either
+behind it, and will finish when started again once that ends
+```
+
+```
+instance_deviations was held for more than 2s by a long query or
+transaction; the upgrade stopped rather than hold every hand-over and every
+completion behind it, and will finish when started again once that ends
+```
+
+```
+a row of instance_deviations was held for more than 2s by a long
+transaction; the upgrade stopped rather than wait on it with row locks held,
+and will finish when started again once that ends
+```
+
+```
+instance_deviations was held for more than 2s by another change to its
+schema or a vacuum; the upgrade stopped rather than wait behind it, and will
+finish when started again once that ends
+```
+
+The last two are not waits, and starting again does not clear either:
+
+```
+a row of instance_deviations has a request_id that no row of
+deviation_requests has; no release wrote one before this upgrade, so it was
+written by hand. The upgrade stopped rather than change a compliance record:
+set request_id to NULL on such rows, and it will finish when started again
+```
+
+```
+two live rows of instance_deviations — applied, or waiting for approval —
+hold one visit of one instance, so the index that allows one,
+ux_instance_deviations_live_visit, cannot be built. No release writes two:
+one act was recorded twice, or two were made. The upgrade stopped rather than
+choose between rows of a compliance record. Find them with SELECT
+instance_id, visit_key, count(*) FROM instance_deviations WHERE status IN
+('applied', 'pending_approval') AND visit_key IS NOT NULL GROUP BY
+instance_id, visit_key HAVING count(*) > 1; read both rows of each pair,
+settle which one is true and close the other, and it will finish when
+started again
+```
+
+The same pair met on a later start, by the step that gives rows their key,
+says *…so one of them cannot be given the key that holds it* in place of the
+index. Nothing in the product writes such a pair; the sentence is there so
+that PostgreSQL's own — *could not create unique index … is duplicated* — is
+not all an operator has to go on.
+
+No release before this one wrote `request_id`. Find the rows, read them, and
+only then clear the column:
+
+```sql
+SELECT d.id, d.instance_id, d.kind, d.actor, d.request_id, d.created_at
+FROM instance_deviations d
+WHERE d.request_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM deviation_requests r WHERE r.id = d.request_id);
+```
+
+```sql
+UPDATE instance_deviations d SET request_id = NULL
+WHERE d.request_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM deviation_requests r WHERE r.id = d.request_id);
+```
+
+**What is different once it has run.**
+
+- **A request has a deadline.** It waits 72 hours unless
+  `METIS_DEVIATION_APPROVAL_TTL` says otherwise (a Go duration, such as
+  `24h`). A value under `1h` is read as `1h` and one over `720h` as `720h`;
+  one that is not a duration, or is not positive, is read as `72h`. Each of
+  those is a warning when the server starts, naming the setting and what is
+  used instead. The setting is read when a request is made and the deadline
+  is stored with it, so changing it does not move a request that already
+  waits.
+- **A pass every ten minutes writes down what the clock has decided**, on
+  every replica and every database, and once at start-up. A request past its
+  deadline reads `expired`, and cannot be approved, whether or not the pass
+  has run; the pass records it, and frees the step or the migration to be
+  asked for again.
+- **The ledger now holds rows for acts that were not made.** A waive that
+  waits writes a row with `status: "pending_approval"`, and that row then
+  reads `applied`, `rejected`, `expired` or `stale`. Anyone who can read the
+  instance's ledger reads that row while it waits: the reason and the values
+  asked for, before anybody has approved them. Every row was `applied`
+  before. A client that counts each row of
+  `GET /api/v1/instances/{id}/deviations` as something done must read
+  `status`. A row that waited is also the one row that is changed after it is
+  written: once, when its request is decided.
+- **New fields on replies that shipped.** A migration's plan always carries
+  `requires_second_approver`, and `second_approver_reasons` when it is true.
+  The migrate reply always carries `passed_over_in_all`; `passed_over` lists
+  at most 200 instances where it listed every one; each entry gains `cause`,
+  `steps` and `steps_in_all` beside its `reason`. A waive's plan says
+  `requires_second_approver: true`, where the field was always `false`.
+- **Applying a migration in process refuses what the route sends for
+  approval.** `ApplyInstanceMigration`, and `MigrateInstances`, which wraps
+  it, answer a forbidden error for a plan that needs a second administrator
+  unless the call carries the id of an approved request, which the gate reads
+  from the database and never takes on the caller's word.
+- **Who administers is written to the server's log.** Creating an account,
+  changing its roles, changing its roles in one organization and deleting it
+  each write one line naming who did it. So do the first administrator that
+  set-up creates and a password set with `--reset-password`, which name no
+  actor and say what made them. See
+  [the runbooks](runbooks.md#who-changed-who-administers).
+- **An instance is migrated with its trail entry, or not migrated.** This
+  changes behaviour that shipped. The `instance_migrated` entry used to be
+  written after an instance's rewrite had committed, and an entry that could
+  not be written was logged and the instance left moved. It is now the last
+  write of the rewrite's own transaction, for every migrated instance,
+  approved or not: while the trail cannot be written, a migration stops at
+  the first instance it would move, names it, and leaves it and the ones
+  behind it on the version they were running. Run the same migration again
+  once the trail can be written; a run a second administrator approved is
+  asked for again, since its request is spent. Why: for a redirect or a
+  loosened separation-of-duties rule that was approved, that entry is the
+  only record on the instance of what was approved.
+- **A request is approved only while whoever asked for it still administers
+  the organization.** An approval of a request whose requester's account has
+  since been deleted, taken out of the organization or lost the administrator
+  role in it closes the request as `stale` and answers 400. Somebody who
+  administers the organization asks afresh.
+
+**During a rolling upgrade or a canary** — read from the previous release's
+code, not from two versions run side by side — a pod still on the previous
+release knows nothing of this. The shipped deployment
+(`deploy/kubernetes/metis.yaml`) recreates its pods, so the two run together
+only where you changed that to roll, or
+[run a canary](runbooks.md#rolling-out-through-a-canary).
+
+- **Such a pod applies a waive, a skip and every migration on one
+  administrator's call.** The control is in force only for a request a pod of
+  this release serves. Finish the rollout before relying on it, and do not
+  leave a canary of this release beside the previous one for longer than it
+  takes to judge it.
+- **The rows such a pod writes have no live key.** The application's own
+  guard does not need one: every act first reads its visit's row under the
+  instance's lock (`TestAnAppliedRowWithNoLiveKeyIsStillTheRecordOfItsVisit`).
+  The database's unique index does, and does not see such a row. Each pod of
+  this release fills the keys at start-up and on every pass of its first
+  hour, and warns when it filled any: *Gave ledger rows written without it
+  the key that holds their visit; a pod of an earlier release is, or was,
+  writing to this database*. A row written after that hour stays without its
+  key until a pod of this release next starts. To see them:
+
+  ```sql
+  SELECT id, instance_id, kind, status, actor, created_at
+  FROM instance_deviations
+  WHERE visit_key IS NOT NULL AND live_visit_key IS NULL
+    AND status IN ('applied', 'pending_approval')
+  ORDER BY created_at;
+  ```
+
+- **To find what was waived or skipped on one call in that window**, read the
+  ledger for rows no request stands behind. Rows from before the upgrade are
+  in it too, so bound it by when the rollout began:
+
+  ```sql
+  SELECT id, instance_id, kind, origin, node_name, actor, reason, created_at
+  FROM instance_deviations
+  WHERE kind IN ('waive', 'control_waived') AND status = 'applied'
+    AND request_id IS NULL AND created_at >= '<when the rollout began>'
+  ORDER BY created_at;
+  ```
+
+  A redirect leaves no ledger row under either release, so this does not find
+  one.
+
+**Rolling back.** The table and the column stay; the runner only goes
+forward. Read from the previous release's code, not run:
+
+- **A request that still waits holds its step for good.** The previous
+  release has no approve route, no reject route and no pass that expires
+  anything. It does find the waiting ledger row when a waive of that visit
+  is applied: the same request sent again is answered `replayed: true` with
+  `applied: false`, and any other request for the visit is refused *this
+  step was already waived by …*, though nothing was waived. So **before
+  rolling back, reject every request that waits, or let it expire**:
+
+  ```sql
+  SELECT id, kind, requested_by, reason, expires_at
+  FROM deviation_requests
+  WHERE status IN ('pending_approval', 'approved')
+  ORDER BY created_at;
+  ```
+
+  `approved` is a migration whose run is going or never reported: let it
+  finish, or wait out its hour, before the rollback. The query reads what is
+  recorded, and an expiry frees its step only once a pass has recorded it:
+  roll back when the query answers no rows.
+- **The control is gone.** On the previous release a waive and a skip apply
+  on one administrator's call again.
+- **Rows it writes have no live key**, as above; the pods of this release
+  fill them when you upgrade again.
+
+**If your organization has one administrator.** Nothing is switched off for
+you by default. An administrator's waive or skip becomes a request, and their
+own approval of it is refused (403) in a sentence that begins *You asked for
+this, and nobody else administers this organization, so it waits.* The
+request waits until its deadline. The ways forward:
+
+- **Appoint a second administrator: a second person's account.** Give them
+  the Administrator role in the organization
+  (`PUT /api/v1/users/{id}/organization-roles`) and have them approve. A
+  second account held by the same person satisfies the check and defeats its
+  purpose.
+- **Use what still needs nobody else.** A cancel and a hold in place, a
+  migration's `cancel` and `hold`, or letting the old version drain.
+- **Withdraw the request** (the reject route, called by whoever asked) or let
+  it expire.
+- **Name the organization as having one administrator.** Whoever operates the
+  installation sets `METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS` to the
+  organization's id and restarts. The sole administrator may then approve
+  their own request, with a reason, and the record says nobody else approved
+  it. Read
+  [An organization with one administrator](runbooks.md#an-organization-with-one-administrator)
+  first: it says what this does not close.
+
+**The second approver is not a control against an administrator who manages
+accounts.** It protects against a mistake and against a decision nobody else
+looked at. It does not protect against an administrator who creates, removes
+or displaces accounts. Read
+[What it does not protect against](process-change-in-flight.md#what-it-does-not-protect-against)
+before describing it to an auditor.
+
+**There is no approval screen.** The migration dialog says when an apply was
+sent for approval. Approving and rejecting are calls to the API in this
+release, and nobody is notified that a request waits: the requester passes
+the request's id to the second administrator. The dialog shows that id as
+*the request's reference*, and leaves it in a toast that stays when the dialog
+is closed.
+
+**What it costs.** Counted from the code, not measured. A waive's apply
+writes a request, a waiting ledger row and a trail entry, and does nothing to
+the instance; the approval then does what an apply did, and beside it writes
+the approval's trail entry and the request's new status. A waive's preview
+does one more read, of the visit's live row. A migration's plan reads nothing
+it did not read before: what asks is worked out from the two definitions and
+the instances the plan already had. An apply that runs under a request reads
+the request once, under its row's lock, before it starts. Each ten-minute
+pass makes two reads of the requests table per database when nothing is
+overdue.
+
 ## An instance a migration left with nothing to do
 
 No migration of the schema runs for this, and nothing changes for an instance
@@ -425,7 +783,9 @@ has ended and it finishes; nothing it had done is undone.
   instance's step, names the instance, and says how many had been dealt with;
   running the same migration again carries on. An ad-hoc activation is
   refused and starts nothing. A migration's skip, cancel and hold used to be
-  made and the lost entry only logged.
+  made and the lost entry only logged. (The `instance_migrated` entry of an
+  instance that is only moved joined the same rule later: see "A second
+  administrator approves waivers and skips", above.)
 - A migration's skip, cancel or hold leaves alone an instance that left the
   step between the migration listing its instances and locking that one — its
   holder completed the step, or it finished. Nothing is done to it or recorded
@@ -436,7 +796,11 @@ has ended and it finishes; nothing it had done is undone.
   when the run passed instances over and acted on none. A
   skip used to advance such an instance a second time, and its ledger row said
   the approval was waived. See [Node actions](process-change-in-flight.md#node-actions--deciding-work-instead-of-moving-it).
-- A row says the act was made, and is never rewritten. A `hold` row therefore
+- A row says the act was made, and is never rewritten. (Since migration 34
+  there is one exception: a row that waits for a second administrator says a
+  waive was asked for, and is rewritten once, when its request is decided.
+  See [above](#a-second-administrator-approves-waivers-and-skips-migration-34).)
+  A `hold` row therefore
   says the hold was placed, not that it is still open: resolving the incident
   the hold raised writes no row and leaves `after.incident.status` reading
   `open`. Read the instance's incidents, `GET /api/v1/incidents/{instanceId}`,

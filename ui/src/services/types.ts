@@ -317,11 +317,67 @@ export interface ApiMigrationPlan {
    * used to write, and the gateways downstream still read those variables.
    */
   removed_nodes?: string[];
+  /**
+   * Whether applying this plan is sent to a second administrator instead of
+   * being made. Absent from a server older than the second approver, which
+   * asked nobody.
+   */
+  requires_second_approver?: boolean;
+  /**
+   * Why, as sentences to show and not to read apart: at most ten and one that
+   * counts the rest. Left out when there is none.
+   */
+  second_approver_reasons?: string[];
+}
+
+/** The request an apply was turned into, when it needs somebody else. */
+export interface ApiPendingApproval {
+  request_id: string;
+  status: string;
+  /** Who asked, by name. */
+  requested_by: string;
+  /** When the request stops waiting, as an RFC 3339 time. */
+  expires_at: string;
+  /** Why it needs a second administrator, as sentences to show. */
+  because?: string[];
+}
+
+/** A step the cause of passing an instance over is about. */
+export interface ApiPassedOverStep {
+  /** For pointing at the step; it may be cut, and is not a key to send back. */
+  node_id: string;
+  /** The name the instance's version gives the step; its id where it gives none. */
+  name: string;
+}
+
+/** One instance a migration's run left on the version it was running. */
+export interface ApiPassedOver {
+  instance_id: string;
+  /**
+   * Why, as one of the server's closed set of causes, for saying it in the
+   * reader's language. Absent from a server older than the causes.
+   */
+  cause?: string;
+  /** The steps the cause is about: the first ten. */
+  steps?: ApiPassedOverStep[];
+  /** How many steps the cause is about, listed in `steps` or not. */
+  steps_in_all?: number;
+  /** Why, in the server's own English: what is said for a cause with no words here. */
+  reason: string;
 }
 
 export interface MigrateInstancesResponse {
   plan: ApiMigrationPlan;
   applied?: boolean;
+  /** The instances the run did not move: the first two hundred. */
+  passed_over?: ApiPassedOver[];
+  /** How many instances the run did not move, listed in `passed_over` or not. */
+  passed_over_in_all?: number;
+  /**
+   * Present when the apply was not made but sent to a second administrator.
+   * The server answers such an apply 202, with `applied` false.
+   */
+  pending_approval?: ApiPendingApproval;
   err?: string;
 }
 

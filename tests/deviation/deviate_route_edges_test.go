@@ -138,6 +138,10 @@ func TestADeviationIsReadAsJSONWhateverItsContentTypeSays(t *testing.T) {
 // whole numbers past 2^53 that round to the same float are therefore one
 // request: the second is answered with the first's record. A large identifier
 // is sent as a string.
+//
+// The waive waits in a request until a second administrator approves it, so
+// this also pins that a number past a float's precision is the same number
+// once it has been kept in a request and read back.
 func TestTwoWholeNumbersPastTheFloatsPrecisionAreOneRequest(t *testing.T) {
 	h := newDeviationRouteHarness(t)
 	instanceID := h.start(t, orderBySize())
@@ -155,9 +159,9 @@ func TestTwoWholeNumbersPastTheFloatsPrecisionAreOneRequest(t *testing.T) {
 	if status != http.StatusOK || !planned.Plan.Applicable {
 		t.Fatalf("the preview: %d (%s)", status, raw)
 	}
-	status, applied, raw := h.deviateWith(t, admin, instanceID, request(pastPrecision, planned.Plan.VisitKey))
-	if status != http.StatusOK || !applied.Applied || applied.Replayed {
-		t.Fatalf("the waive: %d (%s), want it applied", status, raw)
+	status, applied, raw := h.secondedWith(t, admin, instanceID, request(pastPrecision, planned.Plan.VisitKey))
+	if status != http.StatusOK || !applied.Applied {
+		t.Fatalf("the waive, approved by a second administrator: %d (%s), want it applied", status, raw)
 	}
 	before := h.everyRow(t)
 	for _, same := range []string{pastPrecision, itsFloat} {

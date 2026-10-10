@@ -11,20 +11,31 @@ import (
 
 const waiveUndone = "so the waive was not applied and nothing was changed."
 
-// refusedByAGateway applies a waive whose plan does not refuse it, and
-// requires the 400 that names the gateway the advance could not get past, with
-// every table as it was: the waive is undone whole.
+// refusedByAGateway asks for a waive whose plan does not refuse it — a 202:
+// the advance is not tried until a second administrator approves — and
+// requires of the approval the 400 that names the gateway the advance could
+// not get past, and says the request still waits and what to do about it,
+// with every table as the request left it: the waive is undone whole.
 func (h *deviationHarness) refusedByAGateway(t *testing.T, admin string, instanceID uuid.UUID, body map[string]any, sentence string) {
 	t.Helper()
+	seconder := h.secondAdministrator(t)
 	apply, planned := h.previewed(t, admin, instanceID, body)
 	if !planned.Plan.Applicable {
 		t.Fatalf("the plan refuses, so the advance is never tried and this proves nothing: %q", planned.Plan.Refusals)
 	}
-	before := h.everyRow(t)
-	if status, _, raw := h.deviate(t, admin, instanceID, apply); status != http.StatusBadRequest || !sameJSON(t, raw, invalid(sentence)) {
-		t.Fatalf("a waive the process could not follow: %d (%s), want 400 %s", status, raw, invalid(sentence))
+	status, asked, raw := h.deviate(t, admin, instanceID, apply)
+	if status != http.StatusAccepted || asked.Applied || asked.PendingApproval == nil {
+		t.Fatalf("asking for the waive: %d (%s), want a 202 that names the request it waits on", status, raw)
 	}
-	h.requireUnchanged(t, before, "a waive a gateway had no way out for")
+	before := h.everyRow(t)
+	want := invalid(sentence + " " + requestStillWaits)
+	if status, _, raw := h.decide(t, seconder, asked.PendingApproval.RequestID, "approve", ""); status != http.StatusBadRequest || !sameJSON(t, raw, want) {
+		t.Fatalf("approving a waive the process could not follow: %d (%s), want 400 %s", status, raw, want)
+	}
+	h.requireUnchanged(t, before, "an approval a gateway had no way out for")
+	if waits := h.requestStatus(t, asked.PendingApproval.RequestID); waits != "pending_approval" {
+		t.Fatalf("the request reads %s after an approval a gateway refused, want it still waiting", waits)
+	}
 }
 
 // Task 6 F6-1, F6-6. A waive whose advance reaches a gateway with no way out

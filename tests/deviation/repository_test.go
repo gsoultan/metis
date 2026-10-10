@@ -323,7 +323,14 @@ func TestADeviationReadsBackExactlyAsItWasWritten(t *testing.T) {
 	d.ActorID = uuid.Must(uuid.NewV7())
 	d.AuditEntryID = uuid.Must(uuid.NewV7())
 	d.VisitKey = "dv1-exact"
-	d.RequestID = uuid.Must(uuid.NewV7())
+	// The ledger references the request a row names (migration 34), so the
+	// request has to be there: written as a waive that waits for approval
+	// writes it, through the repository.
+	request, err := h.createRequest(h.tenantContext(), h.sampleRequest(instanceID, d.VisitKey))
+	if err != nil {
+		t.Fatalf("write the request the row names: %v", err)
+	}
+	d.RequestID = request.ID
 	d.ApprovedBy = "carol"
 	d.ApprovedByID = uuid.Must(uuid.NewV7())
 	d.DecidedAt = &decided

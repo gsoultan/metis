@@ -30,6 +30,7 @@ func newRacedFixture(t *testing.T) (*fixture, *hookedProcess) {
 		listing.ProcessRepository = repo.Process()
 		return &hookedRepository{Repository: repo, process: listing}
 	})
+	f.listing = listing
 	return f, listing
 }
 
@@ -58,7 +59,7 @@ func migrateWhileOpsApproves(t *testing.T, kind servicecontracts.NodeActionKind)
 	f, listing := newRacedFixture(t)
 	v1, v2 = f.parkedOnOpsApprove(t)
 	listing.atApplysListing(func() { f.completeTaskOn(t, "opsApprove", "ollie") })
-	if err := f.svc.MigrateInstances(f.ctx, uuidOf(t, v1), uuidOf(t, v2), nil, decideOps(kind, "the role was eliminated")...); err != nil {
+	if err := f.migrateDecided(t, kind, uuidOf(t, v1), uuidOf(t, v2), nil, decideOps(kind, "the role was eliminated")...); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	if listing.calls < listing.on {
@@ -110,7 +111,7 @@ func TestASkipOfAStepCompletedAfterTheListingDoesNothing(t *testing.T) {
 
 	// It was left on the source version, so running the same migration again
 	// finds it where it now is: there is nothing to skip, and it moves.
-	if err := f.svc.MigrateInstances(f.ctx, uuidOf(t, v1), uuidOf(t, v2), nil, decideOps(servicecontracts.NodeActionSkip, "the role was eliminated")...); err != nil {
+	if err := f.migrateWithApproval(t, uuidOf(t, v1), uuidOf(t, v2), nil, decideOps(servicecontracts.NodeActionSkip, "the role was eliminated")...); err != nil {
 		t.Fatalf("the second run: %v", err)
 	}
 	instance := f.onlyInstance(t)
@@ -155,7 +156,7 @@ func TestASkipOfAnInstanceThatFinishedAfterTheListingDoesNothing(t *testing.T) {
 		f.completeTaskOn(t, "opsApprove", "ollie")
 		f.completeTaskOn(t, "salesApprove", "sasha")
 	})
-	if err := f.svc.MigrateInstances(f.ctx, uuidOf(t, v1), uuidOf(t, v2), nil, decideOps(servicecontracts.NodeActionSkip, "the role was eliminated")...); err != nil {
+	if err := f.migrateWithApproval(t, uuidOf(t, v1), uuidOf(t, v2), nil, decideOps(servicecontracts.NodeActionSkip, "the role was eliminated")...); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	instance := f.onlyInstance(t)

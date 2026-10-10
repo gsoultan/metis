@@ -3,7 +3,9 @@ package endpoints
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -101,6 +103,7 @@ func TestMakeEndpoints_AdministrativeEndpointsAreRoleGated(t *testing.T) {
 		"CreateProject", "UpdateProject", "DeleteProject",
 		"CreateConnectorInstance", "UpdateConnectorInstance", "DeleteConnectorInstance",
 		"DeviateInstance",
+		"ListDeviationRequests", "GetDeviationRequest", "ApproveDeviationRequest", "RejectDeviationRequest",
 	}
 	for _, name := range adminGated {
 		if !strings.Contains(source, `adminOnly("`+name+`")`) {
@@ -206,4 +209,45 @@ func readEndpointsSource(t *testing.T) string {
 		t.Fatalf("read endpoints.go: %v", err)
 	}
 	return string(b)
+}
+
+// Recording that a request for a second administrator has expired is the
+// server's own work, done on its clock by the retention pass. No endpoint and
+// no transport asks for it: a caller who could would choose the moment a
+// request is closed at.
+//
+// What stops a caller is the service: it refuses any context that is not the
+// server's own, whoever calls and by whatever road. This is not that guard.
+// It is a tripwire — a search of the endpoints' and the transports' source
+// for the method's name — so that somebody who wires it to a listener is told
+// here, by name, before they find out from the service at run time. It proves
+// nothing about a call made through a value, an interface or another package;
+// the service's check is what covers those.
+func TestNoRouteAsksForRequestsToBeExpired(t *testing.T) {
+	const expiry = "SweepDeviationRequests"
+	read := 0
+	for _, dir := range []string{".", filepath.Join("..", "transports")} {
+		tree := os.DirFS(dir)
+		err := fs.WalkDir(tree, ".", func(path string, entry fs.DirEntry, err error) error {
+			if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return err
+			}
+			source, err := fs.ReadFile(tree, path)
+			if err != nil {
+				return err
+			}
+			read++
+			if strings.Contains(string(source), expiry) {
+				t.Errorf("%s names %s: the expiry of requests must not be reachable from a route", filepath.Join(dir, path), expiry)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("read %s: %v", dir, err)
+		}
+	}
+	// Reading nothing would pass, and prove nothing.
+	if read < 50 {
+		t.Fatalf("read %d source files under the endpoints and the transports; this test is looking in the wrong place", read)
+	}
 }

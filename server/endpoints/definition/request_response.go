@@ -1,9 +1,13 @@
 package definition
 
 import (
+	"encoding/json"
+	"net/http"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/endpoints/deviation"
 )
 
 type ListDefinitionsRequest struct {
@@ -244,6 +248,18 @@ func (r MigrateInstancesRequest) dryRun() bool {
 	return r.DryRun == nil || *r.DryRun
 }
 
+// MigrateInstancesResponse answers a MigrateInstancesRequest.
+//
+// It holds what the service answered, for whoever calls the endpoint in
+// process. What goes out is written through views (MarshalJSON): the plan,
+// the request that waits and each instance passed over leave as the route's
+// own shapes, not as the entities happen to encode themselves.
+//
+// An apply that needs a second administrator is not made: the reply carries
+// the plan, Applied false, nobody passed over and PendingApproval — the
+// request that now waits — and is answered 202, not 200: the request was
+// taken and nothing has been done. The same apply sent again by whoever made
+// it is that answer again, a 202 still. Every other reply is the 200 it was.
 type MigrateInstancesResponse struct {
 	Plan entities.MigrationPlan `json:"plan"`
 	// Applied says whether anything was written. False for a dry run, false
@@ -261,28 +277,69 @@ type MigrateInstancesResponse struct {
 	// apply left nobody behind and for a dry run, so a client need not ask
 	// whether the field is there.
 	PassedOver []PassedOverView `json:"passed_over"`
-	Err        error            `json:"err,omitzero"`
+	// PassedOverInAll is how many instances the apply passed over, listed in
+	// PassedOver or not: the list shows the first two hundred. Always present,
+	// nought when the apply left nobody behind and for a dry run.
+	PassedOverInAll int `json:"passed_over_in_all"`
+	// PendingApproval says the apply was not made but sent to a second
+	// administrator: which request waits, who asked, until when and why it
+	// needs somebody else. Left out of every reply that waits on nobody.
+	PendingApproval *entities.PendingApproval `json:"pending_approval,omitzero"`
+	Err             error                     `json:"err,omitzero"`
 }
 
-// PassedOverView is one instance an apply left alone, as the reply carries it.
-type PassedOverView struct {
-	InstanceID string `json:"instance_id"`
-	// Reason is why, in plain words; it names a step by its name, not its id.
-	Reason string `json:"reason"`
-}
+// PassedOverView is one instance an apply left alone, as the reply carries
+// it: the instance, why as a code a client can translate (cause), the steps
+// that is about (steps, by id and by name) and why in English words (reason).
+// It is the view the approval of a migration lists them through, so the two
+// replies cannot come to differ.
+type PassedOverView = deviation.PassedOverView
 
 // passedOverViews is the instances a run left alone as the reply lists them:
-// an empty list, never null, when there are none.
+// the first two hundred, an empty list, never null, when there are none.
 func passedOverViews(passed []entities.PassedOverInstance) []PassedOverView {
-	views := make([]PassedOverView, 0, len(passed))
-	for _, one := range passed {
-		view := PassedOverView{Reason: one.Reason}
-		if one.Instance != nil {
-			view.InstanceID = one.Instance.ID.String()
-		}
-		views = append(views, view)
-	}
-	return views
+	return deviation.PassedOverViewsOf(passed)
 }
 
 func (r MigrateInstancesResponse) Failed() error { return r.Err }
+
+// StatusCode is 202 for a reply that says the apply waits for a second
+// administrator, and 200 for every other. A refusal never gets here: the
+// transport asks Failed first and answers with the status of its class.
+func (r MigrateInstancesResponse) StatusCode() int {
+	if r.PendingApproval != nil {
+		return http.StatusAccepted
+	}
+	return http.StatusOK
+}
+
+// migrateInstancesReply is a MigrateInstancesResponse as it is written: the
+// same fields under the same names in the same order, each through its view.
+type migrateInstancesReply struct {
+	Plan            deviation.MigrationPlanView    `json:"plan"`
+	Applied         bool                           `json:"applied"`
+	PassedOver      []PassedOverView               `json:"passed_over"`
+	PassedOverInAll int                            `json:"passed_over_in_all"`
+	PendingApproval *deviation.PendingApprovalView `json:"pending_approval,omitzero"`
+	Err             error                          `json:"err,omitzero"`
+}
+
+// MarshalJSON writes the reply through its views. It adds nothing and leaves
+// nothing out: what a reply held before the views were there is written to
+// the letter as it was. A field added to the reply is written only once it
+// is added here and to migrateInstancesReply;
+// TestEveryFieldOfTheMigrateReplyIsWritten fails until it is.
+func (r MigrateInstancesResponse) MarshalJSON() ([]byte, error) {
+	reply := migrateInstancesReply{
+		Plan:            deviation.MigrationPlanViewOf(r.Plan),
+		Applied:         r.Applied,
+		PassedOver:      r.PassedOver,
+		PassedOverInAll: r.PassedOverInAll,
+		Err:             r.Err,
+	}
+	if r.PendingApproval != nil {
+		view := deviation.PendingApprovalViewOf(*r.PendingApproval)
+		reply.PendingApproval = &view
+	}
+	return json.Marshal(reply)
+}

@@ -42,6 +42,8 @@ func RegisterHandlers(m *http.ServeMux, eps deviation.Endpoints, options []httpt
 		common.EncodeResponse,
 		options...,
 	))
+
+	registerRequestHandlers(m, eps, options)
 }
 
 func decodeListInstanceDeviationsRequest(_ context.Context, r *http.Request) (any, error) {
@@ -87,7 +89,7 @@ func decodeDeviateInstanceRequest(_ context.Context, r *http.Request) (any, erro
 		}
 		return nil, unreadableDeviateRequest(r, err)
 	}
-	if err := namedExactlyAndOnce(body); err != nil {
+	if err := namedExactlyAndOnce(body, deviateFields); err != nil {
 		return nil, unreadableDeviateRequest(r, err)
 	}
 	var req deviation.DeviateInstanceRequest
@@ -110,12 +112,14 @@ func unreadableDeviateRequest(r *http.Request, why error) error {
 
 // namedExactlyAndOnce reports why body is not one JSON object whose fields
 // are each one a request has, written exactly as it is named and given once,
-// with nothing after the object; nil when it is.
+// with nothing after the object; nil when it is. fields is the fields a
+// request of this kind may carry: a waive, cancel or hold has its own
+// (deviateFields), and a decision on a request has one (decideFields).
 //
 // It looks at the names only — the request's own, and those inside outputs,
 // which are a caller's to choose and so are asked only to be said once. What
 // each field holds is the decoder's to read.
-func namedExactlyAndOnce(body []byte) error {
+func namedExactlyAndOnce(body []byte, fields map[string]struct{}) error {
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	opening, err := decoder.Token()
 	if err != nil {
@@ -125,7 +129,7 @@ func namedExactlyAndOnce(body []byte) error {
 		return fmt.Errorf("the body is a JSON %T, not an object", opening)
 	}
 	// Bounded by the fields a request has: a name is kept only if it is one.
-	seen := make(map[string]struct{}, len(deviateFields))
+	seen := make(map[string]struct{}, len(fields))
 	for decoder.More() {
 		token, err := decoder.Token()
 		if err != nil {
@@ -136,7 +140,7 @@ func namedExactlyAndOnce(body []byte) error {
 		if !isName {
 			return fmt.Errorf("the body has a %T where a field's name belongs", token)
 		}
-		if _, known := deviateFields[name]; !known {
+		if _, known := fields[name]; !known {
 			// The name is the caller's, and as long as they like: the log
 			// keeps the start of it.
 			return fmt.Errorf("the body has a field %.64q, which a request does not have", name)

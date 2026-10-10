@@ -61,19 +61,22 @@ func TestAnApplyOfAPlanPreviewedBeforeAMigrationDealtWithTheInstanceDoesNothing(
 		name string
 		// keepsTheStep says whether the version migrated to has the step.
 		keepsTheStep bool
-		options      []servicecontracts.MigrationOption
-		status       entities.ProcessStatus
-		says         map[entities.DeviationKind]string
+		// waits says the migration has to be approved by a second
+		// administrator: only the one that skips the step does.
+		waits   bool
+		options []servicecontracts.MigrationOption
+		status  entities.ProcessStatus
+		says    map[entities.DeviationKind]string
 	}{
-		{"moved to another version", true, nil, entities.ProcessActive,
+		{"moved to another version", true, false, nil, entities.ProcessActive,
 			map[entities.DeviationKind]string{entities.DeviationWaive: previewAgain, entities.DeviationCancel: previewAgain, entities.DeviationHold: previewAgain}},
-		{"cancelled by its decision", false, decidingAtOpsApprove(servicecontracts.NodeActionCancel), entities.ProcessCancelled,
+		{"cancelled by its decision", false, false, decidingAtOpsApprove(servicecontracts.NodeActionCancel), entities.ProcessCancelled,
 			map[entities.DeviationKind]string{
 				entities.DeviationWaive:  "this instance is cancelled, so it can no longer be waived; preview again",
 				entities.DeviationCancel: "this instance is cancelled, so it can no longer be cancelled; preview again",
 				entities.DeviationHold:   "this instance is cancelled, so it can no longer be held; preview again",
 			}},
-		{"moved past the step by its decision", false, decidingAtOpsApprove(servicecontracts.NodeActionSkip), entities.ProcessActive,
+		{"moved past the step by its decision", false, true, decidingAtOpsApprove(servicecontracts.NodeActionSkip), entities.ProcessActive,
 			map[entities.DeviationKind]string{entities.DeviationWaive: previewAgain, entities.DeviationCancel: previewAgain, entities.DeviationHold: previewAgain}},
 	} {
 		t.Run(migration.name, func(t *testing.T) {
@@ -105,7 +108,11 @@ func TestAnApplyOfAPlanPreviewedBeforeAMigrationDealtWithTheInstanceDoesNothing(
 			if err != nil {
 				t.Fatalf("deploy the next version: %v", err)
 			}
-			if err := h.svc.MigrateInstances(ctx, v1, v2, nil, migration.options...); err != nil {
+			migrate := func() error { return h.svc.MigrateInstances(ctx, v1, v2, nil, migration.options...) }
+			if migration.waits {
+				migrate = func() error { return migrateSeconded(t, h, v1, v2, nil, migration.options...) }
+			}
+			if err := migrate(); err != nil {
 				t.Fatalf("migrate: %v", err)
 			}
 			now := requireInstanceStatus(ctx, t, h, id, migration.status)

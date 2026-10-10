@@ -130,6 +130,85 @@ const en: Catalogue = {
   'handover.dueDate': 'Due Date',
   'handover.saveChanges': 'Save Changes',
 
+  // Migrating instances: why a run left an instance on the version it was
+  // running. One entry for each cause the server can give (the closed set
+  // entities.PassedOverCauses; tests/roledrift fails on a cause with no words
+  // here, and on words for a cause the server never gives). {steps} is the
+  // steps the cause is about, as the server names them; {version} is the
+  // version the instance stays on. A cause this catalogue does not know is
+  // said with the server's own English sentence.
+  //
+  // The server lists ten of the steps a cause is about and says how many
+  // there were (steps_in_all). When there were more, {steps} ends with
+  // passedOverStepsMore: "A", "B" and 15 more. An instance that left its step
+  // may have finished since, which is why that sentence says "if it is still
+  // running".
+  'migration.passedOver.already_moved':
+    'Another run of a migration had already moved it, so it was not moved again.',
+  'migration.passedOver.counters_would_merge':
+    'It was part-way through two steps that this mapping moves onto one, and their progress cannot be added together. It stays on v{version}; map those steps apart and plan again.',
+  'migration.passedOver.left_the_step':
+    'It was no longer waiting at {steps} when the migration reached it, so nothing was decided there. It stays on v{version}; if it is still running, apply the same migration again to plan for where it is now.',
+  'migration.passedOver.left_where_nothing_decides':
+    'It has a task or a waiting event at {steps} but is not waiting there, so no decision reached that work and the new version has nowhere to put it. It stays on v{version}.',
+  'migration.passedOver.no_longer_running':
+    'It had finished or been ended before the migration reached it. It stays on v{version}, the version it ran on.',
+  'migration.passedOver.not_planned_for':
+    'It arrived on v{version} after this migration was planned, so nothing was decided about it. Plan the migration again to include it.',
+  'migration.passedOver.nowhere_to_land':
+    'It had work at {steps}, which the new version has nowhere to put. It stays on v{version}; plan again with a mapping or a decision for that work.',
+  'migration.passedOver.waiting_to_be_decided':
+    'It was waiting at {steps}, where this migration decides the work rather than moving it, and no decision had settled it. It stays on v{version}; apply the same migration again.',
+  // The migration dialog's own words for the answers to an apply that are
+  // kept on screen rather than said in a toast: a run that left instances
+  // where they were, an apply that was not made but sent to a second
+  // administrator, and an answer that could not be read. None of these keys
+  // begins "migration.passedOver." — what follows that is a cause.
+  // {reference} is an instance's short reference, as the instance list shows
+  // it — or, in pendingReference, the request's id, which is all there is to
+  // name a request by; {name} is who asked; {date} is when the request stops
+  // waiting, in the reader's language and naming its time zone.
+  //
+  // What is said of a request is a sentence a key, so that a reply lacking a
+  // part leaves that sentence out. passedOverSummary is said above the list
+  // and passedOverToast where there is none: a toast never says "below".
+  // pendingMessage and secondApproverMessage are one rule, said after the
+  // press and before it, and do not say who else approves: an organization
+  // set up as having one administrator approves its own while nobody else
+  // administers it, and both conditions are said. The two headings
+  // above them (secondApproverTitle, pendingWhy) say "approved" and "an
+  // approval" for the same reason, and not "a second administrator".
+  // pendingToastTitle is the title of the toast a sent request leaves, which
+  // names the two versions as they were when the button was pressed: the
+  // dialog under it may show another plan by then.
+  'migration.failedTitle': 'The migration ended with an error',
+  'migration.moveInstances': '{count, plural, one {Move # instance} other {Move # instances}}',
+  'migration.passedOverAllTitle': 'This run moved no instance',
+  'migration.passedOverInstance': 'Instance {reference}',
+  'migration.passedOverListTitle': 'Instances that were not moved',
+  'migration.passedOverMore': '{count, plural, one {and # more instance} other {and # more instances}}',
+  'migration.passedOverSomeTitle': 'Applied, but not to every instance',
+  'migration.passedOverStepsMore': '{count, plural, one {and # more} other {and # more}}',
+  'migration.passedOverSummary':
+    '{count, plural, one {# instance was not moved. The list below says why.} other {# instances were not moved. The list below says why.}}',
+  'migration.passedOverToast': '{count, plural, one {# instance was not moved.} other {# instances were not moved.}}',
+  'migration.pendingAskedBy': 'Asked for by {name}.',
+  'migration.pendingExpires': 'The request expires on {date}.',
+  'migration.pendingHow': 'There is no screen for this yet: an administrator approves or rejects it through the API.',
+  'migration.pendingMessage':
+    'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator and nobody else administers it.',
+  'migration.pendingReference': "The request's reference is {reference}.",
+  'migration.pendingTitle': 'Sent for approval',
+  'migration.pendingToastTitle': 'Sent for approval: v{source} → v{target}',
+  'migration.pendingWhy': 'Why an approval is asked',
+  'migration.secondApproverMessage':
+    'Nothing moves until it is approved. The administrator who asked cannot approve it, unless this organization has been set up as having one administrator and nobody else administers it.',
+  'migration.secondApproverTitle': 'This has to be approved before anything moves',
+  'migration.sendForApproval': 'Send for approval',
+  'migration.unreadableMessage':
+    'The server answered, but its answer could not be read. The migration may have been applied, or sent for approval: check the instances before trying again. A request that was sent is among those waiting for approval (GET /api/v1/deviation-requests), and sending the same migration again answers with that request and makes no second one.',
+  'migration.unreadableTitle': "The server's answer could not be read",
+
   // Offline and updates
   'offline.title': 'You are offline',
   'offline.body':
@@ -288,6 +367,10 @@ const en: Catalogue = {
   'access.action.BroadcastSignal': 'Broadcast signal',
   'access.action.MigrateInstances': 'Migrate instances',
   'access.action.DeviateInstance': 'Waive, cancel or hold an instance',
+  'access.action.ApproveDeviationRequest': 'Approve a request waiting for a second administrator',
+  'access.action.GetDeviationRequest': 'Read a request waiting for a second administrator',
+  'access.action.ListDeviationRequests': 'List requests waiting for a second administrator',
+  'access.action.RejectDeviationRequest': 'Reject a request waiting for a second administrator',
   'access.action.ResolveIncident': 'Resolve incident',
   'access.action.ImportParticipants': 'Import participants',
   'access.action.RemoveParticipant': 'Remove participant',

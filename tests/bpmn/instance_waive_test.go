@@ -472,15 +472,16 @@ func TestAWaiveThatCannotAdvanceLeavesTheStepToBeDone(t *testing.T) {
 			w := newWaiver(h)
 			ctx := h.Ctx()
 			id := w.start(t, unroutable(h, "unroutable-waive", shape.gateway, shape.gatewayName), nil)
-			before := everyRow(t, h)
 
 			command := deviationCommand(entities.DeviationWaive, id, "review", map[string]any{"verdict": "maybe"})
 			if plan := w.preview(t, command); !plan.Applicable() {
 				t.Fatalf("the plan refuses, so the advance is never tried and this proves nothing:%s", lines(plan.Refusals))
 			}
-			out, err := w.apply(t, command)
+			asked := w.ask(t, command)
+			before := everyRow(t, h)
+			out, err := w.approve(asked)
 			want := apierr.Invalidf("The values given fit no way out of “%s”, so the waive was not applied and nothing was changed. "+
-				"Preview again and give a value one of its branches accepts.", shape.called)
+				"Preview again and give a value one of its branches accepts. The request is still waiting: reject it, and the waive can be asked for again.", shape.called)
 			if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != want.Error() {
 				t.Fatalf("a waive whose gateway could not choose: got\n  %v\nwant it refused as the caller's to fix, saying exactly\n  %v", err, want)
 			}
@@ -491,8 +492,9 @@ func TestAWaiveThatCannotAdvanceLeavesTheStepToBeDone(t *testing.T) {
 			if len(open) != 1 || open[0].AssigneeUsername() != "rita" {
 				t.Fatalf("after a waive that could not advance the review's open work is %+v, want rita's one task back", open)
 			}
-			if rows := w.ledger(t, id); len(rows) != 0 {
-				t.Fatalf("a rolled-back waive left %d ledger row(s)", len(rows))
+			rows := w.ledger(t, id)
+			if len(rows) != 1 || rows[0].Status != entities.DeviationPendingApproval {
+				t.Fatalf("after an approval that could not advance the ledger holds %+v; the request must still be waiting, unchanged", rows)
 			}
 			instance := requireInstanceStatus(ctx, t, h, id, entities.ProcessActive)
 			if _, set := instance.Variables["verdict"]; set {
@@ -502,9 +504,18 @@ func TestAWaiveThatCannotAdvanceLeavesTheStepToBeDone(t *testing.T) {
 				t.Fatalf("a waive that could not advance changed %v", changed)
 			}
 
-			// And the step is still there to do, or to waive with a value that routes.
-			w.mustApply(t, deviationCommand(entities.DeviationWaive, id, "review", map[string]any{"verdict": "accept"}))
-			requireInstanceStatus(ctx, t, h, id, entities.ProcessCompleted)
+			// The request that could not be approved still waits. The step is
+			// still there to do, and asking for it to be waived with another
+			// value is told that one is waiting — never left to find out.
+			other := w.previewed(t, deviationCommand(entities.DeviationWaive, id, "review", map[string]any{"verdict": "accept"}))
+			if _, err := w.asking.DeviateInstance(w.ctx, other); !errors.Is(err, apierr.ErrInvalidArgument) ||
+				!strings.Contains(err.Error(), "already waiting for approval") {
+				t.Fatalf("a second request for a step that has one waiting: %v, want it told so", err)
+			}
+			// With no request waiting, a value that routes is waived through.
+			second := w.start(t, unroutable(h, "unroutable-waive", shape.gateway, shape.gatewayName), nil)
+			w.mustApply(t, deviationCommand(entities.DeviationWaive, second, "review", map[string]any{"verdict": "accept"}))
+			requireInstanceStatus(ctx, t, h, second, entities.ProcessCompleted)
 		})
 	}
 }
@@ -534,13 +545,14 @@ func TestAWaiveWhoseAdvanceFailsForReasonsOfItsOwnIsNotBlamedOnTheCaller(t *test
 			{ID: "f3", SourceRef: "policy", TargetRef: "end"},
 		},
 	}, nil)
-	before := everyRow(t, h)
 
 	command := deviationCommand(entities.DeviationWaive, id, "review", map[string]any{"approved": true})
 	if plan := w.preview(t, command); !plan.Applicable() {
 		t.Fatalf("the plan refuses, so the advance is never tried and this proves nothing:%s", lines(plan.Refusals))
 	}
-	out, err := w.apply(t, command)
+	asked := w.ask(t, command)
+	before := everyRow(t, h)
+	out, err := w.approve(asked)
 	if err == nil {
 		t.Fatal("a waive whose next step could not run reported success")
 	}
@@ -643,10 +655,11 @@ func TestAWaiveInACalledProcessSaysItsCallerWasNotRead(t *testing.T) {
 	}
 
 	// Applied with no value: the caller's gateway has nothing to decide from.
+	asked := w.ask(t, bare)
 	before := everyRow(t, h)
-	out, err := w.apply(t, bare)
+	out, err := w.approve(asked)
 	want := apierr.Invalidf("“Supplier approved?”, in the process that started this one, had no way out for the result, " +
-		"so the waive was not applied and nothing was changed.")
+		"so the waive was not applied and nothing was changed. The request is still waiting: reject it, and the waive can be asked for again.")
 	if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != want.Error() {
 		t.Fatalf("a waive whose caller could not decide: got\n  %v\nwant it refused, saying exactly\n  %v", err, want)
 	}
@@ -661,10 +674,23 @@ func TestAWaiveInACalledProcessSaysItsCallerWasNotRead(t *testing.T) {
 		t.Fatal("the called instance is no longer waiting at the review")
 	}
 
-	// With the value the caller reads, the caller decides from it.
-	w.mustApply(t, deviationCommand(entities.DeviationWaive, child, "review", map[string]any{"approved": false}))
-	requireInstanceStatus(ctx, t, h, child, entities.ProcessCompleted)
-	if !h.waitingAt(ctx, t, parent, "drop") || h.waitingAt(ctx, t, parent, "sign") {
+	// The request that could not be approved still waits, and a second one
+	// for the step, with the value the caller reads, is told so.
+	other := w.previewed(t, deviationCommand(entities.DeviationWaive, child, "review", map[string]any{"approved": false}))
+	if _, err := w.asking.DeviateInstance(w.ctx, other); !errors.Is(err, apierr.ErrInvalidArgument) ||
+		!strings.Contains(err.Error(), "already waiting for approval") {
+		t.Fatalf("a second request for a step that has one waiting: %v, want it told so", err)
+	}
+	// With no request waiting and the value the caller reads, the caller
+	// decides from it: a second caller, started the same way.
+	secondParent, err := h.svc.StartProcess(ctx, h.projID, "onboarding-read", nil)
+	if err != nil {
+		t.Fatalf("start a second caller: %v", err)
+	}
+	secondChild := theOneCalledBy(t, h, secondParent)
+	w.mustApply(t, deviationCommand(entities.DeviationWaive, secondChild, "review", map[string]any{"approved": false}))
+	requireInstanceStatus(ctx, t, h, secondChild, entities.ProcessCompleted)
+	if !h.waitingAt(ctx, t, secondParent, "drop") || h.waitingAt(ctx, t, secondParent, "sign") {
 		t.Fatal("the caller did not decide from what the waiver counted as")
 	}
 }
@@ -755,15 +781,16 @@ func TestAWaiveThatAProcessItGoesOnToCallCannotFollowIsUndone(t *testing.T) {
 			{ID: "f3", SourceRef: "check", TargetRef: "end"},
 		},
 	}, nil)
-	before := everyRow(t, h)
 
 	command := deviationCommand(entities.DeviationWaive, id, "count", map[string]any{"stock": "some"})
 	if plan := w.preview(t, command); !plan.Applicable() {
 		t.Fatalf("the plan refuses, so the advance is never tried and this proves nothing:%s", lines(plan.Refusals))
 	}
-	out, err := w.apply(t, command)
+	asked := w.ask(t, command)
+	before := everyRow(t, h)
+	out, err := w.approve(asked)
 	want := apierr.Invalidf("“Stock in hand?”, in another process this waive reached, had no way out, " +
-		"so the waive was not applied and nothing was changed.")
+		"so the waive was not applied and nothing was changed. The request is still waiting: reject it, and the waive can be asked for again.")
 	if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != want.Error() {
 		t.Fatalf("a waive the called process could not follow: got\n  %v\nwant it refused, saying exactly\n  %v", err, want)
 	}
@@ -777,10 +804,22 @@ func TestAWaiveThatAProcessItGoesOnToCallCannotFollowIsUndone(t *testing.T) {
 		t.Fatalf("the undone waive left %d called instance(s) behind (%v)", len(called), err)
 	}
 
-	// With a value the called process has a branch for, the waive is applied
-	// and that process is running.
-	w.mustApply(t, deviationCommand(entities.DeviationWaive, id, "count", map[string]any{"stock": "none"}))
-	if !h.waitingAt(ctx, t, theOneCalledBy(t, h, id), "order") {
+	// The request that could not be approved still waits, and a second one
+	// for the step, with a value the called process has a branch for, is told so.
+	other := w.previewed(t, deviationCommand(entities.DeviationWaive, id, "count", map[string]any{"stock": "none"}))
+	if _, err := w.asking.DeviateInstance(w.ctx, other); !errors.Is(err, apierr.ErrInvalidArgument) ||
+		!strings.Contains(err.Error(), "already waiting for approval") {
+		t.Fatalf("a second request for a step that has one waiting: %v, want it told so", err)
+	}
+	// With no request waiting and a value the called process has a branch
+	// for, the waive is applied and that process is running: a second
+	// instance, started the same way.
+	second, err := h.svc.StartProcess(ctx, h.projID, "order-with-stock-check", nil)
+	if err != nil {
+		t.Fatalf("start a second instance: %v", err)
+	}
+	w.mustApply(t, deviationCommand(entities.DeviationWaive, second, "count", map[string]any{"stock": "none"}))
+	if !h.waitingAt(ctx, t, theOneCalledBy(t, h, second), "order") {
 		t.Fatal("the called process did not take the branch of the value the waiver gave")
 	}
 }
@@ -810,14 +849,16 @@ func TestAWaiveThatGivesNothingAndCannotAdvanceSaysWhatTheInstanceHeld(t *testin
 			{ID: "no", SourceRef: "size", TargetRef: "small", Condition: "amount <= 1000"},
 		},
 	}, nil)
-	before := everyRow(t, h)
 
 	command := deviationCommand(entities.DeviationWaive, id, "review", nil)
 	if plan := w.preview(t, command); !plan.Applicable() {
 		t.Fatalf("the plan refuses, so the advance is never tried and this proves nothing:%s", lines(plan.Refusals))
 	}
-	_, err := w.apply(t, command)
-	want := apierr.Invalidf("“Large claim?” had no way out for the values this instance holds, so the waive was not applied and nothing was changed.")
+	asked := w.ask(t, command)
+	before := everyRow(t, h)
+	_, err := w.approve(asked)
+	want := apierr.Invalidf("“Large claim?” had no way out for the values this instance holds, so the waive was not applied and nothing was changed. " +
+		"The request is still waiting: reject it, and the waive can be asked for again.")
 	if !errors.Is(err, apierr.ErrInvalidArgument) || err.Error() != want.Error() {
 		t.Fatalf("a waive that gave nothing and could not advance: got\n  %v\nwant exactly\n  %v", err, want)
 	}

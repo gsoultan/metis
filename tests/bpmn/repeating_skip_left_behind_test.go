@@ -64,7 +64,7 @@ func TestRunningTheMigrationAgainClearsAnInstanceAnEarlierSkipLeftPartSkipped(t 
 		}),
 		servicecontracts.WithActor("dita"),
 	}
-	if err := h.svc.MigrateInstances(ctx, v1, v2, nil, skip...); err != nil {
+	if err := migrateSeconded(t, h, v1, v2, nil, skip...); err != nil {
 		t.Fatalf("the same migration, run once more: %v", err)
 	}
 

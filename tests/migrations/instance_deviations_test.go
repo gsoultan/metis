@@ -31,13 +31,14 @@ func TestMigration33CreatesTheLedgerAsTheModelDescribesIt(t *testing.T) {
 	migrate()
 
 	// The database as an upgrading installation has it: no ledger, and
-	// migration 33 not yet run.
+	// migrations 33 and 34 not yet run. Both, because 33 alone no longer
+	// builds the model's table: 34 adds a column to it and changes its indexes.
 	if err := db.WithContext(ctx).Exec(`DROP TABLE IF EXISTS instance_deviations`).Error; err != nil {
 		t.Fatalf("remove the ledger: %v", err)
 	}
-	if err := db.WithContext(ctx).Exec(`DELETE FROM schema_migrations WHERE version = ?`,
-		migrations.InstanceDeviationsMigration).Error; err != nil {
-		t.Fatalf("forget that migration 33 ran: %v", err)
+	if err := db.WithContext(ctx).Exec(`DELETE FROM schema_migrations WHERE version IN (?, ?)`,
+		migrations.InstanceDeviationsMigration, migrations.DeviationRequestsMigration).Error; err != nil {
+		t.Fatalf("forget that migrations 33 and 34 ran: %v", err)
 	}
 	migrate()
 	migrate() // a second run finds nothing to do
@@ -52,7 +53,7 @@ func TestMigration33CreatesTheLedgerAsTheModelDescribesIt(t *testing.T) {
 	}
 	for _, line := range drift {
 		if strings.Contains(line, "instance_deviations") {
-			t.Errorf("migration 33's table differs from the model: %s", line)
+			t.Errorf("the table migrations 33 and 34 leave differs from the model: %s", line)
 		}
 	}
 	for _, column := range []string{"visit_key", "request_id", "approved_by", "approved_by_id", "decided_at", "audit_entry_id", "run_id"} {
