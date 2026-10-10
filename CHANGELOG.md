@@ -1235,7 +1235,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
     The reply to `POST /api/v1/external-tasks/{id}/complete` and `/failure` is
     HTTP 200 with the refusal in `error`, as every refusal on those two routes
     is: *This work belongs to an instance that has ended (cancelled); it is no
-    longer wanted.* A worker should treat that as "stop, do not retry".
+    longer wanted.* A worker should treat that as "stop, do not retry". A
+    worker whose lock has run out is refused for the lock first, and that
+    work is offered again.
   - **No call is made for an instance that has ended.** The job is settled
     without calling. A call already on its way when the instance ends cannot
     be recalled; its result is not written and a failure raises no incident.
