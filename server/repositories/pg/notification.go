@@ -60,9 +60,16 @@ func (r *notificationRepository) Create(ctx context.Context, n models.Notificati
 	return nil
 }
 
-// ListByUser returns one person's notifications, newest first.
+// ListByUser returns the newest thousand of one person's notifications that
+// the caller's organization may see, newest first.
+//
+// The scope is in the query, through inboxOf. It used to be applied to the
+// rows afterwards, and the rows were the person's newest thousand across every
+// organization they belong to: somebody with a busy inbox in one organization
+// was shown nothing at all in the other. The thousand is the store's default,
+// kept as it was; ListByUserPaged is the read that reaches every one.
 func (r *notificationRepository) ListByUser(ctx context.Context, userID string) ([]models.NotificationModel, error) {
-	visible, err := r.projectFilter(ctx)
+	inbox, err := r.inboxOf(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -70,18 +77,14 @@ func (r *notificationRepository) ListByUser(ctx context.Context, userID string) 
 	if err != nil {
 		return nil, err
 	}
-	rows, err := notification.New().
-		Where(notification.UserID.Eq(userID)).
-		Order(notification.CreatedAt.Desc()).
+	rows, err := inbox.
+		Order(notification.CreatedAt.Desc(), notification.ID.Desc()).
 		All(ctx, ex, nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not read the notifications: %w", err)
 	}
 	out := make([]models.NotificationModel, 0, len(rows))
 	for _, row := range rows {
-		if !visible(row.ProjectID) {
-			continue
-		}
 		out = append(out, notificationFrom(row))
 	}
 	return out, nil

@@ -401,6 +401,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   the next person to sign in in that tab was shown it. Signing out now goes to
   the sign-in page and empties the cache.
 
+- **Somebody in two organizations could be shown no notifications in one of
+  them.** `GET /api/v1/notifications` read the person's newest
+  thousand notifications across every organization and then dropped those the
+  current one may not see, so a busy inbox elsewhere crowded out every
+  notification here. The organization is now part of the query.
 - **An instance's variable history stopped at its oldest thousand snapshots.**
   The history was read with the store's default limit, oldest first, so an
   instance that had looped past a thousand steps lost its newest snapshots —
