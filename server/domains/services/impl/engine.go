@@ -722,22 +722,27 @@ func (e *Engine) SendMessage(ctx context.Context, projectID uuid.UUID, messageNa
 	// one fans out to every instance waiting on that message name, so the same
 	// all-or-report rule applies.
 	var errs []error
+	delivered := 0
 	for _, m := range ms {
 		sub := adapters.SubscriptionEntityAdapter{Model: m}.ToEntity()
 		if err := e.triggerSubscription(ctx, sub, vars); err != nil {
 			errs = append(errs, fmt.Errorf("trigger message subscription %s: %w", sub.ID, err))
+			continue
 		}
+		delivered++
 	}
 
 	// Message start events carry no correlation key, so they are only in scope
 	// for an uncorrelated message.
 	if correlationKey == "" {
-		if _, err := e.triggerStartEvents(ctx, projectID, "message_name", messageName, vars); err != nil {
+		started, err := e.triggerStartEvents(ctx, projectID, "message_name", messageName, vars)
+		delivered += started
+		if err != nil {
 			errs = append(errs, err)
 		}
 	}
 
-	return errors.Join(errs...)
+	return partlyDelivered(delivered, errors.Join(errs...))
 }
 
 // StartFromMessage starts the processes whose message start event listens for
@@ -747,7 +752,18 @@ func (e *Engine) SendMessage(ctx context.Context, projectID uuid.UUID, messageNa
 // source that cannot be taken to mean "every waiting instance" — a broker
 // message that simply carried no correlation key.
 func (e *Engine) StartFromMessage(ctx context.Context, projectID uuid.UUID, messageName string, vars map[string]any) (int, error) {
-	return e.triggerStartEvents(ctx, projectID, "message_name", messageName, vars)
+	started, err := e.triggerStartEvents(ctx, projectID, "message_name", messageName, vars)
+	return started, partlyDelivered(started, err)
+}
+
+// partlyDelivered marks err as ErrMessagePartlyDelivered when some of the
+// message's recipients had already committed: each commits on its own, so
+// sending the message again would repeat them.
+func partlyDelivered(delivered int, err error) error {
+	if err == nil || delivered == 0 {
+		return err
+	}
+	return fmt.Errorf("%w (%d committed): %w", serviceContracts.ErrMessagePartlyDelivered, delivered, err)
 }
 
 // triggerSubscription advances the instance waiting on sub, merging vars into

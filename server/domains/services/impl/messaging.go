@@ -249,6 +249,11 @@ func (s *messagingService) processInboundDelivery(
 
 	reason := "dispatch_failed"
 	switch {
+	case errors.Is(err, contracts.ErrMessagePartlyDelivered):
+		// Checked before cancellation: part of the message has committed, so
+		// requeueing it — even on the way out — would deliver that part again.
+		// Parked, its error names the recipients it still owes.
+		reason = "partially_delivered"
 	case errors.Is(err, errInboundMessageReachedNobody):
 		reason = "no_correlation_key"
 	case !isRetryableDispatchError(err):
@@ -405,7 +410,11 @@ func (s *messagingService) sendMessageWithRetry(ctx context.Context, projectID u
 			return nil
 		}
 
-		if !isRetryableDispatchError(err) || errors.Is(err, errInboundMessageReachedNobody) {
+		// A send that reached some recipients before failing is not sent
+		// again: each recipient committed on its own, and a second send would
+		// start a second instance of every process that already started.
+		if !isRetryableDispatchError(err) || errors.Is(err, errInboundMessageReachedNobody) ||
+			errors.Is(err, contracts.ErrMessagePartlyDelivered) {
 			return fmt.Errorf("send inbound message: %w", err)
 		}
 

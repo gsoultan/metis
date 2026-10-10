@@ -1,10 +1,12 @@
 package bpmn_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
 
@@ -145,6 +147,61 @@ func TestStartingFromAMessageLeavesTheInstancesWaitingOnItWaiting(t *testing.T) 
 	if h.waitingAt(h.Ctx(), t, watcher, "react") {
 		t.Fatal("a message that named no instance advanced the instance waiting on it")
 	}
+}
+
+// brokenIntake listens for the same order message as orderIntake, and fails as
+// it starts.
+func brokenIntake(projectID uuid.UUID) *entities.ProcessDefinition {
+	return &entities.ProcessDefinition{
+		Project: &entities.Project{ID: projectID},
+		Key:     "broken-intake",
+		Nodes: []*entities.Node{
+			{ID: "byMessage", Type: entities.StartEvent, Properties: map[string]any{"message_name": "OrderPlaced"}},
+			{ID: "boom", Type: entities.ScriptTask, Script: `throw new Error("this listener is broken");`},
+			{ID: "end", Type: entities.EndEvent},
+		},
+		Flows: []*entities.SequenceFlow{
+			{ID: "f1", SourceRef: "byMessage", TargetRef: "boom"},
+			{ID: "f2", SourceRef: "boom", TargetRef: "end"},
+		},
+	}
+}
+
+// Each process a message starts commits on its own, so a message that started
+// one and failed to start another has done part of its work — and sending it
+// again starts the first a second time. The engine says so, so a caller that
+// retries can tell this failure from one that committed nothing.
+func TestAMessageThatStartedSomeProcessesBeforeAnotherFailedSaysSo(t *testing.T) {
+	t.Run("some started", func(t *testing.T) {
+		h := newEngineHarness(t, "Message Start Partial Project")
+		h.deploy(t, orderIntake(h.projID, true))
+		h.deploy(t, brokenIntake(h.projID))
+
+		started, err := h.engine.StartFromMessage(h.Ctx(), h.projID, "OrderPlaced", nil)
+		if !errors.Is(err, servicecontracts.ErrMessagePartlyDelivered) {
+			t.Fatalf("err = %v, want it to say the message was partly delivered", err)
+		}
+		if started != 1 {
+			t.Fatalf("started = %d, want the one healthy listener", started)
+		}
+
+		err = h.engine.SendMessage(h.Ctx(), h.projID, "OrderPlaced", "", nil)
+		if !errors.Is(err, servicecontracts.ErrMessagePartlyDelivered) {
+			t.Fatalf("SendMessage err = %v, want it to say the message was partly delivered", err)
+		}
+	})
+	t.Run("none started", func(t *testing.T) {
+		h := newEngineHarness(t, "Message Start Failed Project")
+		h.deploy(t, brokenIntake(h.projID))
+
+		started, err := h.engine.StartFromMessage(h.Ctx(), h.projID, "OrderPlaced", nil)
+		if err == nil {
+			t.Fatal("the only listener failed, but starting from the message reported success")
+		}
+		if errors.Is(err, servicecontracts.ErrMessagePartlyDelivered) || started != 0 {
+			t.Fatalf("started = %d, err = %v: nothing committed, so sending again is safe and must not be refused", started, err)
+		}
+	})
 }
 
 // A signal is a broadcast: every process that listens starts, once each.

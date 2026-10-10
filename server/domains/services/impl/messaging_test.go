@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/services/contracts"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -737,6 +738,77 @@ func TestAMessageWithNoCorrelationKeyThatStartsNothingIsDeadLetteredOnce(t *test
 	}
 	if body["failure_reason"] != "no_correlation_key" {
 		t.Fatalf("failure_reason = %v, want no_correlation_key", body["failure_reason"])
+	}
+}
+
+// A message that reached some of its recipients before the rest failed.
+//
+// Each recipient commits on its own, so the retry that followed sent the whole
+// message again: every process that had started started a second time, once
+// per attempt. Such a send is now neither retried nor requeued — not even when
+// the failure was the dispatch running out of time — but parked with what it
+// still owes.
+func TestAMessageThatWasPartlyDeliveredIsNotSentAgain(t *testing.T) {
+	t.Parallel()
+
+	partly := fmt.Errorf("%w (1 committed): %w", contracts.ErrMessagePartlyDelivered, errors.New("start process broken-intake: boom"))
+	cases := []struct {
+		name string
+		body string
+		err  error
+	}{
+		{"a correlated message", `{"correlation_key":"order-1"}`, partly},
+		{"a message with no correlation key", `{"value":"x"}`, partly},
+		{"a message whose dispatch then ran out of time", `{"correlation_key":"order-1"}`, errors.Join(partly, context.DeadlineExceeded)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var attempts atomic.Int64
+			svc := &messagingService{
+				engine: &engineEventBusStub{
+					sendMessage: func(context.Context, uuid.UUID, string, string, map[string]any) error {
+						attempts.Add(1)
+						return tc.err
+					},
+					startFromMessage: func(context.Context, uuid.UUID, string, map[string]any) (int, error) {
+						attempts.Add(1)
+						return 1, tc.err
+					},
+				},
+				sleep:                  func(context.Context, time.Duration) error { return nil },
+				jitter:                 func(time.Duration) time.Duration { return 0 },
+				inboundDispatchTimeout: time.Second,
+			}
+
+			var parked []amqp.Publishing
+			outcome, err := svc.processInboundDelivery(t.Context(), uuid.New(), "incoming-queue", "incoming-queue.dlq", "message.name",
+				amqp.Delivery{Body: []byte(tc.body)},
+				func(_ context.Context, _ string, message amqp.Publishing) error {
+					parked = append(parked, message)
+					return nil
+				})
+			if !errors.Is(err, contracts.ErrMessagePartlyDelivered) {
+				t.Fatalf("err = %v, want it to say the message was partly delivered", err)
+			}
+			if got := attempts.Load(); got != 1 {
+				t.Fatalf("the message was sent %d times; everything it reached the first time was reached again", got)
+			}
+			if outcome != ackDelivery {
+				t.Fatalf("outcome = %v; a requeued message is delivered again", outcome)
+			}
+			if len(parked) != 1 {
+				t.Fatalf("dead-lettered %d times, want once", len(parked))
+			}
+			var body map[string]any
+			if err := json.Unmarshal(parked[0].Body, &body); err != nil {
+				t.Fatalf("dead-letter body: %v", err)
+			}
+			if body["failure_reason"] != "partially_delivered" {
+				t.Fatalf("failure_reason = %v, want partially_delivered", body["failure_reason"])
+			}
+		})
 	}
 }
 
