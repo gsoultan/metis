@@ -47,6 +47,14 @@ func enrolAdministrators(t *testing.T, ctx context.Context, repo repositories.Re
 	}
 }
 
+// asDita names dita's account as the one that authorised a run: what an
+// in-process apply under a request dita asked for has to name beside the
+// request, because the gate admits a run on the account that asked and not on
+// a name.
+func asDita() servicecontracts.MigrationOption {
+	return servicecontracts.WithActorAccount(accountOf("dita"))
+}
+
 // requestCount is how many requests for a second administrator there are.
 func (f *fixture) requestCount(t *testing.T) int64 {
 	t.Helper()
@@ -248,13 +256,13 @@ func (f *fixture) migrateWithApproval(t *testing.T, source, target uuid.UUID, ma
 }
 
 // sameApproval carries the approval the fixture's last approved run is under,
-// for a hook that runs the same migration again inside it. Nothing when that
-// run needed nobody else.
+// for a hook that runs the same migration again inside it: the request, and
+// the account that asked for it. Nothing when that run needed nobody else.
 func (f *fixture) sameApproval() []servicecontracts.MigrationOption {
 	if f.underApproval == uuid.Nil {
 		return nil
 	}
-	return []servicecontracts.MigrationOption{servicecontracts.WithApprovedRequest(f.underApproval)}
+	return []servicecontracts.MigrationOption{servicecontracts.WithApprovedRequest(f.underApproval), asDita()}
 }
 
 // asked is the migrate endpoint's answer to ctx, refused or not.

@@ -344,7 +344,7 @@ func storedRun(request entities.DeviationRequest) (approvedRun, error) {
 		(request.TargetDefinition != nil && request.TargetDefinition.ID != target) {
 		return none, fmt.Errorf("request %s cannot be approved: it is not for the versions its command names", request.ID)
 	}
-	options, err := stored.options(request.RequestedBy)
+	options, err := stored.options(request.RequestedBy, request.RequestedByID)
 	if err != nil {
 		return none, fmt.Errorf("request %s cannot be approved: %w", request.ID, err)
 	}

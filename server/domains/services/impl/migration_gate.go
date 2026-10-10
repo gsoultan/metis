@@ -62,10 +62,11 @@ var errApprovedRunInsideTransaction = errors.New(
 // the run that follows takes its instances one at a time and holds no
 // request. The request has to be a migration's, approved, with its run
 // window still open — asked of the clock here, so the bound on an approved
-// run does not rest on a sweep having run — asked for by whoever this apply
-// names as authorising it, and to cover the migration (whyNoLongerHolds):
-// the same policy, over no running instance the request did not show. The
-// plan and the listing compared are the very ones apply is handed.
+// run does not rest on a sweep having run — asked for by the account this
+// apply names as authorising it (sameAccount), and to cover the migration
+// (whyNoLongerHolds): the same policy, over no running instance the request
+// did not show. The plan and the listing compared are the very ones apply is
+// handed.
 //
 // Whatever approval the caller put in the options is not read beyond its
 // request id: what comes back is built from the stored request alone.
@@ -100,9 +101,9 @@ func (s *migrationService) approvedRequestFor(
 			"request %s was approved on %s and no run of it reported back in the time one is given, so it is no longer in use; nothing was moved — ask again",
 			requestID, decidedOn(request).UTC().Format(decidedOnLayout))
 	}
-	if options.Actor != request.RequestedBy {
-		return none, refusedAtTheGate("the run named somebody other than the requester as having authorised it",
-			"request %s was asked for by %s, and this run names somebody else as having authorised it; nothing was moved",
+	if !sameAccount(options.ActorID, request.RequestedByID) {
+		return none, refusedAtTheGate("the run did not name the requester's account as having authorised it",
+			"request %s was asked for by %s, and this run does not name that account as having authorised it; nothing was moved",
 			requestID, request.RequestedBy)
 	}
 	fingerprint := migrationFingerprint(sourceDefID, targetDefID, nodeMapping, options, plan.ComplianceHolds)
@@ -110,6 +111,16 @@ func (s *migrationService) approvedRequestFor(
 		return none, refusedAtTheGate(why, "request %s does not cover this migration: %s; nothing was moved — ask again", requestID, why)
 	}
 	return verifiedApproval(request)
+}
+
+// sameAccount reports whether a run names, as having authorised it, the
+// account that asked: both ids there, and equal. The comparison is of
+// accounts and never of names — a name is what a caller writes into the
+// options, and one account may come to hold a name another once had. An id
+// missing on either side is no match, a request with no account behind it
+// included: absent means deny.
+func sameAccount(named, asked uuid.UUID) bool {
+	return named != uuid.Nil && asked != uuid.Nil && named == asked
 }
 
 // requestOffered reads the request an apply offers, under its row's lock, in

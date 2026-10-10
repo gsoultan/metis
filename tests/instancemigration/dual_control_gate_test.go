@@ -144,8 +144,8 @@ func TestAnApplyRefusesASkipWithoutAnApprovedRequest(t *testing.T) {
 // What an approval covers is the migration that was asked for, by whoever
 // asked. While a request is approved and its run is going, an apply that
 // carries its id for another migration — the same step skipped for another
-// reason — or that names somebody else as having authorised it, is refused,
-// and the approved run goes on and records what was approved.
+// reason — or that names another account as having authorised it, is
+// refused, and the approved run goes on and records what was approved.
 func TestAnApprovedRequestIsNoApprovalOfAnotherMigration(t *testing.T) {
 	f, listing := newRacedFixture(t)
 	first, second := f.parkedOnOpsApprove(t)
@@ -157,9 +157,11 @@ func TestAnApprovedRequestIsNoApprovalOfAnotherMigration(t *testing.T) {
 	under := servicecontracts.WithApprovedRequest(pending.RequestID)
 	var anotherReason, anotherActor, anotherMapping error
 	listing.atTheApprovedApplysListing(func() {
-		_, anotherReason = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, append(slices.Clip(skipOps("b")), under)...)
-		_, anotherActor = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, append(slices.Clip(skipOps("a")), servicecontracts.WithActor("mallory"), under)...)
-		_, anotherMapping = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, map[string]string{"salesApprove": "salesApprove"}, append(slices.Clip(skipOps("a")), under)...)
+		_, anotherReason = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, append(slices.Clip(skipOps("b")), asDita(), under)...)
+		_, anotherActor = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, append(slices.Clip(skipOps("a")),
+			servicecontracts.WithActor("mallory"), servicecontracts.WithActorAccount(accountOf("mallory")), under)...)
+		_, anotherMapping = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, map[string]string{"salesApprove": "salesApprove"},
+			append(slices.Clip(skipOps("a")), asDita(), under)...)
 	})
 	out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), pending.RequestID, "")
 	reached(t, listing)
@@ -551,7 +553,7 @@ func TestAnInstanceThatArrivesAfterTheApprovalStopsTheRunAtTheGate(t *testing.T)
 		if err != nil {
 			t.Fatalf("start the newcomer: %v", err)
 		}
-		under := append(slices.Clip(skipOps("the role was eliminated")), servicecontracts.WithApprovedRequest(pending.RequestID))
+		under := append(slices.Clip(skipOps("the role was eliminated")), asDita(), servicecontracts.WithApprovedRequest(pending.RequestID))
 		_, err = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, under...)
 		if !errors.Is(err, apierr.ErrForbidden) || !strings.Contains(err.Error(), "does not cover this migration: 1 instance(s) reached") ||
 			!strings.Contains(err.Error(), newcomer.String()) {
@@ -595,7 +597,7 @@ func TestAnApprovalACallerWritesIsRecordedNowhere(t *testing.T) {
 		// The real request's id, and everything else made up.
 		made := mallory
 		made.RequestID = pending.RequestID
-		opts := append(slices.Clip(skipOps("the role was eliminated")), forged(made))
+		opts := append(slices.Clip(skipOps("the role was eliminated")), asDita(), forged(made))
 		result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, opts...)
 		if err != nil || result.Changed != 1 {
 			t.Fatalf("the apply under the approved request: %+v %v", result, err)

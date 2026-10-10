@@ -57,9 +57,10 @@ func TestMigrationFingerprint(t *testing.T) {
 	}
 	// Who asked and who approved are not the policy.
 	named := base
-	named.Actor, named.Approval = "dita", servicecontracts.MigrationApproval{RequestID: one, ApprovedBy: "omar"}
+	named.Actor, named.ActorID = "dita", two
+	named.Approval = servicecontracts.MigrationApproval{RequestID: one, ApprovedBy: "omar"}
 	if migrationFingerprint(src, tgt, map[string]string{"p": "q", "r": "s"}, named, holds) != fp {
-		t.Error("the actor or the approval changed the fingerprint")
+		t.Error("the actor, the actor's account or the approval changed the fingerprint")
 	}
 	// A reason is the reason whatever spaces were typed round it, and an
 	// instance or a control named twice is named once.

@@ -46,14 +46,15 @@ func (c storedMigrationCommand) versions() (source, target uuid.UUID, err error)
 }
 
 // options is the stored migration as the options an apply takes, authorised
-// by actor — whoever asked for it. It names no approval: the apply's gate
-// reads that from the request.
+// by whoever asked for it: actor is their name, and account their account,
+// which is what the apply's gate admits the run on. It names no approval: the
+// gate reads that from the request.
 //
 // A decision of a kind no migration makes, or an instance that is no id, is
 // refused: the command was written by this server, so one that cannot be read
 // whole is the server's trouble, and nothing runs on a command read as partly
 // empty.
-func (c storedMigrationCommand) options(actor string) ([]servicecontracts.MigrationOption, error) {
+func (c storedMigrationCommand) options(actor string, account uuid.UUID) ([]servicecontracts.MigrationOption, error) {
 	for nodeID, action := range c.NodeActions {
 		switch action.Kind {
 		case servicecontracts.NodeActionSkip, servicecontracts.NodeActionCancel, servicecontracts.NodeActionHold:
@@ -74,6 +75,7 @@ func (c storedMigrationCommand) options(actor string) ([]servicecontracts.Migrat
 		servicecontracts.WithNodeActions(c.NodeActions),
 		servicecontracts.WithInstances(instances...),
 		servicecontracts.WithActor(actor),
+		servicecontracts.WithActorAccount(account),
 	}, nil
 }
 

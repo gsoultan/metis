@@ -398,8 +398,9 @@ func TestAStoredMigrationCommandReadsBackAsItWasAsked(t *testing.T) {
 	one := uuid.Must(uuid.NewV7())
 	asked := servicecontracts.MigrationOptions{
 		Actions:      map[string]servicecontracts.NodeAction{"ops": {Kind: servicecontracts.NodeActionSkip, Reason: "moot"}},
-		Acknowledged: []string{"wait"}, Instances: []uuid.UUID{one}, Actor: "somebody else",
+		Acknowledged: []string{"wait"}, Instances: []uuid.UUID{one}, Actor: "somebody else", ActorID: uuid.Must(uuid.NewV7()),
 	}
+	dita := uuid.Must(uuid.NewV7())
 	mapping := map[string]string{"p": "q"}
 	doc := migrationCommandDocument(src, tgt, mapping, asked)
 	stored, err := migrationCommandFrom(doc)
@@ -410,13 +411,14 @@ func TestAStoredMigrationCommandReadsBackAsItWasAsked(t *testing.T) {
 	if err != nil || source != src || target != tgt {
 		t.Fatalf("the versions read back as %s → %s (err %v)", source, target, err)
 	}
-	opts, err := stored.options("dita")
+	opts, err := stored.options("dita", dita)
 	if err != nil {
 		t.Fatalf("its options: %v", err)
 	}
 	read := servicecontracts.ApplyMigrationOptions(opts)
-	if read.Actor != "dita" || read.Approval != (servicecontracts.MigrationApproval{}) {
-		t.Fatalf("the options name %q and an approval %+v, want the actor handed in and no approval", read.Actor, read.Approval)
+	if read.Actor != "dita" || read.ActorID != dita || read.Approval != (servicecontracts.MigrationApproval{}) {
+		t.Fatalf("the options name %q (account %s) and an approval %+v, want the actor and the account handed in and no approval",
+			read.Actor, read.ActorID, read.Approval)
 	}
 	if migrationFingerprint(source, target, stored.NodeMapping, read, nil) != migrationFingerprint(src, tgt, mapping, asked, nil) {
 		t.Fatal("the command read back is another policy than the one stored")
@@ -435,7 +437,7 @@ func TestAStoredMigrationCommandReadsBackAsItWasAsked(t *testing.T) {
 		stored, err := migrationCommandFrom(damaged)
 		if err == nil {
 			if _, _, err = stored.versions(); err == nil {
-				_, err = stored.options("dita")
+				_, err = stored.options("dita", dita)
 			}
 		}
 		if err == nil {

@@ -456,7 +456,7 @@ func TestTwoRunsUnderOneApprovalMoveEachInstanceOnce(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ask: %v", err)
 		}
-		under := append(slices.Clip(opts), servicecontracts.WithApprovedRequest(pending.RequestID))
+		under := append(slices.Clip(opts), asDita(), servicecontracts.WithApprovedRequest(pending.RequestID))
 		var second entities.MigrationResult
 		var secondErr error
 		listing.atTheApprovedApplysListing(func() { second, secondErr = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, under...) })
@@ -487,7 +487,7 @@ func TestTwoRunsUnderOneApprovalMoveEachInstanceOnce(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ask: %v", err)
 			}
-			under := append(slices.Clip(opts), servicecontracts.WithApprovedRequest(pending.RequestID))
+			under := append(slices.Clip(opts), asDita(), servicecontracts.WithApprovedRequest(pending.RequestID))
 			var second entities.MigrationResult
 			var secondErr error
 			var racing sync.WaitGroup
@@ -551,7 +551,7 @@ func TestTheGateAndTheSweepAtOneApprovedRequest(t *testing.T) {
 		f = newFixture(t)
 		_, v1, v2, requestID = f.askToSkipOps(t)
 		f.leftApproved(t, requestID, "1 minute")
-		under = append(slices.Clip(skipOps("the role was eliminated")), servicecontracts.WithApprovedRequest(requestID))
+		under = append(slices.Clip(skipOps("the role was eliminated")), asDita(), servicecontracts.WithApprovedRequest(requestID))
 		return f, v1, v2, requestID, under
 	}
 
