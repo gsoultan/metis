@@ -32,7 +32,27 @@ func NewExternalTaskService(
 	}
 }
 
+// maxFetchTasks is the most tasks one fetch locks. Every one is locked inside a
+// single transaction, row by row, so an unbounded count let one worker hold
+// every task on a topic — and decrypt all their variables — in one call.
+const maxFetchTasks = 100
+
+// fetchLimits checks a fetch's count and lock the way every transport needs
+// them checked: REST floored them, Connect and gRPC passed them through, so a
+// zero lock offered the task again at once and two workers ran the same step.
+func fetchLimits(maxTasks int, lockDuration int64) (int, error) {
+	longest := entities.MaxExternalTaskLock.Milliseconds()
+	if lockDuration <= 0 || lockDuration > longest {
+		return 0, apierr.Invalidf("lock_duration_ms is %d; it must be from 1 to %d, a day", lockDuration, longest)
+	}
+	return min(max(maxTasks, 1), maxFetchTasks), nil
+}
+
 func (s *externalTaskService) FetchAndLock(ctx context.Context, topic string, workerID string, maxTasks int, lockDuration int64) ([]*entities.ExternalTask, error) {
+	maxTasks, err := fetchLimits(maxTasks, lockDuration)
+	if err != nil {
+		return nil, err
+	}
 	ms, err := s.repo.ExternalTask().FetchAndLock(ctx, topic, workerID, maxTasks, lockDuration)
 	if err != nil {
 		return nil, err

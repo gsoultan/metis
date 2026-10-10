@@ -667,7 +667,13 @@ func (e *Engine) captureVariableSnapshot(ctx context.Context, instance entities.
 		Variables:  maps.Clone(instance.Variables),
 		CapturedAt: time.Now(),
 	}
-	if err := e.varHistory.CaptureSnapshot(ctx, snap); err != nil {
+	// Attempt, so inside a transaction the write takes a savepoint. On
+	// PostgreSQL a failed statement aborts the whole transaction, so logging
+	// and carrying on — as this did — failed the business transaction anyway,
+	// at its next statement, with "current transaction is aborted".
+	if err := e.repo.UnitOfWork().Attempt(ctx, func(ctx context.Context) error {
+		return e.varHistory.CaptureSnapshot(ctx, snap)
+	}); err != nil {
 		log.Warn().Err(err).
 			Str("instanceId", instance.ID.String()).
 			Msg("failed to capture variable snapshot")

@@ -243,14 +243,24 @@ func (s *messagingService) processInboundDelivery(
 		return ackDelivery, nil
 	}
 
+	reason := "dispatch_failed"
 	if !isRetryableDispatchError(err) {
-		// Cancelled or timed out, which here means the engine is stopping. The
-		// message was not refused by anything — nobody got to it — so it goes
-		// back rather than being dropped on the way out.
-		return requeueDelivery, err
+		// Cancelled or timed out. When the consumer is stopping, the message
+		// was not refused by anything — nobody got to it — so it goes back
+		// rather than being dropped on the way out.
+		//
+		// A dispatch that ran out of its own time while the consumer is still
+		// running is not that. It went back too, at once and every time, so a
+		// message that always took longer than the budget was redelivered
+		// forever and held its queue up behind it. It gets one more delivery,
+		// and is dead-lettered if that one runs out of time as well.
+		if ctx.Err() != nil || !delivery.Redelivered {
+			return requeueDelivery, err
+		}
+		reason = "dispatch_timeout"
 	}
 
-	dlqErr := s.publishInboundDeadLetter(ctx, publishToQueue, dlqName, queueName, messageName, correlationKey, payload, delivery.Body, "dispatch_failed", err)
+	dlqErr := s.publishInboundDeadLetter(ctx, publishToQueue, dlqName, queueName, messageName, correlationKey, payload, delivery.Body, reason, err)
 	if dlqErr != nil {
 		return requeueDelivery, errors.Join(err, dlqErr)
 	}

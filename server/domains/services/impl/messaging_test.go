@@ -632,3 +632,41 @@ func TestAnUnreadableMessageTheDeadLetterQueueRefusesIsNotAcknowledged(t *testin
 		t.Fatalf("an unreadable message was acknowledged (outcome %v) with nowhere holding it", outcome)
 	}
 }
+
+// TestARedeliveredMessageThatTimesOutAgainIsDeadLettered: a dispatch that ran
+// out of its own time was requeued at once and every time, so a message that
+// always took longer than the budget looped forever and held its queue behind
+// it. The second time it runs out, it goes to the dead-letter queue.
+func TestARedeliveredMessageThatTimesOutAgainIsDeadLettered(t *testing.T) {
+	t.Parallel()
+
+	slow := &messagingService{
+		engine: &engineEventBusStub{
+			sendMessage: func(ctx context.Context, _ uuid.UUID, _ string, _ string, _ map[string]any) error {
+				<-ctx.Done()
+				return ctx.Err()
+			},
+		},
+		sleep:                  func(context.Context, time.Duration) error { return nil },
+		jitter:                 func(time.Duration) time.Duration { return 0 },
+		inboundDispatchTimeout: 20 * time.Millisecond,
+	}
+	deliver := func(ctx context.Context) (deliveryOutcome, int) {
+		published := 0
+		outcome, _ := slow.processInboundDelivery(ctx, uuid.New(), "q", "q.dlq", "message.name",
+			amqp.Delivery{Redelivered: true, Body: []byte(`{"correlation_key":"k"}`)},
+			func(context.Context, string, amqp.Publishing) error { published++; return nil })
+		return outcome, published
+	}
+
+	if outcome, published := deliver(t.Context()); outcome != ackDelivery || published != 1 {
+		t.Fatalf("outcome %v, %d dead letters; want it acknowledged and dead-lettered once", outcome, published)
+	}
+
+	// Stopping is still not the message's fault: it goes back.
+	stopped, cancel := context.WithCancel(t.Context())
+	cancel()
+	if outcome, published := deliver(stopped); outcome != requeueDelivery || published != 0 {
+		t.Fatalf("at shutdown: outcome %v, %d dead letters; want it requeued", outcome, published)
+	}
+}
