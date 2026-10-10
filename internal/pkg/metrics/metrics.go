@@ -278,6 +278,12 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 // check off the per-request allocation budget.
 func (r *statusRecorder) ResponseStarted() bool { return r.wroteHeader }
 
+// Unwrap lets http.ResponseController reach the connection underneath, which
+// is how the event stream sets a deadline on each write. Without it the
+// deadline was refused as unsupported and a stream to a client that stopped
+// reading had no deadline at all.
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
 // Flush keeps server-sent events working through the wrapper. Without it the
 // SSE endpoint would buffer forever, because statusRecorder would hide the
 // underlying http.Flusher.
