@@ -1086,7 +1086,8 @@ request*.
 
 **The requester cannot approve their own request.** They are told apart from
 the approver by account id, not by name. The one exception is an organization
-the operator has named as having one administrator
+the operator has named as having one administrator, and only while nobody
+else administers it
 ([the runbooks](runbooks.md#an-organization-with-one-administrator)). The
 requester can reject their own request while it waits, which is a withdrawal
 (`TestARequesterAloneInTheOrganizationMayAlwaysWithdraw`).
@@ -1172,7 +1173,7 @@ else the server tells requests apart by is returned.
 | `applied`, a waive | `deviation_id`: the ledger row. |
 | `applied`, a migration | `changed` and `passed_over`: how many instances the run acted on and how many it left alone. `note` when it changed nothing: *every instance the run reached was passed over* or *no instance was active on the version when it ran*. |
 | `interrupted` | `changed`, `passed_over` and `error`: one sentence of the server's own. The failure's own words are not kept here; they are in the server's log. After a panic, `count_unknown: true` in place of the two counts: do not print zeros for it. For a run that never reported, `error` alone: *the run did not report back*. `reported_after_sweep: true` on a report a run wrote after it had been marked interrupted (an `applied` request can carry it too). |
-| `stale` | `why`, `refusals` (what the plan made at the approval refused) and `attempted_by`, for both kinds. A migration's `refusals` hold at most ten, then one more entry that counts the rest, *and N more refusal(s), not listed here*; a waive's are the plan's own, whole. `why` is one of: the instance moved or ended; the plan now refuses; the migration can no longer be planned (instances that no longer run on the version are named five at a time, with a count); the migration is no longer the one asked for, or an instance arrived; or *boss, who asked for it, no longer administers this organization:* followed by *their account has been deleted*, *their account no longer belongs to it* or *their account no longer holds the administrator role in it*. |
+| `stale` | `why`, `refusals` (what the plan made at the approval refused) and `attempted_by`, for both kinds. A migration's `refusals` hold at most ten, then one more entry that counts the rest, *and N more refusal(s), not listed here*; a waive's are the plan's own, whole. `why` is one of: the instance moved or ended; the plan now refuses; the migration can no longer be planned (of the instances that no longer run on the version, it names the first five, and a count of the rest); the migration is no longer the one asked for, or an instance arrived; or *boss, who asked for it, no longer administers this organization:* followed by *their account has been deleted*, *their account no longer belongs to it* or *their account no longer holds the administrator role in it*. |
 | `rejected`, `expired` | `{}`. |
 | any, when `self_approved` | also `self_approved: true`, `other_administrators: 0` and `organization_id`, on a waive's request and on a migration's. |
 

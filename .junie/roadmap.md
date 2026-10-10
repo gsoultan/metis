@@ -1322,15 +1322,23 @@
       counts as a rename so far opened a way to carry finished work somewhere it was not
       done. The clean route: do not reuse a step's id for another step in the next version
       (*read*).
-    - ~~**A `control_waived` row can say a loss that did not happen.**~~ *Done: where an
-      instance waiting at a control is moved by the mapping onto another control, the row
-      carries `details.mapped_to` and the trail says it was moved there, not that it never
-      will pass it; a control dropped keeps its row and sentence* (*run*:
-      `TestAControlMappedOntoAnotherStepIsRecordedAsMovedOntoItNotAsLost`). What is left:
-      the row cannot say whether the step it was moved onto is the same control renamed or
-      a different one, and an instance that had not reached such a control when it was
-      migrated still gets the row of a control lost, though the new version may keep a
-      control it will come to (*read*). The clean route: rename with the neighbours
+    - ~~**A `control_waived` row can say a loss that did not happen.**~~ *Done 2026-10-10:
+      where a control is renamed by ids onto a step the new version marks as a control,
+      and an instance waiting at it is moved there, the row carries `details.mapped_to`
+      and the trail says the control was not carried across as the same step and the
+      instance was moved onto the step named. Every other shape — the old id still a step,
+      the new one already a step, two controls onto one, a step that is no control, a
+      control dropped — keeps the row and the sentence of a control lost* (*run*:
+      `TestAControlRenamedWithItsNeighboursChangedIsRecordedAsMovedOntoTheNewStep`,
+      `TestAControlThatIsCertainlyLostIsRecordedAsLostWhateverItIsMappedOnto`). The first
+      form of this wrote the milder record whenever the step landed on was marked, which
+      understated three certain losses; the last review found it. What is left: the row
+      cannot say whether the step it was moved onto is the same control renamed or a
+      different one; a control renamed in a way a rename by ids does not recognise keeps
+      the stronger sentence, which overstates a loss and never understates one; and an
+      instance that had not reached such a control when it was migrated still gets the row
+      of a control lost, though the new version may keep a control it will come to
+      (*read*). The clean route: rename with the neighbours
       unchanged in one version, change the neighbours in the next.
     - **An apply that meets a plan which came to need a second administrator between the
       route's reading and the service's answers "needs a second administrator" to an

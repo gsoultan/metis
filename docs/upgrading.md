@@ -38,8 +38,9 @@ This is what the upgrade does and what it changes for you.
   is no longer applied by the request that asks for it. The answer is **202**
   with `applied: false` and `pending_approval`; nothing about the instance
   has changed. The waive is made when a different administrator approves the
-  request (or, in an organization you have named as having one administrator,
-  when that administrator approves their own with a reason: below).
+  request (or, in an organization you have named as having one administrator
+  and that nobody else administers, when that administrator approves their own
+  with a reason: below).
 - **A migration** (`POST /api/v1/definitions/versions/migrate`,
   `dry_run: false`) waits the same way, with a **202**, when its plan says
   `requires_second_approver: true`. That is when, over at least one instance

@@ -774,15 +774,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   the instance of what was approved, so a lost one was a gap in the
   control's evidence.
 
-- **A `control_waived` row no longer claims a loss that did not happen.** A
-  control mapped onto a step that is not the same step in place is a hold,
-  and an instance waiting at it is moved onto the step the mapping names.
-  Where that step is itself a control, the ledger row now carries
+- **A `control_waived` row says when a control was renamed rather than
+  dropped.** A control mapped onto a step that is not the same step in place
+  is a hold, and an instance waiting at it is moved onto the step the mapping
+  names. Where the mapping is a rename by ids — the new id is new in the new
+  version, nothing else is mapped onto it, the old id is gone — and the step
+  under the new id is itself a control, the ledger row carries
   `details.mapped_to`, and the `instance_migrated` entry says the control
   *was not carried across as the same step: it was moved from there onto …*
-  and carries `controls_mapped_to`, where both read as a control the instance
-  *never will* pass. A control the new version drops keeps its row and its
-  sentence.
+  and carries `controls_mapped_to`. That step may be the same control renamed
+  or another; the record does not say which. In every other shape — the old
+  id still a step, the new one already a step, two controls onto one, a step
+  that is no control, a control dropped — the row and the sentence are as
+  they were: the instance *never will* pass it.
 
 - **A mapping does not hide a loosened `separation_of_duties` rule.** Within
   this release's own work, not a change to anything that shipped: the check

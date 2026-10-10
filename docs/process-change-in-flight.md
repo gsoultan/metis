@@ -1621,20 +1621,30 @@ cannot be written does (`TestAnInstanceIsNotMovedWhenItsMigrationEntryCannotBeWr
 used to be written after the rewrite had committed, and a lost entry was only logged. A
 migration that only moves work and waives no control writes no row.
 
-**A `control_waived` row with `details.mapped_to` is not a control lost.** A control that a
-mapping sends onto a step that is not the same step in place is a hold, and its loss has to
-be acknowledged and approved: the planner cannot tell a control renamed with its neighbours
-changed from one redirected onto a different control, so it counts neither as carried
-across. An instance waiting at such a control is then moved onto the step the mapping names.
-When that step is itself marked as a control, the row says which (`mapped_to`), and the
-`instance_migrated` entry says *It had not yet passed c1, which was not carried across as
-the same step: it was moved from there onto c2, and dita accepted that.* and carries
-`controls_mapped_to`. Neither says the instance will never perform it: it may go on to
-perform exactly that step, or a different control — read the two versions to know which.
-A control the new version drops or unmarks keeps the row and the sentence it always had,
-*…accepted that it never will*, whatever the mapping does with the work that waited there
-(`TestAControlMappedOntoAnotherStepIsRecordedAsMovedOntoItNotAsLost`,
-`TestAControlTheNewVersionDropsKeepsItsRowAndItsSentence`). To rename a control and change
+**A `control_waived` row with `details.mapped_to` is a control not carried across as the
+same step, whose waiting instance was moved onto a step the new version adds under a new
+id.** That step may be the same control renamed, or another control: the record cannot
+know, and whoever reads it compares the two versions. A control that a mapping sends onto
+a step that is not the same step in place is a hold, and its loss has to be acknowledged
+and approved, because the planner cannot tell a control renamed with its neighbours changed
+from one replaced by a different control. The row carries `mapped_to` in one shape only:
+the mapping is a rename by ids — the id it maps to is new in the new version, nothing else
+is mapped onto it, and the control's old id is gone from the new version — the step under
+the new id is marked `compliance_relevant`, and the instance was waiting at the control.
+The `instance_migrated` entry then says *It had not yet passed control, which was not
+carried across as the same step: it was moved from there onto check, and dita accepted
+that.* and carries `controls_mapped_to`. It does not say the control will be performed, and
+it does not say it never will.
+
+In every other shape the control the instance waited at is certainly not performed, and
+the row and the entry say what they always said, *…accepted that it never will*, with no
+`mapped_to` — whatever the step the work was sent to is marked as: the new version still
+has the control under its old id (the instance is put past it); the step it is mapped onto
+was already a step of the old version (the instance is put on a control it had to perform
+anyway); two controls are mapped onto one step; the step it is mapped onto is no control;
+or the new version drops or unmarks the control
+(`TestAControlRenamedWithItsNeighboursChangedIsRecordedAsMovedOntoTheNewStep`,
+`TestAControlThatIsCertainlyLostIsRecordedAsLostWhateverItIsMappedOnto`). To rename a control and change
 what stands round it without anybody being asked or any such row being written, do it in
 two versions: rename it with its neighbours unchanged in one, and change the neighbours in
 the next.
