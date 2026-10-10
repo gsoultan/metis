@@ -140,7 +140,7 @@ func TestAStaleRequestNamesFiveOfTheInstancesThatNoLongerRunAndCountsTheRest(t *
 	for i := range 9 {
 		gone = append(gone, fmt.Sprintf("0199eeee-0000-7000-8000-%012d", i))
 	}
-	planned := instancesNotRunning{version: 3, key: "quotation", missing: gone}
+	planned := &instancesNotRunning{version: 3, key: "quotation", missing: gone}
 	if !errors.Is(planned, apierr.ErrInvalidArgument) ||
 		planned.Error() != `invalid argument: version 3 of "quotation" is not running instance(s) `+strings.Join(gone, ", ") {
 		t.Fatalf("the planner's refusal reads %q; want it as it always was, naming every instance, and an invalid argument", planned.Error())
@@ -152,9 +152,13 @@ func TestAStaleRequestNamesFiveOfTheInstancesThatNoLongerRunAndCountsTheRest(t *
 		t.Fatalf("the request keeps\n  %s\nwant\n  %s", why, want)
 	}
 	// Five or fewer are all named, in the planner's own words.
-	few := instancesNotRunning{version: 3, key: "quotation", missing: gone[:2]}
+	few := &instancesNotRunning{version: 3, key: "quotation", missing: gone[:2]}
 	if got := becauseItCannotBePlanned(few); got != `the migration can no longer be planned: version 3 of "quotation" is not running instance(s) `+strings.Join(gone[:2], ", ") {
 		t.Fatalf("two instances are said as %q", got)
+	}
+	// Two such refusals can be compared without a panic, and are two.
+	if error(planned) == error(few) || error(planned) != error(planned) {
+		t.Fatal("two refusals compare as one, or one does not compare as itself")
 	}
 	// Any other reason it cannot be planned is said as it is.
 	if got := becauseItCannotBePlanned(apierr.Invalidf("version 3 has no step %q", "review")); got != `the migration can no longer be planned: version 3 has no step "review"` {

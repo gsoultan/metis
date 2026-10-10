@@ -158,9 +158,13 @@ func (f *fixture) applyWithApproval(t *testing.T, source, target uuid.UUID, mapp
 		return f.svc.ApplyInstanceMigration(f.ctx, source, target, mapping, opts...)
 	}
 	if !plan.RequiresSecondApprover {
+		// Said with Errorf and answered as an error, not with Fatalf: some
+		// tests call this from a goroutine of their own, where a test may
+		// not be stopped, and read what it answers on their own.
 		f.rehook(fire, ahead)
-		t.Fatalf("this test applies its migration as one a second administrator has to approve, and the plan does not ask for one "+
+		t.Errorf("this test applies its migration as one a second administrator has to approve, and the plan does not ask for one "+
 			"(reasons %v): the planner no longer asks, or the test should apply it on one call (applyOnOneCall)", plan.SecondApproverReasons)
+		return entities.MigrationResult{}, errors.New("the plan does not ask for a second administrator, and this test says it must")
 	}
 	// What needs a second administrator must not go through on one call: the
 	// apply itself has to refuse it, having moved nothing, or every test that
@@ -197,7 +201,8 @@ func (f *fixture) applyOnOneCall(t *testing.T, source, target uuid.UUID, mapping
 	plan, err := f.svc.PlanInstanceMigration(f.ctx, source, target, mapping, opts...)
 	f.rehook(fire, ahead)
 	if err == nil && plan.Applicable() && plan.RequiresSecondApprover {
-		t.Fatalf("this test applies its migration on one administrator's call, and the plan asks for a second (%v)", plan.SecondApproverReasons)
+		t.Errorf("this test applies its migration on one administrator's call, and the plan asks for a second (%v)", plan.SecondApproverReasons)
+		return entities.MigrationResult{}, errors.New("the plan asks for a second administrator, and this test says it applies on one call")
 	}
 	return f.svc.ApplyInstanceMigration(f.ctx, source, target, mapping, opts...)
 }

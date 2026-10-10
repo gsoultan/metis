@@ -387,18 +387,22 @@ func (s *migrationService) whyStale(ctx context.Context, request entities.Deviat
 // instances and had eleven moved has to be told which one did not — and it
 // keeps the list, for the one reader who must not repeat all of it
 // (becauseItCannotBePlanned).
+//
+// It is an error by pointer: it holds a list, and a value that holds one
+// cannot be compared — two of them met by == would panic, where two pointers
+// are simply different.
 type instancesNotRunning struct {
 	version int
 	key     string
 	missing []string
 }
 
-func (e instancesNotRunning) Error() string {
+func (e *instancesNotRunning) Error() string {
 	return fmt.Sprintf("%s: version %d of %q is not running instance(s) %s",
 		apierr.ErrInvalidArgument.Error(), e.version, e.key, strings.Join(e.missing, ", "))
 }
 
-func (e instancesNotRunning) Unwrap() error { return apierr.ErrInvalidArgument }
+func (e *instancesNotRunning) Unwrap() error { return apierr.ErrInvalidArgument }
 
 // becauseItCannotBePlanned is why a request is stale when the migration it
 // stored can no longer be planned: the planner's refusal, in its own words —
@@ -409,7 +413,7 @@ func (e instancesNotRunning) Unwrap() error { return apierr.ErrInvalidArgument }
 // said in the refusal.
 func becauseItCannotBePlanned(err error) string {
 	const cannot = "the migration can no longer be planned: "
-	var gone instancesNotRunning
+	var gone *instancesNotRunning
 	if !errors.As(err, &gone) || len(gone.missing) <= newcomersNamed {
 		return cannot + withoutClass(err)
 	}
