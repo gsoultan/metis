@@ -7,6 +7,7 @@ import (
 	"maps"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
@@ -303,8 +304,37 @@ func executionDepthLimit() int {
 	return maxExecutionDepth
 }
 
-// enterNode increments the traversal depth for this execution, returning an
-// error once the bound is exceeded.
+// maxExecutionNodes bounds how many nodes a single synchronous execution may
+// run in total, across every branch.
+//
+// The depth bound only limits the longest path. followOutgoingFlows runs every
+// outgoing flow, so a definition of thirty layers of two-way parallel splits is
+// thirty deep and still runs 2^30 nodes, one after another on one worker and
+// inside one transaction. Counting every node the execution enters, not just
+// the ones on the current path, bounds that too.
+const maxExecutionNodes = 10_000
+
+// envMaxExecutionNodes overrides maxExecutionNodes for deployments with
+// legitimately wide synchronous processes.
+const envMaxExecutionNodes = "METIS_MAX_EXECUTION_NODES"
+
+// executionBudgetKey holds the count of nodes the current synchronous
+// execution has entered. It is a pointer shared by every branch, unlike the
+// depth, which each branch carries as its own value.
+type executionBudgetKey struct{}
+
+// executionNodeLimit returns the configured per-execution node budget.
+func executionNodeLimit() int64 {
+	if raw := envvar.Get(envMaxExecutionNodes); raw != "" {
+		if n, err := strconv.ParseInt(raw, 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	return maxExecutionNodes
+}
+
+// enterNode increments the traversal depth and the node count for this
+// execution, returning an error once either bound is exceeded.
 func enterNode(ctx context.Context, nodeID string) (context.Context, error) {
 	// An absent depth means this is the first node of the execution.
 	depth := 0
@@ -317,6 +347,20 @@ func enterNode(ctx context.Context, nodeID string) (context.Context, error) {
 			"BPMN_ERROR:execution exceeded %d nodes at %q; the definition most likely contains an "+
 				"unbounded loop. Break the cycle, or raise %s if the process is legitimately this deep",
 			limit, nodeID, envMaxExecutionDepth)
+	}
+
+	// An absent counter likewise means this is the first node, and the
+	// counter it creates is shared by every node this execution reaches.
+	entered, ok := ctx.Value(executionBudgetKey{}).(*atomic.Int64)
+	if !ok {
+		entered = new(atomic.Int64)
+		ctx = context.WithValue(ctx, executionBudgetKey{}, entered)
+	}
+	if limit := executionNodeLimit(); entered.Add(1) > limit {
+		return nil, fmt.Errorf(
+			"BPMN_ERROR:execution ran more than %d nodes in one pass at %q; the definition most likely "+
+				"fans out without bound. Reduce the branching, or raise %s if the process is legitimately this wide",
+			limit, nodeID, envMaxExecutionNodes)
 	}
 	return context.WithValue(ctx, executionDepthKey{}, depth), nil
 }
