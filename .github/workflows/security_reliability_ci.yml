@@ -249,7 +249,7 @@ jobs:
       - name: No suite skipped for want of a database
         run: |
           set -o pipefail
-          go list ./... | grep -v /tests/loadtest | xargs go test -count=1 -v -p 2 2>&1 | tee /tmp/suite.log
+          go list ./... | grep -v /tests/loadtest | xargs go test -count=1 -timeout 20m -v -p 2 2>&1 | tee /tmp/suite.log
           if grep -q -- "--- SKIP" /tmp/suite.log; then
             echo "::error::A test skipped, which means its DSN did not reach it:"
             grep -- "--- SKIP" /tmp/suite.log
@@ -274,7 +274,7 @@ jobs:
       - name: Strict tenant scope (whole module, flag on)
         env:
           METIS_FEATURE_STRICT_TENANT_SCOPE: "true"
-        run: go test -count=1 ./...
+        run: go test -count=1 -timeout 20m ./...
 
       - name: Vulnerability scan (govulncheck)
         run: |

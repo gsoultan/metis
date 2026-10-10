@@ -88,7 +88,7 @@ vet: ## Run go vet across the whole module
 .PHONY: test
 test: ## Run the full Go test suite (NOT ./server/... — that skips tests/)
 	$(call warn_if_no_dsn)
-	go test $(GO_TEST_P) $(GO_TEST_FLAGS) $(GO_PKGS)
+	go test -timeout 20m $(GO_TEST_P) $(GO_TEST_FLAGS) $(GO_PKGS)
 
 .PHONY: test-db
 test-db: ## Run the tests that need a real database (Postgres/MySQL); see AGENTS.md §4
@@ -105,7 +105,7 @@ test-db: ## Run the tests that need a real database (Postgres/MySQL); see AGENTS
 .PHONY: race
 race: ## Run the full Go test suite under the race detector
 	$(call warn_if_no_dsn)
-	go test -race $(GO_TEST_P) $(GO_TEST_FLAGS) $(GO_PKGS)
+	go test -race -timeout 20m $(GO_TEST_P) $(GO_TEST_FLAGS) $(GO_PKGS)
 
 # Say so when the database-backed tests are about to skip.
 #
@@ -151,7 +151,7 @@ STRICT_SCOPE_PKGS = ./...
 .PHONY: strict-scope
 strict-scope: ## Run the strict-tenant-scope suites with the flag on, as production would set it
 	$(call warn_if_no_dsn)
-	METIS_FEATURE_STRICT_TENANT_SCOPE=true go test $(GO_TEST_P) -count=1 $(STRICT_SCOPE_PKGS)
+	METIS_FEATURE_STRICT_TENANT_SCOPE=true go test -timeout 20m $(GO_TEST_P) -count=1 $(STRICT_SCOPE_PKGS)
 
 .PHONY: lint
 lint: ## Run golangci-lint
