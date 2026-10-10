@@ -17,7 +17,7 @@ const pruneBatch = `SELECT ctid FROM shared_counters WHERE window_start < $1 LIM
 // by scanning the table once for every five thousand rows it removes.
 //
 // window_start is the last column of the primary key, so the key's index
-// cannot answer a range on it alone: before migration 34 the cheapest plan
+// cannot answer a range on it alone: before migration 35 the cheapest plan
 // for each batch was a pass over every counter in the table.
 func TestTheRateLimitSweepFindsClosedWindowsFromAnIndex(t *testing.T) {
 	db := setupMigrated(t)
@@ -44,10 +44,10 @@ func TestTheRateLimitSweepFindsClosedWindowsFromAnIndex(t *testing.T) {
 	}
 }
 
-// Migration 34 is only reachable on an installation that already has the
+// Migration 35 is only reachable on an installation that already has the
 // table, with counters in it. This takes the index away and forgets the
 // migration ran, the way an upgrading installation arrives, and runs it again.
-func TestMigration34IndexesASharedCounterTableThatAlreadyHasRows(t *testing.T) {
+func TestMigration35IndexesASharedCounterTableThatAlreadyHasRows(t *testing.T) {
 	db := setupMigrated(t)
 	if err := db.WithContext(t.Context()).Exec(`DROP INDEX IF EXISTS ix_shared_counters_window_start`).Error; err != nil {
 		t.Fatalf("drop the index: %v", err)

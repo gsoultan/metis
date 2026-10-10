@@ -416,13 +416,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 - **The rate-limit sweep scanned all of `shared_counters` for every 5,000
   rows it removed.** It removes the windows that started more than five
   minutes ago, and `window_start` is the last column of the table's primary
-  key, so no index could answer the range. Migration 34 adds
+  key, so no index could answer the range. Migration 35 adds
   `ix_shared_counters_window_start`, built `CONCURRENTLY` on PostgreSQL so
   rate-limited requests are not held up while it builds. Which rows a sweep
   removes is unchanged.
 - **A page of a project's tasks sorted every task the project had.** The list
   asks for a project's tasks newest first, and the only index on the way was
-  `project_id` alone. Migration 35 adds `ix_tasks_project_created` over
+  `project_id` alone. Migration 36 adds `ix_tasks_project_created` over
   `(project_id, created_at DESC, id DESC)`, built `CONCURRENTLY` on
   PostgreSQL, and one project's tasks are now asked for by equality so the
   page is read from it already in order. A list across several projects still

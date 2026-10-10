@@ -9,9 +9,9 @@ import (
 // TaskListIndexMigration is the version the index the task list reads
 // through is recorded under, named once so the test that rewinds it and the
 // list that runs it agree on the row they mean.
-const TaskListIndexMigration = 35
+const TaskListIndexMigration = 36
 
-// taskListIndex is migration 35: an index in the order the task list pages.
+// taskListIndex is migration 36: an index in the order the task list pages.
 //
 // Every page of tasks — a project's, an organization's, the inbox's before its
 // own filters — asks for project_id IN (the caller's projects), newest first

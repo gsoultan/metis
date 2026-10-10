@@ -7,11 +7,12 @@ import (
 )
 
 // SharedCounterWindowIndexMigration is the version the index the rate-limit
-// sweep reads through is recorded under. 33 is the instance ledger; versions
-// are identities, and a number taken twice stops the server booting.
-const SharedCounterWindowIndexMigration = 34
+// sweep reads through is recorded under. 33 is the instance ledger, and 34 is
+// held by the deviation-request change; versions are identities, and a number
+// taken twice stops the server booting.
+const SharedCounterWindowIndexMigration = 35
 
-// sharedCounterWindowIndex is migration 34: an index on
+// sharedCounterWindowIndex is migration 35: an index on
 // shared_counters.window_start, the column the retention sweep cuts by.
 //
 // The sweep deletes the windows that started more than five minutes ago, five

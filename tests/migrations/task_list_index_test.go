@@ -36,10 +36,10 @@ func TestATaskPageIsReadInOrderFromAnIndex(t *testing.T) {
 	}
 }
 
-// Migration 35 is only reachable on an installation that already has tasks.
+// Migration 36 is only reachable on an installation that already has tasks.
 // This takes the index away and forgets the migration ran, the way an
 // upgrading installation arrives, and runs it again.
-func TestMigration35IndexesATaskTableThatAlreadyHasRows(t *testing.T) {
+func TestMigration36IndexesATaskTableThatAlreadyHasRows(t *testing.T) {
 	db := setupMigrated(t)
 	if err := db.WithContext(t.Context()).Exec(`DROP INDEX IF EXISTS ix_tasks_project_created`).Error; err != nil {
 		t.Fatalf("drop the index: %v", err)
