@@ -379,3 +379,38 @@ func TestTrustingNoProxyIgnoresTheHeaderEntirely(t *testing.T) {
 		t.Fatalf("expected the peer %q, got %q: the header was believed with trust disabled", "10.0.0.1", got)
 	}
 }
+
+// TestTheUIsFilesDoNotSpendTheAPIsAllowance pins that the limit is the API's.
+//
+// A first load of the UI fetches about 120 files. When they drew on the same
+// allowance as the API, a second fresh tab inside a minute was refused the
+// API and the UI's own index.
+func TestTheUIsFilesDoNotSpendTheAPIsAllowance(t *testing.T) {
+	t.Parallel()
+
+	interceptor := NewRateLimitInterceptor(2, time.Minute)
+	handler := interceptor.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	serve := func(path string) int {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+		req.RemoteAddr = "10.0.0.1:1234"
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		return res.Code
+	}
+
+	for n := range 200 {
+		if code := serve(fmt.Sprintf("/assets/chunk-%d.js", n)); code != http.StatusOK {
+			t.Fatalf("UI file %d was answered %d; the UI's files must not be rate limited", n, code)
+		}
+	}
+	for _, want := range []int{http.StatusOK, http.StatusOK, http.StatusTooManyRequests} {
+		if code := serve("/api/v1/tasks"); code != want {
+			t.Fatalf("after 200 UI files the API answered %d, want %d: the files spent its allowance", code, want)
+		}
+	}
+	if code := serve("/"); code != http.StatusOK {
+		t.Fatalf("the UI's index was answered %d once the API's allowance was spent", code)
+	}
+}

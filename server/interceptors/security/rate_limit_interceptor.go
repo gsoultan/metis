@@ -72,8 +72,22 @@ func NewRateLimitInterceptor(maxRequests int, window time.Duration) contracts.Tr
 	}
 }
 
+// Wrap limits the API, and only the API.
+//
+// The embedded UI is served from the same handler, and its files used to draw
+// on the same allowance. A first load fetches about 120 of them, so one fresh
+// tab spent half of a client's 240 a minute and a second one refused it the
+// API, the UI's own index included, for the rest of the minute. After every
+// release, when no browser has the new files cached, and for every user behind
+// one proxy address, that was the first thing anyone saw. The files are
+// immutable and held compressed in memory; the backpressure limiter still
+// bounds them. This is the same line the authentication interceptor draws.
 func (i *rateLimitInterceptor) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if !i.allow(i.clientKey(r)) {
 			w.Header().Set("Retry-After", strconv.Itoa(int(i.window.Seconds())))
 			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)

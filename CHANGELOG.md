@@ -858,6 +858,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **Opening the UI no longer locks a person out of it.** The UI's files were
+  counted against the API's rate limit of 240 requests a minute per client
+  address. Signing in and opening five pages in a browser with nothing cached
+  makes about 330 requests, 285 of them for files, so the first visit after a release was refused
+  part-way through with `Rate limit exceeded`, the sign-in page included, for
+  the rest of the minute; every user behind one proxy address shared that
+  minute. The limit now applies to `/api/` only, as authentication does. The
+  files are still bounded by the in-flight request limit.
+
 - **One bad step, message or call could take the whole server down.** A
   decision table with the ANY hit policy whose matching lines returned a list
   or an object panicked comparing them, and nothing above the job and inbound
