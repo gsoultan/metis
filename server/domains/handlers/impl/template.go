@@ -70,10 +70,12 @@ func (t *NodeHandlerTemplate) handleMultiInstance(ctx context.Context, instance 
 	total := 0
 	var collection []any
 	if node.Collection != "" {
-		if val, ok := instance.Variables[node.Collection].([]any); ok {
-			collection = val
-			total = len(collection)
+		items, err := entities.MultiInstanceItems(instance, node)
+		if err != nil {
+			return err
 		}
+		collection = items
+		total = len(collection)
 	} else if node.LoopCardinality > 0 {
 		total = node.LoopCardinality
 	}

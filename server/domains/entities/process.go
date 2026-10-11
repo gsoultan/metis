@@ -1,7 +1,10 @@
 package entities
 
 import (
+	"encoding/json"
+	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"strconv"
 	"time"
@@ -266,8 +269,74 @@ func MultiInstanceCollection(instance *ProcessInstance, node Node) ([]any, bool)
 	if instance == nil || node.Collection == "" {
 		return nil, false
 	}
-	items, ok := instance.Variables[node.Collection].([]any)
-	return items, ok
+	return asList(instance.Variables[node.CollectionVariable()])
+}
+
+// asList reads a variable as a list. A variable read from JSON or a script is
+// a []any; one set by Go code may be a slice of anything, and is a list too.
+func asList(value any) ([]any, bool) {
+	if items, ok := value.([]any); ok {
+		return items, true
+	}
+	v := reflect.ValueOf(value)
+	if v.Kind() != reflect.Slice && v.Kind() != reflect.Array || v.Type().Elem().Kind() == reflect.Uint8 {
+		return nil, false
+	}
+	items := make([]any, v.Len())
+	for i := range items {
+		items[i] = v.Index(i).Interface()
+	}
+	return items, true
+}
+
+// MultiInstanceItems returns the list a step about to repeat once per item
+// runs over, or says why it cannot run.
+//
+// A missing variable, or one that is not a list, used to read as an empty list
+// and run the step once with no item: a misspelled name sent one notification
+// to nobody, or opened one approval for nobody, and nothing said why. Both are
+// refused now, naming the step and the variable. So is a list longer than a
+// step may repeat by count (MaxLoopCardinality): every parallel token is
+// created before any runs, so a list of a million items exhausted memory just
+// as a count of a million did. Refused rather than cut short, because running
+// fewer items than the list holds is a silent wrong answer.
+//
+// An empty list is not refused. It still runs the step once, as before; what
+// an empty list should do is a separate decision.
+func MultiInstanceItems(instance *ProcessInstance, node Node) ([]any, error) {
+	name := node.CollectionVariable()
+	value, found := instance.Variables[name]
+	if !found || value == nil {
+		return nil, fmt.Errorf("flow node %s repeats once for each item in %q, which this instance does not have",
+			node.ID, name)
+	}
+	items, ok := asList(value)
+	if !ok {
+		return nil, fmt.Errorf("flow node %s repeats once for each item in %q, which holds %s rather than a list",
+			node.ID, name, describeValue(value))
+	}
+	if len(items) > MaxLoopCardinality {
+		return nil, fmt.Errorf("flow node %s repeats once for each of the %d items in %q, more than the %d a step may repeat",
+			node.ID, len(items), name, MaxLoopCardinality)
+	}
+	return items, nil
+}
+
+// describeValue names what kind of value a variable holds, for a message an
+// author reads: "a number", "a piece of text".
+func describeValue(value any) string {
+	switch value.(type) {
+	case string:
+		return "a piece of text"
+	case bool:
+		return "true or false"
+	case float64, float32, int, int64, int32, json.Number:
+		return "a number"
+	case map[string]any:
+		return "a record"
+	default:
+		return fmt.Sprintf("a %T", value)
+	}
 }
 
 // MultiInstanceState tracks the progress of one node that runs once per item.

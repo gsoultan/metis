@@ -873,6 +873,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **A step that repeats once per item no longer runs once when its list is
+  missing, and no longer runs out of memory on a huge one.** A list variable
+  that was missing, misspelled, or held something other than a list read as
+  empty, so the step ran once with no item: one notification to nobody, one
+  approval for nobody. That is now refused with an error naming the step and
+  the variable. A list of more than 10,000 items is refused too, as a fixed
+  repeat count of that size already was: every parallel run is created before
+  any starts, so 10,001 items used to run for close to a minute and then fail
+  on the engine's node limit, and a million exhausted memory. A list named the
+  Camunda way, `${suppliers}`, is now read as the variable `suppliers`; it was
+  never found and ran once. An empty list still runs the step once, as before.
+
 - **Opening the UI no longer locks a person out of it.** The UI's files were
   counted against the API's rate limit of 240 requests a minute per client
   address. Signing in and opening five pages in a browser with nothing cached

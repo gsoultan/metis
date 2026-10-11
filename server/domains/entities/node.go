@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // Node represents a node in a BPMN process definition.
@@ -63,6 +64,37 @@ type Node struct {
 // rather than doing two billion approvals. A real fixed-count loop is far
 // smaller.
 const MaxLoopCardinality = 10_000
+
+// CollectionVariable is the name of the variable a step repeats over. A model
+// from Camunda writes it as an expression, "${approvers}"; the engine reads
+// the variable that names, which is what Camunda does for a lone variable.
+// Anything else in the braces is left as written and so is not found.
+func (n *Node) CollectionVariable() string {
+	name := strings.TrimSpace(n.Collection)
+	if inner, ok := strings.CutPrefix(name, "${"); ok {
+		if inner, ok := strings.CutSuffix(inner, "}"); ok && isVariableName(strings.TrimSpace(inner)) {
+			return strings.TrimSpace(inner)
+		}
+	}
+	return name
+}
+
+// isVariableName reports whether s is a bare variable name: a letter or an
+// underscore, then letters, digits and underscores.
+func isVariableName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		switch {
+		case r == '_', unicode.IsLetter(r):
+		case i > 0 && unicode.IsDigit(r):
+		default:
+			return false
+		}
+	}
+	return true
+}
 
 // LoopCardinalityError says why a step's fixed repeat count cannot be run,
 // or returns nil when it can. Deploy and the engine share it so a version
