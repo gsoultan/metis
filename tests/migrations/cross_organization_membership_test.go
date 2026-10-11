@@ -72,7 +72,7 @@ func TestMigration24RemovesOnlyTheMembershipsThatCrossOrganizations(t *testing.T
 		}
 	}
 	group := uuid.Must(uuid.NewV7())
-	if err := serviceimpl.NewGroupService(repo).CreateGroup(ctx, entities.Group{
+	if err := serviceimpl.NewGroupService(repo, nil).CreateGroup(ctx, entities.Group{
 		ID: group, Organization: &entities.Organization{ID: orgA}, Name: "Approvers A",
 	}); err != nil {
 		t.Fatalf("seed a group of organization A: %v", err)

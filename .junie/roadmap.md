@@ -114,8 +114,8 @@
    - Visual role editor — the Roles tab on Platform access (#118).
    - Group/org-scoped access — organization-scoped: **done** (2026-09-27). A role is
      granted in one organization and acts only in requests for it; a role held in
-     every organization is the platform administrators'. Group-scoped is not: a
-     group's `roles` are stored and grant nothing.
+     every organization is the platform administrators'. Group-scoped is too
+     (2026-10-11): a group's `roles` act for its members in its organization alone.
 8. Process Versioning & Migration UI:
    - Version history with visual diff.
    - Rollback + migration wizard.
@@ -352,8 +352,8 @@
         membership (migration 30), by that organization's administrators, and acts only in
         requests for it; a role held in every organization is changed only by a platform
         administrator (`METIS_PLATFORM_ADMINS`). Roles are still the four fixed in code,
-        and group-scoped access is not built: a group's `roles` are stored and grant
-        nothing.
+        and a group's `roles` act for its members in the group's organization alone
+        (2026-10-11).
   - [ ] Lower-priority UX items (9-12) delivered. Delivered: 10, the decision-table editor
         (#101); 11, progressive disclosure (#100); 12, onboarding and help (#102).
         Item 9 in part: manifests are hardened (#99). Listing installed manifests in the
@@ -2720,7 +2720,8 @@
   - **UI.** The matrix and the account dialog edit the current organization's roles; a
     global role reads *Every organization*, fixed for anybody the platform gate refuses;
     the legend marks global-only actions. English and Indonesian.
-  - **Not done:** group-scoped roles (stored, grant nothing). The UI names no organization
+  - **Done 2026-10-11:** group-scoped roles, held in the group's organization alone.
+  - **Not done:** the UI names no organization
     per request (`X-Organization-ID`), so a member of several works in the one the server
     resolves first, as before; pages other than Platform access still decide what to show
     from the sign-in's global roles — never more than the server allows.

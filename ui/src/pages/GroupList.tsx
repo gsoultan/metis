@@ -217,7 +217,7 @@ export function GroupList() {
           />
           <MultiSelect
             label="Roles its members get"
-            description="Everyone in this group holds these roles as well as their own."
+            description="Everyone in this group holds these roles in this organization, as well as their own."
             placeholder="Select roles"
             data={ROLE_OPTIONS.map((option) => ({
               value: option.value,

@@ -10,6 +10,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Security
 
+- **A group's roles now grant what they say.** The group editor said everyone
+  in a group holds its roles, but nothing read them: giving a group a role
+  granted nothing, and taking it away took nothing away. Now each member acts
+  with the group's roles in the group's organization, and nowhere else: never
+  in another organization, never for what every organization shares, and not
+  once the member has left the organization. Adding or removing a member, or
+  changing or deleting the group, applies on that member's next request.
+  - **On upgrade, groups that already list roles start granting them.** Review
+    each organization's groups before deploying if any were given roles that
+    were never meant to apply.
+  - A group is given only the roles the installation has, as an account is in
+    an organization; anything else is refused with **400**.
+  - A role held only through a group does not count toward keeping an
+    organization's last administrator, so that guard refuses as before.
+
 - **A waive, and a migration that loosens a rule on running work, no longer
   happen on one administrator's call.** One administrator could waive an
   approval on a running instance, or skip a control for every instance of a

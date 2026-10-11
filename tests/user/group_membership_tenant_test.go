@@ -28,7 +28,7 @@ type groupWorld struct {
 func newGroupWorld(t *testing.T) groupWorld {
 	t.Helper()
 	w := groupWorld{accountWorld: newAccountWorld(t)}
-	w.groups = service_impl.NewGroupService(w.repo)
+	w.groups = service_impl.NewGroupService(w.repo, nil)
 	w.groupA = w.seedGroup(t, "Approvers A", w.orgA)
 	w.groupB = w.seedGroup(t, "Approvers B", w.orgB)
 	return w

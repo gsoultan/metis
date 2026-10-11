@@ -30,6 +30,17 @@ type User struct {
 	// belongs to, and what it holds in one of them is not the others' to read.
 	RolesByOrganization map[uuid.UUID][]string `json:"-"`
 
+	// GroupRolesByOrganization are the roles the account holds through the
+	// groups it is in, by the organization each group belongs to. Read only
+	// when a request is authenticated, and only for the organizations the
+	// account is still a member of: a group grants its roles in its own
+	// organization and nowhere else.
+	//
+	// Kept apart from RolesByOrganization because nothing writes them back:
+	// the directory shows, and SetOrganizationRoles replaces, what was granted
+	// to the account itself. A group's roles change with the group.
+	GroupRolesByOrganization map[uuid.UUID][]string `json:"-"`
+
 	// OrganizationRoles are the roles the account holds in the organization it
 	// was read for — the one the request is in — and nowhere else: the part of
 	// RolesByOrganization that organization's own directory shows. Filled by
