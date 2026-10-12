@@ -102,8 +102,9 @@ func TestMultiInstance_RunsLoopCardinalityTimes(t *testing.T) {
 }
 
 // An empty collection means there is nothing to do, not that the process should
-// stop: the step is skipped and the process carries on.
-func TestMultiInstance_WithAnEmptyCollectionRunsOnceAndProceeds(t *testing.T) {
+// stop: the step is skipped, without running even once, and the process carries
+// on. An empty list of suppliers to notify notifies nobody.
+func TestMultiInstance_WithAnEmptyCollectionIsSkipped(t *testing.T) {
 	var mu sync.Mutex
 	calls := 0
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -126,6 +127,11 @@ func TestMultiInstance_WithAnEmptyCollectionRunsOnceAndProceeds(t *testing.T) {
 
 	if instance.Status != entities.ProcessCompleted {
 		t.Errorf("instance is %q; an empty collection should not leave the process stuck", instance.Status)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 0 {
+		t.Errorf("the endpoint was called %d times for an empty collection, want none", calls)
 	}
 }
 

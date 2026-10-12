@@ -301,8 +301,8 @@ func asList(value any) ([]any, bool) {
 // as a count of a million did. Refused rather than cut short, because running
 // fewer items than the list holds is a silent wrong answer.
 //
-// An empty list is not refused. It still runs the step once, as before; what
-// an empty list should do is a separate decision.
+// An empty list is not refused: it means there is nothing to do, and the step
+// is skipped.
 func MultiInstanceItems(instance *ProcessInstance, node Node) ([]any, error) {
 	name := node.CollectionVariable()
 	value, found := instance.Variables[name]

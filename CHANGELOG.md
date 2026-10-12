@@ -685,6 +685,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Changed
 
+- **A step repeated over an empty list is skipped.** A step run once per item
+  of a list that is empty used to run once anyway, with no item: a service
+  call with nothing to send, an approval task nobody was listed for. Now the
+  process moves straight past the step, as Camunda does. A step repeated a
+  fixed number of times is unchanged. **On upgrade,** a process that relied on
+  that one run (an approval left for somebody to pick up when nobody was
+  listed) no longer gets it; give the step a list that is never empty, or route
+  around it with a gateway.
+
 - **`GET /api/v1/instances/{id}/audit` returns the newest 1,000 entries and
   how many there are.** It read and returned an instance's whole trail, so an
   instance that had looped for months answered with every entry it had ever
@@ -883,7 +892,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   any starts, so 10,001 items used to run for close to a minute and then fail
   on the engine's node limit, and a million exhausted memory. A list named the
   Camunda way, `${suppliers}`, is now read as the variable `suppliers`; it was
-  never found and ran once. An empty list still runs the step once, as before.
+  never found and ran once. An empty list now skips the step (see Changed).
 
 - **Opening the UI no longer locks a person out of it.** The UI's files were
   counted against the API's rate limit of 240 requests a minute per client
