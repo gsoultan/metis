@@ -38,6 +38,13 @@ type UserRepository interface {
 	// organization shares has one answer whoever asks.
 	HasAnotherGlobalAdministrator(ctx context.Context, except uuid.UUID) (bool, error)
 
+	// GroupRolesByOrganization returns the roles an account holds through
+	// its groups, by each group's organization. Only groups of organizations
+	// the account is still a member of count, and deleted groups do not.
+	// Unscoped: it is read while the request is being authenticated, before
+	// there is a tenant to scope it by, and it answers for the account alone.
+	GroupRolesByOrganization(ctx context.Context, userID uuid.UUID) (map[uuid.UUID][]string, error)
+
 	// SetOrganizationRoles replaces the roles an account holds in one
 	// organization alone, and touches nothing else. An account that is not a
 	// member of the organization is an apierr.ErrNotFound error: a role is

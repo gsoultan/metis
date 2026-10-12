@@ -3,7 +3,8 @@ package entities
 import "github.com/google/uuid"
 
 // RolesIn returns the roles the account acts with in an organization: its
-// global roles, and the ones it holds in that organization alone.
+// global roles, and the ones it holds in that organization alone, granted to
+// it or through its groups there.
 //
 // uuid.Nil is no organization — a request that is for none — and gets the
 // global roles only, as does an organization the account holds nothing in.
@@ -35,11 +36,25 @@ func (u User) HoldsRoleGlobally(role string) bool {
 	return HasRole(u.Roles, role)
 }
 
-// rolesOnlyIn is what the account holds in one organization alone. Nothing for
-// no organization, whatever a map built by hand might hold under the nil id.
+// rolesOnlyIn is what the account holds in one organization alone: granted to
+// it there, or through a group of that organization. Nothing for no
+// organization, whatever a map built by hand might hold under the nil id.
+//
+// A group's roles never count as global, so a gate for what every
+// organization shares (HoldsRoleGlobally) does not read them.
 func (u User) rolesOnlyIn(organizationID uuid.UUID) []string {
 	if organizationID == uuid.Nil {
 		return nil
 	}
-	return u.RolesByOrganization[organizationID]
+	granted := u.RolesByOrganization[organizationID]
+	fromGroups := u.GroupRolesByOrganization[organizationID]
+	switch {
+	case len(fromGroups) == 0:
+		return granted
+	case len(granted) == 0:
+		return fromGroups
+	}
+	roles := make([]string, 0, len(granted)+len(fromGroups))
+	roles = append(roles, granted...)
+	return append(roles, fromGroups...)
 }

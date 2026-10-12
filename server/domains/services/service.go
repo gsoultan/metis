@@ -172,7 +172,7 @@ func NewServiceFacade(
 	externalTaskSvc := serviceimpl.NewExternalTaskService(repo, engine)
 	decisionSvc := serviceimpl.NewDecisionService(repo, tableEval)
 	userSvc := serviceimpl.NewUserService(repo, jwtSecret)
-	groupSvc := serviceimpl.NewGroupService(repo)
+	groupSvc := serviceimpl.NewGroupService(repo, serviceimpl.PrincipalForgetter(userSvc))
 	messagingSvc := serviceimpl.NewMessagingService(engine, externalTaskSvc)
 	webhookSvc := serviceimpl.NewWebhookService(repo, engine)
 	adHocActivator := serviceimpl.NewAdHocActivator(engine, repo)

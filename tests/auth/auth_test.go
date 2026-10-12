@@ -73,7 +73,7 @@ func TestGroupManagement(t *testing.T) {
 	// 2. Setup Repo & Service
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	userSvc := impl.NewUserService(repo, "test-secret")
-	groupSvc := impl.NewGroupService(repo)
+	groupSvc := impl.NewGroupService(repo, nil)
 
 	ctx := t.Context()
 	// A real organization, not an invented id. user_organizations references

@@ -13,13 +13,34 @@ import (
 
 type groupService struct {
 	repo repositories.Repository
+
+	// forget drops an account from the cache of signed-in callers. A group's
+	// roles are part of what each of its members acts with, so a change to
+	// them, or to who is in the group, has to reach the next request rather
+	// than wait out the cache.
+	forget func(uuid.UUID)
 }
 
-// NewGroupService creates a new GroupService.
-func NewGroupService(repo repositories.Repository) contracts.GroupService {
-	return &groupService{
-		repo: repo,
+// NewGroupService creates a new GroupService. forget is called with every
+// account whose roles a change to a group alters; nil forgets nothing.
+func NewGroupService(repo repositories.Repository, forget func(uuid.UUID)) contracts.GroupService {
+	if forget == nil {
+		forget = func(uuid.UUID) {}
 	}
+	return &groupService{
+		repo:   repo,
+		forget: forget,
+	}
+}
+
+// PrincipalForgetter is the user service's way to drop an account from its
+// cache of signed-in callers, for the group service to call. A UserService
+// that keeps no such cache forgets nothing.
+func PrincipalForgetter(users contracts.UserService) func(uuid.UUID) {
+	if s, ok := users.(*userService); ok {
+		return s.principals.forget
+	}
+	return nil
 }
 
 func (s *groupService) ListGroups(ctx context.Context, organizationID uuid.UUID) ([]entities.Group, error) {
@@ -35,6 +56,11 @@ func (s *groupService) ListGroups(ctx context.Context, organizationID uuid.UUID)
 }
 
 func (s *groupService) CreateGroup(ctx context.Context, g entities.Group) error {
+	roles, err := organizationRoles(g.Roles)
+	if err != nil {
+		return err
+	}
+	g.Roles = roles
 	if g.ID == uuid.Nil {
 		g.ID = uuid.Must(uuid.NewV7())
 	}
@@ -52,12 +78,50 @@ func (s *groupService) GetGroup(ctx context.Context, id uuid.UUID) (entities.Gro
 	return adapters.GroupEntityAdapter{Model: m}.ToEntity(), nil
 }
 
+// UpdateGroup changes a group, and with its roles what each of its members
+// acts with in its organization. Only the roles the installation has are
+// accepted, as for a role granted to an account in an organization: a typo
+// would read as a grant and admit to nothing.
 func (s *groupService) UpdateGroup(ctx context.Context, g entities.Group) error {
-	return s.repo.Group().Update(ctx, adapters.GroupModelAdapter{Group: g}.ToModel())
+	roles, err := organizationRoles(g.Roles)
+	if err != nil {
+		return err
+	}
+	g.Roles = roles
+	if err := s.repo.Group().Update(ctx, adapters.GroupModelAdapter{Group: g}.ToModel()); err != nil {
+		return err
+	}
+	return s.forgetMembers(ctx, g.ID)
 }
 
+// DeleteGroup removes a group, and the roles it gave its members.
 func (s *groupService) DeleteGroup(ctx context.Context, id uuid.UUID) error {
-	return s.repo.Group().Delete(ctx, id)
+	// Read before the group goes: afterwards its members are not found.
+	members, err := s.repo.Group().ListGroupMembers(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.Group().Delete(ctx, id); err != nil {
+		return err
+	}
+	for _, member := range members {
+		s.forget(uuid.UUID(member.ID))
+	}
+	return nil
+}
+
+// forgetMembers drops every member of a group from the cache of signed-in
+// callers, so the group's roles as they are now are the ones their next
+// request is checked against.
+func (s *groupService) forgetMembers(ctx context.Context, groupID uuid.UUID) error {
+	members, err := s.repo.Group().ListGroupMembers(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	for _, member := range members {
+		s.forget(uuid.UUID(member.ID))
+	}
+	return nil
 }
 
 func (s *groupService) ListGroupMembers(ctx context.Context, groupID uuid.UUID) ([]entities.User, error) {
@@ -83,7 +147,11 @@ func (s *groupService) AddMembership(ctx context.Context, userID, groupID uuid.U
 	if err := s.requireMemberOfGroupsOrganization(ctx, userID, groupID); err != nil {
 		return err
 	}
-	return s.repo.Group().AddMembership(ctx, userID, groupID)
+	if err := s.repo.Group().AddMembership(ctx, userID, groupID); err != nil {
+		return err
+	}
+	s.forget(userID)
+	return nil
 }
 
 // RemoveMembership takes an account out of one of the caller's groups.
@@ -93,7 +161,11 @@ func (s *groupService) AddMembership(ctx context.Context, userID, groupID uuid.U
 // already crosses organizations — added before AddMembership refused one — is
 // a row in the caller's own group that this is the only way to be rid of.
 func (s *groupService) RemoveMembership(ctx context.Context, userID, groupID uuid.UUID) error {
-	return s.repo.Group().RemoveMembership(ctx, userID, groupID)
+	if err := s.repo.Group().RemoveMembership(ctx, userID, groupID); err != nil {
+		return err
+	}
+	s.forget(userID)
+	return nil
 }
 
 // requireMemberOfGroupsOrganization refuses an account that does not belong to

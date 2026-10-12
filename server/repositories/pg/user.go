@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -270,6 +271,58 @@ func (r *userRepository) HasAnotherAdministrator(ctx context.Context, organizati
 		return false, fmt.Errorf("could not look for another administrator: %w", err)
 	}
 	return false, nil
+}
+
+// groupRolesOfAccount reads the roles of the live groups an account is in, for
+// the organizations it is still a member of. The join on user_organizations is
+// the rule, not a narrowing: a membership left behind in a group of an
+// organization the account has since left grants nothing there.
+const groupRolesOfAccount = `SELECT g.organization_id::text, g.roles::text
+	  FROM memberships m
+	  JOIN groups g ON g.id = m.group_id
+	  JOIN user_organizations uo ON uo.user_id = m.user_id AND uo.organization_id = g.organization_id
+	 WHERE m.user_id = $1
+	   AND g.deleted_at IS NULL`
+
+// GroupRolesByOrganization returns the roles an account holds through its
+// groups, by organization, each role once.
+func (r *userRepository) GroupRolesByOrganization(ctx context.Context, userID uuid.UUID) (map[uuid.UUID][]string, error) {
+	ex, err := r.conn.conn.MainExecutor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := ex.Query(ctx, groupRolesOfAccount, []any{userID})
+	if err != nil {
+		return nil, fmt.Errorf("could not read the roles the account's groups grant: %w", err)
+	}
+	defer rows.Close()
+	var out map[uuid.UUID][]string
+	for rows.Next() {
+		values := rows.RawValues()
+		if len(values) != 2 || len(values[1]) == 0 {
+			continue
+		}
+		organization, err := uuid.ParseBytes(values[0])
+		if err != nil {
+			return nil, fmt.Errorf("could not read the organization of a group: %w", err)
+		}
+		var roles []string
+		if err := json.Unmarshal(values[1], &roles); err != nil {
+			return nil, fmt.Errorf("could not decode a group's roles: %w", err)
+		}
+		for _, role := range roles {
+			if out == nil {
+				out = map[uuid.UUID][]string{}
+			}
+			if !slices.Contains(out[organization], role) {
+				out[organization] = append(out[organization], role)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("could not read the roles the account's groups grant: %w", err)
+	}
+	return out, nil
 }
 
 // otherGlobalAdministratorCandidates reads the roles of the live accounts,

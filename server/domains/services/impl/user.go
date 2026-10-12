@@ -492,6 +492,16 @@ func (s *userService) resolvePrincipal(ctx context.Context, userID uuid.UUID) (c
 		return cachedPrincipal{}, fmt.Errorf("invalid token: no such user")
 	}
 	user := adapters.UserEntityAdapter{Model: mu}.ToEntity()
+	// The roles the account's groups grant act like its own in each group's
+	// organization. Read here, with the account, so every way a request is
+	// authenticated sees them and the cache holds them for the same few
+	// seconds. A failure to read them fails the request, as a failure to read
+	// the account does.
+	fromGroups, err := s.repo.User().GroupRolesByOrganization(ctx, userID)
+	if err != nil {
+		return cachedPrincipal{}, fmt.Errorf("could not read the account's roles: %w", err)
+	}
+	user.GroupRolesByOrganization = fromGroups
 	s.principals.put(userID, user, mu.TokensValidFrom)
 	return cachedPrincipal{user: user, tokensValidFrom: mu.TokensValidFrom}, nil
 }
