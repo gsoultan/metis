@@ -873,6 +873,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **Work saved offline before the app recorded who did it is shown.** Changes
+  queued on a device before each one carried its owner are never sent, since
+  they could be anybody's, and they were never shown either: an approval made
+  offline could sit on a phone with nothing saying it had not gone through.
+  Whoever signs in on that device now sees them listed by name, with a
+  **Discard** button, so the person who made them knows to do them again.
+
 - **A step that repeats once per item no longer runs once when its list is
   missing, and no longer runs out of memory on a huge one.** A list variable
   that was missing, misspelled, or held something other than a list read as

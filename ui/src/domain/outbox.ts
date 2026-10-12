@@ -128,6 +128,21 @@ export function ownedBy(entries: readonly OutboxEntry[], userId: string | null |
 }
 
 /**
+ * The entries with no recorded owner: queued before the queue kept who did
+ * the work. They are never sent, because they could be anybody's, so the one
+ * thing left is to show them and let somebody throw them away.
+ */
+export function unowned(entries: readonly OutboxEntry[]): OutboxEntry[] {
+  return entries.filter((entry) => !entry.userId);
+}
+
+/** What to say about changes nobody can send, or "" when there are none. */
+export function describeUnowned(entries: readonly OutboxEntry[]): string {
+  if (entries.length === 0) return '';
+  return `${plural(entries.length, 'change')} made offline cannot be sent`;
+}
+
+/**
  * The entry as it should be kept after an attempt, or null to drop it.
  * Only an attempt the server could have answered differently counts.
  */

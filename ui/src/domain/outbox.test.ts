@@ -5,10 +5,12 @@ import {
   classifyNetworkFailure,
   classifyResponse,
   describeQueue,
+  describeUnowned,
   inSendOrder,
   isExhausted,
   MAX_ATTEMPTS,
   ownedBy,
+  unowned,
   type OutboxEntry,
 } from './outbox';
 
@@ -66,6 +68,19 @@ describe('reading the server’s answer', () => {
     expect(ownedBy(queue, 'ana').map((e) => e.key)).toEqual(['a']);
     // Nobody signed in, and an entry with no owner, are nobody's to send.
     expect(ownedBy(queue, null)).toEqual([]);
+  });
+
+  /*
+   * An entry queued before the owner was recorded is never sent and was never
+   * shown, so an approval somebody believed they made sat on the device with
+   * nothing saying so. It is shown now, apart from anybody's own work.
+   */
+  it('picks out the work nobody can send, and says so', () => {
+    const queue = [entry({ key: 'a', userId: 'ana' }), entry({ key: 'c' }), entry({ key: 'd', userId: '' })];
+    expect(unowned(queue).map((e) => e.key)).toEqual(['c', 'd']);
+    expect(describeUnowned(unowned(queue))).toBe('2 changes made offline cannot be sent');
+    expect(describeUnowned([entry()])).toBe('1 change made offline cannot be sent');
+    expect(describeUnowned([])).toBe('');
   });
 
   /*
