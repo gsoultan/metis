@@ -123,7 +123,7 @@ func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time, 
 			return security.ForgetIdempotencyRecords(ctx, a.storm, defaultHTTPIdempotencyTTL, now)
 		})
 	}
-	// The two an operator opts into. Instances live in each runtime's
+	// The ones an operator opts into. Instances live in each runtime's
 	// database, so their snapshots and jobs do too.
 	if keep.variableSnapshots > 0 {
 		forget(ctx, "variable_snapshots", database, func(ctx context.Context) (int64, error) {
@@ -133,6 +133,14 @@ func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time, 
 	if keep.finishedJobs > 0 {
 		forget(ctx, "jobs", database, func(ctx context.Context) (int64, error) {
 			return a.repo.Job().ForgetFinishedBefore(ctx, now.Add(-keep.finishedJobs))
+		})
+	}
+	// Main database only. The deviation ledger, which decides whether an
+	// instance is kept, lives there; an environment's database has none, so
+	// nothing there could say an instance is still needed.
+	if keep.finishedInstances > 0 && database == "main" {
+		forget(ctx, "process_instances", database, func(ctx context.Context) (int64, error) {
+			return a.repo.Process().ForgetFinishedBefore(ctx, now.Add(-keep.finishedInstances))
 		})
 	}
 	expire(ctx, database, func(ctx context.Context) (entities.SweptRequests, error) {
@@ -146,6 +154,7 @@ func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time, 
 const (
 	envRetainVariableSnapshotsDays = "METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS"
 	envRetainCompletedJobsDays     = "METIS_RETENTION_COMPLETED_JOBS_DAYS"
+	envRetainFinishedInstancesDays = "METIS_RETENTION_FINISHED_INSTANCES_DAYS"
 )
 
 // maxRetentionDays bounds the setting so a typo of extra digits is refused
@@ -155,18 +164,22 @@ const maxRetentionDays = 36_500
 // optInRetention is how long the swept-on-request tables keep a row; zero
 // means the table is not swept at all.
 //
-// Only these two. Process instances, tasks and the audit trail are business
-// records — what was decided, by whom, and when — and an engine that deleted
-// them on a timer would be deleting the evidence of somebody's commitments.
+// Finished instances are business records — what was decided, and when — so
+// they are removed only when an operator has said for how long to keep them,
+// and then with care: see ProcessRepository.ForgetFinishedBefore, which keeps
+// any instance a deviation was recorded or asked for on. The audit trail is
+// never swept: it is the evidence of who did what.
 type optInRetention struct {
 	variableSnapshots time.Duration
 	finishedJobs      time.Duration
+	finishedInstances time.Duration
 }
 
 func resolveOptInRetention() optInRetention {
 	return optInRetention{
 		variableSnapshots: retentionDays(envRetainVariableSnapshotsDays),
 		finishedJobs:      retentionDays(envRetainCompletedJobsDays),
+		finishedInstances: retentionDays(envRetainFinishedInstancesDays),
 	}
 }
 
@@ -197,6 +210,11 @@ func (k optInRetention) announce() {
 	if k.finishedJobs > 0 {
 		log.Info().Str("table", "jobs").Dur("kept", k.finishedJobs).
 			Msg("Completed jobs, and failed ones no open incident names, older than the retention period are removed")
+	}
+	if k.finishedInstances > 0 {
+		log.Info().Str("table", "process_instances").Dur("kept", k.finishedInstances).
+			Msg("Completed and cancelled instances older than the retention period are removed, with their tasks, jobs, " +
+				"service calls, incidents, snapshots and notifications; the audit trail and any instance with a deviation are kept")
 	}
 }
 

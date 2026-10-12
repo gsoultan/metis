@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -77,6 +78,12 @@ type WaitingRow struct {
 }
 
 type ProcessRepository interface {
+	// ForgetFinishedBefore deletes the instances that completed or were
+	// cancelled before cutoff and that nothing still needs, with the rows that
+	// exist only to run them. The audit trail and any deviation record are
+	// kept. System context only: it spans every tenant.
+	ForgetFinishedBefore(ctx context.Context, cutoff time.Time) (int64, error)
+
 	// WaitingByStep counts the live tokens of running instances per process
 	// and step. It is scoped to the caller's tenant like every project read.
 	WaitingByStep(ctx context.Context, projectID uuid.UUID) ([]WaitingRow, error)

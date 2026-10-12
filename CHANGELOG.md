@@ -283,6 +283,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Finished instances can be removed after a set number of days.** Set
+  `METIS_RETENTION_FINISHED_INSTANCES_DAYS` and every ten minutes the sweep
+  removes completed and cancelled instances older than that, with their tasks,
+  jobs, external tasks, service calls, incidents, event subscriptions,
+  compensation records, variable snapshots and notifications. Off unless set.
+  Kept whatever their age: the audit trail; any instance a deviation was
+  recorded or asked for on; one with an open incident; a failed instance; a
+  finished child of an instance still running, and a finished parent of one;
+  and, for now, instances in an environment's own database.
+
 - **Variable snapshots and finished jobs can be cut back, if you ask.** Both
   tables only ever grew. `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` removes
   snapshots captured more than that many days ago, and
