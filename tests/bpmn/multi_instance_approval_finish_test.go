@@ -229,25 +229,17 @@ func TestAnIterationAlreadyCountedIsNotCountedAgain(t *testing.T) {
 }
 
 // BPMN 2.0.2 §13.2.7 does not say what a multi-instance activity over an empty
-// collection does; this engine runs the step once (see
-// TestMultiInstance_WithAnEmptyCollectionRunsOnceAndProceeds). That one run has
-// no instances to count, so a completion condition written against the
-// counters has nothing to read and must not hold the process.
-func TestAnApprovalNobodyWasListedForRunsOnceAndMovesOn(t *testing.T) {
+// collection does; this engine skips the step (see
+// TestMultiInstance_WithAnEmptyCollectionIsSkipped). An approval nobody was
+// listed for asks nobody, and the process moves on.
+func TestAnApprovalNobodyWasListedForIsSkipped(t *testing.T) {
 	h := newEngineHarness(t, "Empty Approval Project")
 	ctx := h.Ctx()
 	instanceID := startApproval(t, h,
 		approvalDefinition(h.projID, "purchase-approval-nobody", "parallel", "nrOfCompletedInstances >= 2"))
 
-	open := openIterationTasks(ctx, t, h, instanceID, "approve")
-	if len(open) != 1 {
-		t.Fatalf("an empty list opened %d task(s), want the one run", len(open))
-	}
-	if open[0].IterationID != "" {
-		t.Fatalf("the one run records iteration %q, want none", open[0].IterationID)
-	}
-	if err := completeAs(ctx, h, open[0], "carol", nil); err != nil {
-		t.Fatalf("complete: %v", err)
+	if open := openIterationTasks(ctx, t, h, instanceID, "approve"); len(open) != 0 {
+		t.Fatalf("an empty list opened %d approval task(s), want none", len(open))
 	}
 	finishRecording(ctx, t, h, instanceID)
 }

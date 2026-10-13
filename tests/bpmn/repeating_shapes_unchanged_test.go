@@ -281,6 +281,24 @@ func (r *shapeRun) stageAs(def *entities.ProcessDefinition, tokens []string, cou
 	}
 }
 
+// emptyTheList leaves the instance's items empty and its open tasks without an
+// iteration, as the earlier release's one run over an empty list left them.
+func (r *shapeRun) emptyTheList() {
+	r.t.Helper()
+	ctx := r.h.Ctx()
+	instance, err := r.h.engine.GetInstance(ctx, r.id)
+	if err != nil {
+		r.t.Fatalf("reload instance: %v", err)
+	}
+	instance.Variables["items"] = []any{}
+	if err := r.h.engine.UpdateInstance(ctx, instance); err != nil {
+		r.t.Fatalf("stage: %v", err)
+	}
+	if err := r.h.db.Exec(`UPDATE tasks SET iteration_id = NULL WHERE instance_id = ?`, r.id).Error; err != nil {
+		r.t.Fatalf("stage: %v", err)
+	}
+}
+
 // countingCalls stands up a partner endpoint and counts the calls the instance
 // makes to it.
 //
@@ -519,17 +537,24 @@ func TestARepeatingSubProcessWithThreeStepsInsideIsUnchanged(t *testing.T) {
 	r.pin("recorded", r.complete("record"))
 }
 
-// BPMN 2.0.2 §10.3.8: a sub-process given nothing to repeat over runs once.
-func TestARepeatingSubProcessOverAnEmptyListIsUnchanged(t *testing.T) {
+// A sub-process given nothing to repeat over is skipped, as any step repeated
+// over an empty list is. This is the one shape here that changed on purpose:
+// the release before ran it once, with no item.
+func TestARepeatingSubProcessOverAnEmptyListIsSkipped(t *testing.T) {
 	for _, loop := range bothLoops {
 		t.Run(loop, func(t *testing.T) {
-			h := newEngineHarness(t, "Unchanged sub empty "+loop)
-			def := eachItem(h.projID, "unchanged-sub-empty-"+loop, loop,
+			h := newEngineHarness(t, "Skipped sub empty "+loop)
+			def := eachItem(h.projID, "skipped-sub-empty-"+loop, loop,
 				[]*entities.Node{{ID: "review", Type: entities.UserTask, Name: "Review"}}, oneStepInside("review"))
 			r := startShape(t, h, def, map[string]any{"items": []any{}})
-			r.pin("entered")
-			r.pin("review", r.complete("review"))
-			r.pin("recorded", r.complete("record"))
+			const entered = "status=active tokens=[record] counting=[] tasks=[record:unclaimed×1] parked=[] jobs=[] incidents=[] called=[]"
+			if got := r.state(); got != entered {
+				t.Fatalf("entered:\n  want %s\n  got  %s", entered, got)
+			}
+			const recorded = "status=completed tokens=[] counting=[] tasks=[record:completed×1] parked=[] jobs=[] incidents=[] called=[]"
+			if outcome, got := r.complete("record"), r.state(); outcome != "ok" || got != recorded {
+				t.Fatalf("recorded: outcome=%s\n  want %s\n  got  %s", outcome, recorded, got)
+			}
 		})
 	}
 }
@@ -557,8 +582,12 @@ func TestAnInstanceAlreadyInsideARepeatingSubProcessIsUnchanged(t *testing.T) {
 		h := newEngineHarness(t, "Unchanged sub staged empty")
 		def := eachItem(h.projID, "unchanged-sub-staged-empty", "parallel",
 			[]*entities.Node{{ID: "review", Type: entities.UserTask, Name: "Review"}}, oneStepInside("review"))
-		r := startShape(t, h, def, map[string]any{"items": []any{}})
+		// This release skips a sub-process over an empty list, so the one run
+		// the earlier release made is written here: a run over one item, with
+		// the list emptied and the run's iteration taken off its task.
+		r := startShape(t, h, def, map[string]any{"items": []any{"a"}})
 		r.stageAs(def, []string{"review"}, nil)
+		r.emptyTheList()
 		r.pin("as the earlier release left it")
 		r.pin("review", r.complete("review"))
 		r.pin("recorded", r.complete("record"))
