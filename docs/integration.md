@@ -1397,6 +1397,11 @@ with `Idempotency-Replayed: true` and does not execute again. Reusing one key
 with a *different* body is refused with `409 Conflict` — that is almost always a
 client bug, and executing it would make the key meaningless.
 
+A reply larger than 2 MB is sent but not kept. A retry of that request is
+refused with `409 Conflict` and `Idempotency-Replayed: true` rather than run
+again; `Idempotency-Original-Status` carries the status the first attempt
+answered with, so a client can tell whether it succeeded.
+
 Records are kept for 15 minutes, which is a retry window rather than a
 deduplication guarantee; a retry an hour later is a new command.
 

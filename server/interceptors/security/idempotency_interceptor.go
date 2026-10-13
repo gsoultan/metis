@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +28,7 @@ const (
 	idempotencyCleanupEvery       = 128
 	idempotencyKeyHeader          = "Idempotency-Key"
 	idempotencyReplayHeader       = "Idempotency-Replayed"
+	idempotencyOriginalStatus     = "Idempotency-Original-Status"
 	idempotencyConflictStatusCode = http.StatusConflict
 
 	// maxIdempotentResponseBytes is the largest reply kept for replay — the
@@ -128,12 +131,17 @@ func (i *idempotencyInterceptor) executeAndRecord(w http.ResponseWriter, r *http
 	capture := newResponseCaptureWriter(w, maxIdempotentResponseBytes)
 	next.ServeHTTP(capture, r)
 	if capture.passedThrough {
-		// Already on its way to the client, so there is nothing to replay. The
-		// claim is released by the deferred Abandon: a retry with this key
-		// runs the request again rather than waiting for a record that is
-		// never going to be written.
+		// Already on its way to the client, so there is nothing to replay. It
+		// used to release the claim, and a retry with this key ran the request
+		// a second time: the duplicate the header exists to prevent. What is
+		// recorded instead is that the request ran, so a retry is refused with
+		// a 409 that says why rather than executed again.
+		if err := i.store.Complete(recordCtx, storageKey, tooLargeToReplay(capture.statusCode)); err != nil {
+			log.Error().Err(err).Msg("Could not record that a request ran; a retry of it will execute again")
+		}
+		recorded = true
 		log.Warn().Str("method", r.Method).Str("path", r.URL.Path).Int("limit_bytes", maxIdempotentResponseBytes).
-			Msg("A response was too large to keep for idempotent replay; it was sent but not recorded, so a retry with the same key will execute again")
+			Msg("A response was too large to keep for idempotent replay; it was sent, and a retry with the same key will be refused rather than executed again")
 		return
 	}
 	result := capture.result()
@@ -148,6 +156,23 @@ func (i *idempotencyInterceptor) executeAndRecord(w http.ResponseWriter, r *http
 	recorded = true
 
 	writeIdempotencyResult(w, result, false)
+}
+
+// tooLargeToReplay is what a retry gets when the reply it asks for was sent
+// but was too large to keep: a 409 saying the request already ran, with the
+// status it ran with, so the client can tell success from failure without
+// running it again.
+func tooLargeToReplay(originalStatus int) StoredResponse {
+	return StoredResponse{
+		StatusCode: idempotencyConflictStatusCode,
+		Header: http.Header{
+			"Content-Type":            {"text/plain; charset=utf-8"},
+			"X-Content-Type-Options":  {"nosniff"},
+			idempotencyOriginalStatus: {strconv.Itoa(originalStatus)},
+		},
+		Body: []byte(fmt.Sprintf("The request with this Idempotency-Key already ran and answered %d, "+
+			"but its reply was too large to keep for replay; it was not run again\n", originalStatus)),
+	}
 }
 
 func resultFrom(response *StoredResponse) *idempotencyResult {

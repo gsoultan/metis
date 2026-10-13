@@ -80,6 +80,14 @@ func (t *NodeHandlerTemplate) handleMultiInstance(ctx context.Context, instance 
 		total = node.LoopCardinality
 	}
 
+	// A list with nothing in it means there is nothing to do: the step is
+	// skipped and the process carries on, as Camunda does. It used to run once
+	// with no item, so "notify each supplier" over no suppliers sent one
+	// notification to nobody, and an approval with nobody listed opened one
+	// task for nobody in particular.
+	if node.Collection != "" && total == 0 {
+		return t.engine.Proceed(ctx, instance, def, node.ID)
+	}
 	if total <= 0 {
 		return t.internal.DoExecute(ctx, instance, def, node, "")
 	}
