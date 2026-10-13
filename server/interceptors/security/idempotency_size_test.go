@@ -10,8 +10,7 @@ import (
 	"time"
 )
 
-// recordingStore counts completed records, so a test can tell whether a reply
-// was kept.
+// recordingStore counts completed records.
 type recordingStore struct {
 	IdempotencyStore
 	completed atomic.Int32
@@ -22,12 +21,15 @@ func (s *recordingStore) Complete(ctx context.Context, key string, response Stor
 	return s.IdempotencyStore.Complete(ctx, key, response)
 }
 
-// A reply too large to keep is sent, not stored.
+// A reply too large to keep is sent, not stored, and a retry with the same
+// key is refused rather than run again.
 //
 // Every reply was buffered whole and stored as one record with no cap, so a
 // large reply behind an Idempotency-Key sat in memory twice and went into the
-// records table as one row of whatever size the handler produced.
-func TestAResponseTooLargeToKeepIsSentButNotRecorded(t *testing.T) {
+// records table as one row of whatever size the handler produced. The cap
+// fixed that by releasing the key, which let a retry run the request a second
+// time; now the key records that it ran.
+func TestAResponseTooLargeToKeepIsSentAndARetryIsRefused(t *testing.T) {
 	t.Parallel()
 
 	chunk := bytes.Repeat([]byte("x"), 64<<10)
@@ -61,18 +63,19 @@ func TestAResponseTooLargeToKeepIsSentButNotRecorded(t *testing.T) {
 	if got := first.Header().Get("Content-Type"); got != "application/octet-stream" {
 		t.Fatalf("the handler's headers did not reach the client: Content-Type = %q", got)
 	}
-	if n := store.completed.Load(); n != 0 {
-		t.Fatalf("a %d-byte reply was recorded for replay; the cap is %d", first.Body.Len(), maxIdempotentResponseBytes)
-	}
 
-	// The claim was released, so a retry runs rather than waiting for a
-	// record that is never going to be written.
 	second := send()
-	if second.Code != http.StatusCreated || second.Header().Get(idempotencyReplayHeader) != "" {
-		t.Fatalf("retry: status = %d, replayed = %q", second.Code, second.Header().Get(idempotencyReplayHeader))
+	if calls.Load() != 1 {
+		t.Fatalf("handler ran %d times for one Idempotency-Key, want 1", calls.Load())
 	}
-	if calls.Load() != 2 {
-		t.Fatalf("handler ran %d times, want 2", calls.Load())
+	if second.Code != http.StatusConflict || second.Header().Get(idempotencyReplayHeader) != "true" {
+		t.Fatalf("retry: status = %d, replayed = %q; want 409, replayed", second.Code, second.Header().Get(idempotencyReplayHeader))
+	}
+	if got := second.Header().Get(idempotencyOriginalStatus); got != "201" {
+		t.Fatalf("retry: %s = %q, want the 201 the request ran with", idempotencyOriginalStatus, got)
+	}
+	if second.Body.Len() > 1024 {
+		t.Fatalf("the refusal carried %d bytes; the large reply was stored after all", second.Body.Len())
 	}
 }
 

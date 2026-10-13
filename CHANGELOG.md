@@ -882,6 +882,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **A retry no longer runs a request again because its reply was large.** A
+  reply over 2 MB behind an `Idempotency-Key` was sent but not kept, and the
+  key was released, so a client retrying after a lost connection ran the
+  request a second time. A retry is now refused with **409** and
+  `Idempotency-Replayed: true`; `Idempotency-Original-Status` says what the
+  first attempt answered.
+
 - **A step that repeats once per item no longer runs once when its list is
   missing, and no longer runs out of memory on a huge one.** A list variable
   that was missing, misspelled, or held something other than a list read as
