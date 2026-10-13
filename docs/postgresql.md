@@ -155,24 +155,24 @@ open environment's:
 | `idempotency_records` | 15 minutes once answered; a day if never answered | Answers older than the TTL are reclaimed, not replayed. An unanswered claim may still belong to a running request, because the server sets no write deadline. |
 | `shared_counters` | 5 minutes | The rate-limit windows are one minute long. |
 
-Two more are cut back only when you say for how long to keep them. **Both
+Three more are cut back only when you say for how long to keep them. **All
 are off by default**, and an upgrade removes nothing until one is set:
 
 | Setting | Removes | Never removes |
 | :--- | :--- | :--- |
 | `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` | `variable_snapshots` captured more than that many days ago. An instance's variable history then starts at the period's beginning. | Snapshots inside the period, of any instance. |
 | `METIS_RETENTION_COMPLETED_JOBS_DAYS` | `jobs` that will never run again — `completed`, or `failed` with no unresolved incident naming them — neither due nor changed for that many days. | A `pending` or `running` job, and a `failed` job an open incident names: resolving the incident is what runs it again. The incidents themselves are kept. |
+| `METIS_RETENTION_FINISHED_INSTANCES_DAYS` | `process_instances` that `completed` or were `cancelled` and have not changed for that many days, with their `tasks`, `jobs`, `external_tasks`, `service_calls`, `incidents`, `event_subscriptions`, `compensatable_activities`, `variable_snapshots` and `notifications`. Main database only. | The audit trail. An instance any deviation was recorded or asked for on; one with an open incident; a `failed` or running one; a finished child of a running instance, and a finished parent of a running child; and instances in an environment's own database. |
 
 Each is a whole number of days from 1; anything else is ignored with a warning
 and removes nothing. They run in the same sweep, on every database, 5,000 rows
 a statement, and the server says at boot which are on.
 
-**Process instances, tasks and the audit trail are never removed by the
-server**, at any setting. They are the business record — what was decided, by
-whom, and when — and keeping or archiving them is a decision for whoever owns
-that record, not a timer. The same holds for `service_calls`, which is what
-stops a retried step calling a partner twice, and for `incidents` and
-`notifications`.
+**The audit trail is never removed by the server**, at any setting: it is the
+record of who did what. Finished instances, and everything they own, go only
+when `METIS_RETENTION_FINISHED_INSTANCES_DAYS` is set; keeping or archiving
+them is a decision for whoever owns that record, so the server makes it only
+when told to.
 
 A failed sweep is logged as `A retention sweep failed` with the table and the
 database. The table then keeps growing until a sweep succeeds.
