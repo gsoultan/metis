@@ -8,6 +8,88 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+A minor release that asks something of whoever upgrades, so read
+**Upgrading** first. A group's roles start to grant what the group editor
+says. Completing a task sets only what its form declares, and a manual task
+that names nobody becomes an administrator's or an operator's. Handing a task
+over is checked and needs a reason from anybody but its holder. A waive, and a
+migration that loosens a control on running work, wait for a second
+administrator. Migrations 31 to 36 run at the first boot; four of them stop
+the upgrade on purpose rather than hold a busy table behind a long read.
+
+The rest is reliability: one bad decision table, message or gRPC call can no
+longer take the server down, the requests anybody could use to spend the
+server's memory are bounded, a step repeated over a list refuses a missing or
+oversized list, and the tables that only ever grew can be cut back.
+
+### Upgrading
+
+Read [`docs/upgrading.md`](docs/upgrading.md) first, and rehearse on a copy of
+your own data with `scripts/upgrade-rehearsal.sh`. What needs a decision or an
+action, in the order it bites:
+
+- **Groups that list roles start granting them.** Find them before upgrading
+  and remove any role that was never meant to apply ([A group's roles grant
+  what they say](docs/upgrading.md#a-groups-roles-grant-what-they-say)).
+- **Completing a task sets only the variables its form declares.** An
+  integration that completes tasks with other variables is refused them. Give
+  each such step's form the fields it sets;
+  `METIS_ALLOW_UNDECLARED_TASK_VARIABLES=true` keeps the old rule for a
+  migration window ([Completing a task sets only what its form
+  declares](docs/upgrading.md#completing-a-task-sets-only-what-its-form-declares)).
+- **A manual task that names nobody is an administrator's or an operator's.**
+  Every manual step designed before this release names nobody, so give each one
+  somebody under *Who does this*;
+  `METIS_ALLOW_UNASSIGNED_TASK_CLAIMS=true` keeps the old rule for a migration
+  window ([Tasks nobody was named
+  for](docs/upgrading.md#tasks-nobody-was-named-for-are-the-administrators-and-operators)).
+- **Handing a task over is checked and recorded.** An integration that assigns,
+  delegates, releases or edits a task it does not hold must send a `reason`;
+  a name that is not an account in the organization is refused; assigning a
+  task to its holder is a 400. A webhook consumer that watched `TaskUpdated`
+  for delegations must subscribe to `TaskDelegated` and `TaskResolved`
+  ([Handing a task over](docs/upgrading.md#handing-a-task-over-is-checked-and-recorded)).
+- **A waive, and a migration that loosens a control on running work, answer
+  202 and wait for a second administrator.** A script that did either in one
+  call must read `applied` and have a different administrator approve the
+  request. An organization with one administrator appoints a second, or is
+  named in `METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS`. Finish a rolling upgrade
+  or a canary before relying on the control, and reject every request that
+  waits before rolling back ([A second administrator approves waivers and
+  skips](docs/upgrading.md#a-second-administrator-approves-waivers-and-skips-migration-34)).
+- **A step repeated over an empty list is skipped**, where it ran once with no
+  item, and one over a missing or oversized list is refused ([A step repeated
+  over a list](docs/upgrading.md#a-step-repeated-over-a-list)).
+- **Four replies changed shape.** `GET /api/v1/instances/{id}/audit` returns the
+  newest 1,000 entries and a `total`; `GET /api/v1/projects/{id}/ocel` refuses a
+  project with more than 100,000 audit entries or instances; a migration's
+  `passed_over` lists at most 200 beside `passed_over_in_all`; a retry whose
+  first reply was over 2 MB is a 409 rather than a second run.
+- **Retention is off unless you set it.** Nothing is removed by the upgrade.
+  `METIS_RETENTION_FINISHED_INSTANCES_DAYS`,
+  `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` and
+  `METIS_RETENTION_COMPLETED_JOBS_DAYS` each start a sweep; the audit trail is
+  never swept.
+
+Migrations 31 to 36 run at the first boot. Take a backup first: a rollback
+does not undo a migration.
+
+- **31** gives a task the run of its step it was created for, and **stops the
+  upgrade if `tasks` is held for more than two seconds**; it finishes on the
+  next start ([Migration
+  31](docs/upgrading.md#migration-31-a-task-records-which-run-of-its-step-it-is-for)).
+- **32** gives a task the `owner` a delegation goes back to, **turns every task
+  already `delegated` into a claim by its assignee**, and stops on the same
+  two-second bound.
+- **33** creates each instance's ledger of what was done to it, and stops if
+  `projects` or `process_definitions` is held for more than two seconds
+  ([Migration
+  33](docs/upgrading.md#migration-33-an-instances-ledger-of-what-was-done-to-it)).
+- **34** creates the requests that wait for a second administrator, and stops
+  on the same bound.
+- **35** and **36** add two indexes, built concurrently: one for the
+  rate-limit sweep, one for a project's task list.
+
 ### Security
 
 - **A group's roles now grant what they say.** The group editor said everyone
@@ -301,9 +383,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   have been neither due nor changed for that long. **Both are off unless set**,
   so an upgrade removes nothing. They run in the existing retention sweep, on
   every database, 5,000 rows a statement. A pending or running job, a failed
-  job an open incident names, and every incident are kept. Process instances,
-  tasks and the audit trail are never removed by the server at any setting:
-  they are the business record. See *What to watch* in
+  job an open incident names, and every incident are kept. The audit trail is
+  never removed by the server at any setting, and finished instances and their
+  tasks only under the setting in the entry above. See *What to watch* in
   `docs/postgresql.md`.
 - **Four routes read and decide the requests that wait for a second
   administrator.** For administrators of the organization the request is for;
