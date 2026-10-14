@@ -18,6 +18,69 @@ The first version of one of them silently left every form without its
 definition. `tests/upgrade` is the automated version of the same rehearsal and
 runs in CI; this is the one that uses your data.
 
+## A group's roles grant what they say
+
+A group's `roles` were stored and shown in the group editor, which said that
+everyone in the group holds them, and nothing read them. From this release on
+they act: each member holds the group's roles in the group's organization, and
+only there. No migration runs; the roles already stored start to count at the
+first request after the upgrade.
+
+**Who is affected:** any organization where a group was given roles. Those
+roles granted nothing until now, so somebody may have filled the field in
+without expecting it to matter, or given a group a role as a note. After the
+upgrade every member of that group holds it.
+
+**Find them before upgrading.** Every group that lists roles, with its
+organization and how many members it has:
+
+```sql
+SELECT o.name AS organization, g.name AS "group", g.roles, count(m.user_id) AS members
+  FROM groups g
+  JOIN organizations o ON o.id = g.organization_id
+  LEFT JOIN memberships m ON m.group_id = g.id
+ WHERE g.deleted_at IS NULL
+   AND COALESCE(g.roles, '') NOT IN ('', '[]', 'null')
+ GROUP BY o.name, g.name, g.roles
+ ORDER BY 1, 2;
+```
+
+For each row, either keep the roles (the group's members should hold them) or
+remove them in the group editor, before the upgrade or straight after it. A
+role is never granted outside the group's organization, never for what every
+organization shares, and not to a member who has left the organization.
+
+**What else changed.** A group can be given only the roles the installation
+has, as an account can in an organization; anything else is refused with 400.
+A role held only through a group does not count toward keeping an
+organization's last administrator, so removing the last administrator who holds
+the role in their own right is refused as before.
+
+**Rolling back** to 0.4.0 makes group roles grant nothing again. Nothing in the
+database changed.
+
+## A step repeated over a list
+
+A step that runs once per item of a list (a multi-instance step over a
+collection) is read more strictly. No migration runs.
+
+- **An empty list skips the step.** It used to run once with no item: a service
+  call with nothing to send, an approval for nobody. The process now moves
+  straight past it, as Camunda does. A process that relied on that one run, for
+  example an approval left for somebody to pick up when nobody was listed,
+  needs a list that is never empty or a gateway that routes around the step.
+- **A missing list is an error.** A variable that is missing, misspelled or
+  not a list used to read as empty and run the step once. It is now refused
+  with an error naming the step and the variable, as any step that cannot run
+  is: reached as a process starts, the start is refused.
+- **A list of more than 10,000 items is an error,** as a fixed repeat count of
+  that size already was.
+- **`${suppliers}` is read as the variable `suppliers`.** A list named the
+  Camunda way was never found and ran the step once; it now runs once per item.
+
+A step repeated a fixed number of times is unchanged. Instances already inside
+such a step carry on; the new reading applies when an instance next enters one.
+
 ## A second administrator approves waivers and skips (migration 34)
 
 Some things one administrator could do to running work alone now wait for a
