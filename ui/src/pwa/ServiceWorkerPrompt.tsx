@@ -14,9 +14,9 @@ import { useOnlineStatus, useServiceWorker } from './useServiceWorker';
 export function ServiceWorkerPrompt() {
   const { updateReady, update, dismiss } = useServiceWorker();
   const online = useOnlineStatus();
-  const { summary, flush } = useOutbox();
+  const { summary, flush, unowned, unownedSummary, discardUnowned } = useOutbox();
 
-  if (!updateReady && online && summary === '') {
+  if (!updateReady && online && summary === '' && unownedSummary === '') {
     return null;
   }
 
@@ -64,6 +64,40 @@ export function ServiceWorkerPrompt() {
                 </Button>
               </Group>
             )}
+          </Stack>
+        </Notification>
+      )}
+
+      {/*
+        Work queued before this device recorded who did it. It is never sent,
+        because it could be anybody's, and until now it was never shown
+        either: somebody's approval sat here with nothing saying it had not
+        gone through. Named, so whoever made it knows to do it again.
+      */}
+      {unownedSummary !== '' && (
+        <Notification
+          icon={<Upload size={18} />}
+          color="orange"
+          title={unownedSummary}
+          withCloseButton={false}
+        >
+          <Stack gap="xs">
+            <Text size="sm">
+              {unowned.length === 1 ? 'It was' : 'They were'} saved on this device before it
+              recorded who made each change, so {unowned.length === 1 ? 'it' : 'they'} cannot
+              be sent in anybody's name. Do {unowned.length === 1 ? 'it' : 'them'} again if
+              still needed:
+            </Text>
+            <Text size="sm" component="ul" style={{ margin: 0, paddingLeft: 18 }}>
+              {unowned.map((entry) => (
+                <li key={entry.key}>{entry.label}</li>
+              ))}
+            </Text>
+            <Group gap="xs">
+              <Button size="xs" variant="light" color="orange" onClick={() => void discardUnowned()}>
+                Discard
+              </Button>
+            </Group>
           </Stack>
         </Notification>
       )}

@@ -892,6 +892,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **Work saved offline before the app recorded who did it is shown.** Changes
+  queued on a device before each one carried its owner are never sent, since
+  they could be anybody's, and they were never shown either: an approval made
+  offline could sit on a phone with nothing saying it had not gone through.
+  Whoever signs in on that device now sees them listed by name, with a
+  **Discard** button, so the person who made them knows to do them again.
+
 - **A retry no longer runs a request again because its reply was large.** A
   reply over 2 MB behind an `Idempotency-Key` was sent but not kept, and the
   key was released, so a client retrying after a lost connection ran the

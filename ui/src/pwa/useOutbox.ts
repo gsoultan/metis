@@ -10,10 +10,10 @@ import { notifications } from '@mantine/notifications';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { describeQueue, ownedBy, type OutboxEntry } from '../domain/outbox';
+import { describeQueue, describeUnowned, ownedBy, unowned, type OutboxEntry } from '../domain/outbox';
 import { useAppStore } from '../store/useAppStore';
 import { flushOutbox } from './outbox';
-import { watchOutbox } from './outboxStore';
+import { removeOutbox, watchOutbox } from './outboxStore';
 import { errorMessage } from '../services/shared/errors';
 
 export interface OutboxState {
@@ -22,6 +22,15 @@ export interface OutboxState {
   summary: string;
   /** Sends everything waiting now. */
   flush: () => Promise<void>;
+  /**
+   * Work on this device that records no owner, so is never sent: queued
+   * before the queue kept who did it. Empty while nobody is signed in.
+   */
+  unowned: OutboxEntry[];
+  /** What to say about `unowned`, or "" when there is none. */
+  unownedSummary: string;
+  /** Throws the unowned work away. */
+  discardUnowned: () => Promise<void>;
 }
 
 export function useOutbox(): OutboxState {
@@ -31,6 +40,9 @@ export function useOutbox(): OutboxState {
   // device is not theirs to send or to worry about.
   const userId = useAppStore((state) => state.user?.id ?? null);
   const entries = useMemo(() => ownedBy(allEntries, userId), [allEntries, userId]);
+  // Shown to whoever is signed in: it could be anybody's, and nobody else will
+  // ever be told about it.
+  const orphans = useMemo(() => (userId ? unowned(allEntries) : []), [allEntries, userId]);
 
   useEffect(() => watchOutbox(setEntries), []);
 
@@ -79,5 +91,16 @@ export function useOutbox(): OutboxState {
     return () => window.removeEventListener('online', onOnline);
   }, [flush]);
 
-  return { entries, summary: describeQueue(entries), flush };
+  const discardUnowned = useCallback(async () => {
+    for (const entry of orphans) await removeOutbox(entry.key);
+  }, [orphans]);
+
+  return {
+    entries,
+    summary: describeQueue(entries),
+    flush,
+    unowned: orphans,
+    unownedSummary: describeUnowned(orphans),
+    discardUnowned,
+  };
 }
