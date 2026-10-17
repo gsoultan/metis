@@ -61,4 +61,8 @@ type ServiceFacade interface {
 	// RetentionHoldService keeps instances out of the finished-instance
 	// sweep, an administrator's act with a reason, written to the trail.
 	serviceContracts.RetentionHoldService
+
+	// RetentionPeriodService gives a process a retention period of its own,
+	// an administrator's act with a reason, every change kept.
+	serviceContracts.RetentionPeriodService
 }

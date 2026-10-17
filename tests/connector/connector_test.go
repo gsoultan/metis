@@ -117,11 +117,12 @@ func (m *MockRepository) Deviation() contracts.DeviationRepository { return nil 
 func (m *MockRepository) DeviationRequest() contracts.DeviationRequestRepository {
 	return nil
 }
-func (m *MockRepository) DeviationDecider() contracts.DeviationDecider     { return nil }
-func (m *MockRepository) RetentionHold() contracts.RetentionHoldRepository { return nil }
-func (m *MockRepository) Broadcast() contracts.BroadcastRepository         { return nil }
-func (m *MockRepository) SharedCounter() contracts.SharedCounterRepository { return nil }
-func (m *MockRepository) Connector() contracts.ConnectorRepository         { return m.connector }
+func (m *MockRepository) DeviationDecider() contracts.DeviationDecider         { return nil }
+func (m *MockRepository) RetentionHold() contracts.RetentionHoldRepository     { return nil }
+func (m *MockRepository) RetentionPeriod() contracts.RetentionPeriodRepository { return nil }
+func (m *MockRepository) Broadcast() contracts.BroadcastRepository             { return nil }
+func (m *MockRepository) SharedCounter() contracts.SharedCounterRepository     { return nil }
+func (m *MockRepository) Connector() contracts.ConnectorRepository             { return m.connector }
 func (m *MockRepository) ConnectorInstance() contracts.ConnectorInstanceRepository {
 	return m.connectorInstance
 }

@@ -65,6 +65,7 @@ func All() []any {
 		&DeviationRequest{},
 		// Instances kept out of the retention sweep.
 		&RetentionHold{},
+		&RetentionPeriod{},
 
 		// The inbound surface and the machinery underneath it.
 		&Webhook{},

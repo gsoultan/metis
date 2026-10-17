@@ -138,9 +138,14 @@ func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time, 
 	// Main database only. The deviation ledger, which decides whether an
 	// instance is kept, lives there; an environment's database has none, so
 	// nothing there could say an instance is still needed.
-	if keep.finishedInstances > 0 && database == "main" {
+	//
+	// It runs whether or not the installation has a period: an administrator
+	// may have given one process a period of its own, and the sweep then
+	// removes that process's instances and no other's. With no period
+	// anywhere it reads one row and removes nothing.
+	if database == "main" {
 		forget(ctx, "process_instances", database, func(ctx context.Context) (int64, error) {
-			return a.repo.Process().ForgetFinishedBefore(ctx, now.Add(-keep.finishedInstances))
+			return a.repo.Process().ForgetFinished(ctx, now, keep.finishedInstances)
 		})
 	}
 	expire(ctx, database, func(ctx context.Context) (entities.SweptRequests, error) {
@@ -166,7 +171,7 @@ const maxRetentionDays = 36_500
 //
 // Finished instances are business records — what was decided, and when — so
 // they are removed only when an operator has said for how long to keep them,
-// and then with care: see ProcessRepository.ForgetFinishedBefore, which keeps
+// and then with care: see ProcessRepository.ForgetFinished, which keeps
 // any instance a deviation was recorded or asked for on. The audit trail is
 // never swept: it is the evidence of who did what.
 type optInRetention struct {

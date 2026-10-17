@@ -11,7 +11,7 @@ import (
 // ErrRetentionHoldOutsideTransaction is what placing or releasing a hold
 // answers when no transaction is open. The hold and the trail entry that says
 // who placed it are written together or not at all, and the sweep's wait for
-// holds being placed (ProcessRepository.ForgetFinishedBefore) is a wait for
+// holds being placed (ProcessRepository.ForgetFinished) is a wait for
 // the transaction that places one.
 var ErrRetentionHoldOutsideTransaction = errors.New("a retention hold is placed and released inside a transaction, and none is open")
 

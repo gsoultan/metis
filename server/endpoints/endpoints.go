@@ -21,6 +21,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/process"
 	"github.com/gsoultan/metis/server/endpoints/project"
 	"github.com/gsoultan/metis/server/endpoints/retentionhold"
+	"github.com/gsoultan/metis/server/endpoints/retentionperiod"
 	"github.com/gsoultan/metis/server/endpoints/role"
 	"github.com/gsoultan/metis/server/endpoints/setup"
 	"github.com/gsoultan/metis/server/endpoints/simulation"
@@ -44,6 +45,7 @@ type Endpoints struct {
 	Incident          incident.Endpoints
 	Deviation         deviation.Endpoints
 	RetentionHold     retentionhold.Endpoints
+	RetentionPeriod   retentionperiod.Endpoints
 	Organization      organization.Endpoints
 	Process           process.Endpoints
 	Project           project.Endpoints
@@ -301,6 +303,15 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	holdEndpoints.ReleaseInstanceHold = adminOnly("ReleaseInstanceHold")(holdEndpoints.ReleaseInstanceHold)
 	holdEndpoints.ListRetentionHolds = adminOnly("ListRetentionHolds")(holdEndpoints.ListRetentionHolds)
 
+	// A process's retention period decides when its records are removed, so
+	// setting one is an administrator's; the service asks again who is
+	// calling. How long a project's processes are kept is no secret from the
+	// people who read the project.
+	periodEndpoints := retentionperiod.MakeEndpoints(s)
+	periodEndpoints.SetRetentionPeriod = adminOnly("SetRetentionPeriod")(periodEndpoints.SetRetentionPeriod)
+	periodEndpoints.ListRetentionPeriods = protected("ListRetentionPeriods")(periodEndpoints.ListRetentionPeriods)
+	periodEndpoints.RetentionPeriodHistory = protected("RetentionPeriodHistory")(periodEndpoints.RetentionPeriodHistory)
+
 	organizationEndpoints := organization.MakeEndpoints(s)
 	// Was public: logging and nothing else, so any signed-in account could
 	// create organizations over HTTP, and anybody at all over the gRPC
@@ -459,6 +470,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		Incident:          incidentEndpoints,
 		Deviation:         deviationEndpoints,
 		RetentionHold:     holdEndpoints,
+		RetentionPeriod:   periodEndpoints,
 		Organization:      organizationEndpoints,
 		Process:           processEndpoints,
 		Project:           projectEndpoints,
