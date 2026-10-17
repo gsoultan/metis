@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
 
@@ -92,9 +94,24 @@ func (e *Engine) StartProcess(ctx context.Context, projectID uuid.UUID, definiti
 }
 
 func (e *Engine) StartSubProcess(ctx context.Context, projectID uuid.UUID, definitionKey string, version int, vars map[string]any, parentInstanceID uuid.UUID, parentNodeID string) (uuid.UUID, error) {
+	return e.StartInstance(ctx, entities.InstanceStart{
+		ProjectID: projectID, DefinitionKey: definitionKey, Version: version, Variables: vars,
+		ParentInstanceID: parentInstanceID, ParentNodeID: parentNodeID,
+	})
+}
+
+// StartInstance starts an instance, refusing a business key it could not
+// store or that would read as something else: longer than the column, or
+// holding a control character, which a log line or a CSV export would show
+// as a different key.
+func (e *Engine) StartInstance(ctx context.Context, start entities.InstanceStart) (uuid.UUID, error) {
+	if err := checkBusinessKey(start.BusinessKey); err != nil {
+		return uuid.Nil, err
+	}
 	var instanceID uuid.UUID
 	err := e.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
-		cmd := NewStartProcessCommand(e, projectID, definitionKey, version, vars, parentInstanceID, parentNodeID)
+		cmd := NewStartProcessCommand(e, start.ProjectID, start.DefinitionKey, start.Version, start.Variables, start.ParentInstanceID, start.ParentNodeID)
+		cmd.businessKey = start.BusinessKey
 		err := cmd.Execute(txCtx)
 		instanceID = cmd.InstanceID
 		return err
@@ -102,7 +119,7 @@ func (e *Engine) StartSubProcess(ctx context.Context, projectID uuid.UUID, defin
 	return instanceID, err
 }
 
-func (e *Engine) startProcessInternal(ctx context.Context, projectID uuid.UUID, definitionKey string, version int, vars map[string]any, parentInstanceID uuid.UUID, parentNodeID, startNodeID string) (uuid.UUID, error) {
+func (e *Engine) startProcessInternal(ctx context.Context, projectID uuid.UUID, definitionKey string, version int, vars map[string]any, parentInstanceID uuid.UUID, parentNodeID, startNodeID, businessKey string) (uuid.UUID, error) {
 	var m models.ProcessDefinitionModel
 	var err error
 	// Resolved within the project, not across the tenant: two projects in one
@@ -129,12 +146,13 @@ func (e *Engine) startProcessInternal(ctx context.Context, projectID uuid.UUID, 
 	}
 
 	instance := entities.ProcessInstance{
-		ID:         idObj,
-		Project:    &entities.Project{ID: projectID},
-		Definition: &entities.ProcessDefinition{ID: def.ID},
-		Status:     entities.ProcessActive,
-		Variables:  vars,
-		CreatedAt:  time.Now(),
+		ID:          idObj,
+		Project:     &entities.Project{ID: projectID},
+		Definition:  &entities.ProcessDefinition{ID: def.ID},
+		Status:      entities.ProcessActive,
+		BusinessKey: businessKey,
+		Variables:   vars,
+		CreatedAt:   time.Now(),
 	}
 	instance.AddToken(startNode)
 
@@ -1176,4 +1194,18 @@ func (e *Engine) InstanceAttention(
 		return entities.InstanceAttention{}, err
 	}
 	return entities.InstanceAttention{OpenIncidents: perInstance, Total: total}, nil
+}
+
+// checkBusinessKey refuses a business key that is longer than the column or
+// holds a control character. An empty key is none.
+func checkBusinessKey(key string) error {
+	if utf8.RuneCountInString(key) > entities.MaxBusinessKeyLength {
+		return apierr.Invalidf("a business key is at most %d characters", entities.MaxBusinessKeyLength)
+	}
+	for _, r := range key {
+		if unicode.IsControl(r) {
+			return apierr.Invalidf("a business key cannot hold a control character, such as a line break or a tab")
+		}
+	}
+	return nil
 }

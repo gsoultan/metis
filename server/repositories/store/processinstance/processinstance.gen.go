@@ -28,6 +28,7 @@ type Row struct {
 	ParentInstanceID runtime.Null[[16]byte]
 	ParentNodeID     runtime.Null[string]
 	Status           string
+	BusinessKey      runtime.Null[string]
 	Variables        string
 	Tokens           runtime.JSON
 	CompletedNodes   runtime.JSON
@@ -73,7 +74,7 @@ const (
 	opNotExists runtime.Op = 27
 )
 
-const nCols = 15
+const nCols = 16
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -247,9 +248,16 @@ func (q *Query) cursor(col uint32, r Row) {
 			q.over = true
 			return
 		}
+		q.strs[q.ns] = r.BusinessKey.V
+		q.ns++
+	case 9:
+		if int(q.ns) >= len(q.strs) {
+			q.over = true
+			return
+		}
 		q.strs[q.ns] = r.Variables
 		q.ns++
-	case 14:
+	case 15:
 		if int(q.ntm) >= len(q.tims) {
 			q.over = true
 			return
@@ -422,13 +430,14 @@ var (
 	ParentInstanceID = NullUUIDCol{5}
 	ParentNodeID     = NullTextCol{6}
 	Status           = TextCol{7}
-	Variables        = TextCol{8}
-	Tokens           = JSONCol{9}
-	CompletedNodes   = JSONCol{10}
-	CompensatedNodes = JSONCol{11}
-	MultiInstance    = JSONCol{12}
-	Joins            = JSONCol{13}
-	DeletedAt        = NullTimeCol{14}
+	BusinessKey      = NullTextCol{8}
+	Variables        = TextCol{9}
+	Tokens           = JSONCol{10}
+	CompletedNodes   = JSONCol{11}
+	CompensatedNodes = JSONCol{12}
+	MultiInstance    = JSONCol{13}
+	Joins            = JSONCol{14}
+	DeletedAt        = NullTimeCol{15}
 )
 
 // UUIDCol addresses a uuid column.
@@ -817,6 +826,13 @@ func (q *Query) leaf(p Pred) {
 			}
 			q.anyStr[q.nas] = p.anyStr
 			q.nas++
+		case 14:
+			if int(q.nas) >= 3 {
+				q.over = true
+				return
+			}
+			q.anyStr[q.nas] = p.anyStr
+			q.nas++
 		}
 		q.push(runtime.MakeLeaf(uint32(p.op), uint32(p.col)))
 		return
@@ -890,12 +906,12 @@ func (q *Query) leaf(p Pred) {
 		q.strs[q.ns] = p.str
 		q.ns++
 	case 9:
-		if int(q.njs) >= 2 {
+		if int(q.ns) >= 6 {
 			q.over = true
 			return
 		}
-		q.jsns[q.njs] = p.jsn
-		q.njs++
+		q.strs[q.ns] = p.str
+		q.ns++
 	case 10:
 		if int(q.njs) >= 2 {
 			q.over = true
@@ -925,6 +941,13 @@ func (q *Query) leaf(p Pred) {
 		q.jsns[q.njs] = p.jsn
 		q.njs++
 	case 14:
+		if int(q.njs) >= 2 {
+			q.over = true
+			return
+		}
+		q.jsns[q.njs] = p.jsn
+		q.njs++
+	case 15:
 		if int(q.ntm) >= 4 {
 			q.over = true
 			return
@@ -992,6 +1015,19 @@ func (q Query) StatusLike(v string) Query              { return q.Where(Status.L
 func (q Query) StatusILike(v string) Query             { return q.Where(Status.ILike(v)) }
 func (q Query) StatusIn(v ...string) Query             { return q.Where(Status.In(v...)) }
 func (q Query) StatusNotIn(v ...string) Query          { return q.Where(Status.NotIn(v...)) }
+func (q Query) BusinessKeyEq(v string) Query           { return q.Where(BusinessKey.Eq(v)) }
+func (q Query) BusinessKeyNotEq(v string) Query        { return q.Where(BusinessKey.NotEq(v)) }
+func (q Query) BusinessKeyGt(v string) Query           { return q.Where(BusinessKey.Gt(v)) }
+func (q Query) BusinessKeyGte(v string) Query          { return q.Where(BusinessKey.Gte(v)) }
+func (q Query) BusinessKeyLt(v string) Query           { return q.Where(BusinessKey.Lt(v)) }
+func (q Query) BusinessKeyLte(v string) Query          { return q.Where(BusinessKey.Lte(v)) }
+func (q Query) BusinessKeyEqLower(v string) Query      { return q.Where(BusinessKey.EqLower(v)) }
+func (q Query) BusinessKeyLike(v string) Query         { return q.Where(BusinessKey.Like(v)) }
+func (q Query) BusinessKeyILike(v string) Query        { return q.Where(BusinessKey.ILike(v)) }
+func (q Query) BusinessKeyIn(v ...string) Query        { return q.Where(BusinessKey.In(v...)) }
+func (q Query) BusinessKeyNotIn(v ...string) Query     { return q.Where(BusinessKey.NotIn(v...)) }
+func (q Query) BusinessKeyIsNull() Query               { return q.Where(BusinessKey.IsNull()) }
+func (q Query) BusinessKeyIsNotNull() Query            { return q.Where(BusinessKey.IsNotNull()) }
 func (q Query) VariablesEq(v string) Query             { return q.Where(Variables.Eq(v)) }
 func (q Query) VariablesNotEq(v string) Query          { return q.Where(Variables.NotEq(v)) }
 func (q Query) VariablesGt(v string) Query             { return q.Where(Variables.Gt(v)) }
@@ -1059,7 +1095,7 @@ func (q Query) DeletedAtIsNotNull() Query             { return q.Where(DeletedAt
 // can narrow what it sees and cannot widen it. Reaching the deleted
 // rows is a different function, and visibly so.
 const softDeleteWhere = `"deleted_at" IS NULL`
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "definition_id", "parent_instance_id", "parent_node_id", "status", "variables", "tokens", "completed_nodes", "compensated_nodes", "multi_instance", "joins", "deleted_at" FROM "process_instances"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "definition_id", "parent_instance_id", "parent_node_id", "status", "business_key", "variables", "tokens", "completed_nodes", "compensated_nodes", "multi_instance", "joins", "deleted_at" FROM "process_instances"`
 const countPrefix = `SELECT count(*) FROM "process_instances"`
 const existsPrefix = `SELECT 1 FROM "process_instances"`
 const existsSuffix = ` LIMIT 1`
@@ -1144,6 +1180,12 @@ var orderTable = [nCols][4]string{
 		"\"status\" ASC NULLS FIRST",
 		"\"status\" DESC NULLS LAST",
 	},
+	{ // business_key
+		"\"business_key\"",
+		"\"business_key\" DESC",
+		"\"business_key\" ASC NULLS FIRST",
+		"\"business_key\" DESC NULLS LAST",
+	},
 	{ // variables
 		"\"variables\"",
 		"\"variables\" DESC",
@@ -1199,6 +1241,7 @@ var identTable = [nCols]string{
 	"\"parent_instance_id\"",
 	"\"parent_node_id\"",
 	"\"status\"",
+	"\"business_key\"",
 	"\"variables\"",
 	"\"tokens\"",
 	"\"completed_nodes\"",
@@ -1238,7 +1281,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [15][28]runtime.Frag{
+var fragTable = [16][28]runtime.Frag{
 	{ // id
 		{}, // opNone
 		{A: "\"id\" = $", B: ""},
@@ -1476,6 +1519,36 @@ var fragTable = [15][28]runtime.Frag{
 		{},
 		{},
 		{},
+		{},
+		{},
+	},
+	{ // business_key
+		{}, // opNone
+		{A: "\"business_key\" = $", B: ""},
+		{A: "\"business_key\" <> $", B: ""},
+		{A: "\"business_key\" > $", B: ""},
+		{A: "\"business_key\" >= $", B: ""},
+		{A: "\"business_key\" < $", B: ""},
+		{A: "\"business_key\" <= $", B: ""},
+		{A: "lower(\"business_key\") = lower($", B: ")"},
+		{A: "\"business_key\" LIKE $", B: ""},
+		{A: "\"business_key\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"business_key\" = ANY($", B: ")"},
+		{A: "\"business_key\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"business_key\" IS NULL", B: ""},
+		{A: "\"business_key\" IS NOT NULL", B: ""},
 		{},
 		{},
 	},
@@ -1852,13 +1925,14 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 	r.ParentInstanceID = runtime.Nullable(rv[5], runtime.UUID)
 	r.ParentNodeID = runtime.NullText(rv[6], sl)
 	r.Status = sl.Str(rv[7])
-	r.Variables = sl.Str(rv[8])
-	r.Tokens = runtime.JSON(runtime.JSONB(rv[9], sl))
-	r.CompletedNodes = runtime.JSON(runtime.JSONB(rv[10], sl))
-	r.CompensatedNodes = runtime.JSON(runtime.JSONB(rv[11], sl))
-	r.MultiInstance = runtime.JSON(runtime.JSONB(rv[12], sl))
-	r.Joins = runtime.JSON(runtime.JSONB(rv[13], sl))
-	r.DeletedAt = runtime.Nullable(rv[14], runtime.Timestamptz)
+	r.BusinessKey = runtime.NullText(rv[8], sl)
+	r.Variables = sl.Str(rv[9])
+	r.Tokens = runtime.JSON(runtime.JSONB(rv[10], sl))
+	r.CompletedNodes = runtime.JSON(runtime.JSONB(rv[11], sl))
+	r.CompensatedNodes = runtime.JSON(runtime.JSONB(rv[12], sl))
+	r.MultiInstance = runtime.JSON(runtime.JSONB(rv[13], sl))
+	r.Joins = runtime.JSON(runtime.JSONB(rv[14], sl))
+	r.DeletedAt = runtime.Nullable(rv[15], runtime.Timestamptz)
 	return nil
 }
 
@@ -1972,6 +2046,10 @@ func (q Query) bindPreds(b *binder) []any {
 				b.anyStr[nas] = q.anyStr[nas]
 				v = append(v, &b.anyStr[nas])
 				nas++
+			case 14:
+				b.anyStr[nas] = q.anyStr[nas]
+				v = append(v, &b.anyStr[nas])
+				nas++
 			}
 			continue
 		}
@@ -2013,9 +2091,9 @@ func (q Query) bindPreds(b *binder) []any {
 			v = append(v, &b.strs[ns])
 			ns++
 		case 9:
-			b.jsns[njs] = q.jsns[njs]
-			v = append(v, &b.jsns[njs])
-			njs++
+			b.strs[ns] = q.strs[ns]
+			v = append(v, &b.strs[ns])
+			ns++
 		case 10:
 			b.jsns[njs] = q.jsns[njs]
 			v = append(v, &b.jsns[njs])
@@ -2033,6 +2111,10 @@ func (q Query) bindPreds(b *binder) []any {
 			v = append(v, &b.jsns[njs])
 			njs++
 		case 14:
+			b.jsns[njs] = q.jsns[njs]
+			v = append(v, &b.jsns[njs])
+			njs++
+		case 15:
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
@@ -2218,7 +2300,7 @@ func Descend(ctx context.Context, ex runtime.Executor, roots [][16]byte, maxDept
 	return out, rows.Err()
 }
 
-const descendSQL = `WITH RECURSIVE "_storm_r" AS (SELECT "id", "created_at", "updated_at", "project_id", "definition_id", "parent_instance_id", "parent_node_id", "status", "variables", "tokens", "completed_nodes", "compensated_nodes", "multi_instance", "joins", "deleted_at", 1 AS "_storm_d", ARRAY["id"] AS "_storm_path" FROM "process_instances" WHERE "id" = ANY($1) AND "deleted_at" IS NULL UNION ALL SELECT "_storm_rc"."id", "_storm_rc"."created_at", "_storm_rc"."updated_at", "_storm_rc"."project_id", "_storm_rc"."definition_id", "_storm_rc"."parent_instance_id", "_storm_rc"."parent_node_id", "_storm_rc"."status", "_storm_rc"."variables", "_storm_rc"."tokens", "_storm_rc"."completed_nodes", "_storm_rc"."compensated_nodes", "_storm_rc"."multi_instance", "_storm_rc"."joins", "_storm_rc"."deleted_at", "_storm_r"."_storm_d" + 1, "_storm_r"."_storm_path" || "_storm_rc"."id" FROM "process_instances" "_storm_rc" JOIN "_storm_r" ON "_storm_rc"."parent_instance_id" = "_storm_r"."id" WHERE "_storm_r"."_storm_d" < $2 AND "_storm_rc"."deleted_at" IS NULL AND NOT "_storm_rc"."id" = ANY("_storm_r"."_storm_path")) SELECT "id", "created_at", "updated_at", "project_id", "definition_id", "parent_instance_id", "parent_node_id", "status", "variables", "tokens", "completed_nodes", "compensated_nodes", "multi_instance", "joins", "deleted_at" FROM "_storm_r"`
+const descendSQL = `WITH RECURSIVE "_storm_r" AS (SELECT "id", "created_at", "updated_at", "project_id", "definition_id", "parent_instance_id", "parent_node_id", "status", "business_key", "variables", "tokens", "completed_nodes", "compensated_nodes", "multi_instance", "joins", "deleted_at", 1 AS "_storm_d", ARRAY["id"] AS "_storm_path" FROM "process_instances" WHERE "id" = ANY($1) AND "deleted_at" IS NULL UNION ALL SELECT "_storm_rc"."id", "_storm_rc"."created_at", "_storm_rc"."updated_at", "_storm_rc"."project_id", "_storm_rc"."definition_id", "_storm_rc"."parent_instance_id", "_storm_rc"."parent_node_id", "_storm_rc"."status", "_storm_rc"."business_key", "_storm_rc"."variables", "_storm_rc"."tokens", "_storm_rc"."completed_nodes", "_storm_rc"."compensated_nodes", "_storm_rc"."multi_instance", "_storm_rc"."joins", "_storm_rc"."deleted_at", "_storm_r"."_storm_d" + 1, "_storm_r"."_storm_path" || "_storm_rc"."id" FROM "process_instances" "_storm_rc" JOIN "_storm_r" ON "_storm_rc"."parent_instance_id" = "_storm_r"."id" WHERE "_storm_r"."_storm_d" < $2 AND "_storm_rc"."deleted_at" IS NULL AND NOT "_storm_rc"."id" = ANY("_storm_r"."_storm_path")) SELECT "id", "created_at", "updated_at", "project_id", "definition_id", "parent_instance_id", "parent_node_id", "status", "business_key", "variables", "tokens", "completed_nodes", "compensated_nodes", "multi_instance", "joins", "deleted_at" FROM "_storm_r"`
 
 // Ascend returns the ancestors: the parent_instance_id chain upward from each row.
 //
@@ -2251,11 +2333,11 @@ func Ascend(ctx context.Context, ex runtime.Executor, roots [][16]byte, maxDepth
 	return out, rows.Err()
 }
 
-const ascendSQL = `WITH RECURSIVE "_storm_r" AS (SELECT "id", "created_at", "updated_at", "project_id", "definition_id", "parent_instance_id", "parent_node_id", "status", "variables", "tokens", "completed_nodes", "compensated_nodes", "multi_instance", "joins", "deleted_at", 1 AS "_storm_d", ARRAY["id"] AS "_storm_path" FROM "process_instances" WHERE "id" = ANY($1) AND "deleted_at" IS NULL UNION ALL SELECT "_storm_rc"."id", "_storm_rc"."created_at", "_storm_rc"."updated_at", "_storm_rc"."project_id", "_storm_rc"."definition_id", "_storm_rc"."parent_instance_id", "_storm_rc"."parent_node_id", "_storm_rc"."status", "_storm_rc"."variables", "_storm_rc"."tokens", "_storm_rc"."completed_nodes", "_storm_rc"."compensated_nodes", "_storm_rc"."multi_instance", "_storm_rc"."joins", "_storm_rc"."deleted_at", "_storm_r"."_storm_d" + 1, "_storm_r"."_storm_path" || "_storm_rc"."id" FROM "process_instances" "_storm_rc" JOIN "_storm_r" ON "_storm_r"."parent_instance_id" = "_storm_rc"."id" WHERE "_storm_r"."_storm_d" < $2 AND "_storm_rc"."deleted_at" IS NULL AND NOT "_storm_rc"."id" = ANY("_storm_r"."_storm_path")) SELECT "id", "created_at", "updated_at", "project_id", "definition_id", "parent_instance_id", "parent_node_id", "status", "variables", "tokens", "completed_nodes", "compensated_nodes", "multi_instance", "joins", "deleted_at" FROM "_storm_r"`
+const ascendSQL = `WITH RECURSIVE "_storm_r" AS (SELECT "id", "created_at", "updated_at", "project_id", "definition_id", "parent_instance_id", "parent_node_id", "status", "business_key", "variables", "tokens", "completed_nodes", "compensated_nodes", "multi_instance", "joins", "deleted_at", 1 AS "_storm_d", ARRAY["id"] AS "_storm_path" FROM "process_instances" WHERE "id" = ANY($1) AND "deleted_at" IS NULL UNION ALL SELECT "_storm_rc"."id", "_storm_rc"."created_at", "_storm_rc"."updated_at", "_storm_rc"."project_id", "_storm_rc"."definition_id", "_storm_rc"."parent_instance_id", "_storm_rc"."parent_node_id", "_storm_rc"."status", "_storm_rc"."business_key", "_storm_rc"."variables", "_storm_rc"."tokens", "_storm_rc"."completed_nodes", "_storm_rc"."compensated_nodes", "_storm_rc"."multi_instance", "_storm_rc"."joins", "_storm_rc"."deleted_at", "_storm_r"."_storm_d" + 1, "_storm_r"."_storm_path" || "_storm_rc"."id" FROM "process_instances" "_storm_rc" JOIN "_storm_r" ON "_storm_r"."parent_instance_id" = "_storm_rc"."id" WHERE "_storm_r"."_storm_d" < $2 AND "_storm_rc"."deleted_at" IS NULL AND NOT "_storm_rc"."id" = ANY("_storm_r"."_storm_path")) SELECT "id", "created_at", "updated_at", "project_id", "definition_id", "parent_instance_id", "parent_node_id", "status", "business_key", "variables", "tokens", "completed_nodes", "compensated_nodes", "multi_instance", "joins", "deleted_at" FROM "_storm_r"`
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "process_instances" ("id", "created_at", "updated_at", "project_id", "definition_id", "parent_instance_id", "parent_node_id", "status", "variables", "tokens", "completed_nodes", "compensated_nodes", "multi_instance", "joins", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING "id", "created_at", "updated_at", "project_id", "definition_id", "parent_instance_id", "parent_node_id", "status", "variables", "tokens", "completed_nodes", "compensated_nodes", "multi_instance", "joins", "deleted_at"`
+const insertSQL = `INSERT INTO "process_instances" ("id", "created_at", "updated_at", "project_id", "definition_id", "parent_instance_id", "parent_node_id", "status", "business_key", "variables", "tokens", "completed_nodes", "compensated_nodes", "multi_instance", "joins", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING "id", "created_at", "updated_at", "project_id", "definition_id", "parent_instance_id", "parent_node_id", "status", "business_key", "variables", "tokens", "completed_nodes", "compensated_nodes", "multi_instance", "joins", "deleted_at"`
 
 const updatePrefix = `UPDATE "process_instances" SET `
 const deletePrefix = `DELETE FROM "process_instances"`
@@ -2269,16 +2351,17 @@ const (
 	dParentInstanceID uint64 = 1 << 3
 	dParentNodeID     uint64 = 1 << 4
 	dStatus           uint64 = 1 << 5
-	dVariables        uint64 = 1 << 6
-	dTokens           uint64 = 1 << 7
-	dCompletedNodes   uint64 = 1 << 8
-	dCompensatedNodes uint64 = 1 << 9
-	dMultiInstance    uint64 = 1 << 10
-	dJoins            uint64 = 1 << 11
-	dDeletedAt        uint64 = 1 << 12
+	dBusinessKey      uint64 = 1 << 6
+	dVariables        uint64 = 1 << 7
+	dTokens           uint64 = 1 << 8
+	dCompletedNodes   uint64 = 1 << 9
+	dCompensatedNodes uint64 = 1 << 10
+	dMultiInstance    uint64 = 1 << 11
+	dJoins            uint64 = 1 << 12
+	dDeletedAt        uint64 = 1 << 13
 )
 
-const nUpdatable = 13
+const nUpdatable = 14
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
@@ -2288,6 +2371,7 @@ var setFrags = [nUpdatable]runtime.Frag{
 	{A: "\"parent_instance_id\" = $", B: ""}, // parent_instance_id
 	{A: "\"parent_node_id\" = $", B: ""},     // parent_node_id
 	{A: "\"status\" = $", B: ""},             // status
+	{A: "\"business_key\" = $", B: ""},       // business_key
 	{A: "\"variables\" = $", B: ""},          // variables
 	{A: "\"tokens\" = $", B: ""},             // tokens
 	{A: "\"completed_nodes\" = $", B: ""},    // completed_nodes
@@ -2307,6 +2391,7 @@ var exprFrags = [nUpdatable]runtime.Frag{
 	{},                                   // parent_instance_id has no server-side form
 	{},                                   // parent_node_id has no server-side form
 	{},                                   // status has no server-side form
+	{},                                   // business_key has no server-side form
 	{},                                   // variables has no server-side form
 	{},                                   // tokens has no server-side form
 	{},                                   // completed_nodes has no server-side form
@@ -2333,16 +2418,17 @@ const (
 	iParentInstanceID uint64 = 1 << 5
 	iParentNodeID     uint64 = 1 << 6
 	iStatus           uint64 = 1 << 7
-	iVariables        uint64 = 1 << 8
-	iTokens           uint64 = 1 << 9
-	iCompletedNodes   uint64 = 1 << 10
-	iCompensatedNodes uint64 = 1 << 11
-	iMultiInstance    uint64 = 1 << 12
-	iJoins            uint64 = 1 << 13
-	iDeletedAt        uint64 = 1 << 14
+	iBusinessKey      uint64 = 1 << 8
+	iVariables        uint64 = 1 << 9
+	iTokens           uint64 = 1 << 10
+	iCompletedNodes   uint64 = 1 << 11
+	iCompensatedNodes uint64 = 1 << 12
+	iMultiInstance    uint64 = 1 << 13
+	iJoins            uint64 = 1 << 14
+	iDeletedAt        uint64 = 1 << 15
 )
 
-const nInsertable = 15
+const nInsertable = 16
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -2354,6 +2440,7 @@ var insCols = [nInsertable]string{
 	"\"parent_instance_id\"",
 	"\"parent_node_id\"",
 	"\"status\"",
+	"\"business_key\"",
 	"\"variables\"",
 	"\"tokens\"",
 	"\"completed_nodes\"",
@@ -2369,7 +2456,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"process_instances\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"definition_id\", \"parent_instance_id\", \"parent_node_id\", \"status\", \"variables\", \"tokens\", \"completed_nodes\", \"compensated_nodes\", \"multi_instance\", \"joins\", \"deleted_at\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"definition_id\", \"parent_instance_id\", \"parent_node_id\", \"status\", \"business_key\", \"variables\", \"tokens\", \"completed_nodes\", \"compensated_nodes\", \"multi_instance\", \"joins\", \"deleted_at\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -2388,7 +2475,7 @@ var updOpCache = runtime.NewMaskCache()
 // part of it. Without it m.Row() would hold what the row held BEFORE
 // the statement, so a caller reading back the counter it just
 // incremented would get the old number and never know.
-const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"definition_id\", \"parent_instance_id\", \"parent_node_id\", \"status\", \"variables\", \"tokens\", \"completed_nodes\", \"compensated_nodes\", \"multi_instance\", \"joins\", \"deleted_at\""
+const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"definition_id\", \"parent_instance_id\", \"parent_node_id\", \"status\", \"business_key\", \"variables\", \"tokens\", \"completed_nodes\", \"compensated_nodes\", \"multi_instance\", \"joins\", \"deleted_at\""
 
 // Masks reports how many distinct UPDATE shapes have compiled.
 func Masks() int { return updCache.Masks() }
@@ -2497,6 +2584,20 @@ func (m *Mut) SetStatus(v string) {
 	m.row.Status = v
 	m.dirty |= dStatus
 	m.expr &^= dStatus
+}
+
+func (m *Mut) SetBusinessKey(v string) {
+	m.row.BusinessKey = runtime.Null[string]{V: v, Valid: true}
+	m.dirty |= dBusinessKey
+	m.expr &^= dBusinessKey
+}
+
+// SetBusinessKeyNull writes SQL NULL. It is a separate method because a
+// zero value and an absent value are different facts.
+func (m *Mut) SetBusinessKeyNull() {
+	m.row.BusinessKey = runtime.Null[string]{}
+	m.dirty |= dBusinessKey
+	m.expr &^= dBusinessKey
 }
 
 func (m *Mut) SetVariables(v string) {
@@ -2639,6 +2740,18 @@ func (n *Ins) SetStatus(v string) {
 	n.set |= iStatus
 }
 
+func (n *Ins) SetBusinessKey(v string) {
+	n.row.BusinessKey = runtime.Null[string]{V: v, Valid: true}
+	n.set |= iBusinessKey
+}
+
+// SetBusinessKeyNull writes SQL NULL explicitly, which is not the same as
+// leaving the column unset and taking its default.
+func (n *Ins) SetBusinessKeyNull() {
+	n.row.BusinessKey = runtime.Null[string]{}
+	n.set |= iBusinessKey
+}
+
 func (n *Ins) SetVariables(v string) {
 	n.row.Variables = v
 	n.set |= iVariables
@@ -2726,7 +2839,7 @@ var conflictSpecs = []string{
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 13)
+	set := make([]string, 0, 14)
 	switch i {
 	case 0:
 		if mask&(1<<2) != 0 {
@@ -2748,24 +2861,27 @@ func assignable(i uint8, mask uint64) []string {
 			set = append(set, "status")
 		}
 		if mask&(1<<8) != 0 {
-			set = append(set, "variables")
+			set = append(set, "business_key")
 		}
 		if mask&(1<<9) != 0 {
-			set = append(set, "tokens")
+			set = append(set, "variables")
 		}
 		if mask&(1<<10) != 0 {
-			set = append(set, "completed_nodes")
+			set = append(set, "tokens")
 		}
 		if mask&(1<<11) != 0 {
-			set = append(set, "compensated_nodes")
+			set = append(set, "completed_nodes")
 		}
 		if mask&(1<<12) != 0 {
-			set = append(set, "multi_instance")
+			set = append(set, "compensated_nodes")
 		}
 		if mask&(1<<13) != 0 {
-			set = append(set, "joins")
+			set = append(set, "multi_instance")
 		}
 		if mask&(1<<14) != 0 {
+			set = append(set, "joins")
+		}
+		if mask&(1<<15) != 0 {
 			set = append(set, "deleted_at")
 		}
 	}
@@ -2822,6 +2938,7 @@ var assignFor = map[string]string{
 	"parent_instance_id": "\"parent_instance_id\" = EXCLUDED.\"parent_instance_id\"",
 	"parent_node_id":     "\"parent_node_id\" = EXCLUDED.\"parent_node_id\"",
 	"status":             "\"status\" = EXCLUDED.\"status\"",
+	"business_key":       "\"business_key\" = EXCLUDED.\"business_key\"",
 	"variables":          "\"variables\" = EXCLUDED.\"variables\"",
 	"tokens":             "\"tokens\" = EXCLUDED.\"tokens\"",
 	"completed_nodes":    "\"completed_nodes\" = EXCLUDED.\"completed_nodes\"",
@@ -2889,18 +3006,20 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 7:
 			args = append(args, n.row.Status)
 		case 8:
-			args = append(args, n.row.Variables)
+			args = append(args, n.row.BusinessKey.Arg())
 		case 9:
-			args = append(args, n.row.Tokens)
+			args = append(args, n.row.Variables)
 		case 10:
-			args = append(args, n.row.CompletedNodes)
+			args = append(args, n.row.Tokens)
 		case 11:
-			args = append(args, n.row.CompensatedNodes)
+			args = append(args, n.row.CompletedNodes)
 		case 12:
-			args = append(args, n.row.MultiInstance)
+			args = append(args, n.row.CompensatedNodes)
 		case 13:
-			args = append(args, n.row.Joins)
+			args = append(args, n.row.MultiInstance)
 		case 14:
+			args = append(args, n.row.Joins)
+		case 15:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -2939,7 +3058,7 @@ func Inserts() int { return insCache.Masks() }
 // not treat a zero as 'unset': that guess is why other ORMs cannot insert
 // a false, a 0 or an empty string into a column with a default.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 15)
+	args := make([]any, 0, 16)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2948,6 +3067,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.ParentInstanceID.Arg())
 	args = append(args, r.ParentNodeID.Arg())
 	args = append(args, r.Status)
+	args = append(args, r.BusinessKey.Arg())
 	args = append(args, r.Variables)
 	args = append(args, r.Tokens)
 	args = append(args, r.CompletedNodes)
@@ -2989,6 +3109,7 @@ var copyCols = []string{
 	"parent_instance_id",
 	"parent_node_id",
 	"status",
+	"business_key",
 	"variables",
 	"tokens",
 	"completed_nodes",
@@ -3002,7 +3123,7 @@ var copyCols = []string{
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [15]any
+	buf  [16]any
 }
 
 func (s *rowSource) Next() bool {
@@ -3028,13 +3149,14 @@ func (s *rowSource) Values() []any {
 	s.buf[5] = r.ParentInstanceID.Ptr()
 	s.buf[6] = r.ParentNodeID.Ptr()
 	s.buf[7] = &r.Status
-	s.buf[8] = &r.Variables
-	s.buf[9] = &r.Tokens
-	s.buf[10] = &r.CompletedNodes
-	s.buf[11] = &r.CompensatedNodes
-	s.buf[12] = &r.MultiInstance
-	s.buf[13] = &r.Joins
-	s.buf[14] = r.DeletedAt.Ptr()
+	s.buf[8] = r.BusinessKey.Ptr()
+	s.buf[9] = &r.Variables
+	s.buf[10] = &r.Tokens
+	s.buf[11] = &r.CompletedNodes
+	s.buf[12] = &r.CompensatedNodes
+	s.buf[13] = &r.MultiInstance
+	s.buf[14] = &r.Joins
+	s.buf[15] = r.DeletedAt.Ptr()
 	return s.buf[:]
 }
 
@@ -3080,8 +3202,9 @@ func InsertOp(r Row) runtime.BatchOp {
 	mask |= 1 << 12
 	mask |= 1 << 13
 	mask |= 1 << 14
+	mask |= 1 << 15
 	st := stmtForInsertNoReturn(mask, 0)
-	args := make([]any, 0, 15)
+	args := make([]any, 0, 16)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -3090,6 +3213,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.ParentInstanceID.Arg())
 	args = append(args, r.ParentNodeID.Arg())
 	args = append(args, r.Status)
+	args = append(args, r.BusinessKey.Arg())
 	args = append(args, r.Variables)
 	args = append(args, r.Tokens)
 	args = append(args, r.CompletedNodes)
@@ -3147,18 +3271,20 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 7:
 			args = append(args, n.row.Status)
 		case 8:
-			args = append(args, n.row.Variables)
+			args = append(args, n.row.BusinessKey.Arg())
 		case 9:
-			args = append(args, n.row.Tokens)
+			args = append(args, n.row.Variables)
 		case 10:
-			args = append(args, n.row.CompletedNodes)
+			args = append(args, n.row.Tokens)
 		case 11:
-			args = append(args, n.row.CompensatedNodes)
+			args = append(args, n.row.CompletedNodes)
 		case 12:
-			args = append(args, n.row.MultiInstance)
+			args = append(args, n.row.CompensatedNodes)
 		case 13:
-			args = append(args, n.row.Joins)
+			args = append(args, n.row.MultiInstance)
 		case 14:
+			args = append(args, n.row.Joins)
+		case 15:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -3219,18 +3345,20 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 5:
 			args = append(args, m.row.Status)
 		case 6:
-			args = append(args, m.row.Variables)
+			args = append(args, m.row.BusinessKey.Arg())
 		case 7:
-			args = append(args, m.row.Tokens)
+			args = append(args, m.row.Variables)
 		case 8:
-			args = append(args, m.row.CompletedNodes)
+			args = append(args, m.row.Tokens)
 		case 9:
-			args = append(args, m.row.CompensatedNodes)
+			args = append(args, m.row.CompletedNodes)
 		case 10:
-			args = append(args, m.row.MultiInstance)
+			args = append(args, m.row.CompensatedNodes)
 		case 11:
-			args = append(args, m.row.Joins)
+			args = append(args, m.row.MultiInstance)
 		case 12:
+			args = append(args, m.row.Joins)
+		case 13:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}
@@ -3341,18 +3469,20 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 5:
 			args = append(args, m.row.Status)
 		case 6:
-			args = append(args, m.row.Variables)
+			args = append(args, m.row.BusinessKey.Arg())
 		case 7:
-			args = append(args, m.row.Tokens)
+			args = append(args, m.row.Variables)
 		case 8:
-			args = append(args, m.row.CompletedNodes)
+			args = append(args, m.row.Tokens)
 		case 9:
-			args = append(args, m.row.CompensatedNodes)
+			args = append(args, m.row.CompletedNodes)
 		case 10:
-			args = append(args, m.row.MultiInstance)
+			args = append(args, m.row.CompensatedNodes)
 		case 11:
-			args = append(args, m.row.Joins)
+			args = append(args, m.row.MultiInstance)
 		case 12:
+			args = append(args, m.row.Joins)
+		case 13:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}

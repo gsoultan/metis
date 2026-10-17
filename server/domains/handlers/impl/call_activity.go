@@ -47,7 +47,12 @@ func (h *CallActivityHandler) DoExecute(ctx context.Context, instance *entities.
 
 	// We start the sub-process and DO NOT call Proceed yet.
 	// The sub-process completion will trigger resumption of this process.
-	_, err := h.engine.StartSubProcess(ctx, instance.Project.ID, calledElement, version, vars, instance.ID, node.ID)
+	// It carries its caller's business key: it is work on the same case, and
+	// searching by the key finds every instance of it.
+	_, err := h.engine.StartInstance(ctx, entities.InstanceStart{
+		ProjectID: instance.Project.ID, DefinitionKey: calledElement, Version: version, Variables: vars,
+		BusinessKey: instance.BusinessKey, ParentInstanceID: instance.ID, ParentNodeID: node.ID,
+	})
 	return err
 }
 

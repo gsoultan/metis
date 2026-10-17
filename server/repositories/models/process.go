@@ -71,6 +71,7 @@ type ProcessInstanceModel struct {
 	ParentInstanceID *UUID                  `gorm:"index" json:"parent_instance_id,omitzero"`
 	ParentNodeID     string                 `json:"parent_node_id,omitzero"`
 	Status           ProcessStatus          `gorm:"index" json:"status"`
+	BusinessKey      string                 `gorm:"size:255" json:"business_key,omitzero"`
 	Variables        EncryptedMap           `gorm:"type:text" json:"variables,omitzero"`
 	Tokens           []Token                `gorm:"type:text;serializer:json" json:"tokens,omitzero"`
 	CompletedNodes   []string               `gorm:"type:text;serializer:json" json:"completed_nodes,omitzero"`

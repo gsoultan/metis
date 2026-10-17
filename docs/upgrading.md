@@ -803,6 +803,29 @@ It was not run against an installation that 0.4.0 itself had migrated.
 **Rolling back** needs nothing: no schema changed. 0.4.0 applies a mapping as
 it did.
 
+## Migration 39: an instance carries a business key
+
+Migration 39 adds `process_instances.business_key`, a nullable column with no
+default. That changes the catalogue and does not rewrite the table, but it
+needs the table to itself for a moment. Every step of every instance reads or
+writes this table, so the migration waits at most two seconds for it and then
+stops, saying
+
+```
+process_instances was held for more than 2s by a long query or transaction;
+the upgrade stopped rather than hold every running instance behind it, and
+will finish when started again once that ends
+```
+
+Start the server again once the query has ended. The index the search reads
+through, `ix_process_instances_business_key`, is then built `CONCURRENTLY`, so
+it does not stop writes while it builds. A build that is interrupted leaves an
+invalid index, which the next start drops and builds again.
+
+Instances started before the upgrade have no business key, and nothing gives
+them one. A replica on the previous release starts instances without a key,
+whatever the caller sent, until it is rolled forward.
+
 ## Migrations 37 and 38: retention holds and periods
 
 Migration 37 creates `retention_holds`, the table an administrator's hold on

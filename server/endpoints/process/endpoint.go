@@ -63,9 +63,11 @@ func MakeStartProcessEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if err != nil {
 			return StartProcessResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
 		}
-		// StartSubProcess with no parent is what StartProcess does; it is the
-		// form that also carries a version. A zero version means the live one.
-		id, err := s.StartSubProcess(ctx, projectID, req.DefinitionKey, req.Version, req.Variables, uuid.Nil, "")
+		// A zero version means the live one, and no parent a top-level instance.
+		id, err := s.StartInstance(ctx, entities.InstanceStart{
+			ProjectID: projectID, DefinitionKey: req.DefinitionKey, Version: req.Version,
+			Variables: req.Variables, BusinessKey: req.BusinessKey,
+		})
 		return StartProcessResponse{InstanceID: id, Err: err}, nil
 	}
 }
@@ -191,6 +193,7 @@ func instanceFilterOf(req ListInstancesRequest) (repocontracts.InstanceFilter, e
 	}
 
 	filter.NeedsAttention = req.NeedsAttention
+	filter.BusinessKey = req.BusinessKey
 
 	return filter, nil
 }

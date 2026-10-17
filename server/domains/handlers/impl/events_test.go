@@ -37,6 +37,10 @@ func (s *stubEngine) StartSubProcess(context.Context, uuid.UUID, string, int, ma
 	return uuid.Nil, nil
 }
 
+func (s *stubEngine) StartInstance(context.Context, entities.InstanceStart) (uuid.UUID, error) {
+	return uuid.Nil, nil
+}
+
 func (s *stubEngine) ExecuteNode(context.Context, *entities.ProcessInstance, *entities.ProcessDefinition, string) error {
 	return nil
 }

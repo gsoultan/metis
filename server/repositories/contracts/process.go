@@ -36,6 +36,9 @@ type InstanceFilter struct {
 	Status models.ProcessStatus
 	// DefinitionID narrows to runs of one process. uuid.Nil means every process.
 	DefinitionID uuid.UUID
+	// BusinessKey narrows to the instances started for one case, matched
+	// exactly. Empty means every instance.
+	BusinessKey string
 	// NeedsAttention narrows to instances holding an unresolved incident.
 	//
 	// Deliberately not a value of Status. An instance with an incident is still

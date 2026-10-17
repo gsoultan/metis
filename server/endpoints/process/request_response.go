@@ -19,6 +19,12 @@ type StartProcessRequest struct {
 	// Without this the only way to exercise a new version was to make it live for
 	// everybody first.
 	Version int `json:"version,omitzero"`
+
+	// BusinessKey is the caller's name for the case — an order number, a
+	// claim reference — which the instance list then finds the instance by.
+	// Optional and not unique. REST only for now: the gRPC and Connect
+	// messages do not carry it yet.
+	BusinessKey string `json:"business_key,omitzero"`
 }
 
 type StartProcessResponse struct {
@@ -40,6 +46,9 @@ type ListInstancesRequest struct {
 	DefinitionID string `json:"definition_id,omitzero"`
 	// NeedsAttention narrows to instances holding an unresolved incident.
 	NeedsAttention bool `json:"needs_attention,omitzero"`
+	// BusinessKey narrows to the instances started for one case, matched
+	// exactly. Empty means every instance.
+	BusinessKey string `json:"business_key,omitzero"`
 }
 
 // InstanceStatusCount is how many of a project's instances are in one state.
