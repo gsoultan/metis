@@ -18,6 +18,10 @@ type Repository interface {
 	// inside the change that decides its request.
 	DeviationDecider() contracts.DeviationDecider
 
+	// RetentionHold is the holds that keep instances out of the
+	// finished-instance sweep; placed and released inside a transaction.
+	RetentionHold() contracts.RetentionHoldRepository
+
 	// SharedCounter holds the counts that rate limits and circuit breakers
 	// enforce across replicas rather than per process.
 	SharedCounter() contracts.SharedCounterRepository

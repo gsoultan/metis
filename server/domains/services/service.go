@@ -36,6 +36,7 @@ type service struct {
 	contracts.NotificationService
 	contracts.SimulationService
 	contracts.DeviationService
+	contracts.RetentionHoldService
 }
 
 type ServiceParams struct {
@@ -63,6 +64,7 @@ type ServiceParams struct {
 	NotificationService    contracts.NotificationService
 	SimulationService      contracts.SimulationService
 	DeviationService       contracts.DeviationService
+	RetentionHoldService   contracts.RetentionHoldService
 }
 
 func NewService(p ServiceParams) ServiceFacade {
@@ -72,6 +74,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	// of its methods with a plain error that says so.
 	if p.DeviationService == nil {
 		p.DeviationService = serviceimpl.NewDeviationService(nil, nil, nil)
+	}
+	if p.RetentionHoldService == nil {
+		p.RetentionHoldService = serviceimpl.NewUnavailableRetentionHoldService()
 	}
 	return &service{
 		OrganizationService:    p.OrganizationService,
@@ -98,6 +103,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		NotificationService:    p.NotificationService,
 		SimulationService:      p.SimulationService,
 		DeviationService:       p.DeviationService,
+		RetentionHoldService:   p.RetentionHoldService,
 	}
 }
 
@@ -261,6 +267,7 @@ func NewServiceFacade(
 			serviceimpl.NewInstanceDeviationService(repo, engine),
 			serviceimpl.NewDeviationRequestService(repo, engine,
 				serviceimpl.WithSoleAdministratorOrganizations(settings.soleAdministratorOrganizations))),
+		RetentionHoldService: serviceimpl.NewRetentionHoldService(repo, auditWriter),
 	})
 }
 

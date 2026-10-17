@@ -162,7 +162,7 @@ are off by default**, and an upgrade removes nothing until one is set:
 | :--- | :--- | :--- |
 | `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` | `variable_snapshots` captured more than that many days ago. An instance's variable history then starts at the period's beginning. | Snapshots inside the period, of any instance. |
 | `METIS_RETENTION_COMPLETED_JOBS_DAYS` | `jobs` that will never run again — `completed`, or `failed` with no unresolved incident naming them — neither due nor changed for that many days. | A `pending` or `running` job, and a `failed` job an open incident names: resolving the incident is what runs it again. The incidents themselves are kept. |
-| `METIS_RETENTION_FINISHED_INSTANCES_DAYS` | `process_instances` that `completed` or were `cancelled` and have not changed for that many days, with their `tasks`, `jobs`, `external_tasks`, `service_calls`, `incidents`, `event_subscriptions`, `compensatable_activities`, `variable_snapshots` and `notifications`. Main database only. | The audit trail. An instance any deviation was recorded or asked for on; one with an open incident; a `failed` or running one; a finished child of a running instance, and a finished parent of a running child; and instances in an environment's own database. |
+| `METIS_RETENTION_FINISHED_INSTANCES_DAYS` | `process_instances` that `completed` or were `cancelled` and have not changed for that many days, with their `tasks`, `jobs`, `external_tasks`, `service_calls`, `incidents`, `event_subscriptions`, `compensatable_activities`, `variable_snapshots` and `notifications`. Main database only. | The audit trail. An instance any deviation was recorded or asked for on; one with an open incident; a `failed` or running one; a finished child of a running instance, and a finished parent of a running child; instances in an environment's own database; and every instance of a case an administrator placed a retention hold on, until it is released. |
 
 Each is a whole number of days from 1; anything else is ignored with a warning
 and removes nothing. They run in the same sweep, on every database, 5,000 rows
@@ -173,6 +173,16 @@ record of who did what. Finished instances, and everything they own, go only
 when `METIS_RETENTION_FINISHED_INSTANCES_DAYS` is set; keeping or archiving
 them is a decision for whoever owns that record, so the server makes it only
 when told to.
+
+**A retention hold keeps a case whatever its age.** An administrator places
+one on an instance with `POST /api/v1/instances/{id}/retention-hold` and a
+reason, and releases it with `.../retention-hold/release` and a reason; both
+go on the instance's audit trail. The sweep then keeps the instance, the
+instance that started its chain of calls, and every instance started from
+that one. Each batch of the sweep first takes `retention_holds` in `SHARE`
+mode, so a hold being placed is either seen or waited for, while sweeps on
+several replicas still run side by side. A project's holds are listed by
+`GET /api/v1/projects/{id}/retention-holds`.
 
 A failed sweep is logged as `A retention sweep failed` with the table and the
 database. The table then keeps growing until a sweep succeeds.

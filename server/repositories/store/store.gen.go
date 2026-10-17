@@ -35,6 +35,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 	"github.com/gsoultan/metis/server/repositories/store/project"
 	"github.com/gsoultan/metis/server/repositories/store/resource"
+	"github.com/gsoultan/metis/server/repositories/store/retentionhold"
 	"github.com/gsoultan/metis/server/repositories/store/servicecall"
 	"github.com/gsoultan/metis/server/repositories/store/subscription"
 	"github.com/gsoultan/metis/server/repositories/store/task"
@@ -62,42 +63,43 @@ var FlushOrder = map[string]int{
 	"platform_roles":              4,
 	"platform_users":              5,
 	"projects":                    6,
-	"shared_counters":             7,
-	"users":                       8,
-	"webhooks":                    9,
-	"workflow_groups":             10,
-	"workflow_users":              11,
-	"connector_instances":         12,
-	"decision_definitions":        13,
-	"decision_releases":           14,
-	"deployments":                 15,
-	"environments":                16,
-	"forms":                       17,
-	"groups":                      18,
-	"memberships":                 19,
-	"participant_sources":         20,
-	"platform_role_assignments":   21,
-	"process_definition_releases": 22,
-	"process_definitions":         23,
-	"process_instances":           24,
-	"tasks":                       25,
-	"user_organizations":          26,
-	"user_projects":               27,
-	"variable_snapshots":          28,
-	"webhook_deliveries":          29,
-	"workflow_group_memberships":  30,
-	"audit_logs":                  31,
-	"broadcast_events":            32,
-	"compensatable_activities":    33,
-	"deployment_resources":        34,
-	"deviation_requests":          35,
-	"event_subscriptions":         36,
-	"external_tasks":              37,
-	"instance_deviations":         38,
-	"jobs":                        39,
-	"notifications":               40,
-	"service_calls":               41,
-	"incidents":                   42,
+	"retention_holds":             7,
+	"shared_counters":             8,
+	"users":                       9,
+	"webhooks":                    10,
+	"workflow_groups":             11,
+	"workflow_users":              12,
+	"connector_instances":         13,
+	"decision_definitions":        14,
+	"decision_releases":           15,
+	"deployments":                 16,
+	"environments":                17,
+	"forms":                       18,
+	"groups":                      19,
+	"memberships":                 20,
+	"participant_sources":         21,
+	"platform_role_assignments":   22,
+	"process_definition_releases": 23,
+	"process_definitions":         24,
+	"process_instances":           25,
+	"tasks":                       26,
+	"user_organizations":          27,
+	"user_projects":               28,
+	"variable_snapshots":          29,
+	"webhook_deliveries":          30,
+	"workflow_group_memberships":  31,
+	"audit_logs":                  32,
+	"broadcast_events":            33,
+	"compensatable_activities":    34,
+	"deployment_resources":        35,
+	"deviation_requests":          36,
+	"event_subscriptions":         37,
+	"external_tasks":              38,
+	"instance_deviations":         39,
+	"jobs":                        40,
+	"notifications":               41,
+	"service_calls":               42,
+	"incidents":                   43,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -5658,6 +5660,123 @@ func (p ResourceWithDeploymentQuery) All(ctx context.Context, ex runtime.Executo
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "deployment_resources", "deployments")
 		}
 		out[i].Deployment = targets[j]
+	}
+	return out, nil
+}
+
+// RetentionHoldWithProjectRow is retention_holds with its Project loaded.
+type RetentionHoldWithProjectRow struct {
+	retentionhold.Row
+	Project project.Row
+}
+
+type RetentionHoldWithProjectQuery struct {
+	q retentionhold.Query
+}
+
+// RetentionHoldWithProject starts the plan.
+func RetentionHoldWithProject() RetentionHoldWithProjectQuery {
+	return RetentionHoldWithProjectQuery{q: retentionhold.New()}
+}
+
+func (p RetentionHoldWithProjectQuery) Where(ps ...retentionhold.Pred) RetentionHoldWithProjectQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p RetentionHoldWithProjectQuery) WhereIf(cond bool, pr retentionhold.Pred) RetentionHoldWithProjectQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p RetentionHoldWithProjectQuery) Any(ps ...retentionhold.Pred) RetentionHoldWithProjectQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p RetentionHoldWithProjectQuery) Not(pr retentionhold.Pred) RetentionHoldWithProjectQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p RetentionHoldWithProjectQuery) NotAny(ps ...retentionhold.Pred) RetentionHoldWithProjectQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p RetentionHoldWithProjectQuery) Order(ts ...retentionhold.Sort) RetentionHoldWithProjectQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p RetentionHoldWithProjectQuery) Limit(n int64) RetentionHoldWithProjectQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p RetentionHoldWithProjectQuery) Offset(n int64) RetentionHoldWithProjectQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p RetentionHoldWithProjectQuery) After(r RetentionHoldWithProjectRow) RetentionHoldWithProjectQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p RetentionHoldWithProjectQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p RetentionHoldWithProjectQuery) All(ctx context.Context, ex runtime.Executor) ([]RetentionHoldWithProjectRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]RetentionHoldWithProjectRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = RetentionHoldWithProjectRow{Row: r}
+		key := r.ProjectID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := project.New().Unordered().
+		Where(project.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.ProjectID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "retention_holds", "projects")
+		}
+		out[i].Project = targets[j]
 	}
 	return out, nil
 }

@@ -94,6 +94,12 @@ const (
 	// came to approve it: the instance had moved, or ended. Nothing was
 	// changed.
 	EventDeviationStale = "deviation_stale"
+	// EventRetentionHoldPlaced marks an instance an administrator kept out of
+	// the retention sweep, with the reason they gave.
+	EventRetentionHoldPlaced = "retention_hold_placed"
+	// EventRetentionHoldReleased marks the release of that hold. The instance
+	// is swept like any other from then on, once its period is over.
+	EventRetentionHoldReleased = "retention_hold_released"
 )
 
 // auditWriter is the default AuditWriter implementation. It enriches each
@@ -162,6 +168,10 @@ func narrativeFor(eventType, subject, actor string) string {
 		return "This instance was ended before it finished"
 	case EventInstanceHeld:
 		return "This instance was held for somebody to decide"
+	case EventRetentionHoldPlaced:
+		return fmt.Sprintf("%s kept this instance from being removed when its retention period is over", actor)
+	case EventRetentionHoldReleased:
+		return fmt.Sprintf("%s released the hold that kept this instance from being removed", actor)
 	default:
 		if subject != "" {
 			return fmt.Sprintf("Event %q occurred on %q", eventType, subject)
