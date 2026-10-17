@@ -63,6 +63,8 @@ func All() []any {
 		&InstanceDeviation{},
 		// Requests waiting for a second administrator.
 		&DeviationRequest{},
+		// Instances kept out of the retention sweep.
+		&RetentionHold{},
 
 		// The inbound surface and the machinery underneath it.
 		&Webhook{},

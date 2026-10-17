@@ -842,6 +842,7 @@ func Schema(models []any) []Migration {
 		deviationRequests(),
 		sharedCounterWindowIndex(),
 		taskListIndex(),
+		retentionHolds(),
 	}
 }
 

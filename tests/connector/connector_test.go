@@ -118,6 +118,7 @@ func (m *MockRepository) DeviationRequest() contracts.DeviationRequestRepository
 	return nil
 }
 func (m *MockRepository) DeviationDecider() contracts.DeviationDecider     { return nil }
+func (m *MockRepository) RetentionHold() contracts.RetentionHoldRepository { return nil }
 func (m *MockRepository) Broadcast() contracts.BroadcastRepository         { return nil }
 func (m *MockRepository) SharedCounter() contracts.SharedCounterRepository { return nil }
 func (m *MockRepository) Connector() contracts.ConnectorRepository         { return m.connector }

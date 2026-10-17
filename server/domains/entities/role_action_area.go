@@ -56,6 +56,8 @@ var actionNouns = []struct{ noun, area string }{
 	// an instance's work, and its name carries no other noun here.
 	{"Deviation", areaInstances},
 	{"Instance", areaInstances},
+	// A hold keeps an instance; the project's list of them names no instance.
+	{"RetentionHold", areaInstances},
 	{"Signal", areaInstances},
 	{"AdHocTask", areaInstances},
 	{"Organization", areaOrganizations},

@@ -57,4 +57,8 @@ type ServiceFacade interface {
 	// writer, the in-place command included, records through DeviationRecorder
 	// inside its own change.
 	serviceContracts.DeviationService
+
+	// RetentionHoldService keeps instances out of the finished-instance
+	// sweep, an administrator's act with a reason, written to the trail.
+	serviceContracts.RetentionHoldService
 }

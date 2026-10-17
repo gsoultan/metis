@@ -11,6 +11,7 @@ type repository struct {
 	deviation             contracts.DeviationRepository
 	deviationRequest      contracts.DeviationRequestRepository
 	deviationDecider      contracts.DeviationDecider
+	retentionHold         contracts.RetentionHoldRepository
 	broadcast             contracts.BroadcastRepository
 	sharedCounter         contracts.SharedCounterRepository
 	connector             contracts.ConnectorRepository
@@ -59,6 +60,7 @@ func NewRepository(conn *stormdb.Conn) Repository {
 		deviation:             pg.NewDeviationRepository(conn),
 		deviationRequest:      pg.NewDeviationRequestRepository(conn),
 		deviationDecider:      pg.NewDeviationDecider(conn),
+		retentionHold:         pg.NewRetentionHoldRepository(conn),
 		broadcast:             pg.NewBroadcastRepository(conn),
 		sharedCounter:         pg.NewSharedCounterRepository(conn),
 		connector:             pg.NewConnectorRepository(conn),
@@ -94,7 +96,10 @@ func (r *repository) DeviationRequest() contracts.DeviationRequestRepository {
 	return r.deviationRequest
 }
 func (r *repository) DeviationDecider() contracts.DeviationDecider { return r.deviationDecider }
-func (r *repository) Broadcast() contracts.BroadcastRepository     { return r.broadcast }
+func (r *repository) RetentionHold() contracts.RetentionHoldRepository {
+	return r.retentionHold
+}
+func (r *repository) Broadcast() contracts.BroadcastRepository { return r.broadcast }
 func (r *repository) SharedCounter() contracts.SharedCounterRepository {
 	return r.sharedCounter
 }
