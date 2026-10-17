@@ -19,14 +19,14 @@ import (
 // heldSweep is an app with the finished-instance sweep on, over a project of
 // finished instances a test can hold.
 type heldSweep struct {
-	t         *testing.T
-	app       *App
-	db        *gorm.DB
-	repo      repositories.Repository
-	project   uuid.UUID
+	t          *testing.T
+	app        *App
+	db         *gorm.DB
+	repo       repositories.Repository
+	project    uuid.UUID
 	definition uuid.UUID
-	tenant    context.Context
-	keep      optInRetention
+	tenant     context.Context
+	keep       optInRetention
 }
 
 func newHeldSweep(t *testing.T) heldSweep {
