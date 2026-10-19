@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 36 run at the first boot; four of them stop
+administrator. Migrations 31 to 37 run at the first boot; five of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -69,9 +69,11 @@ action, in the order it bites:
   `METIS_RETENTION_FINISHED_INSTANCES_DAYS`,
   `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` and
   `METIS_RETENTION_COMPLETED_JOBS_DAYS` each start a sweep; the audit trail is
-  never swept.
+  never swept. With the first of them set, finish a rolling upgrade before
+  relying on a retention hold: a replica on the previous release does not read
+  holds ([Migration 37](docs/upgrading.md#migration-37-retention-holds)).
 
-Migrations 31 to 36 run at the first boot. Take a backup first: a rollback
+Migrations 31 to 37 run at the first boot. Take a backup first: a rollback
 does not undo a migration.
 
 - **31** gives a task the run of its step it was created for, and **stops the
@@ -89,6 +91,8 @@ does not undo a migration.
   on the same bound.
 - **35** and **36** add two indexes, built concurrently: one for the
   rate-limit sweep, one for a project's task list.
+- **37** creates the retention holds, and stops if `projects` is held for
+  more than two seconds; it finishes on the next start.
 
 ### Security
 
@@ -374,6 +378,25 @@ does not undo a migration.
   recorded or asked for on; one with an open incident; a failed instance; a
   finished child of an instance still running, and a finished parent of one;
   and, for now, instances in an environment's own database.
+
+- **An administrator can keep an instance from being removed.** A hold is
+  placed on one instance, with a reason, and the retention sweep then keeps
+  the whole case it is part of: the instance that started the chain of calls
+  and every instance started from it. The hold stands until an administrator
+  releases it, also with a reason; both acts go on the instance's audit trail.
+  Placing, releasing and listing are for administrators of the instance's
+  organization; reading an instance's hold is for whoever may read the
+  instance, and another organization's instance is a 404. A second hold on a
+  held instance is a 400. A sweep that starts while a hold is being placed
+  waits for it. Main database only, as the sweep is. REST only.
+  - `GET /api/v1/instances/{id}/retention-hold` answers
+    `{"held": false}` or `{"held": true, "hold": {...}}`.
+  - `POST /api/v1/instances/{id}/retention-hold` with `{"reason": "..."}`
+    places it.
+  - `POST /api/v1/instances/{id}/retention-hold/release` with
+    `{"reason": "..."}` releases it.
+  - `GET /api/v1/projects/{id}/retention-holds` lists a project's holds,
+    newest first, at most 1,000.
 
 - **Variable snapshots and finished jobs can be cut back, if you ask.** Both
   tables only ever grew. `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` removes

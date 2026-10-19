@@ -803,6 +803,32 @@ It was not run against an installation that 0.4.0 itself had migrated.
 **Rolling back** needs nothing: no schema changed. 0.4.0 applies a mapping as
 it did.
 
+## Migration 37: retention holds
+
+Migration 37 creates `retention_holds`, the table an administrator's hold on
+an instance is kept in (see the changelog for the routes). Nothing is
+backfilled and nothing is removed: an installation with no retention setting
+sweeps nothing, before or after. Every statement is `IF NOT EXISTS`, so a run
+that stops part-way finishes when the server is started again.
+
+The table references `projects` and not `process_instances`, so placing a hold
+never waits on a row the engine holds. Creating that reference needs a brief
+lock on `projects`; the migration waits two seconds and then stops, saying
+
+```
+projects was held for more than 2s by a long query or transaction; the
+upgrade stopped rather than hold every writer of it behind it, and will
+finish when started again once that ends
+```
+
+Start the server again once the query has ended.
+
+**Roll every replica forward before relying on a hold.** A replica still on
+the previous release sweeps without reading holds, so an instance placed on
+hold can be removed by it. If
+`METIS_RETENTION_FINISHED_INSTANCES_DAYS` is set, finish the rolling upgrade
+before placing a hold that matters.
+
 ## Migration 33: an instance's ledger of what was done to it
 
 An instance now keeps a row for each thing done to it that its process did not

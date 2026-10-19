@@ -20,6 +20,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/platformuser"
 	"github.com/gsoultan/metis/server/endpoints/process"
 	"github.com/gsoultan/metis/server/endpoints/project"
+	"github.com/gsoultan/metis/server/endpoints/retentionhold"
 	"github.com/gsoultan/metis/server/endpoints/role"
 	"github.com/gsoultan/metis/server/endpoints/setup"
 	"github.com/gsoultan/metis/server/endpoints/simulation"
@@ -42,6 +43,7 @@ type Endpoints struct {
 	ExternalTask      external_task.Endpoints
 	Incident          incident.Endpoints
 	Deviation         deviation.Endpoints
+	RetentionHold     retentionhold.Endpoints
 	Organization      organization.Endpoints
 	Process           process.Endpoints
 	Project           project.Endpoints
@@ -287,6 +289,18 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	deviationEndpoints.ApproveDeviationRequest = adminOnly("ApproveDeviationRequest")(deviationEndpoints.ApproveDeviationRequest)
 	deviationEndpoints.RejectDeviationRequest = adminOnly("RejectDeviationRequest")(deviationEndpoints.RejectDeviationRequest)
 
+	// Reading whether an instance is held takes what reading its audit trail
+	// takes: a signed-in account of the instance's organization. Placing and
+	// releasing a hold decide whether a business record outlives its
+	// retention period, which is an administrator's call; the service asks
+	// again who is calling. The project's list shows who placed each hold and
+	// why, and is an administrator's too.
+	holdEndpoints := retentionhold.MakeEndpoints(s)
+	holdEndpoints.GetInstanceHold = protected("GetInstanceHold")(holdEndpoints.GetInstanceHold)
+	holdEndpoints.HoldInstance = adminOnly("HoldInstance")(holdEndpoints.HoldInstance)
+	holdEndpoints.ReleaseInstanceHold = adminOnly("ReleaseInstanceHold")(holdEndpoints.ReleaseInstanceHold)
+	holdEndpoints.ListRetentionHolds = adminOnly("ListRetentionHolds")(holdEndpoints.ListRetentionHolds)
+
 	organizationEndpoints := organization.MakeEndpoints(s)
 	// Was public: logging and nothing else, so any signed-in account could
 	// create organizations over HTTP, and anybody at all over the gRPC
@@ -444,6 +458,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		ExternalTask:      externalTaskEndpoints,
 		Incident:          incidentEndpoints,
 		Deviation:         deviationEndpoints,
+		RetentionHold:     holdEndpoints,
 		Organization:      organizationEndpoints,
 		Process:           processEndpoints,
 		Project:           projectEndpoints,
