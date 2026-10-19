@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/internal/pkg/clamp"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
@@ -63,7 +64,10 @@ func (r *retentionPeriodRepository) Set(ctx context.Context, period entities.Ret
 	if !known {
 		return entities.RetentionPeriod{}, fmt.Errorf("%w: this project has no process with that key", apierr.ErrNotFound)
 	}
-	ins := stagePeriod(period)
+	ins, err := stagePeriod(period)
+	if err != nil {
+		return entities.RetentionPeriod{}, err
+	}
 	row, err := ins.Insert(ctx, ex)
 	if err != nil {
 		return entities.RetentionPeriod{}, fmt.Errorf("could not record the retention period: %w", err)
@@ -120,8 +124,10 @@ func (r *retentionPeriodRepository) read(ctx context.Context, projectID uuid.UUI
 }
 
 // stagePeriod sets every column of a new row. Its id is a v7: rows written in
-// one transaction share a creation time, and the newest is told by id.
-func stagePeriod(period entities.RetentionPeriod) retentionperiod.Ins {
+// one transaction share a creation time, and the newest is told by id. Days
+// outside the bounds the service enforces are refused here too, so the column
+// never holds a period no caller could have asked for.
+func stagePeriod(period entities.RetentionPeriod) (retentionperiod.Ins, error) {
 	id := period.ID
 	if id == uuid.Nil {
 		id = uuid.Must(uuid.NewV7())
@@ -131,12 +137,16 @@ func stagePeriod(period entities.RetentionPeriod) retentionperiod.Ins {
 	ins.SetProjectID(period.Project.ID)
 	ins.SetProcessKey(period.ProcessKey)
 	if period.Days != nil {
-		ins.SetDays(int32(*period.Days))
+		days := *period.Days
+		if days < 1 || days > entities.MaxRetentionPeriodDays {
+			return ins, apierr.Invalidf("a retention period is from 1 to %d days", entities.MaxRetentionPeriodDays)
+		}
+		ins.SetDays(clamp.Int32(days))
 	}
 	ins.SetReason(period.Reason)
 	ins.SetSetBy(period.SetBy)
 	ins.SetSetByID(period.SetByID)
-	return ins
+	return ins, nil
 }
 
 func periodFrom(row retentionperiod.Row) entities.RetentionPeriod {
