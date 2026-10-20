@@ -37,6 +37,7 @@ type service struct {
 	contracts.SimulationService
 	contracts.DeviationService
 	contracts.RetentionHoldService
+	contracts.RetentionPeriodService
 }
 
 type ServiceParams struct {
@@ -65,6 +66,7 @@ type ServiceParams struct {
 	SimulationService      contracts.SimulationService
 	DeviationService       contracts.DeviationService
 	RetentionHoldService   contracts.RetentionHoldService
+	RetentionPeriodService contracts.RetentionPeriodService
 }
 
 func NewService(p ServiceParams) ServiceFacade {
@@ -77,6 +79,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	}
 	if p.RetentionHoldService == nil {
 		p.RetentionHoldService = serviceimpl.NewUnavailableRetentionHoldService()
+	}
+	if p.RetentionPeriodService == nil {
+		p.RetentionPeriodService = serviceimpl.NewUnavailableRetentionPeriodService()
 	}
 	return &service{
 		OrganizationService:    p.OrganizationService,
@@ -104,6 +109,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		SimulationService:      p.SimulationService,
 		DeviationService:       p.DeviationService,
 		RetentionHoldService:   p.RetentionHoldService,
+		RetentionPeriodService: p.RetentionPeriodService,
 	}
 }
 
@@ -267,7 +273,8 @@ func NewServiceFacade(
 			serviceimpl.NewInstanceDeviationService(repo, engine),
 			serviceimpl.NewDeviationRequestService(repo, engine,
 				serviceimpl.WithSoleAdministratorOrganizations(settings.soleAdministratorOrganizations))),
-		RetentionHoldService: serviceimpl.NewRetentionHoldService(repo, auditWriter),
+		RetentionHoldService:   serviceimpl.NewRetentionHoldService(repo, auditWriter),
+		RetentionPeriodService: serviceimpl.NewRetentionPeriodService(repo),
 	})
 }
 

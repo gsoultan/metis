@@ -440,11 +440,17 @@ func (h engineHarness) waitForWaiters(t *testing.T, held *heldRows, count int, f
 	// Only a session that is waiting for a lock is asked who blocks it: the
 	// database is shared with every test that is running, and asking of every
 	// session costs a look at the lock table for each.
+	//
+	// A CREATE INDEX CONCURRENTLY anywhere in the database, such as another
+	// package's migration test, waits for every transaction already open, the
+	// holder's among them, on its virtual transaction id. It is waiting for no
+	// row the holder holds, so it is not counted.
 	const waiting = `WITH RECURSIVE behind(pid) AS (
-		    SELECT pid FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND ? = ANY(pg_blocking_pids(pid))
+		    SELECT pid FROM pg_stat_activity
+		     WHERE wait_event_type = 'Lock' AND wait_event <> 'virtualxid' AND ? = ANY(pg_blocking_pids(pid))
 		  UNION
 		    SELECT a.pid FROM pg_stat_activity a JOIN behind b
-		        ON a.wait_event_type = 'Lock' AND b.pid = ANY(pg_blocking_pids(a.pid)))
+		        ON a.wait_event_type = 'Lock' AND a.wait_event <> 'virtualxid' AND b.pid = ANY(pg_blocking_pids(a.pid)))
 		SELECT count(*) FROM behind`
 	seen := 0
 	for deadline := time.Now().Add(lockWait); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {

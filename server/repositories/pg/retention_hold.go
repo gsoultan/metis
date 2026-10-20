@@ -36,7 +36,7 @@ var errHeldInAnEnvironment = apierr.Invalidf("instances in an environment's own 
 // The hold is written before the instance is looked for, and that order is
 // what keeps a sweep from removing an instance somebody has just held. The
 // insert waits for a sweep batch that has the holds to itself
-// (ForgetFinishedBefore), and the read after it then sees what that batch
+// (ForgetFinished), and the read after it then sees what that batch
 // left: an instance it removed is not found, and the hold goes with the
 // transaction it was written in.
 func (r *retentionHoldRepository) Place(ctx context.Context, hold entities.RetentionHold) (entities.RetentionHold, error) {

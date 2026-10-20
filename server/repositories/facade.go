@@ -21,6 +21,8 @@ type Repository interface {
 	// RetentionHold is the holds that keep instances out of the
 	// finished-instance sweep; placed and released inside a transaction.
 	RetentionHold() contracts.RetentionHoldRepository
+	// RetentionPeriod is the periods processes are given, a row per change.
+	RetentionPeriod() contracts.RetentionPeriodRepository
 
 	// SharedCounter holds the counts that rate limits and circuit breakers
 	// enforce across replicas rather than per process.

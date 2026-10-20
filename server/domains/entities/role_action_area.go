@@ -58,6 +58,9 @@ var actionNouns = []struct{ noun, area string }{
 	{"Instance", areaInstances},
 	// A hold keeps an instance; the project's list of them names no instance.
 	{"RetentionHold", areaInstances},
+	// A retention period is a process's: how long its finished instances
+	// are kept.
+	{"RetentionPeriod", areaProcesses},
 	{"Signal", areaInstances},
 	{"AdHocTask", areaInstances},
 	{"Organization", areaOrganizations},

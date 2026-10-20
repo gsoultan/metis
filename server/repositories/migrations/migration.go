@@ -843,6 +843,7 @@ func Schema(models []any) []Migration {
 		sharedCounterWindowIndex(),
 		taskListIndex(),
 		retentionHolds(),
+		retentionPeriods(),
 	}
 }
 
