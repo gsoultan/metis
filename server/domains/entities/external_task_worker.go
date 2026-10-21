@@ -64,6 +64,8 @@ func WithWorkerVersion(ctx context.Context, version string) context.Context {
 
 // WorkerVersionFrom is the version WithWorkerVersion carried, or empty.
 func WorkerVersionFrom(ctx context.Context) string {
-	version, _ := ctx.Value(workerVersionKey{}).(string)
-	return version
+	if version, ok := ctx.Value(workerVersionKey{}).(string); ok {
+		return version
+	}
+	return ""
 }
