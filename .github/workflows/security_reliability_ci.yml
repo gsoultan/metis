@@ -21,8 +21,9 @@ env:
   # library itself, so the version here is the fix — there is nothing to change
   # in this repository's code. 1.27.2 supersedes it, and carries the fixes
   # for GO-2026-6599 to GO-2026-6617 (net/http, http2, textproto, tls,
-  # html/template).
-  GO_VERSION: '1.27.2'
+  # html/template). 1.27.3 carries the fix for GO-2026-6809 (crypto/x509
+  # distrusting compromised intermediate certificates).
+  GO_VERSION: '1.27.3'
 
 jobs:
   ui:
@@ -273,10 +274,25 @@ jobs:
       # Set through the environment rather than the test override, because that
       # is how an operator turns it on: it proves the variable name and the
       # resolution path, not just the in-process switch.
+      #
+      # Through make so it runs at GO_TEST_P (-p 2) like the steps above. It ran
+      # a bare `go test ./...` at the runner's default parallelism, which is the
+      # connection exhaustion the Tests step's note describes, and it failed in
+      # tests/bpmn and tests/deviation on main and on pull requests whose other
+      # steps all passed.
+      #
+      # Teed and summarised because the failing test's own lines sit tens of
+      # thousands of log lines above the end, behind the database containers'
+      # output, so a red run did not say which test was red.
       - name: Strict tenant scope (whole module, flag on)
-        env:
-          METIS_FEATURE_STRICT_TENANT_SCOPE: "true"
-        run: go test -count=1 -timeout 20m ./...
+        run: |
+          set -o pipefail
+          if ! make strict-scope 2>&1 | tee /tmp/strict.log; then
+            echo "::error::Strict tenant scope failed. The failing tests:"
+            grep -E -A 20 -- "^\s*--- FAIL|^panic:" /tmp/strict.log || true
+            grep -E "^FAIL\s" /tmp/strict.log || true
+            exit 1
+          fi
 
       - name: Vulnerability scan (govulncheck)
         run: |
