@@ -27,8 +27,10 @@ type WebhookModel struct {
 	Token string `gorm:"size:64;uniqueIndex" json:"token"`
 
 	// Secret is the shared key the signature is computed with, encrypted at
-	// rest like every other credential. This is the part that authenticates,
-	// and it is never returned by any read path.
+	// rest like every other credential: the repository seals it on write and
+	// opens it on read, and migration 42 sealed the ones written before it
+	// did. This is the part that authenticates, and it is never returned by
+	// any read path.
 	Secret string `gorm:"size:512" json:"-"`
 
 	// SignatureHeader is where the sender puts the signature. There is no

@@ -103,6 +103,15 @@ does not undo a migration.
 
 ### Security
 
+- **An inbound webhook's secret is encrypted at rest.** The secret a partner
+  signs deliveries with was stored as it was, though it was documented as
+  encrypted, so a backup, a read replica or a `SELECT` on `webhooks` was enough
+  to forge any partner's deliveries. It is sealed with `ENCRYPTION_KEY` like
+  every other credential now, and migration 42 seals the secrets already
+  stored, deleted webhooks' included. Partners change nothing: the secret
+  itself is the same. `metis --reseal` moves these secrets with the rest when
+  the key is rotated.
+
 - **A group's roles now grant what they say.** The group editor said everyone
   in a group holds its roles, but nothing read them: giving a group a role
   granted nothing, and taking it away took nothing away. Now each member acts

@@ -803,6 +803,28 @@ It was not run against an installation that 0.4.0 itself had migrated.
 **Rolling back** needs nothing: no schema changed. 0.4.0 applies a mapping as
 it did.
 
+## Migration 42: inbound webhook secrets are sealed
+
+Migration 42 encrypts every inbound webhook's secret with `ENCRYPTION_KEY`,
+in one transaction; the `webhooks` table is small, and only rows whose secret
+is still in the clear are touched, so a repeated run changes nothing. With no
+key configured it stops the upgrade rather than leave the secrets readable.
+
+During a rolling upgrade a replica on the previous release still writes a new
+webhook's secret in the clear, and the upgraded replicas read it as it is.
+Those secrets stay in the clear until somebody seals them: once every replica
+is rolled forward, run
+
+```sql
+DELETE FROM schema_migrations WHERE version = 42;
+```
+
+and restart one replica, which runs the migration again over what is left.
+
+**Rolling back** to the previous release is not safe once this has run: it
+reads the sealed value as the secret, and every signed delivery is refused.
+Restore from the backup taken before the upgrade instead.
+
 ## Migration 39: an instance carries a business key
 
 Migration 39 adds `process_instances.business_key`, a nullable column with no
