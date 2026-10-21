@@ -61,7 +61,7 @@
     "typescript": "7.0.2",
     "typescript-eslint": "8.67.0",
     "typescript-for-eslint": "npm:typescript@6.0.3",
-    "vite": "^8",
+    "vite": "^8.2.4",
     "vite-plugin-pwa": "1.3.0"
   }
 }
