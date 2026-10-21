@@ -602,6 +602,7 @@ export function ProcessDesigner({
               cases={savedCases}
               target={simulationTarget}
               labelOf={labelOf}
+              instanceId={instanceId ?? undefined}
               onAnswerAwaiting={answerNode}
             />
           </Box>

@@ -22,6 +22,7 @@ import { casePassed, checkExpectation, expectationVerdict, hasExpectation } from
 import type { SimulationController } from '../../hooks/useSimulation';
 import type { SimulationCasesController } from '../../hooks/useSimulationCases';
 import { SimulationExpect } from './SimulationExpect';
+import { SimulationReplay } from './SimulationReplay';
 import { Section } from './SimulationSection';
 import { VariablesAtCursor } from './SimulationVariablesNow';
 import { SimulationInputs } from './SimulationInputs';
@@ -36,6 +37,7 @@ export function SimulationRail({
   cases,
   target,
   labelOf,
+  instanceId,
   onAnswerAwaiting,
 }: {
   sim: SimulationController;
@@ -44,6 +46,8 @@ export function SimulationRail({
   target: SimulationTarget | null;
   /** What the diagram calls a node, for sentences that name one. */
   labelOf: (nodeId: string) => string;
+  /** The real instance the designer was opened on, which can be replayed. */
+  instanceId?: string;
   /**
    * Open the answer card for the step the run is waiting on.
    *
@@ -198,6 +202,8 @@ export function SimulationRail({
             <SimulationVerdict verdict={{ tone: 'bad', headline: 'The run could not start', detail: errorMessage(sim.error) }} />
           )}
 
+          <SimulationReplay sim={sim} instanceId={instanceId} labelOf={labelOf} />
+
           {/* ── Run ──────────────────────────────────────────────────────── */}
           <Group gap="xs" wrap="nowrap">
             <Button
@@ -218,7 +224,7 @@ export function SimulationRail({
             </Text>
           )}
 
-          {target?.kind === 'draft' && (
+          {target?.kind === 'draft' && active?.replay?.on !== 'live' && (
             <Text size="xs" c="dimmed">
               Running the diagram as it is now. Nothing is deployed and nothing is kept — deploy it
               when you want this case to run from CI too.

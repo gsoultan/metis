@@ -30,12 +30,10 @@ type SimulateRequest struct {
 	Definition *entities.ProcessDefinition `json:"definition"`
 	BPMNXML    string                      `json:"bpmn_xml"`
 
-	// ReplayInstanceID is declared but not yet run.
-	//
-	// Declared, because the decoder refuses fields it does not know and a
-	// client sending it would otherwise get "this request body could not be
-	// read" — which says nothing about which mode is missing. Named here, it
-	// gets an answer that does.
+	// ReplayInstanceID runs a real instance's case — what it was started
+	// with, who did its steps and when, what its services answered — on the
+	// version named here, or the instance's own process as it is live when
+	// none is. Variables and answers given beside it win over what was read.
 	ReplayInstanceID string `json:"replay_instance_id"`
 
 	// ClockStart fixes where virtual time begins. A caller writing a CI

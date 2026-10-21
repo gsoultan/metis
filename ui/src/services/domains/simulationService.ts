@@ -11,6 +11,7 @@
  * decision point is the simulation working correctly — it is the finding
  * somebody came here for. Only a transport failure throws.
  */
+import { answerFromWire, type WireCaseAnswer } from '../../domain/simulationCase';
 import type { SimulationRequest } from '../../domain/simulationScenario';
 import { SIMULATION_PATH } from '../../domain/simulationScenario';
 import type { SimulationRun } from '../../domain/simulationTrace';
@@ -49,6 +50,17 @@ interface WireRun {
     decision?: { expression: string; result: string; chose?: string; rule?: string };
     incident?: { node: string; message: string; hint?: string };
   }>;
+  replay?: {
+    instance_id: string;
+    version: number;
+    status: string;
+    started_with: ProcessVariables | null;
+    answers: WireCaseAnswer[] | null;
+    path: string[] | null;
+    only_in_run: string[] | null;
+    only_in_instance: string[] | null;
+    notes: string[] | null;
+  };
 }
 
 /**
@@ -89,6 +101,20 @@ function toRun(wire: WireRun): SimulationRun {
       decision: step.decision,
       incident: step.incident,
     })),
+    replay:
+      wire.replay === undefined
+        ? undefined
+        : {
+            instanceId: wire.replay.instance_id,
+            version: wire.replay.version,
+            status: wire.replay.status,
+            startedWith: wire.replay.started_with ?? {},
+            answers: (wire.replay.answers ?? []).map(answerFromWire),
+            path: wire.replay.path ?? [],
+            onlyInRun: wire.replay.only_in_run ?? [],
+            onlyInInstance: wire.replay.only_in_instance ?? [],
+            notes: wire.replay.notes ?? [],
+          },
   };
 }
 

@@ -127,7 +127,8 @@ export function checkExpectation(
 
 /* ── The wire ─────────────────────────────────────────────────────────────── */
 
-type WireCaseAnswer = {
+/** An answer as the server spells it, in a case and in a replay alike. */
+export type WireCaseAnswer = {
   node: string;
   kind: SimulationAnswer['kind'];
   actor?: string;
@@ -148,7 +149,9 @@ export interface WireCase {
 function answerToWire(answer: SimulationAnswer): WireCaseAnswer {
   switch (answer.kind) {
     case 'person':
-      return { node: answer.nodeId, kind: 'person', actor: answer.actor, after: answer.after };
+      return answer.returns !== undefined && answer.returns.length > 0
+        ? { node: answer.nodeId, kind: 'person', actor: answer.actor, after: answer.after, returns: variablesOf(answer.returns) }
+        : { node: answer.nodeId, kind: 'person', actor: answer.actor, after: answer.after };
     case 'message':
       return { node: answer.nodeId, kind: 'message', arrives_after: answer.arrivesAfter };
     case 'service':
@@ -161,7 +164,7 @@ function answerToWire(answer: SimulationAnswer): WireCaseAnswer {
 let rowCounter = 0;
 
 /** Rows for a map, with ids stable enough for React keys within one load. */
-function rowsOf(values: ProcessVariables | undefined): VariableRow[] {
+export function rowsOf(values: ProcessVariables | undefined): VariableRow[] {
   return Object.entries(values ?? {}).map(([name, value]) => ({
     id: `row-${++rowCounter}`,
     name,
@@ -169,10 +172,12 @@ function rowsOf(values: ProcessVariables | undefined): VariableRow[] {
   }));
 }
 
-function answerFromWire(answer: WireCaseAnswer): SimulationAnswer {
+export function answerFromWire(answer: WireCaseAnswer): SimulationAnswer {
   switch (answer.kind) {
-    case 'person':
-      return { nodeId: answer.node, kind: 'person', actor: answer.actor ?? '', after: answer.after ?? '' };
+    case 'person': {
+      const person: SimulationAnswer = { nodeId: answer.node, kind: 'person', actor: answer.actor ?? '', after: answer.after ?? '' };
+      return answer.returns === undefined ? person : { ...person, returns: rowsOf(answer.returns) };
+    }
     case 'message':
       return { nodeId: answer.node, kind: 'message', arrivesAfter: answer.arrives_after ?? '' };
     case 'service':

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/go-kit/kit/endpoint"
+	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services"
@@ -104,15 +105,19 @@ func runnable(req SimulateRequest) (entities.SimulationRequest, error) {
 		return entities.SimulationRequest{}, apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)
 	}
 	if req.ReplayInstanceID != "" {
-		return entities.SimulationRequest{}, apierr.Invalidf(
-			"replaying a real instance is not supported yet — simulate the definition with the variables it started with")
+		id, err := uuid.Parse(req.ReplayInstanceID)
+		if err != nil {
+			return entities.SimulationRequest{}, apierr.Invalidf("replay_instance_id %q is not a valid identifier: %v", req.ReplayInstanceID, err)
+		}
+		entity.ReplayInstanceID = id
 	}
 	if entity.Draft != nil && entity.DraftBPMN != "" {
 		return entities.SimulationRequest{}, apierr.Invalidf("send the draft once — as definition or as bpmn_xml, not both")
 	}
-	if entity.DefinitionKey == "" && !entity.IsDraft() {
+	// A replay with no key runs the instance's own process, as it is live.
+	if entity.DefinitionKey == "" && !entity.IsDraft() && entity.ReplayInstanceID == uuid.Nil {
 		return entities.SimulationRequest{}, apierr.Invalidf(
-			"definition_key is required: name a deployed definition, or send a draft as definition or bpmn_xml")
+			"definition_key is required: name a deployed definition, send a draft as definition or bpmn_xml, or replay an instance")
 	}
 	return entity, nil
 }

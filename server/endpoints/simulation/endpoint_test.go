@@ -27,12 +27,12 @@ func TestRunnable(t *testing.T) {
 			req:     SimulateRequest{ProjectID: project, Definition: draft, BPMNXML: "<definitions/>"},
 			refused: "not both",
 		},
+		{name: "a replay on a named process", req: SimulateRequest{ProjectID: project, DefinitionKey: "k", ReplayInstanceID: uuid.NewString()}},
+		{name: "a replay on the instance's own process", req: SimulateRequest{ProjectID: project, ReplayInstanceID: uuid.NewString()}},
 		{
-			// The batch converted its cases without this check, and ran the
-			// live definition in place of the replay the caller asked for.
-			name:    "a replay",
-			req:     SimulateRequest{ProjectID: project, DefinitionKey: "k", ReplayInstanceID: uuid.NewString()},
-			refused: "not supported yet",
+			name:    "a replay of an unreadable instance",
+			req:     SimulateRequest{ProjectID: project, ReplayInstanceID: "nope"},
+			refused: "replay_instance_id",
 		},
 	}
 	for _, tc := range tests {
@@ -57,7 +57,7 @@ func TestRunnable(t *testing.T) {
 func TestBatchRefusesACaseItCannotRun(t *testing.T) {
 	endpoint := MakeSimulateBatchEndpoint(nil)
 	reply, err := endpoint(t.Context(), BatchRequest{Scenarios: []SimulateRequest{
-		{ProjectID: uuid.NewString(), DefinitionKey: "k", ReplayInstanceID: uuid.NewString()},
+		{ProjectID: uuid.NewString(), DefinitionKey: "k", ReplayInstanceID: "nope"},
 	}})
 	if err != nil {
 		t.Fatalf("endpoint error: %v", err)

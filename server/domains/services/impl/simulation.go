@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	observerContracts "github.com/gsoultan/metis/server/domains/observers/contracts"
 	observerimpl "github.com/gsoultan/metis/server/domains/observers/impl"
@@ -49,6 +50,19 @@ func NewSimulationService(repo repositories.Repository, build SimulationEngineBu
 }
 
 func (s *simulationService) Simulate(ctx context.Context, req entities.SimulationRequest) (entities.SimulationRun, error) {
+	var replay *entities.SimulationReplay
+	replayKey := ""
+	if req.ReplayInstanceID != uuid.Nil {
+		var err error
+		if replay, replayKey, err = s.readReplay(ctx, &req); err != nil {
+			return entities.SimulationRun{}, err
+		}
+		// No version named: the instance's process as it is live now, which
+		// is the version a replay is most often asked about.
+		if req.DefinitionKey == "" && !req.IsDraft() {
+			req.DefinitionKey = replayKey
+		}
+	}
 	req.Normalize(time.Now())
 
 	clock := newVirtualClock(req.ClockStart)
@@ -73,12 +87,20 @@ func (s *simulationService) Simulate(ctx context.Context, req entities.Simulatio
 				return err
 			}
 		}
+		if replay != nil && req.DefinitionKey != replayKey {
+			return apierr.Invalidf("instance %s is of process %q, so it cannot be replayed on %q",
+				req.ReplayInstanceID, replayKey, req.DefinitionKey)
+		}
 		run = s.drive(txCtx, engine, &req, clock, recorder)
 		return errRollbackSimulation
 	})
 
 	if err != nil && !errors.Is(err, errRollbackSimulation) {
 		return entities.SimulationRun{}, err
+	}
+	if replay != nil {
+		compareReplay(replay, run.Steps)
+		run.Replay = replay
 	}
 	if req.IsDraft() {
 		// The version and id the run used were rolled back with it.
@@ -169,6 +191,9 @@ func (s *simulationService) apply(
 		if who == "" {
 			who = "Somebody"
 		}
+		if err := setAnswered(ctx, engine, instance, answer.Returns); err != nil {
+			return err
+		}
 		recorder.Record(entities.SimulationStep{
 			Node:  node.ID,
 			Event: "left",
@@ -192,14 +217,8 @@ func (s *simulationService) apply(
 		if answer.Fails != "" {
 			return s.failService(ctx, engine, instance, def, node, answer, recorder)
 		}
-		if len(answer.Returns) > 0 {
-			if instance.Variables == nil {
-				instance.Variables = map[string]any{}
-			}
-			maps.Copy(instance.Variables, answer.Returns)
-			if err := engine.UpdateInstance(ctx, *instance); err != nil {
-				return err
-			}
+		if err := setAnswered(ctx, engine, instance, answer.Returns); err != nil {
+			return err
 		}
 		recorder.Record(entities.SimulationStep{
 			Node:  node.ID,
@@ -211,6 +230,19 @@ func (s *simulationService) apply(
 	default:
 		return fmt.Errorf("no idea how to answer a %q step", answer.Kind)
 	}
+}
+
+// setAnswered merges what an answer hands back into the instance, as a
+// worker's or a form's completion would.
+func setAnswered(ctx context.Context, engine serviceContracts.ExecutionEngine, instance *entities.ProcessInstance, values map[string]any) error {
+	if len(values) == 0 {
+		return nil
+	}
+	if instance.Variables == nil {
+		instance.Variables = map[string]any{}
+	}
+	maps.Copy(instance.Variables, values)
+	return engine.UpdateInstance(ctx, *instance)
 }
 
 // failService routes a simulated failure to the boundary event that catches it.
@@ -274,7 +306,11 @@ func (s *simulationService) finish(
 			run.Variables = instance.Variables
 			if instance.Definition != nil {
 				run.Definition.ID = instance.Definition.ID
-				run.Definition.Version = instance.Definition.Version
+				// Read off the definition: the instance carries only its id,
+				// so its own copy said version 0 for every run.
+				if def, err := engine.GetProcessDefinition(ctx, instance.Definition.ID); err == nil && def != nil {
+					run.Definition.Version = def.Version
+				}
 			}
 
 			switch {

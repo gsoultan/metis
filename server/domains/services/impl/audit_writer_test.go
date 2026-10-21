@@ -35,6 +35,10 @@ func (s *stubAuditRepo) NodeVisits(_ context.Context, _ uuid.UUID, _ string) ([]
 	return nil, nil
 }
 
+func (s *stubAuditRepo) FirstByInstance(_ context.Context, _ uuid.UUID, _ string) (models.AuditModel, bool, error) {
+	return models.AuditModel{}, false, nil
+}
+
 func (s *stubAuditRepo) ListByProject(_ context.Context, _ uuid.UUID, _ int64) ([]models.AuditModel, error) {
 	return nil, nil
 }
