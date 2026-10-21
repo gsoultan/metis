@@ -13,6 +13,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/gsoultan/metis/internal/pkg/httpclient"
 	"github.com/gsoultan/metis/internal/pkg/webhooksig"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -75,7 +77,11 @@ func (s *outgoingWebhookSender) post(ctx context.Context, delivery entities.Outg
 		attempt.Error, attempt.Permanent = describeSendFailure(err)
 		return attempt
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Debug().Err(err).Msg("Could not close an outgoing webhook's response")
+		}
+	}()
 
 	attempt.StatusCode = resp.StatusCode
 	attempt.Response = responseExcerpt(resp.Body)
@@ -145,6 +151,8 @@ func responseExcerpt(body io.Reader) string {
 
 // jittered spreads a wait by up to retryJitter either way.
 func jittered(wait time.Duration) time.Duration {
+	// #nosec G404 -- jitter, not a secret: it spreads a cohort of retries so
+	// they do not land on a receiver in lockstep.
 	spread := (rand.Float64()*2 - 1) * retryJitter
 	return wait + time.Duration(float64(wait)*spread)
 }

@@ -66,10 +66,13 @@ func (d *outgoingWebhookDeliverer) StartOutgoingWebhookDeliveries(ctx context.Co
 				return
 			case <-ticker.C:
 				// A panic here would end the ticker, and with it every delivery.
-				_ = runRecovered("outgoing webhook poll", func() error {
+				if err := runRecovered("outgoing webhook poll", func() error {
 					d.drain(ctx)
 					return nil
-				})
+				}); err != nil {
+					// Logged with its stack by runRecovered; the next tick polls again.
+					continue
+				}
 			}
 		}
 	}()

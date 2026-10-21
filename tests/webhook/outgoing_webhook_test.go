@@ -394,7 +394,7 @@ func TestTheWorkerPostsWhatIsOwedAndRecordsTheAnswer(t *testing.T) {
 	if row.LastResponse != "try later" {
 		t.Errorf("last response = %q, want the receiver's words", row.LastResponse)
 	}
-	if wait := row.NextAttemptAt.Sub(time.Now()); wait < 30*time.Second || wait > 2*time.Minute {
+	if wait := time.Until(row.NextAttemptAt); wait < 30*time.Second || wait > 2*time.Minute {
 		t.Errorf("the next attempt is in %s, want about a minute", wait)
 	}
 }
