@@ -25,6 +25,7 @@ type Row struct {
 	UpdatedAt        time.Time
 	InstanceID       [16]byte
 	DefinitionID     [16]byte
+	OrganizationID   runtime.Null[[16]byte]
 	NodeID           string
 	IterationID      runtime.Null[string]
 	Type             string
@@ -76,7 +77,7 @@ const (
 	opNotExists runtime.Op = 27
 )
 
-const nCols = 18
+const nCols = 19
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -227,83 +228,90 @@ func (q *Query) cursor(col uint32, r Row) {
 		q.raws[q.nr] = r.DefinitionID
 		q.nr++
 	case 5:
+		if int(q.nr) >= len(q.raws) {
+			q.over = true
+			return
+		}
+		q.raws[q.nr] = r.OrganizationID.V
+		q.nr++
+	case 6:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.NodeID
 		q.ns++
-	case 6:
+	case 7:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.IterationID.V
 		q.ns++
-	case 7:
+	case 8:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.Type
 		q.ns++
-	case 8:
+	case 9:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.Status
 		q.ns++
-	case 9:
+	case 10:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.LockedBy.V
 		q.ns++
-	case 10:
+	case 11:
 		if int(q.ntm) >= len(q.tims) {
 			q.over = true
 			return
 		}
 		q.tims[q.ntm] = r.LockExpires.V
 		q.ntm++
-	case 12:
+	case 13:
 		if int(q.nn) >= len(q.nums) {
 			q.over = true
 			return
 		}
 		q.nums[q.nn] = int64(r.Retries)
 		q.nn++
-	case 13:
+	case 14:
 		if int(q.nn) >= len(q.nums) {
 			q.over = true
 			return
 		}
 		q.nums[q.nn] = int64(r.MaxRetries)
 		q.nn++
-	case 14:
+	case 15:
 		if int(q.nn) >= len(q.nums) {
 			q.over = true
 			return
 		}
 		q.nums[q.nn] = int64(r.RepeatsRemaining)
 		q.nn++
-	case 15:
+	case 16:
 		if int(q.ntm) >= len(q.tims) {
 			q.over = true
 			return
 		}
 		q.tims[q.ntm] = r.NextRunAt
 		q.ntm++
-	case 16:
+	case 17:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = r.LastError.V
 		q.ns++
-	case 17:
+	case 18:
 		if int(q.ntm) >= len(q.tims) {
 			q.over = true
 			return
@@ -475,19 +483,20 @@ var (
 	UpdatedAt        = TimeCol{2}
 	InstanceID       = UUIDCol{3}
 	DefinitionID     = UUIDCol{4}
-	NodeID           = TextCol{5}
-	IterationID      = NullTextCol{6}
-	Type             = TextCol{7}
-	Status           = TextCol{8}
-	LockedBy         = NullTextCol{9}
-	LockExpires      = NullTimeCol{10}
-	Payload          = JSONCol{11}
-	Retries          = Int64Col{12}
-	MaxRetries       = Int64Col{13}
-	RepeatsRemaining = Int64Col{14}
-	NextRunAt        = TimeCol{15}
-	LastError        = NullTextCol{16}
-	DeletedAt        = NullTimeCol{17}
+	OrganizationID   = NullUUIDCol{5}
+	NodeID           = TextCol{6}
+	IterationID      = NullTextCol{7}
+	Type             = TextCol{8}
+	Status           = TextCol{9}
+	LockedBy         = NullTextCol{10}
+	LockExpires      = NullTimeCol{11}
+	Payload          = JSONCol{12}
+	Retries          = Int64Col{13}
+	MaxRetries       = Int64Col{14}
+	RepeatsRemaining = Int64Col{15}
+	NextRunAt        = TimeCol{16}
+	LastError        = NullTextCol{17}
+	DeletedAt        = NullTimeCol{18}
 )
 
 // UUIDCol addresses a uuid column.
@@ -529,6 +538,29 @@ func (h TimeCol) Gt(v time.Time) Pred    { return Pred{col: h.c, op: opGt, tim: 
 func (h TimeCol) Gte(v time.Time) Pred   { return Pred{col: h.c, op: opGte, tim: v} }
 func (h TimeCol) Lt(v time.Time) Pred    { return Pred{col: h.c, op: opLt, tim: v} }
 func (h TimeCol) Lte(v time.Time) Pred   { return Pred{col: h.c, op: opLte, tim: v} }
+
+// NullUUIDCol addresses a uuid column.
+type NullUUIDCol struct{ c uint8 }
+
+func (h NullUUIDCol) Asc() Sort  { return Sort(runtime.MakeOrder(runtime.Asc, uint32(h.c))) }
+func (h NullUUIDCol) Desc() Sort { return Sort(runtime.MakeOrder(runtime.Desc, uint32(h.c))) }
+func (h NullUUIDCol) AscNullsFirst() Sort {
+	return Sort(runtime.MakeOrder(runtime.AscNullsFirst, uint32(h.c)))
+}
+func (h NullUUIDCol) DescNullsLast() Sort {
+	return Sort(runtime.MakeOrder(runtime.DescNullsLast, uint32(h.c)))
+}
+
+func (h NullUUIDCol) Eq(v [16]byte) Pred    { return Pred{col: h.c, op: opEq, raw: v} }
+func (h NullUUIDCol) NotEq(v [16]byte) Pred { return Pred{col: h.c, op: opNotEq, raw: v} }
+func (h NullUUIDCol) In(v ...[16]byte) Pred { return Pred{col: h.c, op: opIn, anyRaw: v} }
+
+// NotIn is `<> ALL($1)`. A NULL anywhere in v makes the
+// comparison NULL for every row and the result empty —
+// PostgreSQL's rule for NOT IN, not storm's.
+func (h NullUUIDCol) NotIn(v ...[16]byte) Pred { return Pred{col: h.c, op: opNotIn, anyRaw: v} }
+func (h NullUUIDCol) IsNull() Pred             { return Pred{col: h.c, op: opIsNull} }
+func (h NullUUIDCol) IsNotNull() Pred          { return Pred{col: h.c, op: opIsNotNull} }
 
 // TextCol addresses a varchar(255) column.
 type TextCol struct{ c uint8 }
@@ -816,12 +848,12 @@ func (q *Query) leaf(p Pred) {
 			q.anyRaw[q.nar] = p.anyRaw
 			q.nar++
 		case 5:
-			if int(q.nas) >= 3 {
+			if int(q.nar) >= 3 {
 				q.over = true
 				return
 			}
-			q.anyStr[q.nas] = p.anyStr
-			q.nas++
+			q.anyRaw[q.nar] = p.anyRaw
+			q.nar++
 		case 6:
 			if int(q.nas) >= 3 {
 				q.over = true
@@ -850,7 +882,7 @@ func (q *Query) leaf(p Pred) {
 			}
 			q.anyStr[q.nas] = p.anyStr
 			q.nas++
-		case 11:
+		case 10:
 			if int(q.nas) >= 3 {
 				q.over = true
 				return
@@ -858,12 +890,12 @@ func (q *Query) leaf(p Pred) {
 			q.anyStr[q.nas] = p.anyStr
 			q.nas++
 		case 12:
-			if int(q.nai64) >= 3 {
+			if int(q.nas) >= 3 {
 				q.over = true
 				return
 			}
-			q.anyI64[q.nai64] = p.anyI64
-			q.nai64++
+			q.anyStr[q.nas] = p.anyStr
+			q.nas++
 		case 13:
 			if int(q.nai64) >= 3 {
 				q.over = true
@@ -878,7 +910,14 @@ func (q *Query) leaf(p Pred) {
 			}
 			q.anyI64[q.nai64] = p.anyI64
 			q.nai64++
-		case 16:
+		case 15:
+			if int(q.nai64) >= 3 {
+				q.over = true
+				return
+			}
+			q.anyI64[q.nai64] = p.anyI64
+			q.nai64++
+		case 17:
 			if int(q.nas) >= 3 {
 				q.over = true
 				return
@@ -930,12 +969,12 @@ func (q *Query) leaf(p Pred) {
 		q.raws[q.nr] = p.raw
 		q.nr++
 	case 5:
-		if int(q.ns) >= 6 {
+		if int(q.nr) >= 4 {
 			q.over = true
 			return
 		}
-		q.strs[q.ns] = p.str
-		q.ns++
+		q.raws[q.nr] = p.raw
+		q.nr++
 	case 6:
 		if int(q.ns) >= 6 {
 			q.over = true
@@ -965,26 +1004,26 @@ func (q *Query) leaf(p Pred) {
 		q.strs[q.ns] = p.str
 		q.ns++
 	case 10:
+		if int(q.ns) >= 6 {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = p.str
+		q.ns++
+	case 11:
 		if int(q.ntm) >= 4 {
 			q.over = true
 			return
 		}
 		q.tims[q.ntm] = p.tim
 		q.ntm++
-	case 11:
+	case 12:
 		if int(q.njs) >= 2 {
 			q.over = true
 			return
 		}
 		q.jsns[q.njs] = p.jsn
 		q.njs++
-	case 12:
-		if int(q.nn) >= 6 {
-			q.over = true
-			return
-		}
-		q.nums[q.nn] = p.num
-		q.nn++
 	case 13:
 		if int(q.nn) >= 6 {
 			q.over = true
@@ -1000,20 +1039,27 @@ func (q *Query) leaf(p Pred) {
 		q.nums[q.nn] = p.num
 		q.nn++
 	case 15:
+		if int(q.nn) >= 6 {
+			q.over = true
+			return
+		}
+		q.nums[q.nn] = p.num
+		q.nn++
+	case 16:
 		if int(q.ntm) >= 4 {
 			q.over = true
 			return
 		}
 		q.tims[q.ntm] = p.tim
 		q.ntm++
-	case 16:
+	case 17:
 		if int(q.ns) >= 6 {
 			q.over = true
 			return
 		}
 		q.strs[q.ns] = p.str
 		q.ns++
-	case 17:
+	case 18:
 		if int(q.ntm) >= 4 {
 			q.over = true
 			return
@@ -1049,6 +1095,12 @@ func (q Query) DefinitionIDEq(v [16]byte) Query         { return q.Where(Definit
 func (q Query) DefinitionIDNotEq(v [16]byte) Query      { return q.Where(DefinitionID.NotEq(v)) }
 func (q Query) DefinitionIDIn(v ...[16]byte) Query      { return q.Where(DefinitionID.In(v...)) }
 func (q Query) DefinitionIDNotIn(v ...[16]byte) Query   { return q.Where(DefinitionID.NotIn(v...)) }
+func (q Query) OrganizationIDEq(v [16]byte) Query       { return q.Where(OrganizationID.Eq(v)) }
+func (q Query) OrganizationIDNotEq(v [16]byte) Query    { return q.Where(OrganizationID.NotEq(v)) }
+func (q Query) OrganizationIDIn(v ...[16]byte) Query    { return q.Where(OrganizationID.In(v...)) }
+func (q Query) OrganizationIDNotIn(v ...[16]byte) Query { return q.Where(OrganizationID.NotIn(v...)) }
+func (q Query) OrganizationIDIsNull() Query             { return q.Where(OrganizationID.IsNull()) }
+func (q Query) OrganizationIDIsNotNull() Query          { return q.Where(OrganizationID.IsNotNull()) }
 func (q Query) NodeIDEq(v string) Query                 { return q.Where(NodeID.Eq(v)) }
 func (q Query) NodeIDNotEq(v string) Query              { return q.Where(NodeID.NotEq(v)) }
 func (q Query) NodeIDGt(v string) Query                 { return q.Where(NodeID.Gt(v)) }
@@ -1177,7 +1229,7 @@ func (q Query) DeletedAtIsNotNull() Query               { return q.Where(Deleted
 // can narrow what it sees and cannot widen it. Reaching the deleted
 // rows is a different function, and visibly so.
 const softDeleteWhere = `"deleted_at" IS NULL`
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "instance_id", "definition_id", "node_id", "iteration_id", "type", "status", "locked_by", "lock_expires", "payload", "retries", "max_retries", "repeats_remaining", "next_run_at", "last_error", "deleted_at" FROM "jobs"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "instance_id", "definition_id", "organization_id", "node_id", "iteration_id", "type", "status", "locked_by", "lock_expires", "payload", "retries", "max_retries", "repeats_remaining", "next_run_at", "last_error", "deleted_at" FROM "jobs"`
 const countPrefix = `SELECT count(*) FROM "jobs"`
 const existsPrefix = `SELECT 1 FROM "jobs"`
 const existsSuffix = ` LIMIT 1`
@@ -1243,6 +1295,12 @@ var orderTable = [nCols][4]string{
 		"\"definition_id\" DESC",
 		"\"definition_id\" ASC NULLS FIRST",
 		"\"definition_id\" DESC NULLS LAST",
+	},
+	{ // organization_id
+		"\"organization_id\"",
+		"\"organization_id\" DESC",
+		"\"organization_id\" ASC NULLS FIRST",
+		"\"organization_id\" DESC NULLS LAST",
 	},
 	{ // node_id
 		"\"node_id\"",
@@ -1332,6 +1390,7 @@ var identTable = [nCols]string{
 	"\"updated_at\"",
 	"\"instance_id\"",
 	"\"definition_id\"",
+	"\"organization_id\"",
 	"\"node_id\"",
 	"\"iteration_id\"",
 	"\"type\"",
@@ -1377,7 +1436,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [18][28]runtime.Frag{
+var fragTable = [19][28]runtime.Frag{
 	{ // id
 		{}, // opNone
 		{A: "\"id\" = $", B: ""},
@@ -1525,6 +1584,36 @@ var fragTable = [18][28]runtime.Frag{
 		{},
 		{},
 		{},
+		{},
+		{},
+	},
+	{ // organization_id
+		{}, // opNone
+		{A: "\"organization_id\" = $", B: ""},
+		{A: "\"organization_id\" <> $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"organization_id\" = ANY($", B: ")"},
+		{A: "\"organization_id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"organization_id\" IS NULL", B: ""},
+		{A: "\"organization_id\" IS NOT NULL", B: ""},
 		{},
 		{},
 	},
@@ -2078,19 +2167,20 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 	r.UpdatedAt = runtime.Timestamptz(rv[2])
 	copy(r.InstanceID[:], rv[3])
 	copy(r.DefinitionID[:], rv[4])
-	r.NodeID = sl.Str(rv[5])
-	r.IterationID = runtime.NullText(rv[6], sl)
-	r.Type = sl.Str(rv[7])
-	r.Status = sl.Str(rv[8])
-	r.LockedBy = runtime.NullText(rv[9], sl)
-	r.LockExpires = runtime.Nullable(rv[10], runtime.Timestamptz)
-	r.Payload = runtime.JSON(runtime.JSONB(rv[11], sl))
-	r.Retries = runtime.Int8(rv[12])
-	r.MaxRetries = runtime.Int8(rv[13])
-	r.RepeatsRemaining = runtime.Int8(rv[14])
-	r.NextRunAt = runtime.Timestamptz(rv[15])
-	r.LastError = runtime.NullText(rv[16], sl)
-	r.DeletedAt = runtime.Nullable(rv[17], runtime.Timestamptz)
+	r.OrganizationID = runtime.Nullable(rv[5], runtime.UUID)
+	r.NodeID = sl.Str(rv[6])
+	r.IterationID = runtime.NullText(rv[7], sl)
+	r.Type = sl.Str(rv[8])
+	r.Status = sl.Str(rv[9])
+	r.LockedBy = runtime.NullText(rv[10], sl)
+	r.LockExpires = runtime.Nullable(rv[11], runtime.Timestamptz)
+	r.Payload = runtime.JSON(runtime.JSONB(rv[12], sl))
+	r.Retries = runtime.Int8(rv[13])
+	r.MaxRetries = runtime.Int8(rv[14])
+	r.RepeatsRemaining = runtime.Int8(rv[15])
+	r.NextRunAt = runtime.Timestamptz(rv[16])
+	r.LastError = runtime.NullText(rv[17], sl)
+	r.DeletedAt = runtime.Nullable(rv[18], runtime.Timestamptz)
 	return nil
 }
 
@@ -2174,9 +2264,9 @@ func (q Query) bindPreds(b *binder) []any {
 				v = append(v, &b.anyRaw[nar])
 				nar++
 			case 5:
-				b.anyStr[nas] = q.anyStr[nas]
-				v = append(v, &b.anyStr[nas])
-				nas++
+				b.anyRaw[nar] = q.anyRaw[nar]
+				v = append(v, &b.anyRaw[nar])
+				nar++
 			case 6:
 				b.anyStr[nas] = q.anyStr[nas]
 				v = append(v, &b.anyStr[nas])
@@ -2193,14 +2283,14 @@ func (q Query) bindPreds(b *binder) []any {
 				b.anyStr[nas] = q.anyStr[nas]
 				v = append(v, &b.anyStr[nas])
 				nas++
-			case 11:
+			case 10:
 				b.anyStr[nas] = q.anyStr[nas]
 				v = append(v, &b.anyStr[nas])
 				nas++
 			case 12:
-				b.anyI64[nai64] = q.anyI64[nai64]
-				v = append(v, &b.anyI64[nai64])
-				nai64++
+				b.anyStr[nas] = q.anyStr[nas]
+				v = append(v, &b.anyStr[nas])
+				nas++
 			case 13:
 				b.anyI64[nai64] = q.anyI64[nai64]
 				v = append(v, &b.anyI64[nai64])
@@ -2209,7 +2299,11 @@ func (q Query) bindPreds(b *binder) []any {
 				b.anyI64[nai64] = q.anyI64[nai64]
 				v = append(v, &b.anyI64[nai64])
 				nai64++
-			case 16:
+			case 15:
+				b.anyI64[nai64] = q.anyI64[nai64]
+				v = append(v, &b.anyI64[nai64])
+				nai64++
+			case 17:
 				b.anyStr[nas] = q.anyStr[nas]
 				v = append(v, &b.anyStr[nas])
 				nas++
@@ -2238,9 +2332,9 @@ func (q Query) bindPreds(b *binder) []any {
 			v = append(v, &b.raws[nr])
 			nr++
 		case 5:
-			b.strs[ns] = q.strs[ns]
-			v = append(v, &b.strs[ns])
-			ns++
+			b.raws[nr] = q.raws[nr]
+			v = append(v, &b.raws[nr])
+			nr++
 		case 6:
 			b.strs[ns] = q.strs[ns]
 			v = append(v, &b.strs[ns])
@@ -2258,17 +2352,17 @@ func (q Query) bindPreds(b *binder) []any {
 			v = append(v, &b.strs[ns])
 			ns++
 		case 10:
+			b.strs[ns] = q.strs[ns]
+			v = append(v, &b.strs[ns])
+			ns++
+		case 11:
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
-		case 11:
+		case 12:
 			b.jsns[njs] = q.jsns[njs]
 			v = append(v, &b.jsns[njs])
 			njs++
-		case 12:
-			b.nums[nn] = q.nums[nn]
-			v = append(v, &b.nums[nn])
-			nn++
 		case 13:
 			b.nums[nn] = q.nums[nn]
 			v = append(v, &b.nums[nn])
@@ -2278,14 +2372,18 @@ func (q Query) bindPreds(b *binder) []any {
 			v = append(v, &b.nums[nn])
 			nn++
 		case 15:
+			b.nums[nn] = q.nums[nn]
+			v = append(v, &b.nums[nn])
+			nn++
+		case 16:
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
-		case 16:
+		case 17:
 			b.strs[ns] = q.strs[ns]
 			v = append(v, &b.strs[ns])
 			ns++
-		case 17:
+		case 18:
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
@@ -2426,7 +2524,7 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "jobs" ("id", "created_at", "updated_at", "instance_id", "definition_id", "node_id", "iteration_id", "type", "status", "locked_by", "lock_expires", "payload", "retries", "max_retries", "repeats_remaining", "next_run_at", "last_error", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING "id", "created_at", "updated_at", "instance_id", "definition_id", "node_id", "iteration_id", "type", "status", "locked_by", "lock_expires", "payload", "retries", "max_retries", "repeats_remaining", "next_run_at", "last_error", "deleted_at"`
+const insertSQL = `INSERT INTO "jobs" ("id", "created_at", "updated_at", "instance_id", "definition_id", "organization_id", "node_id", "iteration_id", "type", "status", "locked_by", "lock_expires", "payload", "retries", "max_retries", "repeats_remaining", "next_run_at", "last_error", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING "id", "created_at", "updated_at", "instance_id", "definition_id", "organization_id", "node_id", "iteration_id", "type", "status", "locked_by", "lock_expires", "payload", "retries", "max_retries", "repeats_remaining", "next_run_at", "last_error", "deleted_at"`
 
 const updatePrefix = `UPDATE "jobs" SET `
 const deletePrefix = `DELETE FROM "jobs"`
@@ -2437,28 +2535,30 @@ const (
 	dUpdatedAt        uint64 = 1 << 0
 	dInstanceID       uint64 = 1 << 1
 	dDefinitionID     uint64 = 1 << 2
-	dNodeID           uint64 = 1 << 3
-	dIterationID      uint64 = 1 << 4
-	dType             uint64 = 1 << 5
-	dStatus           uint64 = 1 << 6
-	dLockedBy         uint64 = 1 << 7
-	dLockExpires      uint64 = 1 << 8
-	dPayload          uint64 = 1 << 9
-	dRetries          uint64 = 1 << 10
-	dMaxRetries       uint64 = 1 << 11
-	dRepeatsRemaining uint64 = 1 << 12
-	dNextRunAt        uint64 = 1 << 13
-	dLastError        uint64 = 1 << 14
-	dDeletedAt        uint64 = 1 << 15
+	dOrganizationID   uint64 = 1 << 3
+	dNodeID           uint64 = 1 << 4
+	dIterationID      uint64 = 1 << 5
+	dType             uint64 = 1 << 6
+	dStatus           uint64 = 1 << 7
+	dLockedBy         uint64 = 1 << 8
+	dLockExpires      uint64 = 1 << 9
+	dPayload          uint64 = 1 << 10
+	dRetries          uint64 = 1 << 11
+	dMaxRetries       uint64 = 1 << 12
+	dRepeatsRemaining uint64 = 1 << 13
+	dNextRunAt        uint64 = 1 << 14
+	dLastError        uint64 = 1 << 15
+	dDeletedAt        uint64 = 1 << 16
 )
 
-const nUpdatable = 16
+const nUpdatable = 17
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
 	{A: "\"updated_at\" = $", B: ""},        // updated_at
 	{A: "\"instance_id\" = $", B: ""},       // instance_id
 	{A: "\"definition_id\" = $", B: ""},     // definition_id
+	{A: "\"organization_id\" = $", B: ""},   // organization_id
 	{A: "\"node_id\" = $", B: ""},           // node_id
 	{A: "\"iteration_id\" = $", B: ""},      // iteration_id
 	{A: "\"type\" = $", B: ""},              // type
@@ -2481,6 +2581,7 @@ var exprFrags = [nUpdatable]runtime.Frag{
 	{A: "\"updated_at\" = now()", B: ""},   // updated_at = the database's clock
 	{},                                     // instance_id has no server-side form
 	{},                                     // definition_id has no server-side form
+	{},                                     // organization_id has no server-side form
 	{},                                     // node_id has no server-side form
 	{},                                     // iteration_id has no server-side form
 	{},                                     // type has no server-side form
@@ -2510,22 +2611,23 @@ const (
 	iUpdatedAt        uint64 = 1 << 2
 	iInstanceID       uint64 = 1 << 3
 	iDefinitionID     uint64 = 1 << 4
-	iNodeID           uint64 = 1 << 5
-	iIterationID      uint64 = 1 << 6
-	iType             uint64 = 1 << 7
-	iStatus           uint64 = 1 << 8
-	iLockedBy         uint64 = 1 << 9
-	iLockExpires      uint64 = 1 << 10
-	iPayload          uint64 = 1 << 11
-	iRetries          uint64 = 1 << 12
-	iMaxRetries       uint64 = 1 << 13
-	iRepeatsRemaining uint64 = 1 << 14
-	iNextRunAt        uint64 = 1 << 15
-	iLastError        uint64 = 1 << 16
-	iDeletedAt        uint64 = 1 << 17
+	iOrganizationID   uint64 = 1 << 5
+	iNodeID           uint64 = 1 << 6
+	iIterationID      uint64 = 1 << 7
+	iType             uint64 = 1 << 8
+	iStatus           uint64 = 1 << 9
+	iLockedBy         uint64 = 1 << 10
+	iLockExpires      uint64 = 1 << 11
+	iPayload          uint64 = 1 << 12
+	iRetries          uint64 = 1 << 13
+	iMaxRetries       uint64 = 1 << 14
+	iRepeatsRemaining uint64 = 1 << 15
+	iNextRunAt        uint64 = 1 << 16
+	iLastError        uint64 = 1 << 17
+	iDeletedAt        uint64 = 1 << 18
 )
 
-const nInsertable = 18
+const nInsertable = 19
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -2534,6 +2636,7 @@ var insCols = [nInsertable]string{
 	"\"updated_at\"",
 	"\"instance_id\"",
 	"\"definition_id\"",
+	"\"organization_id\"",
 	"\"node_id\"",
 	"\"iteration_id\"",
 	"\"type\"",
@@ -2555,7 +2658,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"jobs\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"instance_id\", \"definition_id\", \"node_id\", \"iteration_id\", \"type\", \"status\", \"locked_by\", \"lock_expires\", \"payload\", \"retries\", \"max_retries\", \"repeats_remaining\", \"next_run_at\", \"last_error\", \"deleted_at\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"instance_id\", \"definition_id\", \"organization_id\", \"node_id\", \"iteration_id\", \"type\", \"status\", \"locked_by\", \"lock_expires\", \"payload\", \"retries\", \"max_retries\", \"repeats_remaining\", \"next_run_at\", \"last_error\", \"deleted_at\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -2574,7 +2677,7 @@ var updOpCache = runtime.NewMaskCache()
 // part of it. Without it m.Row() would hold what the row held BEFORE
 // the statement, so a caller reading back the counter it just
 // incremented would get the old number and never know.
-const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"instance_id\", \"definition_id\", \"node_id\", \"iteration_id\", \"type\", \"status\", \"locked_by\", \"lock_expires\", \"payload\", \"retries\", \"max_retries\", \"repeats_remaining\", \"next_run_at\", \"last_error\", \"deleted_at\""
+const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"instance_id\", \"definition_id\", \"organization_id\", \"node_id\", \"iteration_id\", \"type\", \"status\", \"locked_by\", \"lock_expires\", \"payload\", \"retries\", \"max_retries\", \"repeats_remaining\", \"next_run_at\", \"last_error\", \"deleted_at\""
 
 // Masks reports how many distinct UPDATE shapes have compiled.
 func Masks() int { return updCache.Masks() }
@@ -2649,6 +2752,20 @@ func (m *Mut) SetDefinitionID(v [16]byte) {
 	m.row.DefinitionID = v
 	m.dirty |= dDefinitionID
 	m.expr &^= dDefinitionID
+}
+
+func (m *Mut) SetOrganizationID(v [16]byte) {
+	m.row.OrganizationID = runtime.Null[[16]byte]{V: v, Valid: true}
+	m.dirty |= dOrganizationID
+	m.expr &^= dOrganizationID
+}
+
+// SetOrganizationIDNull writes SQL NULL. It is a separate method because a
+// zero value and an absent value are different facts.
+func (m *Mut) SetOrganizationIDNull() {
+	m.row.OrganizationID = runtime.Null[[16]byte]{}
+	m.dirty |= dOrganizationID
+	m.expr &^= dOrganizationID
 }
 
 func (m *Mut) SetNodeID(v string) {
@@ -2882,6 +2999,18 @@ func (n *Ins) SetDefinitionID(v [16]byte) {
 	n.set |= iDefinitionID
 }
 
+func (n *Ins) SetOrganizationID(v [16]byte) {
+	n.row.OrganizationID = runtime.Null[[16]byte]{V: v, Valid: true}
+	n.set |= iOrganizationID
+}
+
+// SetOrganizationIDNull writes SQL NULL explicitly, which is not the same as
+// leaving the column unset and taking its default.
+func (n *Ins) SetOrganizationIDNull() {
+	n.row.OrganizationID = runtime.Null[[16]byte]{}
+	n.set |= iOrganizationID
+}
+
 func (n *Ins) SetNodeID(v string) {
 	n.row.NodeID = v
 	n.set |= iNodeID
@@ -3027,7 +3156,7 @@ var conflictSpecs = []string{
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 16)
+	set := make([]string, 0, 17)
 	switch i {
 	case 0:
 		if mask&(1<<2) != 0 {
@@ -3040,42 +3169,45 @@ func assignable(i uint8, mask uint64) []string {
 			set = append(set, "definition_id")
 		}
 		if mask&(1<<5) != 0 {
-			set = append(set, "node_id")
+			set = append(set, "organization_id")
 		}
 		if mask&(1<<6) != 0 {
-			set = append(set, "iteration_id")
+			set = append(set, "node_id")
 		}
 		if mask&(1<<7) != 0 {
-			set = append(set, "type")
+			set = append(set, "iteration_id")
 		}
 		if mask&(1<<8) != 0 {
-			set = append(set, "status")
+			set = append(set, "type")
 		}
 		if mask&(1<<9) != 0 {
-			set = append(set, "locked_by")
+			set = append(set, "status")
 		}
 		if mask&(1<<10) != 0 {
-			set = append(set, "lock_expires")
+			set = append(set, "locked_by")
 		}
 		if mask&(1<<11) != 0 {
-			set = append(set, "payload")
+			set = append(set, "lock_expires")
 		}
 		if mask&(1<<12) != 0 {
-			set = append(set, "retries")
+			set = append(set, "payload")
 		}
 		if mask&(1<<13) != 0 {
-			set = append(set, "max_retries")
+			set = append(set, "retries")
 		}
 		if mask&(1<<14) != 0 {
-			set = append(set, "repeats_remaining")
+			set = append(set, "max_retries")
 		}
 		if mask&(1<<15) != 0 {
-			set = append(set, "next_run_at")
+			set = append(set, "repeats_remaining")
 		}
 		if mask&(1<<16) != 0 {
-			set = append(set, "last_error")
+			set = append(set, "next_run_at")
 		}
 		if mask&(1<<17) != 0 {
+			set = append(set, "last_error")
+		}
+		if mask&(1<<18) != 0 {
 			set = append(set, "deleted_at")
 		}
 	}
@@ -3129,6 +3261,7 @@ var assignFor = map[string]string{
 	"updated_at":        "\"updated_at\" = EXCLUDED.\"updated_at\"",
 	"instance_id":       "\"instance_id\" = EXCLUDED.\"instance_id\"",
 	"definition_id":     "\"definition_id\" = EXCLUDED.\"definition_id\"",
+	"organization_id":   "\"organization_id\" = EXCLUDED.\"organization_id\"",
 	"node_id":           "\"node_id\" = EXCLUDED.\"node_id\"",
 	"iteration_id":      "\"iteration_id\" = EXCLUDED.\"iteration_id\"",
 	"type":              "\"type\" = EXCLUDED.\"type\"",
@@ -3196,30 +3329,32 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 4:
 			args = append(args, n.row.DefinitionID)
 		case 5:
-			args = append(args, n.row.NodeID)
+			args = append(args, n.row.OrganizationID.Arg())
 		case 6:
-			args = append(args, n.row.IterationID.Arg())
+			args = append(args, n.row.NodeID)
 		case 7:
-			args = append(args, n.row.Type)
+			args = append(args, n.row.IterationID.Arg())
 		case 8:
-			args = append(args, n.row.Status)
+			args = append(args, n.row.Type)
 		case 9:
-			args = append(args, n.row.LockedBy.Arg())
+			args = append(args, n.row.Status)
 		case 10:
-			args = append(args, n.row.LockExpires.Arg())
+			args = append(args, n.row.LockedBy.Arg())
 		case 11:
-			args = append(args, n.row.Payload)
+			args = append(args, n.row.LockExpires.Arg())
 		case 12:
-			args = append(args, n.row.Retries)
+			args = append(args, n.row.Payload)
 		case 13:
-			args = append(args, n.row.MaxRetries)
+			args = append(args, n.row.Retries)
 		case 14:
-			args = append(args, n.row.RepeatsRemaining)
+			args = append(args, n.row.MaxRetries)
 		case 15:
-			args = append(args, n.row.NextRunAt)
+			args = append(args, n.row.RepeatsRemaining)
 		case 16:
-			args = append(args, n.row.LastError.Arg())
+			args = append(args, n.row.NextRunAt)
 		case 17:
+			args = append(args, n.row.LastError.Arg())
+		case 18:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -3258,12 +3393,13 @@ func Inserts() int { return insCache.Masks() }
 // not treat a zero as 'unset': that guess is why other ORMs cannot insert
 // a false, a 0 or an empty string into a column with a default.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 18)
+	args := make([]any, 0, 19)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
 	args = append(args, r.InstanceID)
 	args = append(args, r.DefinitionID)
+	args = append(args, r.OrganizationID.Arg())
 	args = append(args, r.NodeID)
 	args = append(args, r.IterationID.Arg())
 	args = append(args, r.Type)
@@ -3308,6 +3444,7 @@ var copyCols = []string{
 	"updated_at",
 	"instance_id",
 	"definition_id",
+	"organization_id",
 	"node_id",
 	"iteration_id",
 	"type",
@@ -3327,7 +3464,7 @@ var copyCols = []string{
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [18]any
+	buf  [19]any
 }
 
 func (s *rowSource) Next() bool {
@@ -3350,19 +3487,20 @@ func (s *rowSource) Values() []any {
 	s.buf[2] = &r.UpdatedAt
 	s.buf[3] = &r.InstanceID
 	s.buf[4] = &r.DefinitionID
-	s.buf[5] = &r.NodeID
-	s.buf[6] = r.IterationID.Ptr()
-	s.buf[7] = &r.Type
-	s.buf[8] = &r.Status
-	s.buf[9] = r.LockedBy.Ptr()
-	s.buf[10] = r.LockExpires.Ptr()
-	s.buf[11] = &r.Payload
-	s.buf[12] = &r.Retries
-	s.buf[13] = &r.MaxRetries
-	s.buf[14] = &r.RepeatsRemaining
-	s.buf[15] = &r.NextRunAt
-	s.buf[16] = r.LastError.Ptr()
-	s.buf[17] = r.DeletedAt.Ptr()
+	s.buf[5] = r.OrganizationID.Ptr()
+	s.buf[6] = &r.NodeID
+	s.buf[7] = r.IterationID.Ptr()
+	s.buf[8] = &r.Type
+	s.buf[9] = &r.Status
+	s.buf[10] = r.LockedBy.Ptr()
+	s.buf[11] = r.LockExpires.Ptr()
+	s.buf[12] = &r.Payload
+	s.buf[13] = &r.Retries
+	s.buf[14] = &r.MaxRetries
+	s.buf[15] = &r.RepeatsRemaining
+	s.buf[16] = &r.NextRunAt
+	s.buf[17] = r.LastError.Ptr()
+	s.buf[18] = r.DeletedAt.Ptr()
 	return s.buf[:]
 }
 
@@ -3411,13 +3549,15 @@ func InsertOp(r Row) runtime.BatchOp {
 	mask |= 1 << 15
 	mask |= 1 << 16
 	mask |= 1 << 17
+	mask |= 1 << 18
 	st := stmtForInsertNoReturn(mask, 0)
-	args := make([]any, 0, 18)
+	args := make([]any, 0, 19)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
 	args = append(args, r.InstanceID)
 	args = append(args, r.DefinitionID)
+	args = append(args, r.OrganizationID.Arg())
 	args = append(args, r.NodeID)
 	args = append(args, r.IterationID.Arg())
 	args = append(args, r.Type)
@@ -3475,30 +3615,32 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 4:
 			args = append(args, n.row.DefinitionID)
 		case 5:
-			args = append(args, n.row.NodeID)
+			args = append(args, n.row.OrganizationID.Arg())
 		case 6:
-			args = append(args, n.row.IterationID.Arg())
+			args = append(args, n.row.NodeID)
 		case 7:
-			args = append(args, n.row.Type)
+			args = append(args, n.row.IterationID.Arg())
 		case 8:
-			args = append(args, n.row.Status)
+			args = append(args, n.row.Type)
 		case 9:
-			args = append(args, n.row.LockedBy.Arg())
+			args = append(args, n.row.Status)
 		case 10:
-			args = append(args, n.row.LockExpires.Arg())
+			args = append(args, n.row.LockedBy.Arg())
 		case 11:
-			args = append(args, n.row.Payload)
+			args = append(args, n.row.LockExpires.Arg())
 		case 12:
-			args = append(args, n.row.Retries)
+			args = append(args, n.row.Payload)
 		case 13:
-			args = append(args, n.row.MaxRetries)
+			args = append(args, n.row.Retries)
 		case 14:
-			args = append(args, n.row.RepeatsRemaining)
+			args = append(args, n.row.MaxRetries)
 		case 15:
-			args = append(args, n.row.NextRunAt)
+			args = append(args, n.row.RepeatsRemaining)
 		case 16:
-			args = append(args, n.row.LastError.Arg())
+			args = append(args, n.row.NextRunAt)
 		case 17:
+			args = append(args, n.row.LastError.Arg())
+		case 18:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -3553,30 +3695,32 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 2:
 			args = append(args, m.row.DefinitionID)
 		case 3:
-			args = append(args, m.row.NodeID)
+			args = append(args, m.row.OrganizationID.Arg())
 		case 4:
-			args = append(args, m.row.IterationID.Arg())
+			args = append(args, m.row.NodeID)
 		case 5:
-			args = append(args, m.row.Type)
+			args = append(args, m.row.IterationID.Arg())
 		case 6:
-			args = append(args, m.row.Status)
+			args = append(args, m.row.Type)
 		case 7:
-			args = append(args, m.row.LockedBy.Arg())
+			args = append(args, m.row.Status)
 		case 8:
-			args = append(args, m.row.LockExpires.Arg())
+			args = append(args, m.row.LockedBy.Arg())
 		case 9:
-			args = append(args, m.row.Payload)
+			args = append(args, m.row.LockExpires.Arg())
 		case 10:
-			args = append(args, m.row.Retries)
+			args = append(args, m.row.Payload)
 		case 11:
-			args = append(args, m.row.MaxRetries)
+			args = append(args, m.row.Retries)
 		case 12:
-			args = append(args, m.row.RepeatsRemaining)
+			args = append(args, m.row.MaxRetries)
 		case 13:
-			args = append(args, m.row.NextRunAt)
+			args = append(args, m.row.RepeatsRemaining)
 		case 14:
-			args = append(args, m.row.LastError.Arg())
+			args = append(args, m.row.NextRunAt)
 		case 15:
+			args = append(args, m.row.LastError.Arg())
+		case 16:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}
@@ -3681,30 +3825,32 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 2:
 			args = append(args, m.row.DefinitionID)
 		case 3:
-			args = append(args, m.row.NodeID)
+			args = append(args, m.row.OrganizationID.Arg())
 		case 4:
-			args = append(args, m.row.IterationID.Arg())
+			args = append(args, m.row.NodeID)
 		case 5:
-			args = append(args, m.row.Type)
+			args = append(args, m.row.IterationID.Arg())
 		case 6:
-			args = append(args, m.row.Status)
+			args = append(args, m.row.Type)
 		case 7:
-			args = append(args, m.row.LockedBy.Arg())
+			args = append(args, m.row.Status)
 		case 8:
-			args = append(args, m.row.LockExpires.Arg())
+			args = append(args, m.row.LockedBy.Arg())
 		case 9:
-			args = append(args, m.row.Payload)
+			args = append(args, m.row.LockExpires.Arg())
 		case 10:
-			args = append(args, m.row.Retries)
+			args = append(args, m.row.Payload)
 		case 11:
-			args = append(args, m.row.MaxRetries)
+			args = append(args, m.row.Retries)
 		case 12:
-			args = append(args, m.row.RepeatsRemaining)
+			args = append(args, m.row.MaxRetries)
 		case 13:
-			args = append(args, m.row.NextRunAt)
+			args = append(args, m.row.RepeatsRemaining)
 		case 14:
-			args = append(args, m.row.LastError.Arg())
+			args = append(args, m.row.NextRunAt)
 		case 15:
+			args = append(args, m.row.LastError.Arg())
+		case 16:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}

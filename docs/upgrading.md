@@ -803,6 +803,33 @@ It was not run against an installation that 0.4.0 itself had migrated.
 **Rolling back** needs nothing: no schema changed. 0.4.0 applies a mapping as
 it did.
 
+## Migration 43: a job carries its organization
+
+Migration 43 adds `jobs.organization_id`, a nullable column with no default,
+so the claim can give each organization its turn. That changes the catalogue
+and does not rewrite the table, but it needs the table to itself for a moment.
+Every worker claims through this table, so the migration waits at most two
+seconds for it and then stops, saying
+
+```
+jobs was held for more than 2s by a long query or transaction; the upgrade
+stopped rather than hold every worker's claim behind it, and will finish when
+started again once that ends
+```
+
+Start the server again once the query has ended. The index the claim reads
+through, `ix_jobs_claim_by_organization`, is then built `CONCURRENTLY`, so it
+does not stop writes while it builds.
+
+Jobs already queued are not backfilled: they carry no organization and take
+their turns together, as one more queue, until they have run. A job made after
+the upgrade takes its organization from its instance's project. A replica still
+on the previous release makes jobs with no organization, which join that queue,
+and claims oldest first as before.
+
+**Rolling back** leaves the column and the index in place. The previous release
+neither reads nor writes them, and claims oldest first.
+
 ## Migration 41: the workers that fetch external tasks
 
 Migration 41 creates `external_task_workers`, a row for each worker that has

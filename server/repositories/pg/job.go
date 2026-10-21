@@ -1,7 +1,9 @@
 package pg
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -44,6 +46,15 @@ func (r *jobRepository) Create(ctx context.Context, j models.JobModel) (uuid.UUI
 	}
 	ins.SetInstanceID(uuid.UUID(j.InstanceID))
 	ins.SetDefinitionID(uuid.UUID(j.DefinitionID))
+	organization, err := r.organizationOf(ctx, ex, j)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if organization != uuid.Nil {
+		ins.SetOrganizationID(organization)
+	} else {
+		ins.SetOrganizationIDNull()
+	}
 	ins.SetNodeID(j.NodeID)
 	ins.SetType(string(j.Type))
 	ins.SetStatus(string(j.Status))
@@ -122,41 +133,98 @@ func (r *jobRepository) Update(ctx context.Context, j models.JobModel) error {
 	return nil
 }
 
-// GetPending returns work that is due and not already held, soonest first.
+// GetPending returns work that is due and not already held, each
+// organization's oldest first, in turns.
 //
-// The predicate and the order are the index the model declares, so this is the
-// query the queue was shaped for. An expired lock counts as unheld: the worker
-// that took it is gone, and leaving its work permanently claimed would strand
-// every process waiting on it.
+// An expired lock counts as unheld: the worker that took it is gone, and
+// leaving its work permanently claimed would strand every process waiting on
+// it. A job left running — a killed pod, a crash, a status write that failed —
+// is offered again once its lease has expired, and Lock counts reclaiming one
+// as an attempt.
 //
-// That was this comment's promise and not the query's: it asked for pending
-// jobs only, so a job left running — a killed pod, a crash, a status write that
-// failed — was never offered to anybody again, and the process waiting behind
-// it hung with no incident. Running jobs whose lease has expired are offered
-// now, and Lock counts reclaiming one as an attempt.
+// In turns because oldest first alone was not fair. One organization that
+// queued ten thousand timers at once had every worker until they had all run,
+// and another's approval reminder, due a second later, waited behind every one
+// of them. Now each organization with work due has its oldest job in the first
+// turn, its second oldest in the second, and so on, oldest first within a
+// turn: a round of fifty jobs among five organizations runs ten of each if
+// they all have ten due, and all of one organization's if nobody else has any.
+// Jobs made before migration 43 carry no organization and take their turns as
+// one more.
 //
-// Two ranges rather than one query over both statuses. Each reads the claim
-// index in order and stops at the limit; one query over two statuses has to
-// gather every due row and sort it — measured with 100,000 jobs due, 18.8ms a
-// call against 0.04ms for each range, on a loop that can run twenty rounds a
-// tick exactly when the engine is busiest.
+// A round looks at no more than claimOwnersPerRound organizations, starting
+// from a different place each time; see fairClaimable. Whatever that leaves of
+// the round is filled oldest first, as before, so a round is never smaller
+// for being fair.
 func (r *jobRepository) GetPending(ctx context.Context, limit int) ([]models.JobModel, error) {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
-	due, err := claimable(ctx, ex, models.JobPending, now, limit)
-	if err != nil {
-		return nil, fmt.Errorf("could not read the pending jobs: %w", err)
+	from := uuid.New()
+	var offered []turnOf
+	for _, status := range []models.JobStatus{models.JobPending, models.JobRunning} {
+		fair, err := claimable(ctx, ex, status, now, limit, from)
+		if err != nil {
+			return nil, fmt.Errorf("could not read the %s jobs that are due: %w", status, err)
+		}
+		offered = append(offered, fair...)
 	}
-	abandoned, err := claimable(ctx, ex, models.JobRunning, now, limit)
-	if err != nil {
-		return nil, fmt.Errorf("could not read the jobs whose worker stopped: %w", err)
+	slices.SortStableFunc(offered, func(a, b turnOf) int {
+		if a.turn != b.turn {
+			return cmp.Compare(a.turn, b.turn)
+		}
+		return a.row.NextRunAt.Compare(b.row.NextRunAt)
+	})
+	offered = offered[:min(len(offered), limit)]
+
+	rows := make([]job.Row, 0, limit)
+	taken := map[[16]byte]bool{}
+	for _, o := range offered {
+		rows = append(rows, o.row)
+		taken[o.row.ID] = true
 	}
-	rows := slices.Concat(due, abandoned)
+	if len(rows) < limit {
+		rest, err := oldestDue(ctx, ex, now, limit+len(taken))
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rest {
+			if len(rows) == limit {
+				break
+			}
+			if !taken[row.ID] {
+				rows = append(rows, row)
+			}
+		}
+	}
+	return jobsFrom(rows)
+}
+
+// oldestDue is the claim as it was before it took turns: the due jobs whose
+// lease is free, oldest first, whoever they belong to.
+//
+// Two ranges rather than one query over both statuses. Each reads the claim
+// index in order and stops at the limit; one query over two statuses has to
+// gather every due row and sort it — measured with 100,000 jobs due, 18.8ms a
+// call against 0.04ms for each range.
+func oldestDue(ctx context.Context, ex runtime.Executor, now time.Time, limit int) ([]job.Row, error) {
+	var rows []job.Row
+	for _, status := range []models.JobStatus{models.JobPending, models.JobRunning} {
+		due, err := job.New().
+			Where(job.Status.Eq(string(status)), job.NextRunAt.Lte(now)).
+			Any(job.LockExpires.Lt(now), job.LockExpires.IsNull()).
+			Order(job.NextRunAt.Asc()).
+			Limit(int64(limit)).
+			All(ctx, ex, nil)
+		if err != nil {
+			return nil, fmt.Errorf("could not read the %s jobs that are due: %w", status, err)
+		}
+		rows = append(rows, due...)
+	}
 	slices.SortFunc(rows, func(a, b job.Row) int { return a.NextRunAt.Compare(b.NextRunAt) })
-	return jobsFrom(rows[:min(len(rows), limit)])
+	return rows, nil
 }
 
 // Backlog reports how far behind the queue is, for the metrics endpoint.
@@ -243,21 +311,153 @@ func (r *jobRepository) Backlog(ctx context.Context, now time.Time) (contracts.J
 	return backlog, nil
 }
 
-// claimable reads the due jobs in one status whose lease is free: never taken,
-// or expired.
-//
-// The order of the two lease tests does not matter. It used to: the store had
-// been generated by an older storm whose builder dropped the predicate after a
-// null test inside Any. tests/drift now fails if the store and the storm the
-// module builds against disagree.
-func claimable(ctx context.Context, ex runtime.Executor, status models.JobStatus, now time.Time, limit int) ([]job.Row, error) {
-	return job.New().
-		Where(job.Status.Eq(string(status)), job.NextRunAt.Lte(now)).
-		Any(job.LockExpires.Lt(now), job.LockExpires.IsNull()).
-		Order(job.NextRunAt.Asc()).
-		Limit(int64(limit)).
-		All(ctx, ex, nil)
+// turnOf is a claimable job and its place in its organization's queue, from 1.
+type turnOf struct {
+	row  job.Row
+	turn int64
 }
+
+// claimOwnersPerRound bounds how many organizations one round of the claim
+// looks at.
+//
+// Finding the organizations is a seek each along ix_jobs_claim_by_organization,
+// and so is reading each one's due jobs. Measured on PostgreSQL 16 with a
+// prepared statement: 4ms a round with 50 organizations holding jobs, 8ms with
+// 1,000, 0.8s with 100,000 — and a busy worker runs up to twenty rounds a
+// tick. Bounded, a round costs what a thousand do at most — 10ms measured with
+// 100,000 organizations holding jobs; an installation with more takes them a
+// window at a time, starting at a random place each round, and the rest of
+// each round is filled oldest first.
+const claimOwnersPerRound = 1000
+
+// fairClaimable lists the due jobs in one status whose lease is free, at most
+// $3 of each organization's, numbered in each by age, and the first $3 of
+// them by turn and then age.
+//
+// The organizations are those with any job in the status, found by skipping
+// along ix_jobs_claim_by_organization a seek at a time, not read from the
+// organizations table: a job whose organization has no row there is still
+// owed. At most $5 of them, from the first at or after $4, wrapping round to
+// the start. Each one's jobs are then one range of the same index. Jobs with no
+// organization, made before migration 43, are one more queue.
+//
+// Raw SQL because storm has no lateral join or window. The soft-delete
+// predicate the store adds to every read is written out.
+const fairClaimable = `WITH RECURSIVE onward(id, n) AS (
+  (SELECT organization_id, 1 FROM jobs
+    WHERE status = $1 AND organization_id >= $4
+    ORDER BY organization_id LIMIT 1)
+  UNION ALL
+  SELECT (SELECT j.organization_id FROM jobs AS j
+           WHERE j.status = $1 AND j.organization_id > onward.id
+           ORDER BY j.organization_id LIMIT 1), onward.n + 1
+    FROM onward WHERE onward.id IS NOT NULL AND onward.n < $5
+), wrapped(id, n) AS (
+  (SELECT organization_id, 1 FROM jobs
+    WHERE status = $1 AND organization_id < $4
+    ORDER BY organization_id LIMIT 1)
+  UNION ALL
+  SELECT (SELECT j.organization_id FROM jobs AS j
+           WHERE j.status = $1 AND j.organization_id > wrapped.id AND j.organization_id < $4
+           ORDER BY j.organization_id LIMIT 1), wrapped.n + 1
+    FROM wrapped WHERE wrapped.id IS NOT NULL AND wrapped.n < $5
+), owners AS (
+  SELECT id FROM (
+    SELECT id FROM onward WHERE id IS NOT NULL
+    UNION ALL
+    SELECT id FROM wrapped WHERE id IS NOT NULL
+  ) AS found LIMIT $5
+), queued AS (
+  SELECT q.id, q.next_run_at, q.turn FROM owners
+  CROSS JOIN LATERAL (
+    SELECT id, next_run_at, row_number() OVER (ORDER BY next_run_at, id) AS turn
+      FROM jobs
+     WHERE status = $1 AND organization_id = owners.id AND next_run_at <= $2
+       AND (lock_expires IS NULL OR lock_expires < $2) AND deleted_at IS NULL
+     ORDER BY next_run_at, id
+     LIMIT $3) AS q
+  UNION ALL
+  SELECT id, next_run_at, row_number() OVER (ORDER BY next_run_at, id) FROM (
+    SELECT id, next_run_at FROM jobs
+     WHERE status = $1 AND organization_id IS NULL AND next_run_at <= $2
+       AND (lock_expires IS NULL OR lock_expires < $2) AND deleted_at IS NULL
+     ORDER BY next_run_at, id
+     LIMIT $3) AS unowned
+)
+SELECT id, turn FROM queued ORDER BY turn, next_run_at, id LIMIT $3`
+
+// claimable reads the due jobs in one status whose lease is free, never taken
+// or expired, in the turns fairClaimable gives them, looking at the
+// organizations from the first at or after from.
+func claimable(ctx context.Context, ex runtime.Executor, status models.JobStatus, now time.Time, limit int, from uuid.UUID) ([]turnOf, error) {
+	rows, err := ex.Query(ctx, fairClaimable, []any{string(status), now, int64(limit), from, int64(claimOwnersPerRound)})
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids [][16]byte
+	turns := map[[16]byte]int64{}
+	for rows.Next() {
+		values := rows.RawValues()
+		if len(values) < 2 || len(values[0]) != len(uuid.UUID{}) {
+			return nil, errors.New("a claimable job's id is not 16 bytes")
+		}
+		var turn int64
+		if err := scanInt(values[1:2], &turn); err != nil {
+			return nil, err
+		}
+		id := [16]byte(values[0])
+		ids = append(ids, id)
+		turns[id] = turn
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	found, err := job.New().Where(job.ID.In(ids...)).All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	offered := make([]turnOf, 0, len(found))
+	for _, row := range found {
+		offered = append(offered, turnOf{row: row, turn: turns[row.ID]})
+	}
+	return offered, nil
+}
+
+// organizationOf is whose work a job is: the one the caller named, or the
+// organization of its instance's project. uuid.Nil when the instance or its
+// project is not there to say, which the claim treats as one more queue.
+func (r *jobRepository) organizationOf(ctx context.Context, ex runtime.Executor, j models.JobModel) (uuid.UUID, error) {
+	if j.OrganizationID != nil && uuid.UUID(*j.OrganizationID) != uuid.Nil {
+		return uuid.UUID(*j.OrganizationID), nil
+	}
+	if uuid.UUID(j.InstanceID) == uuid.Nil {
+		return uuid.Nil, nil
+	}
+	rows, err := ex.Query(ctx, instanceOrganization, []any{uuid.UUID(j.InstanceID)})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("could not read whose work the job is: %w", err)
+	}
+	defer rows.Close()
+	organization := uuid.Nil
+	if rows.Next() {
+		if values := rows.RawValues(); len(values) > 0 && len(values[0]) == len(uuid.UUID{}) {
+			organization = uuid.UUID(values[0])
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return uuid.Nil, fmt.Errorf("could not read whose work the job is: %w", err)
+	}
+	return organization, nil
+}
+
+// instanceOrganization is an instance's organization, through its project.
+// Both are in every database: an environment's has its own project's row.
+const instanceOrganization = `SELECT p.organization_id FROM process_instances AS i
+JOIN projects AS p ON p.id = i.project_id WHERE i.id = $1`
 
 // ListByInstance returns every job an instance has, soonest first.
 //
@@ -355,6 +555,10 @@ func jobFrom(row job.Row) (models.JobModel, error) {
 	}
 	if expires, ok := row.LockExpires.Get(); ok {
 		j.LockExpires = &expires
+	}
+	if organization, ok := row.OrganizationID.Get(); ok {
+		id := models.UUID(organization)
+		j.OrganizationID = &id
 	}
 	return j, nil
 }
