@@ -18,6 +18,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
 	"github.com/gsoultan/metis/server/repositories/store/environment"
 	"github.com/gsoultan/metis/server/repositories/store/externaltask"
+	"github.com/gsoultan/metis/server/repositories/store/externaltaskworker"
 	"github.com/gsoultan/metis/server/repositories/store/form"
 	"github.com/gsoultan/metis/server/repositories/store/group"
 	"github.com/gsoultan/metis/server/repositories/store/incident"
@@ -76,32 +77,33 @@ var FlushOrder = map[string]int{
 	"decision_releases":           16,
 	"deployments":                 17,
 	"environments":                18,
-	"forms":                       19,
-	"groups":                      20,
-	"memberships":                 21,
-	"participant_sources":         22,
-	"platform_role_assignments":   23,
-	"process_definition_releases": 24,
-	"process_definitions":         25,
-	"process_instances":           26,
-	"tasks":                       27,
-	"user_organizations":          28,
-	"user_projects":               29,
-	"variable_snapshots":          30,
-	"webhook_deliveries":          31,
-	"workflow_group_memberships":  32,
-	"audit_logs":                  33,
-	"broadcast_events":            34,
-	"compensatable_activities":    35,
-	"deployment_resources":        36,
-	"deviation_requests":          37,
-	"event_subscriptions":         38,
-	"external_tasks":              39,
-	"instance_deviations":         40,
-	"jobs":                        41,
-	"notifications":               42,
-	"service_calls":               43,
-	"incidents":                   44,
+	"external_task_workers":       19,
+	"forms":                       20,
+	"groups":                      21,
+	"memberships":                 22,
+	"participant_sources":         23,
+	"platform_role_assignments":   24,
+	"process_definition_releases": 25,
+	"process_definitions":         26,
+	"process_instances":           27,
+	"tasks":                       28,
+	"user_organizations":          29,
+	"user_projects":               30,
+	"variable_snapshots":          31,
+	"webhook_deliveries":          32,
+	"workflow_group_memberships":  33,
+	"audit_logs":                  34,
+	"broadcast_events":            35,
+	"compensatable_activities":    36,
+	"deployment_resources":        37,
+	"deviation_requests":          38,
+	"event_subscriptions":         39,
+	"external_tasks":              40,
+	"instance_deviations":         41,
+	"jobs":                        42,
+	"notifications":               43,
+	"service_calls":               44,
+	"incidents":                   45,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -2315,6 +2317,123 @@ func (p ExternalTaskWithProjectQuery) All(ctx context.Context, ex runtime.Execut
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "external_tasks", "projects")
 		}
 		out[i].Project = targets[j]
+	}
+	return out, nil
+}
+
+// ExternalTaskWorkerWithOrganizationRow is external_task_workers with its Organization loaded.
+type ExternalTaskWorkerWithOrganizationRow struct {
+	externaltaskworker.Row
+	Organization organization.Row
+}
+
+type ExternalTaskWorkerWithOrganizationQuery struct {
+	q externaltaskworker.Query
+}
+
+// ExternalTaskWorkerWithOrganization starts the plan.
+func ExternalTaskWorkerWithOrganization() ExternalTaskWorkerWithOrganizationQuery {
+	return ExternalTaskWorkerWithOrganizationQuery{q: externaltaskworker.New()}
+}
+
+func (p ExternalTaskWorkerWithOrganizationQuery) Where(ps ...externaltaskworker.Pred) ExternalTaskWorkerWithOrganizationQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p ExternalTaskWorkerWithOrganizationQuery) WhereIf(cond bool, pr externaltaskworker.Pred) ExternalTaskWorkerWithOrganizationQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p ExternalTaskWorkerWithOrganizationQuery) Any(ps ...externaltaskworker.Pred) ExternalTaskWorkerWithOrganizationQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p ExternalTaskWorkerWithOrganizationQuery) Not(pr externaltaskworker.Pred) ExternalTaskWorkerWithOrganizationQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p ExternalTaskWorkerWithOrganizationQuery) NotAny(ps ...externaltaskworker.Pred) ExternalTaskWorkerWithOrganizationQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p ExternalTaskWorkerWithOrganizationQuery) Order(ts ...externaltaskworker.Sort) ExternalTaskWorkerWithOrganizationQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p ExternalTaskWorkerWithOrganizationQuery) Limit(n int64) ExternalTaskWorkerWithOrganizationQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p ExternalTaskWorkerWithOrganizationQuery) Offset(n int64) ExternalTaskWorkerWithOrganizationQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p ExternalTaskWorkerWithOrganizationQuery) After(r ExternalTaskWorkerWithOrganizationRow) ExternalTaskWorkerWithOrganizationQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p ExternalTaskWorkerWithOrganizationQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p ExternalTaskWorkerWithOrganizationQuery) All(ctx context.Context, ex runtime.Executor) ([]ExternalTaskWorkerWithOrganizationRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]ExternalTaskWorkerWithOrganizationRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = ExternalTaskWorkerWithOrganizationRow{Row: r}
+		key := r.OrganizationID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := organization.New().Unordered().
+		Where(organization.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.OrganizationID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "external_task_workers", "organizations")
+		}
+		out[i].Organization = targets[j]
 	}
 	return out, nil
 }

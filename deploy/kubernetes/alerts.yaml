@@ -332,6 +332,24 @@ spec:
               usually share a cause. See docs/runbooks.md, "Incidents are
               piling up".
 
+        - alert: MetisExternalTasksUnserved
+          # A topic is served by workers that fetch from it. Tasks on a topic
+          # no worker has fetched from in two minutes wait for one to start,
+          # and nothing in the engine is failing to say so. Ten minutes covers
+          # a deploy that restarts every worker.
+          expr: metis_external_task_topics_unserved > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: External tasks are waiting on a topic no worker is fetching from
+            description: >-
+              {{ $value | printf "%.0f" }} topic(s){{ if $labels.environment }} in the
+              {{ $labels.environment_name }} environment
+              ({{ $labels.environment }}){{ end }} have tasks on offer and no
+              worker has fetched from them for over ten minutes. See
+              docs/runbooks.md, "External tasks with no worker".
+
         - alert: MetisEngineStateUnreadable
           expr: metis_engine_state_up == 0
           for: 10m

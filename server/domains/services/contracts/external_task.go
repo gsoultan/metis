@@ -20,4 +20,9 @@ type ExternalTaskService interface {
 	// milliseconds from now, and returns when the lock now runs out. Anybody
 	// else, and that worker once its lock has run out, is refused.
 	ExtendLock(ctx context.Context, taskID uuid.UUID, workerID string, lockDuration int64) (time.Time, error)
+
+	// ExternalTaskTopics lists the caller's organization's topics: each with
+	// tasks open or a worker heard from, the workers that serve it, and
+	// whether tasks wait with no live worker.
+	ExternalTaskTopics(ctx context.Context) ([]entities.ExternalTaskTopic, error)
 }

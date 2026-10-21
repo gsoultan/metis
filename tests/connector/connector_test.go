@@ -131,6 +131,9 @@ func (m *MockRepository) Definition() contracts.DefinitionRepository     { retur
 func (m *MockRepository) Environment() contracts.EnvironmentRepository   { return nil }
 func (m *MockRepository) Deployment() contracts.DeploymentRepository     { return nil }
 func (m *MockRepository) ExternalTask() contracts.ExternalTaskRepository { return nil }
+func (m *MockRepository) ExternalTaskWorker() contracts.ExternalTaskWorkerRepository {
+	return nil
+}
 func (m *MockRepository) Form() contracts.FormRepository                 { return nil }
 func (m *MockRepository) Incident() contracts.IncidentRepository         { return nil }
 func (m *MockRepository) Job() contracts.JobRepository                   { return nil }

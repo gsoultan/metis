@@ -193,7 +193,7 @@ func scrapeEngine(t *testing.T, address string) map[string][]series {
 
 var engineSeries = map[string]bool{
 	"metis_engine_state_up": true, "metis_jobs_due": true, "metis_jobs_oldest_due_age_seconds": true,
-	"metis_jobs_lease_expired": true, "metis_incidents_open": true,
+	"metis_jobs_lease_expired": true, "metis_incidents_open": true, "metis_external_task_topics_unserved": true,
 }
 
 // only returns the one series for an environment, by name; "" is the main

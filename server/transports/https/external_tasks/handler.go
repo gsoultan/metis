@@ -57,6 +57,17 @@ func RegisterHandlers(m *http.ServeMux, eps external_task.Endpoints, options []h
 		common.EncodeResponse,
 		options...,
 	))
+
+	m.Handle("GET /api/v1/external-task-workers", httptransport.NewServer(
+		eps.ListExternalTaskWorkers,
+		decodeListWorkersRequest,
+		common.EncodeResponse,
+		options...,
+	))
+}
+
+func decodeListWorkersRequest(context.Context, *http.Request) (any, error) {
+	return external_task.ListExternalTaskWorkersRequest{}, nil
 }
 
 // fetchAndLockBody is the wire shape. It exists so the JSON contract is
@@ -71,6 +82,10 @@ type fetchAndLockBody struct {
 	// "lock_duration" was already misread once inside this codebase — the AMQP
 	// bridge passed 30 meaning seconds and got 30 milliseconds.
 	LockDurationMS int64 `json:"lock_duration_ms"`
+	// WorkerVersion is what the worker says it is: an SDK's version or a
+	// build's, at most 64 characters. Optional; shown beside the worker in
+	// GET /api/v1/external-task-workers.
+	WorkerVersion string `json:"worker_version,omitzero"`
 }
 
 func decodeFetchAndLockRequest(_ context.Context, r *http.Request) (any, error) {
@@ -89,6 +104,8 @@ func decodeFetchAndLockRequest(_ context.Context, r *http.Request) (any, error) 
 		WorkerID:     body.WorkerID,
 		MaxTasks:     body.MaxTasks,
 		LockDuration: body.LockDurationMS,
+
+		WorkerVersion: body.WorkerVersion,
 	}, nil
 }
 

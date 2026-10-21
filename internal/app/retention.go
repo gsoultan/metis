@@ -116,6 +116,10 @@ func (a *App) stillFillsLiveKeys(now time.Time) bool {
 func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time, keep optInRetention) {
 	reoffer(ctx, database, a.repo.ExternalTask().ReofferStranded)
 	forget(ctx, "webhook_deliveries", database, a.svc.ForgetOldDeliveries)
+	// A worker is kept by the tasks' database, so each runtime forgets its own.
+	forget(ctx, "external_task_workers", database, func(ctx context.Context) (int64, error) {
+		return a.repo.ExternalTaskWorker().ForgetIdle(ctx, now.Add(-entities.WorkerForgottenAfter))
+	})
 	// No storm connection means idempotency records are held in the serving
 	// process, which sweeps its own.
 	if a.storm != nil {
