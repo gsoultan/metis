@@ -20,6 +20,7 @@
  * no example at all.
  */
 import type { ProcessVariables } from '../services/types';
+import type { DraftDefinition } from './simulationDraft';
 
 /**
  * One named value, as a row rather than a line of JSON.
@@ -77,7 +78,7 @@ export interface Scenario {
  */
 export type SimulationTarget =
   | { kind: 'deployed'; projectId: string; definitionKey: string; version: number }
-  | { kind: 'draft'; projectId: string; definitionKey: string; bpmnXml: string }
+  | { kind: 'draft'; projectId: string; definitionKey: string; definition: DraftDefinition }
   | { kind: 'replay'; projectId: string; instanceId: string; definitionKey: string; version: number };
 
 /* ── Durations, in the words people use ───────────────────────────────────── */
@@ -244,7 +245,8 @@ export interface SimulationRequest {
   project_id: string;
   definition_key?: string;
   version?: number;
-  bpmn_xml?: string;
+  /** The canvas, for a draft. The server also reads `bpmn_xml`; the designer has no XML to send. */
+  definition?: DraftDefinition;
   replay_instance_id?: string;
   variables: ProcessVariables;
   answers: WireAnswer[];
@@ -316,7 +318,7 @@ export function simulationRequest(scenario: Scenario, target: SimulationTarget):
     case 'deployed':
       return { ...base, definition_key: target.definitionKey, version: target.version };
     case 'draft':
-      return { ...base, definition_key: target.definitionKey, bpmn_xml: target.bpmnXml };
+      return { ...base, definition_key: target.definitionKey, definition: target.definition };
     case 'replay':
       return {
         ...base,
@@ -331,11 +333,11 @@ export function simulationRequest(scenario: Scenario, target: SimulationTarget):
 
 /**
  * A draft is deliberately given no snippet: there is nothing for CI to point at
- * until the definition is deployed, and handing somebody code with a wall of
- * inline XML in it would be a worse answer than saying so.
+ * until the definition is deployed, and handing somebody code with the whole
+ * model inlined in it would be a worse answer than saying so.
  */
 export function goSnippet(request: SimulationRequest, scenario: Scenario): string | null {
-  if (request.bpmn_xml !== undefined) return null;
+  if (request.definition !== undefined) return null;
 
   const vars = Object.entries(request.variables)
     .map(([key, value]) => `            ${JSON.stringify(key)}: ${goLiteral(value)},`)

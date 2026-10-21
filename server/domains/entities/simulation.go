@@ -137,6 +137,14 @@ type SimulationRequest struct {
 	DefinitionKey string `json:"definition_key"`
 	Version       int    `json:"version"`
 
+	// Draft, or DraftBPMN, runs a model that has not been deployed — the canvas
+	// somebody is still editing — instead of a deployed version. At most one is
+	// set. The draft goes through the same validation a deploy does and is
+	// written inside the run's rolled-back transaction, so it is never a
+	// version anybody else can see, start, or promote.
+	Draft     *ProcessDefinition `json:"draft,omitzero"`
+	DraftBPMN string             `json:"draft_bpmn,omitzero"`
+
 	Variables map[string]any     `json:"variables"`
 	Answers   []SimulationAnswer `json:"answers"`
 
@@ -165,6 +173,10 @@ type SimulationRun struct {
 		Key     string    `json:"key"`
 		Version int       `json:"version"`
 		ID      uuid.UUID `json:"id"`
+		// Draft says the run was of an undeployed model. Version and ID are
+		// then zero: the row the run used was rolled back with everything else,
+		// and naming it would point at something that does not exist.
+		Draft bool `json:"draft,omitzero"`
 	} `json:"definition"`
 
 	Outcome     SimulationOutcome `json:"outcome"`
@@ -207,6 +219,11 @@ func (r *SimulationRequest) Normalize(now time.Time) {
 	if r.Variables == nil {
 		r.Variables = map[string]any{}
 	}
+}
+
+// IsDraft says whether the request runs an undeployed model.
+func (r *SimulationRequest) IsDraft() bool {
+	return r.Draft != nil || r.DraftBPMN != ""
 }
 
 // AnswerFor returns the answer for a node, and whether there was one.

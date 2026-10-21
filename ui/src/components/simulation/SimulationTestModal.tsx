@@ -51,8 +51,8 @@ export function SimulationTestModal({
     <Modal opened={opened} onClose={onClose} title="Run this case in CI" size="lg" radius="md">
       {request === null || target?.kind === 'draft' ? (
         <Text size="sm" c="dimmed">
-          Deploy this version and the case becomes a test a pipeline can run. A draft has no version
-          for CI to name.
+          These are changes nobody has deployed, so there is no version yet for a pipeline to name.
+          Deploy them and this case becomes a test CI can run.
         </Text>
       ) : (
         <Stack gap="sm">

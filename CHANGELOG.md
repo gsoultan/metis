@@ -379,6 +379,21 @@ does not undo a migration.
 
 ### Added
 
+- **Simulate the diagram you are editing, without deploying it.** In the
+  designer, Simulate now runs the canvas: the version you opened while the
+  canvas still does what it does, and a draft once you change a step, a
+  condition or a flow (moving shapes does not count). A draft is checked the
+  way a deploy is, runs on the real engine inside the simulation's
+  rolled-back transaction, and is never saved — no version, no gap in the
+  numbering, nothing live changes. A never-deployed process can be simulated
+  too. Simulating from the designer also now runs the version on screen
+  rather than whichever one is live. Same permission as before (designer).
+  - `POST /api/v1/simulations` and `/batch` accept the draft as `definition`
+    (the body `POST /api/v1/definitions` takes) or as `bpmn_xml` (a `.bpmn`
+    file), in place of `definition_key` and `version`. Both at once is a 400.
+  - A batch case carrying `replay_instance_id` is now refused as the single
+    endpoint refuses it. It was run against the live definition instead.
+
 - **Finished instances can be removed after a set number of days.** Set
   `METIS_RETENTION_FINISHED_INSTANCES_DAYS` and every ten minutes the sweep
   removes completed and cancelled instances older than that, with their tasks,
@@ -1049,6 +1064,11 @@ does not undo a migration.
   to anybody who is not an operator or an administrator.
 
 ### Fixed
+
+- **A simulation run in the designer shows how it ended.** Every run was
+  shown as stopped on an incident, with nothing under what happened, because
+  the designer read the server's reply as the run instead of the run inside
+  it. The API was right; only the designer misread it.
 
 - **Work saved offline before the app recorded who did it is shown.** Changes
   queued on a device before each one carried its owner are never sent, since
