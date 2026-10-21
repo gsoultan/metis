@@ -803,9 +803,9 @@ It was not run against an installation that 0.4.0 itself had migrated.
 **Rolling back** needs nothing: no schema changed. 0.4.0 applies a mapping as
 it did.
 
-## Migration 43: a job carries its organization
+## Migration 44: a job carries its organization
 
-Migration 43 adds `jobs.organization_id`, a nullable column with no default,
+Migration 44 adds `jobs.organization_id`, a nullable column with no default,
 so the claim can give each organization its turn. That changes the catalogue
 and does not rewrite the table, but it needs the table to itself for a moment.
 Every worker claims through this table, so the migration waits at most two

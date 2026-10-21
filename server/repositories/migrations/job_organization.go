@@ -12,9 +12,9 @@ import (
 // JobOrganizationMigration is the version under which a job came to say whose
 // work it is. 41 is the external task workers'; 40 and 42 are left to the
 // branches that claimed them while this one was open.
-const JobOrganizationMigration = 43
+const JobOrganizationMigration = 44
 
-// jobOrganizationLockWait is the longest migration 43 waits for jobs.
+// jobOrganizationLockWait is the longest migration 44 waits for jobs.
 //
 // Adding a nullable column with no default changes the catalogue and not the
 // table, but it needs the table to itself for that moment, and every worker
@@ -22,7 +22,7 @@ const JobOrganizationMigration = 43
 // 39, for the same reason.
 const jobOrganizationLockWait = "2s"
 
-// jobOrganization is migration 43.
+// jobOrganization is migration 44.
 //
 // The claim took the oldest due jobs whoever they belonged to, so one
 // organization that queued ten thousand timers at once had every worker until

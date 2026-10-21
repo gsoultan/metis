@@ -149,7 +149,7 @@ func (r *jobRepository) Update(ctx context.Context, j models.JobModel) error {
 // turn, its second oldest in the second, and so on, oldest first within a
 // turn: a round of fifty jobs among five organizations runs ten of each if
 // they all have ten due, and all of one organization's if nobody else has any.
-// Jobs made before migration 43 carry no organization and take their turns as
+// Jobs made before migration 44 carry no organization and take their turns as
 // one more.
 //
 // A round looks at no more than claimOwnersPerRound organizations, starting
@@ -339,7 +339,7 @@ const claimOwnersPerRound = 1000
 // organizations table: a job whose organization has no row there is still
 // owed. At most $5 of them, from the first at or after $4, wrapping round to
 // the start. Each one's jobs are then one range of the same index. Jobs with no
-// organization, made before migration 43, are one more queue.
+// organization, made before migration 44, are one more queue.
 //
 // Raw SQL because storm has no lateral join or window. The soft-delete
 // predicate the store adds to every read is written out.

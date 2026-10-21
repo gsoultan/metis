@@ -21,7 +21,7 @@ type Job struct {
 
 	// OrganizationID is whose work this is, copied from the instance's project
 	// when the job is made, so the claim can share the workers between
-	// organizations. Nil on a job made before migration 43. No foreign key: the
+	// organizations. Nil on a job made before migration 44. No foreign key: the
 	// claim reads it, and nothing is held up by an organization's row.
 	OrganizationID *storm.UUID
 

@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 43 run at the first boot; eight of them stop
+administrator. Migrations 31 to 44 run at the first boot; eight of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -74,7 +74,7 @@ action, in the order it bites:
   release reads neither ([Migrations 37 and
   38](docs/upgrading.md#migrations-37-and-38-retention-holds-and-periods)).
 
-Migrations 31 to 43 run at the first boot. Take a backup first: a rollback
+Migrations 31 to 44 run at the first boot. Take a backup first: a rollback
 does not undo a migration.
 
 - **31** gives a task the run of its step it was created for, and **stops the
@@ -103,11 +103,11 @@ does not undo a migration.
 - **41** creates the table of the workers that fetch external tasks. It is new
   and empty, so it holds nothing up ([Migration
   41](docs/upgrading.md#migration-41-the-workers-that-fetch-external-tasks)).
-- **43** gives every job the organization it is work for, and **stops the
+- **44** gives every job the organization it is work for, and **stops the
   upgrade if `jobs` is held for more than two seconds**. It then builds the
   index the claim reads through concurrently. Jobs made before it carry no
   organization and share one turn until they have run ([Migration
-  43](docs/upgrading.md#migration-43-a-job-carries-its-organization)).
+  44](docs/upgrading.md#migration-44-a-job-carries-its-organization)).
 
 ### Security
 
