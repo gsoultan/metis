@@ -1048,6 +1048,11 @@ does not undo a migration.
 
 ### Fixed
 
+- **A simulation run in the designer shows how it ended.** Every run was
+  shown as stopped on an incident, with nothing under what happened, because
+  the designer read the server's reply as the run instead of the run inside
+  it. The API was right; only the designer misread it.
+
 - **Work saved offline before the app recorded who did it is shown.** Changes
   queued on a device before each one carried its owner are never sent, since
   they could be anybody's, and they were never shown either: an approval made
