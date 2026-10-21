@@ -96,12 +96,14 @@ export async function runSimulation(
   request: SimulationRequest,
   signal?: AbortSignal,
 ): Promise<SimulationRun> {
-  const wire = await requestJSON<WireRun>(SIMULATION_PATH, {
+  // The run comes back under `run`, the way a batch comes back under `runs`.
+  // Read unwrapped, every run had no outcome and showed as an incident.
+  const wire = await requestJSON<{ run: WireRun }>(SIMULATION_PATH, {
     method: 'POST',
     body: request,
     signal,
   });
-  return toRun(wire);
+  return toRun(wire.run);
 }
 
 /**
