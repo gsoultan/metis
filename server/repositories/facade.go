@@ -42,6 +42,9 @@ type Repository interface {
 	Environment() contracts.EnvironmentRepository
 	Deployment() contracts.DeploymentRepository
 	ExternalTask() contracts.ExternalTaskRepository
+	// ExternalTaskWorker is the workers that fetch them, as each fetch last
+	// left them.
+	ExternalTaskWorker() contracts.ExternalTaskWorkerRepository
 	Form() contracts.FormRepository
 	Incident() contracts.IncidentRepository
 	Job() contracts.JobRepository

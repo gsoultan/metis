@@ -20,6 +20,9 @@ type EngineState struct {
 	LeaseExpiredJobs int64
 	// OpenIncidents is how many incidents nobody has resolved.
 	OpenIncidents int64
+	// UnservedTopics is how many external-task topics have tasks on offer and
+	// no worker that fetched within the live window, counted per organization.
+	UnservedTopics int64
 }
 
 // EngineProbe reads one database's backlog, once per scrape.
@@ -69,7 +72,7 @@ var engineLabels = []string{"environment", "environment_name"}
 type engineCollector struct {
 	sources EngineSources
 
-	up, due, oldest, leaseExpired, incidents *prometheus.Desc
+	up, due, oldest, leaseExpired, incidents, unserved *prometheus.Desc
 }
 
 // NewEngineCollector reports the backlog of every database sources lists.
@@ -87,6 +90,9 @@ func NewEngineCollector(sources EngineSources) prometheus.Collector {
 			"Jobs a worker claimed and stopped renewing. The next poll reclaims them, so this should not stay above zero.", engineLabels, nil),
 		incidents: prometheus.NewDesc("metis_incidents_open",
 			"Incidents nobody has resolved.", engineLabels, nil),
+		unserved: prometheus.NewDesc("metis_external_task_topics_unserved",
+			"External-task topics, per organization, with tasks on offer and no worker that fetched in the last two minutes. "+
+				"Those tasks wait until a worker starts, and nothing else says so.", engineLabels, nil),
 	}
 }
 
@@ -96,6 +102,7 @@ func (c *engineCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.oldest
 	ch <- c.leaseExpired
 	ch <- c.incidents
+	ch <- c.unserved
 }
 
 func (c *engineCollector) Collect(ch chan<- prometheus.Metric) {
@@ -191,4 +198,5 @@ func (c *engineCollector) report(ch chan<- prometheus.Metric, source EngineSourc
 	ch <- prometheus.MustNewConstMetric(c.oldest, prometheus.GaugeValue, state.OldestDueAge.Seconds(), labels...)
 	ch <- prometheus.MustNewConstMetric(c.leaseExpired, prometheus.GaugeValue, float64(state.LeaseExpiredJobs), labels...)
 	ch <- prometheus.MustNewConstMetric(c.incidents, prometheus.GaugeValue, float64(state.OpenIncidents), labels...)
+	ch <- prometheus.MustNewConstMetric(c.unserved, prometheus.GaugeValue, float64(state.UnservedTopics), labels...)
 }

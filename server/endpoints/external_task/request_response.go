@@ -12,6 +12,9 @@ type FetchAndLockExternalRequest struct {
 	WorkerID     string
 	MaxTasks     int
 	LockDuration int64
+	// WorkerVersion is what the worker says it is, shown beside it in the
+	// workers' list. Optional; only the REST protocol carries it so far.
+	WorkerVersion string
 }
 
 type FetchAndLockExternalResponse struct {
@@ -62,3 +65,19 @@ type ExtendExternalLockResponse struct {
 }
 
 func (r ExtendExternalLockResponse) Failed() error { return r.Err }
+
+// ListExternalTaskWorkersRequest asks for the caller's organization's topics
+// and the workers serving them. It carries nothing: the organization is the
+// request's.
+type ListExternalTaskWorkersRequest struct{}
+
+// ListExternalTaskWorkersResponse is each topic with its workers.
+type ListExternalTaskWorkersResponse struct {
+	// LiveWindowSeconds is how recently a worker must have fetched to count as
+	// live, so a reader can tell what "live" was measured against.
+	LiveWindowSeconds int64                        `json:"live_window_seconds"`
+	Topics            []entities.ExternalTaskTopic `json:"topics"`
+	Err               error                        `json:"err,omitzero"`
+}
+
+func (r ListExternalTaskWorkersResponse) Failed() error { return r.Err }

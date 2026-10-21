@@ -263,6 +263,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// takes: a signed-in account of the task's organization, and the worker id
 	// that holds the lock.
 	externalTaskEndpoints.ExtendExternalLock = protected("ExtendExternalLock")(externalTaskEndpoints.ExtendExternalLock)
+	externalTaskEndpoints.ListExternalTaskWorkers = protected("ListExternalTaskWorkers")(externalTaskEndpoints.ListExternalTaskWorkers)
 
 	incidentEndpoints := incident.MakeEndpoints(s)
 	incidentEndpoints.ListIncidents = protected("ListIncidents")(incidentEndpoints.ListIncidents)

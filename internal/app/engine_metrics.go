@@ -54,7 +54,13 @@ func (a *App) engineState(ctx context.Context) (metrics.EngineState, error) {
 	if err != nil {
 		return metrics.EngineState{}, err
 	}
-	state := metrics.EngineState{DueJobs: backlog.Due, LeaseExpiredJobs: backlog.LeaseExpired, OpenIncidents: open}
+	unserved, err := a.repo.ExternalTaskWorker().CountUnserved(ctx, now)
+	if err != nil {
+		return metrics.EngineState{}, err
+	}
+	state := metrics.EngineState{
+		DueJobs: backlog.Due, LeaseExpiredJobs: backlog.LeaseExpired, OpenIncidents: open, UnservedTopics: unserved,
+	}
 	if !backlog.OldestDue.IsZero() {
 		state.OldestDueAge = now.Sub(backlog.OldestDue)
 	}

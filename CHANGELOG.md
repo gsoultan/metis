@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 39 run at the first boot; seven of them stop
+administrator. Migrations 31 to 40 run at the first boot; seven of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -100,6 +100,9 @@ does not undo a migration.
   if `process_instances` is held for more than two seconds**. It then builds
   the index the search reads through concurrently ([Migration
   39](docs/upgrading.md#migration-39-an-instance-carries-a-business-key)).
+- **40** creates the table of the workers that fetch external tasks. It is new
+  and empty, so it holds nothing up ([Migration
+  40](docs/upgrading.md#migration-40-the-workers-that-fetch-external-tasks)).
 
 ### Security
 
@@ -433,6 +436,20 @@ does not undo a migration.
   holding a control character, is a 400 and starts nothing. It is not
   encrypted, so it should not hold personal data. REST only for now: the gRPC
   and Connect messages, the Go SDK and the instance list's search box follow.
+
+- **You can see which workers serve each external-task topic, and are told
+  when a topic has none.** Every fetch-and-lock records its worker against the
+  topic, at most once every ten seconds, with the version it says it is if it
+  sends `worker_version` (64 characters at most, no control characters).
+  `GET /api/v1/external-task-workers` lists the organization's topics: what
+  waits on each, what is locked, and each worker with its version, when it
+  last fetched, whether that was in the last two minutes, and how many tasks it
+  holds. A topic with tasks on offer and no such worker is `unserved`;
+  `metis_external_task_topics_unserved` counts those per database, and
+  `MetisExternalTasksUnserved` fires when one stays so for ten minutes. A
+  worker not seen for seven days is forgotten by the retention sweep. REST
+  only for now: the gRPC and Connect fetch, and the Go SDK, do not send a
+  version yet, though their fetches are recorded.
 
 - **Variable snapshots and finished jobs can be cut back, if you ask.** Both
   tables only ever grew. `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` removes

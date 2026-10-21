@@ -11,7 +11,8 @@
 #   metis_http_requests_total{method,route,status_class}
 #   metis_http_request_duration_seconds_bucket{method,route,status,le}
 #   metis_http_requests_in_flight
-#   metis_engine_state_up, metis_jobs_*, metis_incidents_open
+#   metis_engine_state_up, metis_jobs_*, metis_incidents_open,
+#   metis_external_task_topics_unserved
 #     {environment,environment_name} on an environment's series; neither on
 #     the main database's, whose empty values Prometheus drops on ingestion
 #
@@ -418,6 +419,34 @@ tests:
     alert_rule_test:
       - eval_time: 35m
         alertname: MetisIncidentsRising
+        exp_alerts: []
+
+  - interval: 1m
+    name: a topic with no worker for ten minutes fires MetisExternalTasksUnserved
+    input_series:
+      - series: 'metis_external_task_topics_unserved{job="metis", instance="10.0.0.1:9464"}'
+        values: '0 2+0x20'
+    alert_rule_test:
+      - eval_time: 13m
+        alertname: MetisExternalTasksUnserved
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: metis
+              instance: 10.0.0.1:9464
+            exp_annotations:
+              summary: External tasks are waiting on a topic no worker is fetching from
+              description: >-
+                2 topic(s) have tasks on offer and no worker has fetched from them for over ten minutes. See docs/runbooks.md, "External tasks with no worker".
+
+  - interval: 1m
+    name: workers restarting in a deploy stay quiet
+    input_series:
+      - series: 'metis_external_task_topics_unserved{job="metis", instance="10.0.0.1:9464"}'
+        values: '0 1 1 1 1 0+0x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: MetisExternalTasksUnserved
         exp_alerts: []
 
   - interval: 1m
