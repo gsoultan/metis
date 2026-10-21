@@ -803,9 +803,9 @@ It was not run against an installation that 0.4.0 itself had migrated.
 **Rolling back** needs nothing: no schema changed. 0.4.0 applies a mapping as
 it did.
 
-## Migration 40: the workers that fetch external tasks
+## Migration 41: the workers that fetch external tasks
 
-Migration 40 creates `external_task_workers`, a row for each worker that has
+Migration 41 creates `external_task_workers`, a row for each worker that has
 fetched a topic in an organization, with the version it said it was and when it
 last fetched. The table is new and empty, so creating it holds nothing up. Each
 environment's database gets its own, beside that environment's external tasks.

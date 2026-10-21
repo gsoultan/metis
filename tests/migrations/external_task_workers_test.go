@@ -12,10 +12,10 @@ import (
 	"github.com/gsoultan/storm"
 )
 
-// An upgrading installation gets the workers' table from migration 40 and a
+// An upgrading installation gets the workers' table from migration 41 and a
 // fresh one from the model. A fetch writes to it on every poll, keyed by its
 // unique index, so the two descriptions must be of one table.
-func TestMigration40CreatesTheExternalTaskWorkersAsTheModelDescribesThem(t *testing.T) {
+func TestMigration41CreatesTheExternalTaskWorkersAsTheModelDescribesThem(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	ctx := t.Context()
 	schema := migrations.Schema(models.MigrationModels())
@@ -28,13 +28,13 @@ func TestMigration40CreatesTheExternalTaskWorkersAsTheModelDescribesThem(t *test
 	migrate()
 
 	// The database as an upgrading installation has it: no workers' table,
-	// and migration 40 not yet run.
+	// and migration 41 not yet run.
 	if err := db.WithContext(ctx).Exec(`DROP TABLE IF EXISTS external_task_workers`).Error; err != nil {
 		t.Fatalf("remove the workers' table: %v", err)
 	}
 	if err := db.WithContext(ctx).Exec(`DELETE FROM schema_migrations WHERE version = ?`,
 		migrations.ExternalTaskWorkersMigration).Error; err != nil {
-		t.Fatalf("forget that migration 40 ran: %v", err)
+		t.Fatalf("forget that migration 41 ran: %v", err)
 	}
 	migrate()
 	migrate() // a second run finds nothing to do
@@ -49,12 +49,12 @@ func TestMigration40CreatesTheExternalTaskWorkersAsTheModelDescribesThem(t *test
 	}
 	for _, line := range drift {
 		if strings.Contains(line, "external_task_workers") {
-			t.Errorf("the table migration 40 leaves differs from the model: %s", line)
+			t.Errorf("the table migration 41 leaves differs from the model: %s", line)
 		}
 	}
 	for _, column := range []string{"organization_id", "topic", "worker_id", "version", "last_seen_at"} {
 		if !ledgerHasColumn(t, db, "external_task_workers", column) {
-			t.Errorf("migration 40 left out external_task_workers.%s", column)
+			t.Errorf("migration 41 left out external_task_workers.%s", column)
 		}
 	}
 }

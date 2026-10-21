@@ -8,10 +8,11 @@ import (
 )
 
 // ExternalTaskWorkersMigration is the version under which the engine began
-// keeping the workers that fetch its external tasks. 39 is the business key's.
-const ExternalTaskWorkersMigration = 40
+// keeping the workers that fetch its external tasks. 39 is the business key's;
+// 40 is left to the branch that claimed it while this one was open.
+const ExternalTaskWorkersMigration = 41
 
-// externalTaskWorkersDDL is frozen text: the table migration 40 made, which
+// externalTaskWorkersDDL is frozen text: the table migration 41 made, which
 // must not change when the model does. tests/migrations compares it with the
 // storm model and the model is the arbiter.
 //
@@ -33,7 +34,7 @@ var externalTaskWorkersDDL = []string{
 	`CREATE INDEX IF NOT EXISTS ix_external_task_workers_last_seen_at ON external_task_workers (last_seen_at)`,
 }
 
-// externalTaskWorkers is migration 40.
+// externalTaskWorkers is migration 41.
 //
 // A topic whose tasks waited with no worker fetching them looked, from the
 // tasks, exactly like a topic whose workers were busy: nothing recorded that a

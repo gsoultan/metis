@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 40 run at the first boot; seven of them stop
+administrator. Migrations 31 to 41 run at the first boot; seven of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -100,9 +100,9 @@ does not undo a migration.
   if `process_instances` is held for more than two seconds**. It then builds
   the index the search reads through concurrently ([Migration
   39](docs/upgrading.md#migration-39-an-instance-carries-a-business-key)).
-- **40** creates the table of the workers that fetch external tasks. It is new
+- **41** creates the table of the workers that fetch external tasks. It is new
   and empty, so it holds nothing up ([Migration
-  40](docs/upgrading.md#migration-40-the-workers-that-fetch-external-tasks)).
+  41](docs/upgrading.md#migration-41-the-workers-that-fetch-external-tasks)).
 
 ### Security
 
