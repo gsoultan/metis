@@ -17,6 +17,7 @@ import { DECIDE_GROUP_KIND, buildDecideGroup } from '../domain/decideGroup';
 import { edgeWithData } from '../domain/edgeCaption';
 import { templateById } from '../domain/processTemplates';
 import { nextDeployStep, type DeployMode } from '../domain/versionRollout';
+import { definitionFingerprint } from '../domain/simulationDraft';
 import {
   useCreateDefinition,
   useDefinitionVersions,
@@ -136,6 +137,7 @@ type FullDefinition = {
   id: string;
   key: string;
   name: string;
+  version?: number;
   nodes?: ApiNode[];
   flows?: ApiFlow[];
 };
@@ -658,6 +660,25 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     pushToHistory(nodes, edges);
   }, [edges, historyIndex, nodes, pushToHistory]);
 
+  /**
+   * The loaded version, in the form the simulator compares the canvas with.
+   *
+   * Built through the same two mappers the canvas was loaded through, so an
+   * untouched canvas fingerprints exactly like the version it came from and
+   * Simulate runs that version — the one CI can name — rather than a draft.
+   */
+  const deployed = useMemo(() => {
+    if (!loadedData?.definition) return null;
+    const definition = loadedData.definition as unknown as FullDefinition;
+    const payload = buildDefinitionPayload(
+      definition.name,
+      definition.key,
+      mapLoadedNodes(definition.nodes || []),
+      mapLoadedEdges(definition.flows || []),
+    );
+    return { version: definition.version ?? 0, fingerprint: definitionFingerprint(payload) };
+  }, [loadedData]);
+
   // Loads a fetched definition into locally editable designer state. Syncing
   // server data into an editor's working copy is a legitimate effect — the
   // alternative React recommends is a `key` on the component, which would
@@ -782,6 +803,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
   return {
     nodes,
     edges,
+    deployed,
     selectedNode,
     selectedEdge,
     processName,

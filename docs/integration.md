@@ -436,6 +436,31 @@ Durations on this API are always suffixed `_ms` — the unit is part of the
 field name because an unsuffixed `lock_duration` has already been misread
 once inside this codebase.
 
+### Seeing who serves a topic
+
+Each fetch records its worker against the topic. Send `worker_version` with the
+fetch, such as your SDK's or your build's version, and it is shown beside the
+worker; 64 characters at most and no control characters, or the fetch is
+refused in its `error` field.
+
+```bash
+curl $GOBPM/api/v1/external-task-workers -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+{"live_window_seconds": 120, "topics": [
+  {"topic": "reverse-charge", "waiting": 0, "locked": 2, "unserved": false,
+   "workers": [{"worker_id": "billing-1", "version": "2.3.0",
+                "last_seen_at": "2026-10-21T09:15:02Z", "live": true, "locked": 2}]}]}
+```
+
+A worker is `live` when it fetched in the last two minutes, so one that polls
+is live even with nothing to do. A topic is `unserved` when tasks wait on it and
+no live worker fetches it; an operator is alerted when one stays so for ten
+minutes. The list is the caller's organization's, and a worker not seen for
+seven days drops off it. Over Connect and gRPC, and from the Go SDK, fetches
+are recorded but carry no version yet.
+
 ### Extending a lock
 
 Work that can outlast its lock keeps it by extending it, before it runs out:

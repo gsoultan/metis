@@ -48,9 +48,10 @@ import { SimulationAnswerCard, SimulationRail, SimulationTransport } from '../co
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useCallback, useMemo } from 'react';
 import { decorateEdges, decorateNodes } from '../domain/simulationCanvas';
-import { answerKindFor, type SimulationTarget } from '../domain/simulationScenario';
+import { answerKindFor } from '../domain/simulationScenario';
 import { useProcessDesigner } from '../hooks/useProcessDesigner';
 import { useSimulation } from '../hooks/useSimulation';
+import { useSimulationTarget } from '../hooks/useSimulationTarget';
 import { useAppStore } from '../store/useAppStore';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
 
@@ -114,22 +115,23 @@ export function ProcessDesigner({
   /*
    * Simulation mode.
    *
-   * Only a *deployed* definition can be simulated: the run happens on the
-   * server, on the real engine, against a version instances actually pin. A
-   * canvas that has never been deployed has no version for the engine — or for
-   * a CI pipeline — to name, so the sidebar says so rather than offering a
-   * button that cannot work.
+   * Runs the canvas: the loaded version while the canvas still matches it, a
+   * draft once it does not. Either way the run happens on the server, on the
+   * real engine, and nothing it does is kept. See useSimulationTarget.
    */
   const navigate = useNavigate();
   const currentProjectId = useAppStore((state) => state.currentProjectId);
   const simulating = search.mode === 'simulate';
 
-  const simulationTarget = useMemo<SimulationTarget | null>(() => {
-    if (currentProjectId === null || !definitionId) return null;
-    // Version 0 is "whatever is live", which is what somebody simulating from
-    // the designer means when they have not said otherwise.
-    return { kind: 'deployed', projectId: currentProjectId, definitionKey: processKey, version: 0 };
-  }, [currentProjectId, definitionId, processKey]);
+  const simulationTarget = useSimulationTarget({
+    active: simulating,
+    projectId: currentProjectId,
+    deployed: designer.deployed,
+    processName,
+    processKey,
+    nodes,
+    edges,
+  });
 
   const sim = useSimulation(simulationTarget);
 

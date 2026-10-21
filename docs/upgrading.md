@@ -803,6 +803,24 @@ It was not run against an installation that 0.4.0 itself had migrated.
 **Rolling back** needs nothing: no schema changed. 0.4.0 applies a mapping as
 it did.
 
+## Migration 41: the workers that fetch external tasks
+
+Migration 41 creates `external_task_workers`, a row for each worker that has
+fetched a topic in an organization, with the version it said it was and when it
+last fetched. The table is new and empty, so creating it holds nothing up. Each
+environment's database gets its own, beside that environment's external tasks.
+
+Workers are recorded from the first fetch after the upgrade, so for up to two
+minutes after it every topic with work on offer is listed as unserved and
+counted by `metis_external_task_topics_unserved`. The alert on it waits ten
+minutes, which is past that. A replica still on the previous release records
+nothing for the fetches it answers, so during a rolling deploy a topic its
+workers alone serve can read as unserved; the alert waits ten minutes for this
+too.
+
+**Rolling back** leaves the table in place, unread. The previous release
+neither reads nor writes it.
+
 ## Migration 40: outgoing webhooks
 
 Migration 40 creates `outgoing_webhooks` and `outgoing_webhook_deliveries` with

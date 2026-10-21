@@ -22,6 +22,7 @@ type repository struct {
 	environment           contracts.EnvironmentRepository
 	deployment            contracts.DeploymentRepository
 	externalTask          contracts.ExternalTaskRepository
+	externalTaskWorker    contracts.ExternalTaskWorkerRepository
 	form                  contracts.FormRepository
 	incident              contracts.IncidentRepository
 	job                   contracts.JobRepository
@@ -74,6 +75,7 @@ func NewRepository(conn *stormdb.Conn) Repository {
 		environment:           pg.NewEnvironmentRepository(conn),
 		deployment:            pg.NewDeploymentRepository(conn),
 		externalTask:          pg.NewExternalTaskRepository(conn),
+		externalTaskWorker:    pg.NewExternalTaskWorkerRepository(conn),
 		form:                  pg.NewFormRepository(conn),
 		incident:              pg.NewIncidentRepository(conn),
 		job:                   pg.NewJobRepository(conn),
@@ -121,6 +123,9 @@ func (r *repository) Definition() contracts.DefinitionRepository     { return r.
 func (r *repository) Environment() contracts.EnvironmentRepository   { return r.environment }
 func (r *repository) Deployment() contracts.DeploymentRepository     { return r.deployment }
 func (r *repository) ExternalTask() contracts.ExternalTaskRepository { return r.externalTask }
+func (r *repository) ExternalTaskWorker() contracts.ExternalTaskWorkerRepository {
+	return r.externalTaskWorker
+}
 func (r *repository) Form() contracts.FormRepository                 { return r.form }
 func (r *repository) Incident() contracts.IncidentRepository         { return r.incident }
 func (r *repository) Job() contracts.JobRepository                   { return r.job }

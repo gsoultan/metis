@@ -55,6 +55,8 @@ func All() []any {
 		&Incident{},
 		&Subscription{},
 		&ExternalTask{},
+		// Who has been fetching it.
+		&ExternalTaskWorker{},
 		&AuditEntry{},
 		&VariableSnapshot{},
 		&CompensatableActivity{},

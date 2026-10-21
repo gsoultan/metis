@@ -22,13 +22,20 @@ type SimulateRequest struct {
 	Variables map[string]any  `json:"variables"`
 	Answers   []AnswerPayload `json:"answers"`
 
-	// BPMNXML and ReplayInstanceID are declared but not yet run.
+	// Definition and BPMNXML run a draft — a model that has not been deployed —
+	// instead of a deployed version. At most one may be set. Definition is the
+	// shape POST /api/v1/definitions takes, which is what the designer holds;
+	// BPMNXML is a .bpmn file, which is what a pipeline holds. Either way the
+	// draft is checked as a deploy would check it and is never saved.
+	Definition *entities.ProcessDefinition `json:"definition"`
+	BPMNXML    string                      `json:"bpmn_xml"`
+
+	// ReplayInstanceID is declared but not yet run.
 	//
 	// Declared, because the decoder refuses fields it does not know and a
-	// client sending either would otherwise get "this request body could not be
-	// read" — which says nothing about which mode is missing. Named here, they
-	// get an answer that does: deploy a version, or wait for replay.
-	BPMNXML          string `json:"bpmn_xml"`
+	// client sending it would otherwise get "this request body could not be
+	// read" — which says nothing about which mode is missing. Named here, it
+	// gets an answer that does.
 	ReplayInstanceID string `json:"replay_instance_id"`
 
 	// ClockStart fixes where virtual time begins. A caller writing a CI
@@ -82,6 +89,8 @@ func (r SimulateRequest) ToEntity() (entities.SimulationRequest, error) {
 		ProjectID:     projectID,
 		DefinitionKey: r.DefinitionKey,
 		Version:       r.Version,
+		Draft:         r.Definition,
+		DraftBPMN:     r.BPMNXML,
 		Variables:     r.Variables,
 		Answers:       answers,
 		ClockStart:    r.ClockStart,

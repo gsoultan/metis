@@ -50,20 +50,9 @@ func MakeSimulateEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			return nil, fmt.Errorf("simulation: expected a SimulateRequest, got %T", request)
 		}
 
-		entity, err := req.ToEntity()
+		entity, err := runnable(req)
 		if err != nil {
-			return SimulateResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
-		}
-		if entity.DefinitionKey == "" {
-			return SimulateResponse{Err: apierr.Invalidf("definition_key is required: a simulation runs a deployed definition")}, nil
-		}
-		if req.BPMNXML != "" {
-			return SimulateResponse{Err: apierr.Invalidf(
-				"simulating an undeployed diagram is not supported yet — deploy a version and simulate that")}, nil
-		}
-		if req.ReplayInstanceID != "" {
-			return SimulateResponse{Err: apierr.Invalidf(
-				"replaying a real instance is not supported yet — simulate the definition with the variables it started with")}, nil
+			return SimulateResponse{Err: err}, nil
 		}
 
 		run, err := s.Simulate(ctx, entity)
@@ -88,10 +77,9 @@ func MakeSimulateBatchEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		// using is how a simulation becomes an outage.
 		runs := make([]entities.SimulationRun, 0, len(req.Scenarios))
 		for i, scenario := range req.Scenarios {
-			entity, err := scenario.ToEntity()
+			entity, err := runnable(scenario)
 			if err != nil {
-				return SimulateBatchResponse{Err: apierr.Invalidf(
-					"case %d: project_id %q is not a valid identifier: %v", i, scenario.ProjectID, err)}, nil
+				return SimulateBatchResponse{Err: fmt.Errorf("case %d: %w", i, err)}, nil
 			}
 			run, err := s.Simulate(ctx, entity)
 			if err != nil {
@@ -102,4 +90,29 @@ func MakeSimulateBatchEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 
 		return SimulateBatchResponse{Runs: runs}, nil
 	}
+}
+
+// runnable converts one case and refuses what cannot be run.
+//
+// Shared by the single and the batch endpoint. The batch used to convert its
+// cases without these checks, so a case carrying a draft or a replay id was run
+// against the live definition instead — a different process from the one the
+// caller sent, reported as if it were theirs.
+func runnable(req SimulateRequest) (entities.SimulationRequest, error) {
+	entity, err := req.ToEntity()
+	if err != nil {
+		return entities.SimulationRequest{}, apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)
+	}
+	if req.ReplayInstanceID != "" {
+		return entities.SimulationRequest{}, apierr.Invalidf(
+			"replaying a real instance is not supported yet — simulate the definition with the variables it started with")
+	}
+	if entity.Draft != nil && entity.DraftBPMN != "" {
+		return entities.SimulationRequest{}, apierr.Invalidf("send the draft once — as definition or as bpmn_xml, not both")
+	}
+	if entity.DefinitionKey == "" && !entity.IsDraft() {
+		return entities.SimulationRequest{}, apierr.Invalidf(
+			"definition_key is required: name a deployed definition, or send a draft as definition or bpmn_xml")
+	}
+	return entity, nil
 }

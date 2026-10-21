@@ -86,6 +86,11 @@ func (b *taskBoard) ExtendLock(context.Context, uuid.UUID, string, int64) (time.
 	return time.Time{}, nil
 }
 
+// ExternalTaskTopics is an operator's read, never the bridge's.
+func (b *taskBoard) ExternalTaskTopics(context.Context) ([]entities.ExternalTaskTopic, error) {
+	return nil, nil
+}
+
 // returned says which tasks have been handed back, in order, and why.
 func (b *taskBoard) returned() ([]uuid.UUID, []string) {
 	b.mu.Lock()

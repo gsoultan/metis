@@ -40,6 +40,7 @@ Every rule in `deploy/kubernetes/alerts.yaml` maps to an entry here.
 | `MetisJobsWaitingUnclaimed` | A due job has waited over 10 minutes | [Nobody is claiming](#jobs-are-due-and-nobody-is-claiming-them) |
 | `MetisJobLeasesNotReclaimed` | Expired leases unclaimed for 15 minutes | [Stuck in running](#a-job-stuck-in-running) |
 | `MetisIncidentsRising` | 10 more open incidents than 30 minutes ago | [Incidents piling up](#incidents-are-piling-up) |
+| `MetisExternalTasksUnserved` | A topic has tasks and no worker for 10 minutes | [No worker](#external-tasks-with-no-worker) |
 | `MetisEngineStateUnreadable` | The backlog gauges cannot be read | [Backlog unreadable](#the-engines-backlog-cannot-be-read) |
 | `MetisDatabasePoolSaturated` | Pool 90% in use and callers waiting | [Pool exhausted](#the-database-pool-is-exhausted) |
 | `MetisStrictTenantScopeDenied` | The strict scope denied a call site | [`strict-tenant-scope.md`](strict-tenant-scope.md) |
@@ -1210,6 +1211,36 @@ One row usually dominates. By what it says:
 **Fix the cause before resolving.** Resolving an incident
 (`POST /api/v1/incidents/{id}/resolve`) replays the work; resolved while the
 cause is still there, it fails again and opens another.
+
+---
+
+## External tasks with no worker
+
+`MetisExternalTasksUnserved`: a topic has external tasks on offer, and no
+worker has fetched from it for over ten minutes. Every fetch-and-lock records
+the worker that made it, by topic, so a worker that is running and polling is
+seen within two minutes even when there is nothing for it to do.
+
+Ask the server which topics they are, as somebody in the organization:
+
+```
+GET /api/v1/external-task-workers
+```
+
+Each topic lists what waits on it, what is locked, and every worker seen on it
+with its version and when it last fetched; `unserved` is true on the ones this
+alert counts. By what it shows:
+
+- **No workers at all on the topic** — the worker was never deployed, or is
+  deployed under another topic name. Compare the topic with the one in the
+  process definition's `metis:topic`; a typo there is a topic nobody serves.
+- **Workers, none live** — they stopped. Their last fetch is when; look at
+  their logs and their deployment from then.
+- **Live workers on other topics, with a new version** — a release moved the
+  topic. Roll the worker back, or deploy the version that serves it.
+
+Workers not seen for seven days are forgotten by the retention sweep, so an old
+name does not linger in the list.
 
 ---
 

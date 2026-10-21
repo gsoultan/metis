@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 40 run at the first boot; seven of them stop
+administrator. Migrations 31 to 41 run at the first boot; seven of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -107,6 +107,9 @@ does not undo a migration.
   project to every address in it, unsigned and once, and now says so in the log
   at boot. Register each of its receivers as an outgoing webhook of its
   project, then unset it.
+- **41** creates the table of the workers that fetch external tasks. It is new
+  and empty, so it holds nothing up ([Migration
+  41](docs/upgrading.md#migration-41-the-workers-that-fetch-external-tasks)).
 
 ### Security
 
@@ -394,6 +397,21 @@ does not undo a migration.
   saved and at every dial, and no delivery carries process variables
   ([Sending events: outgoing
   webhooks](docs/integration.md#sending-events-outgoing-webhooks)).
+- **Simulate the diagram you are editing, without deploying it.** In the
+  designer, Simulate now runs the canvas: the version you opened while the
+  canvas still does what it does, and a draft once you change a step, a
+  condition or a flow (moving shapes does not count). A draft is checked the
+  way a deploy is, runs on the real engine inside the simulation's
+  rolled-back transaction, and is never saved — no version, no gap in the
+  numbering, nothing live changes. A never-deployed process can be simulated
+  too. Simulating from the designer also now runs the version on screen
+  rather than whichever one is live. Same permission as before (designer).
+  - `POST /api/v1/simulations` and `/batch` accept the draft as `definition`
+    (the body `POST /api/v1/definitions` takes) or as `bpmn_xml` (a `.bpmn`
+    file), in place of `definition_key` and `version`. Both at once is a 400.
+  - A batch case carrying `replay_instance_id` is now refused as the single
+    endpoint refuses it. It was run against the live definition instead.
+
 - **Finished instances can be removed after a set number of days.** Set
   `METIS_RETENTION_FINISHED_INSTANCES_DAYS` and every ten minutes the sweep
   removes completed and cancelled instances older than that, with their tasks,
@@ -451,6 +469,20 @@ does not undo a migration.
   holding a control character, is a 400 and starts nothing. It is not
   encrypted, so it should not hold personal data. REST only for now: the gRPC
   and Connect messages, the Go SDK and the instance list's search box follow.
+
+- **You can see which workers serve each external-task topic, and are told
+  when a topic has none.** Every fetch-and-lock records its worker against the
+  topic, at most once every ten seconds, with the version it says it is if it
+  sends `worker_version` (64 characters at most, no control characters).
+  `GET /api/v1/external-task-workers` lists the organization's topics: what
+  waits on each, what is locked, and each worker with its version, when it
+  last fetched, whether that was in the last two minutes, and how many tasks it
+  holds. A topic with tasks on offer and no such worker is `unserved`;
+  `metis_external_task_topics_unserved` counts those per database, and
+  `MetisExternalTasksUnserved` fires when one stays so for ten minutes. A
+  worker not seen for seven days is forgotten by the retention sweep. REST
+  only for now: the gRPC and Connect fetch, and the Go SDK, do not send a
+  version yet, though their fetches are recorded.
 
 - **Variable snapshots and finished jobs can be cut back, if you ask.** Both
   tables only ever grew. `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` removes
@@ -1050,6 +1082,11 @@ does not undo a migration.
   to anybody who is not an operator or an administrator.
 
 ### Fixed
+
+- **A simulation run in the designer shows how it ended.** Every run was
+  shown as stopped on an incident, with nothing under what happened, because
+  the designer read the server's reply as the run instead of the run inside
+  it. The API was right; only the designer misread it.
 
 - **Work saved offline before the app recorded who did it is shown.** Changes
   queued on a device before each one carried its owner are never sent, since

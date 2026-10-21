@@ -113,7 +113,7 @@ type columnRef struct{ table, column string }
 // does not exist then, and its own migration creates it with the constraints
 // already on it, so there is nothing for 22 to repair and no upgraded
 // installation that has its columns nullable.
-var createdAfterMigration22 = map[string]bool{"instance_deviations": true, "deviation_requests": true, "retention_holds": true, "retention_periods": true,
+var createdAfterMigration22 = map[string]bool{"instance_deviations": true, "deviation_requests": true, "retention_holds": true, "retention_periods": true, "external_task_workers": true,
 	"outgoing_webhooks": true, "outgoing_webhook_deliveries": true}
 
 // columnsTheReaderNeeds is the model's own answer: a storm field that is not a
