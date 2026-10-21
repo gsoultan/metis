@@ -184,7 +184,7 @@ export function useSimulation(target: SimulationTarget | null) {
 
   const runOne = useMutation({
     mutationFn: async (scenario: Scenario) => {
-      if (target === null) throw new Error('Deploy this process first — a run needs a version to execute.');
+      if (target === null) throw new Error('Give the process a key before running it.');
       return runSimulation(simulationRequest(scenario, target));
     },
     onSuccess: (result, scenario) => {
@@ -203,7 +203,7 @@ export function useSimulation(target: SimulationTarget | null) {
 
   const runAll = useMutation({
     mutationFn: async () => {
-      if (target === null) throw new Error('Deploy this process first — a run needs a version to execute.');
+      if (target === null) throw new Error('Give the process a key before running it.');
       const valid = cases.filter((c) => validateScenario(c).length === 0);
       const results = await runSimulationBatch(valid.map((c) => simulationRequest(c, target)));
       return valid.map((scenario, index) => ({ scenario, result: results[index] })).filter((pair) => pair.result);

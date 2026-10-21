@@ -171,12 +171,14 @@ describe('validateScenario', () => {
   });
 });
 
+const draftDefinition = { key: 'expense-approval', name: 'Expense approval', nodes: [], flows: [] };
+
 describe('simulationRequest', () => {
   it('sends key and version for a deployed definition', () => {
     const request = simulationRequest(scenario, deployed);
     expect(request.definition_key).toBe('expense-approval');
     expect(request.version).toBe(4);
-    expect(request.bpmn_xml).toBeUndefined();
+    expect(request.definition).toBeUndefined();
     expect(request.variables).toEqual({ amount: 4200, region: 'EU' });
     expect(request.max_steps).toBe(500);
   });
@@ -186,9 +188,9 @@ describe('simulationRequest', () => {
       kind: 'draft',
       projectId: 'proj-1',
       definitionKey: 'expense-approval',
-      bpmnXml: '<definitions/>',
+      definition: draftDefinition,
     });
-    expect(request.bpmn_xml).toBe('<definitions/>');
+    expect(request.definition).toBe(draftDefinition);
     expect(request.version).toBeUndefined();
   });
 
@@ -250,7 +252,7 @@ describe('snippets', () => {
       kind: 'draft',
       projectId: 'proj-1',
       definitionKey: 'expense-approval',
-      bpmnXml: '<definitions/>',
+      definition: draftDefinition,
     });
     expect(goSnippet(request, scenario)).toBeNull();
   });

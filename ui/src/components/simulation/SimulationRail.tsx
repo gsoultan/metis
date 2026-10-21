@@ -173,8 +173,14 @@ export function SimulationRail({
 
           {target === null && (
             <Text size="xs" c="dimmed">
-              Deploy this process once, and every case here becomes runnable — from this screen and
-              from CI.
+              Give the process a key, and every case here becomes runnable.
+            </Text>
+          )}
+
+          {target?.kind === 'draft' && (
+            <Text size="xs" c="dimmed">
+              Running the diagram as it is now. Nothing is deployed and nothing is kept — deploy it
+              when you want this case to run from CI too.
             </Text>
           )}
 
