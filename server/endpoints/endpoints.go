@@ -25,6 +25,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/role"
 	"github.com/gsoultan/metis/server/endpoints/setup"
 	"github.com/gsoultan/metis/server/endpoints/simulation"
+	"github.com/gsoultan/metis/server/endpoints/simulationcase"
 	"github.com/gsoultan/metis/server/endpoints/task"
 	"github.com/gsoultan/metis/server/endpoints/user"
 	"github.com/gsoultan/metis/server/endpoints/webhook"
@@ -55,6 +56,7 @@ type Endpoints struct {
 	Group             group.Endpoints
 	Notification      notification.Endpoints
 	Simulation        simulation.Endpoints
+	SimulationCase    simulationcase.Endpoints
 	Role              role.Endpoints
 }
 
@@ -445,6 +447,13 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	simulationEndpoints.Simulate = designer("Simulate")(simulationEndpoints.Simulate)
 	simulationEndpoints.SimulateBatch = designer("SimulateBatch")(simulationEndpoints.SimulateBatch)
 
+	// A process's saved cases are its simulation's own material, on the same
+	// gate: reading one shows the variables and answers a case runs with.
+	simulationCaseEndpoints := simulationcase.MakeEndpoints(s)
+	simulationCaseEndpoints.ListSimulationCases = designer("ListSimulationCases")(simulationCaseEndpoints.ListSimulationCases)
+	simulationCaseEndpoints.SaveSimulationCase = designer("SaveSimulationCase")(simulationCaseEndpoints.SaveSimulationCase)
+	simulationCaseEndpoints.DeleteSimulationCase = designer("DeleteSimulationCase")(simulationCaseEndpoints.DeleteSimulationCase)
+
 	// What each role is required for, read from the gates above as the factory
 	// built them. Last, so that every one of them is in it: a gate built after
 	// this line would be enforced and missing from the legend, which is the
@@ -481,6 +490,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		Group:             groupEndpoints,
 		Notification:      notificationEndpoints,
 		Simulation:        simulationEndpoints,
+		SimulationCase:    simulationCaseEndpoints,
 		Role:              roleEndpoints,
 	}
 }

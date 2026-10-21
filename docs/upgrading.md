@@ -803,6 +803,20 @@ It was not run against an installation that 0.4.0 itself had migrated.
 **Rolling back** needs nothing: no schema changed. 0.4.0 applies a mapping as
 it did.
 
+## Migration 43: a process keeps its simulation cases
+
+Migration 43 creates `simulation_cases`, one row per case a designer saved
+with a process, with a foreign key to `projects`. Adding that key needs
+`projects` for a moment, so the migration waits at most two seconds for it
+and then stops, saying that `projects` was held by a long query or
+transaction. Start the server again once that has ended.
+
+Nothing existing is read or rewritten. A replica on the previous release
+neither lists nor saves cases until it is rolled forward.
+
+**Rolling back** leaves the table behind, unused; the previous release does
+not read it.
+
 ## Migration 41: the workers that fetch external tasks
 
 Migration 41 creates `external_task_workers`, a row for each worker that has

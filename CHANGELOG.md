@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 41 run at the first boot; seven of them stop
+administrator. Migrations 31 to 43 run at the first boot; eight of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -74,7 +74,7 @@ action, in the order it bites:
   release reads neither ([Migrations 37 and
   38](docs/upgrading.md#migrations-37-and-38-retention-holds-and-periods)).
 
-Migrations 31 to 39 run at the first boot. Take a backup first: a rollback
+Migrations 31 to 43 run at the first boot. Take a backup first: a rollback
 does not undo a migration.
 
 - **31** gives a task the run of its step it was created for, and **stops the
@@ -103,6 +103,10 @@ does not undo a migration.
 - **41** creates the table of the workers that fetch external tasks. It is new
   and empty, so it holds nothing up ([Migration
   41](docs/upgrading.md#migration-41-the-workers-that-fetch-external-tasks)).
+- **43** creates the simulation cases a process keeps, and stops if
+  `projects` is held for more than two seconds; it finishes on the next start
+  ([Migration
+  43](docs/upgrading.md#migration-43-a-process-keeps-its-simulation-cases)).
 
 ### Security
 
@@ -393,6 +397,17 @@ does not undo a migration.
     file), in place of `definition_key` and `version`. Both at once is a 400.
   - A batch case carrying `replay_instance_id` is now refused as the single
     endpoint refuses it. It was run against the live definition instead.
+
+- **Simulation cases are saved with the process, and say what they expect.**
+  A case built in the designer's Simulate mode can be saved with the process,
+  so everybody who opens it gets the same cases, and **Expect this result**
+  turns the run on screen into what the case must end with: how it ends,
+  where, and the few values that matter. A run that differs says what
+  differs in words ("It ended at CFO signs off, not Approved"), and **Run
+  every case** marks each one passed or not against its own expectation. A
+  process keeps at most 20 cases. Designers only, like simulation itself.
+  - `GET` and `POST /api/v1/projects/{id}/simulation-cases/{process_key}`,
+    `PUT` and `DELETE /api/v1/projects/{id}/simulation-cases/{process_key}/{case_id}`.
 
 - **Finished instances can be removed after a set number of days.** Set
   `METIS_RETENTION_FINISHED_INSTANCES_DAYS` and every ten minutes the sweep

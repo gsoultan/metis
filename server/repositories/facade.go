@@ -23,6 +23,8 @@ type Repository interface {
 	RetentionHold() contracts.RetentionHoldRepository
 	// RetentionPeriod is the periods processes are given, a row per change.
 	RetentionPeriod() contracts.RetentionPeriodRepository
+	// SimulationCase is the simulation test cases each process keeps.
+	SimulationCase() contracts.SimulationCaseRepository
 
 	// SharedCounter holds the counts that rate limits and circuit breakers
 	// enforce across replicas rather than per process.
