@@ -844,6 +844,7 @@ func Schema(models []any) []Migration {
 		taskListIndex(),
 		retentionHolds(),
 		retentionPeriods(),
+		businessKey(),
 	}
 }
 

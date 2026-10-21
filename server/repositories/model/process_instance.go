@@ -24,6 +24,13 @@ type ProcessInstance struct {
 
 	Status ProcessStatus
 
+	// BusinessKey is what the caller who started the instance calls the case:
+	// an order number, a claim reference. Optional, not unique — two processes
+	// can work on one order — and a sub-process started by a call activity
+	// carries its caller's. Not encrypted, unlike Variables: it is what an
+	// operator searches by, so it should not be personal data.
+	BusinessKey *string
+
 	// Variables is the business data, encrypted by the repository:
 	// it holds whatever the process was started with, which is routinely
 	// personal or commercial.
@@ -56,6 +63,9 @@ func (i *ProcessInstance) Schema(t *storm.Table) {
 	// the record of work its children actually did.
 	t.Col(&i.ParentInstance).OnDelete(storm.SetNull).Index()
 	t.Col(&i.DeletedAt).Index()
+	t.Col(&i.BusinessKey).Size(255)
+	// A project's instances of one case, which the instance list searches by.
+	t.Index(&i.Project, &i.BusinessKey).Named("ix_process_instances_business_key")
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&i.DeletedAt)

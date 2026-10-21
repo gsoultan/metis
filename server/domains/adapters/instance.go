@@ -61,9 +61,10 @@ func (a InstanceModelAdapter) ToModel() models.ProcessInstanceModel {
 			}
 			return ""
 		}(),
-		Status:    models.ProcessStatus(a.Instance.Status),
-		Variables: models.EncryptedMap(a.Instance.Variables),
-		Tokens:    tokens,
+		Status:      models.ProcessStatus(a.Instance.Status),
+		BusinessKey: a.Instance.BusinessKey,
+		Variables:   models.EncryptedMap(a.Instance.Variables),
+		Tokens:      tokens,
 		CompletedNodes: func() []string {
 			ids := make([]string, len(a.Instance.CompletedNodes))
 			for i, n := range a.Instance.CompletedNodes {
@@ -130,6 +131,7 @@ func (a InstanceEntityAdapter) ToEntity() entities.ProcessInstance {
 		ParentInstance: parentInstance,
 		ParentNode:     &entities.Node{ID: a.Model.ParentNodeID},
 		Status:         entities.ProcessStatus(a.Model.Status),
+		BusinessKey:    a.Model.BusinessKey,
 		Variables:      a.Model.Variables,
 		Tokens:         tokens,
 		CompletedNodes: func() []*entities.Node {

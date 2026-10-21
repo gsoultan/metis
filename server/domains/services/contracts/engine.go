@@ -19,6 +19,10 @@ import (
 type EngineRunner interface {
 	StartProcess(ctx context.Context, projectID uuid.UUID, definitionKey string, vars map[string]any) (uuid.UUID, error)
 	StartSubProcess(ctx context.Context, projectID uuid.UUID, definitionKey string, version int, vars map[string]any, parentInstanceID uuid.UUID, parentNodeID string) (uuid.UUID, error)
+	// StartInstance starts an instance with everything start says, its
+	// business key included. StartProcess and StartSubProcess are it with no
+	// business key.
+	StartInstance(ctx context.Context, start entities.InstanceStart) (uuid.UUID, error)
 	ExecuteNode(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string) error
 	ExecuteNodeIteration(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string, iterationID string) error
 	Proceed(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, nodeID string) error

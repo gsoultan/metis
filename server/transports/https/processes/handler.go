@@ -143,6 +143,8 @@ func decodeListInstancesRequest(_ context.Context, r *http.Request) (any, error)
 		// Presence is not enough: ?needs_attention=false must mean false, or a
 		// caller clearing the filter by setting it cannot.
 		NeedsAttention: query.Get("needs_attention") == "true",
+		// Matched exactly, as written: a business key is the caller's.
+		BusinessKey: query.Get("business_key"),
 	}, nil
 }
 

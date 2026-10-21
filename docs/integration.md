@@ -263,7 +263,24 @@ curl -X POST $GOBPM/api/v1/process/start \
 ```
 
 Redeploying the same process key creates the next version; running instances
-keep the version they started with. The import **requires** `project_id` — a
+keep the version they started with.
+
+**Give the instance your name for the case.** Send `"business_key"` with the
+start, such as an order number or a claim reference, and find the instance by
+it later with `GET /api/v1/instances?project_id=$PROJECT&business_key=ORDER-4411`.
+The key is matched exactly. It is optional and not unique, because two
+processes can work on one order. A sub-process started by a call activity
+carries its caller's key, so the search finds the whole case. It is at most 255
+characters with no control characters; anything else is a 400. It is stored
+unencrypted, unlike the variables, because operators search by it, so keep
+personal data out of it. REST only for now: the gRPC and Connect start messages
+and the Go SDK do not carry it yet.
+
+```bash
+curl -X POST $GOBPM/api/v1/process/start \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"project_id\":\"$PROJECT\",\"definition_key\":\"refund\",\"business_key\":\"ORDER-4411\"}"
+``` The import **requires** `project_id` — a
 definition without a project would be invisible to its own organization under
 tenant scoping.
 

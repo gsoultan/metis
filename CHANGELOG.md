@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 38 run at the first boot; six of them stop
+administrator. Migrations 31 to 39 run at the first boot; seven of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -74,7 +74,7 @@ action, in the order it bites:
   release reads neither ([Migrations 37 and
   38](docs/upgrading.md#migrations-37-and-38-retention-holds-and-periods)).
 
-Migrations 31 to 38 run at the first boot. Take a backup first: a rollback
+Migrations 31 to 39 run at the first boot. Take a backup first: a rollback
 does not undo a migration.
 
 - **31** gives a task the run of its step it was created for, and **stops the
@@ -96,6 +96,10 @@ does not undo a migration.
   more than two seconds; it finishes on the next start.
 - **38** creates the processes' retention periods, and stops on the same
   bound.
+- **39** gives every instance a business key column, and **stops the upgrade
+  if `process_instances` is held for more than two seconds**. It then builds
+  the index the search reads through concurrently ([Migration
+  39](docs/upgrading.md#migration-39-an-instance-carries-a-business-key)).
 
 ### Security
 
@@ -419,6 +423,16 @@ does not undo a migration.
   - `GET /api/v1/projects/{id}/retention-periods` lists each process's current
     period, and `.../retention-periods/{key}/history` its changes, newest
     first. Both are for whoever may read the project.
+
+- **An instance can carry your name for its case.** Send `business_key` with
+  `POST /api/v1/process/start`, such as an order number or a claim reference.
+  The instance shows it, and `GET /api/v1/instances` takes `business_key` to
+  find a project's instances by it, matched exactly. It is optional and not
+  unique. A sub-process started by a call activity carries its caller's key, so
+  one search finds the whole case. A key longer than 255 characters, or one
+  holding a control character, is a 400 and starts nothing. It is not
+  encrypted, so it should not hold personal data. REST only for now: the gRPC
+  and Connect messages, the Go SDK and the instance list's search box follow.
 
 - **Variable snapshots and finished jobs can be cut back, if you ask.** Both
   tables only ever grew. `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` removes

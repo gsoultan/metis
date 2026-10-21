@@ -21,12 +21,15 @@ type ProcessInstance struct {
 	ParentNode     *Node              `json:"parent_node,omitzero"`
 	// RootInstance is the top-level process instance that originally spawned this one.
 	// It equals the instance itself when there is no parent (i.e., this is the root).
-	RootInstance     *ProcessInstance `json:"root_instance,omitzero"`
-	Status           ProcessStatus    `json:"status"` // e.g., "active", "completed"
-	Variables        map[string]any   `json:"variables,omitzero"`
-	Tokens           []Token          `json:"tokens,omitzero"`
-	CompletedNodes   []*Node          `json:"completed_nodes,omitzero"`
-	CompensatedNodes []*Node          `json:"compensated_nodes,omitzero"`
+	RootInstance *ProcessInstance `json:"root_instance,omitzero"`
+	Status       ProcessStatus    `json:"status"` // e.g., "active", "completed"
+	// BusinessKey is the caller's name for the case: an order number, a claim
+	// reference. Empty when none was given.
+	BusinessKey      string         `json:"business_key,omitzero"`
+	Variables        map[string]any `json:"variables,omitzero"`
+	Tokens           []Token        `json:"tokens,omitzero"`
+	CompletedNodes   []*Node        `json:"completed_nodes,omitzero"`
+	CompensatedNodes []*Node        `json:"compensated_nodes,omitzero"`
 	// MultiInstance holds engine bookkeeping for nodes that run once per item,
 	// keyed by node ID. Deliberately separate from Variables.
 	MultiInstance map[string]MultiInstanceState `json:"multi_instance,omitzero"`

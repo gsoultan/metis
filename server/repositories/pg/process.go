@@ -45,6 +45,7 @@ func (r *processRepository) Create(ctx context.Context, m models.ProcessInstance
 		ins.SetParentInstanceID(uuid.UUID(*m.ParentInstanceID))
 	}
 	setOrNullString(ins.SetParentNodeID, ins.SetParentNodeIDNull, m.ParentNodeID)
+	setOrNullString(ins.SetBusinessKey, ins.SetBusinessKeyNull, m.BusinessKey)
 	if err := writeInstanceState(ins.SetVariables, ins.SetTokens, ins.SetCompletedNodes,
 		ins.SetCompensatedNodes, ins.SetMultiInstance, ins.SetJoins, m); err != nil {
 		return uuid.Nil, err
@@ -235,6 +236,9 @@ func filterPreds(f contracts.InstanceFilter) []processinstance.Pred {
 	}
 	if f.DefinitionID != uuid.Nil {
 		preds = append(preds, processinstance.DefinitionID.Eq(f.DefinitionID))
+	}
+	if f.BusinessKey != "" {
+		preds = append(preds, processinstance.BusinessKey.Eq(f.BusinessKey))
 	}
 	return preds
 }
@@ -712,6 +716,7 @@ func instanceFrom(row processinstance.Row) (models.ProcessInstanceModel, error) 
 		DefinitionID: models.UUID(row.DefinitionID),
 		ParentNodeID: valueOr(row.ParentNodeID),
 		Status:       models.ProcessStatus(row.Status),
+		BusinessKey:  valueOr(row.BusinessKey),
 	}
 	if parent, ok := row.ParentInstanceID.Get(); ok {
 		id := models.UUID(parent)
