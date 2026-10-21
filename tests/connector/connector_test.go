@@ -138,6 +138,8 @@ func (m *MockRepository) Organization() contracts.OrganizationRepository { retur
 func (m *MockRepository) Process() contracts.ProcessRepository           { return nil }
 func (m *MockRepository) ServiceCall() contracts.ServiceCallRepository   { return nil }
 func (m *MockRepository) Webhook() contracts.WebhookRepository           { return nil }
+func (m *MockRepository) OutgoingWebhook() contracts.OutgoingWebhookRepository { return nil }
+func (m *MockRepository) OutgoingWebhookQueue() contracts.OutgoingWebhookQueue  { return nil }
 func (m *MockRepository) ConnectorManifest() contracts.ConnectorManifestRepository {
 	return nil
 }

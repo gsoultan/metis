@@ -726,12 +726,20 @@ func (a *App) setupService(ctx context.Context) error {
 	a.sse.DeliverAfterCommitWith(a.repo.UnitOfWork().AfterCommit)
 	dispatcher.Register(a.sse)
 
-	// Register Webhook Observer if endpoints are provided
+	// A project's outgoing webhooks: queued in the transaction of the step
+	// that raised each event, and posted by the worker startBackgroundWork
+	// starts.
+	dispatcher.Register(impl.NewOutgoingWebhookObserver(a.repo.OutgoingWebhookQueue(), a.repo.UnitOfWork().Attempt))
+
+	// The installation-wide sender that came before them, kept so that an
+	// installation relying on it is not cut off by an upgrade.
 	webhookEndpoints := envvar.Get("WEBHOOK_ENDPOINTS")
 	if webhookEndpoints != "" {
 		endpointsList := strings.Split(webhookEndpoints, ",")
 		dispatcher.Register(impl.NewWebhookObserver(endpointsList, a.repo.UnitOfWork().AfterCommit))
-		log.Info().Int("count", len(endpointsList)).Msg("Registered Webhook Observer")
+		log.Warn().Int("count", len(endpointsList)).
+			Msg("WEBHOOK_ENDPOINTS is deprecated: it posts every event of every project, unsigned, once, and drops what it cannot keep up with. " +
+				"Register each receiver as an outgoing webhook of its project instead, which is signed, retried and logged, then unset it")
 	}
 
 	jwtSecret, err := a.resolveJWTSecret()
@@ -823,6 +831,7 @@ func (a *App) startSharedLimits(ctx context.Context) {
 // things, and only the server does the second.
 func (a *App) startBackgroundWork(ctx context.Context) {
 	a.svc.StartWorkers(ctx)
+	a.svc.StartOutgoingWebhookDeliveries(ctx)
 	// Directory syncs, for the sources that carry a schedule. A no-op when
 	// there is no storm connection: there are no sources to run.
 	a.svc.StartScheduledSyncs(ctx)

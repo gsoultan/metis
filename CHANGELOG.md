@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 39 run at the first boot; seven of them stop
+administrator. Migrations 31 to 40 run at the first boot; seven of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -74,7 +74,7 @@ action, in the order it bites:
   release reads neither ([Migrations 37 and
   38](docs/upgrading.md#migrations-37-and-38-retention-holds-and-periods)).
 
-Migrations 31 to 39 run at the first boot. Take a backup first: a rollback
+Migrations 31 to 40 run at the first boot. Take a backup first: a rollback
 does not undo a migration.
 
 - **31** gives a task the run of its step it was created for, and **stops the
@@ -100,6 +100,13 @@ does not undo a migration.
   if `process_instances` is held for more than two seconds**. It then builds
   the index the search reads through concurrently ([Migration
   39](docs/upgrading.md#migration-39-an-instance-carries-a-business-key)).
+- **40** adds the two tables outgoing webhooks are kept in. Nothing existing
+  is rewritten ([Migration
+  40](docs/upgrading.md#migration-40-outgoing-webhooks)).
+- **`WEBHOOK_ENDPOINTS` is deprecated.** It still posts every event of every
+  project to every address in it, unsigned and once, and now says so in the log
+  at boot. Register each of its receivers as an outgoing webhook of its
+  project, then unset it.
 
 ### Security
 
@@ -376,6 +383,17 @@ does not undo a migration.
 
 ### Added
 
+- **Outgoing webhooks.** An administrator registers an address for a
+  project's `process.started`, `process.completed`, `task.created` and
+  `task.completed` events, and each one is posted to it signed with the
+  webhook's own secret, with a delivery id that stays the same across retries.
+  The event is queued in the transaction of the step that raised it, so a
+  rolled-back step is never announced and a committed one is announced even if
+  the server stops; a receiver that does not accept it is tried ten times over
+  about a day. The address is checked against the egress policy when it is
+  saved and at every dial, and no delivery carries process variables
+  ([Sending events: outgoing
+  webhooks](docs/integration.md#sending-events-outgoing-webhooks)).
 - **Finished instances can be removed after a set number of days.** Set
   `METIS_RETENTION_FINISHED_INSTANCES_DAYS` and every ten minutes the sweep
   removes completed and cancelled instances older than that, with their tasks,

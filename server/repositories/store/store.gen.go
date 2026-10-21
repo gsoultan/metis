@@ -26,6 +26,8 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/membership"
 	"github.com/gsoultan/metis/server/repositories/store/notification"
 	"github.com/gsoultan/metis/server/repositories/store/organization"
+	"github.com/gsoultan/metis/server/repositories/store/outgoingwebhook"
+	"github.com/gsoultan/metis/server/repositories/store/outgoingwebhookdelivery"
 	"github.com/gsoultan/metis/server/repositories/store/participantsource"
 	"github.com/gsoultan/metis/server/repositories/store/platformrole"
 	"github.com/gsoultan/metis/server/repositories/store/platformroleassignment"
@@ -79,29 +81,31 @@ var FlushOrder = map[string]int{
 	"forms":                       19,
 	"groups":                      20,
 	"memberships":                 21,
-	"participant_sources":         22,
-	"platform_role_assignments":   23,
-	"process_definition_releases": 24,
-	"process_definitions":         25,
-	"process_instances":           26,
-	"tasks":                       27,
-	"user_organizations":          28,
-	"user_projects":               29,
-	"variable_snapshots":          30,
-	"webhook_deliveries":          31,
-	"workflow_group_memberships":  32,
-	"audit_logs":                  33,
-	"broadcast_events":            34,
-	"compensatable_activities":    35,
-	"deployment_resources":        36,
-	"deviation_requests":          37,
-	"event_subscriptions":         38,
-	"external_tasks":              39,
-	"instance_deviations":         40,
-	"jobs":                        41,
-	"notifications":               42,
-	"service_calls":               43,
-	"incidents":                   44,
+	"outgoing_webhooks":           22,
+	"participant_sources":         23,
+	"platform_role_assignments":   24,
+	"process_definition_releases": 25,
+	"process_definitions":         26,
+	"process_instances":           27,
+	"tasks":                       28,
+	"user_organizations":          29,
+	"user_projects":               30,
+	"variable_snapshots":          31,
+	"webhook_deliveries":          32,
+	"workflow_group_memberships":  33,
+	"audit_logs":                  34,
+	"broadcast_events":            35,
+	"compensatable_activities":    36,
+	"deployment_resources":        37,
+	"deviation_requests":          38,
+	"event_subscriptions":         39,
+	"external_tasks":              40,
+	"instance_deviations":         41,
+	"jobs":                        42,
+	"notifications":               43,
+	"outgoing_webhook_deliveries": 44,
+	"service_calls":               45,
+	"incidents":                   46,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -4176,6 +4180,240 @@ func (p OrganizationWithProjectsQuery) All(ctx context.Context, ex runtime.Execu
 		if i, ok := at[k.OrganizationID]; ok {
 			out[i].Projects = append(out[i].Projects, k)
 		}
+	}
+	return out, nil
+}
+
+// OutgoingWebhookDeliveryWithWebhookRow is outgoing_webhook_deliveries with its Webhook loaded.
+type OutgoingWebhookDeliveryWithWebhookRow struct {
+	outgoingwebhookdelivery.Row
+	Webhook outgoingwebhook.Row
+}
+
+type OutgoingWebhookDeliveryWithWebhookQuery struct {
+	q outgoingwebhookdelivery.Query
+}
+
+// OutgoingWebhookDeliveryWithWebhook starts the plan.
+func OutgoingWebhookDeliveryWithWebhook() OutgoingWebhookDeliveryWithWebhookQuery {
+	return OutgoingWebhookDeliveryWithWebhookQuery{q: outgoingwebhookdelivery.New()}
+}
+
+func (p OutgoingWebhookDeliveryWithWebhookQuery) Where(ps ...outgoingwebhookdelivery.Pred) OutgoingWebhookDeliveryWithWebhookQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p OutgoingWebhookDeliveryWithWebhookQuery) WhereIf(cond bool, pr outgoingwebhookdelivery.Pred) OutgoingWebhookDeliveryWithWebhookQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p OutgoingWebhookDeliveryWithWebhookQuery) Any(ps ...outgoingwebhookdelivery.Pred) OutgoingWebhookDeliveryWithWebhookQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p OutgoingWebhookDeliveryWithWebhookQuery) Not(pr outgoingwebhookdelivery.Pred) OutgoingWebhookDeliveryWithWebhookQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p OutgoingWebhookDeliveryWithWebhookQuery) NotAny(ps ...outgoingwebhookdelivery.Pred) OutgoingWebhookDeliveryWithWebhookQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p OutgoingWebhookDeliveryWithWebhookQuery) Order(ts ...outgoingwebhookdelivery.Sort) OutgoingWebhookDeliveryWithWebhookQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p OutgoingWebhookDeliveryWithWebhookQuery) Limit(n int64) OutgoingWebhookDeliveryWithWebhookQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p OutgoingWebhookDeliveryWithWebhookQuery) Offset(n int64) OutgoingWebhookDeliveryWithWebhookQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p OutgoingWebhookDeliveryWithWebhookQuery) After(r OutgoingWebhookDeliveryWithWebhookRow) OutgoingWebhookDeliveryWithWebhookQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p OutgoingWebhookDeliveryWithWebhookQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p OutgoingWebhookDeliveryWithWebhookQuery) All(ctx context.Context, ex runtime.Executor) ([]OutgoingWebhookDeliveryWithWebhookRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]OutgoingWebhookDeliveryWithWebhookRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = OutgoingWebhookDeliveryWithWebhookRow{Row: r}
+		key := r.WebhookID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := outgoingwebhook.New().Unordered().
+		Where(outgoingwebhook.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.WebhookID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "outgoing_webhook_deliveries", "outgoing_webhooks")
+		}
+		out[i].Webhook = targets[j]
+	}
+	return out, nil
+}
+
+// OutgoingWebhookWithProjectRow is outgoing_webhooks with its Project loaded.
+type OutgoingWebhookWithProjectRow struct {
+	outgoingwebhook.Row
+	Project project.Row
+}
+
+type OutgoingWebhookWithProjectQuery struct {
+	q outgoingwebhook.Query
+}
+
+// OutgoingWebhookWithProject starts the plan.
+func OutgoingWebhookWithProject() OutgoingWebhookWithProjectQuery {
+	return OutgoingWebhookWithProjectQuery{q: outgoingwebhook.New()}
+}
+
+func (p OutgoingWebhookWithProjectQuery) Where(ps ...outgoingwebhook.Pred) OutgoingWebhookWithProjectQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p OutgoingWebhookWithProjectQuery) WhereIf(cond bool, pr outgoingwebhook.Pred) OutgoingWebhookWithProjectQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p OutgoingWebhookWithProjectQuery) Any(ps ...outgoingwebhook.Pred) OutgoingWebhookWithProjectQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p OutgoingWebhookWithProjectQuery) Not(pr outgoingwebhook.Pred) OutgoingWebhookWithProjectQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p OutgoingWebhookWithProjectQuery) NotAny(ps ...outgoingwebhook.Pred) OutgoingWebhookWithProjectQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p OutgoingWebhookWithProjectQuery) Order(ts ...outgoingwebhook.Sort) OutgoingWebhookWithProjectQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p OutgoingWebhookWithProjectQuery) Limit(n int64) OutgoingWebhookWithProjectQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p OutgoingWebhookWithProjectQuery) Offset(n int64) OutgoingWebhookWithProjectQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p OutgoingWebhookWithProjectQuery) After(r OutgoingWebhookWithProjectRow) OutgoingWebhookWithProjectQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p OutgoingWebhookWithProjectQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p OutgoingWebhookWithProjectQuery) All(ctx context.Context, ex runtime.Executor) ([]OutgoingWebhookWithProjectRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]OutgoingWebhookWithProjectRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = OutgoingWebhookWithProjectRow{Row: r}
+		key := r.ProjectID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := project.New().Unordered().
+		Where(project.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.ProjectID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "outgoing_webhooks", "projects")
+		}
+		out[i].Project = targets[j]
 	}
 	return out, nil
 }

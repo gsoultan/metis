@@ -803,6 +803,21 @@ It was not run against an installation that 0.4.0 itself had migrated.
 **Rolling back** needs nothing: no schema changed. 0.4.0 applies a mapping as
 it did.
 
+## Migration 40: outgoing webhooks
+
+Migration 40 creates `outgoing_webhooks` and `outgoing_webhook_deliveries` with
+their indexes. Both are new and empty, so it takes no lock that running work
+waits on. Rolling back leaves them in place, unused; the previous release does
+not read them.
+
+`WEBHOOK_ENDPOINTS` still works and is deprecated. It posts every event of
+every project to every address in it, unsigned, once, and drops the event if
+the receiver is down. Register each receiver as an outgoing webhook of the
+project it wants
+([Sending events: outgoing webhooks](integration.md#sending-events-outgoing-webhooks)),
+point it at the signature, then unset the variable. Until then the receiver
+gets both.
+
 ## Migration 39: an instance carries a business key
 
 Migration 39 adds `process_instances.business_key`, a nullable column with no

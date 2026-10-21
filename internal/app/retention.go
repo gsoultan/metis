@@ -116,6 +116,7 @@ func (a *App) stillFillsLiveKeys(now time.Time) bool {
 func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time, keep optInRetention) {
 	reoffer(ctx, database, a.repo.ExternalTask().ReofferStranded)
 	forget(ctx, "webhook_deliveries", database, a.svc.ForgetOldDeliveries)
+	forget(ctx, "outgoing_webhook_deliveries", database, a.svc.ForgetOldOutgoingDeliveries)
 	// No storm connection means idempotency records are held in the serving
 	// process, which sweeps its own.
 	if a.storm != nil {

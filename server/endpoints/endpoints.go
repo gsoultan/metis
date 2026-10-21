@@ -15,6 +15,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/incident"
 	"github.com/gsoultan/metis/server/endpoints/notification"
 	"github.com/gsoultan/metis/server/endpoints/organization"
+	"github.com/gsoultan/metis/server/endpoints/outgoingwebhook"
 	"github.com/gsoultan/metis/server/endpoints/participant"
 	"github.com/gsoultan/metis/server/endpoints/participantsource"
 	"github.com/gsoultan/metis/server/endpoints/platformuser"
@@ -36,6 +37,7 @@ type Endpoints struct {
 	Connector         connector.Endpoints
 	Decision          decision.Endpoints
 	Webhook           webhook.Endpoints
+	OutgoingWebhook   outgoingwebhook.Endpoints
 	Definition        definition.Endpoints
 	Environment       environment.Endpoints
 	Participant       participant.Endpoints
@@ -181,6 +183,16 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	webhookEndpoints.SetWebhookEnabled = designer("SetWebhookEnabled")(webhookEndpoints.SetWebhookEnabled)
 	webhookEndpoints.CloseLegacySignatures = designer("CloseLegacySignatures")(webhookEndpoints.CloseLegacySignatures)
 	webhookEndpoints.DeleteWebhook = designer("DeleteWebhook")(webhookEndpoints.DeleteWebhook)
+
+	// An outgoing webhook is a standing channel out of the project: every
+	// event it is given is posted to an address somebody typed. Opening,
+	// reopening or closing one is an administrator's act. Reading the list is
+	// not, because a designer needs to know where a process's events go.
+	outgoingWebhookEndpoints := outgoingwebhook.MakeEndpoints(s)
+	outgoingWebhookEndpoints.ListOutgoingWebhooks = protected("ListOutgoingWebhooks")(outgoingWebhookEndpoints.ListOutgoingWebhooks)
+	outgoingWebhookEndpoints.CreateOutgoingWebhook = adminOnly("CreateOutgoingWebhook")(outgoingWebhookEndpoints.CreateOutgoingWebhook)
+	outgoingWebhookEndpoints.SetOutgoingWebhookEnabled = adminOnly("SetOutgoingWebhookEnabled")(outgoingWebhookEndpoints.SetOutgoingWebhookEnabled)
+	outgoingWebhookEndpoints.DeleteOutgoingWebhook = adminOnly("DeleteOutgoingWebhook")(outgoingWebhookEndpoints.DeleteOutgoingWebhook)
 
 	definitionEndpoints := definition.MakeEndpoints(s)
 
@@ -461,6 +473,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		Connector:         connectorEndpoints,
 		Decision:          decisionEndpoints,
 		Webhook:           webhookEndpoints,
+		OutgoingWebhook:   outgoingWebhookEndpoints,
 		Definition:        definitionEndpoints,
 		Environment:       environmentEndpoints,
 		Participant:       participantEndpoints,
