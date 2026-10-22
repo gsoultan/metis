@@ -88,6 +88,10 @@ type ProcessRepository interface {
 	// that has no period of its own. The audit trail and any deviation record
 	// are kept. System context only: it spans every tenant.
 	ForgetFinished(ctx context.Context, now time.Time, fallback time.Duration) (int64, error)
+	// Existing answers which of ids have an instance row, in every tenant:
+	// what the payload sweep asks before it removes an instance's kept
+	// values. System context only.
+	Existing(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]bool, error)
 
 	// WaitingByStep counts the live tokens of running instances per process
 	// and step. It is scoped to the caller's tenant like every project read.

@@ -58,6 +58,7 @@ import (
 	gorms "github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/migrations"
 	models "github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/payloads"
 	"github.com/gsoultan/metis/server/repositories/pg"
 	"github.com/gsoultan/metis/server/transports/grpcs"
 	https "github.com/gsoultan/metis/server/transports/https"
@@ -302,6 +303,17 @@ func (a *App) Run() error {
 	//    write an encrypted column.
 	if err := a.setupEncryption(); err != nil {
 		return err
+	}
+
+	// 1a. The payload directory, which a repository reads as soon as it reads
+	//     an instance that keeps a value there. A directory that is set and
+	//     cannot be written stops the start: running without it would keep
+	//     every large value in its row again, and read none already kept.
+	if err := payloads.ConfigureFromEnv(); err != nil {
+		return err
+	}
+	if payloads.Enabled() {
+		log.Info().Str("dir", payloads.Root()).Msg("Large variable values are kept in the payload directory")
 	}
 
 	// 2. Open the database with GORM, which owns the schema.

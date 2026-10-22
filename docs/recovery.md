@@ -149,6 +149,11 @@ pg_basebackup -h "$PGHOST" -U "$PGUSER" -D /backup/base-$(date +%F) -Ft -z -P
 #   archive_command = 'test ! -f /archive/%f && cp %p /archive/%f'
 ```
 
+With `METIS_PAYLOAD_DIR` set, `scripts/backup.sh` also archives that directory,
+after the dump, and `scripts/restore.sh` puts it back; a restore of the
+database alone leaves every instance that refers to it unreadable (see
+[Large variable values](postgresql.md#large-variable-values)).
+
 Alongside it, and **into a different store**:
 
 ```bash

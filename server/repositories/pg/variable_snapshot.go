@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/payloads"
 	"github.com/gsoultan/metis/server/repositories/store/variablesnapshot"
 )
 
@@ -32,7 +33,14 @@ func (r *variableSnapshotRepository) Create(ctx context.Context, m models.Variab
 	if err != nil {
 		return models.VariableSnapshotModel{}, err
 	}
-	variables, err := sealedJSONOf(m.Variables)
+	// A large value is kept once in its instance's payload directory, and
+	// every snapshot of it refers to the one copy: this is what keeps a
+	// snapshot per step from copying it per step.
+	stored, err := payloads.Offload(ctx, uuid.UUID(m.InstanceID), m.Variables)
+	if err != nil {
+		return models.VariableSnapshotModel{}, err
+	}
+	variables, err := sealedJSONOf(stored)
 	if err != nil {
 		return models.VariableSnapshotModel{}, fmt.Errorf("could not encode the snapshot's variables: %w", err)
 	}
@@ -49,7 +57,7 @@ func (r *variableSnapshotRepository) Create(ctx context.Context, m models.Variab
 	if err != nil {
 		return models.VariableSnapshotModel{}, fmt.Errorf("could not record the snapshot: %w", err)
 	}
-	return snapshotFrom(row)
+	return snapshotFrom(ctx, row)
 }
 
 // ListByInstance returns every one of an instance's snapshots, oldest first.
@@ -79,7 +87,7 @@ func (r *variableSnapshotRepository) ListByInstance(ctx context.Context, instanc
 	}
 	out := make([]models.VariableSnapshotModel, 0, len(rows))
 	for _, row := range rows {
-		snapshot, err := snapshotFrom(row)
+		snapshot, err := snapshotFrom(ctx, row)
 		if err != nil {
 			return nil, err
 		}
@@ -108,10 +116,14 @@ func (r *variableSnapshotRepository) ForgetCapturedBefore(ctx context.Context, c
 	return removed, nil
 }
 
-func snapshotFrom(row variablesnapshot.Row) (models.VariableSnapshotModel, error) {
+func snapshotFrom(ctx context.Context, row variablesnapshot.Row) (models.VariableSnapshotModel, error) {
 	variables, err := sealedMapOf(row.Variables)
 	if err != nil {
 		return models.VariableSnapshotModel{}, fmt.Errorf("could not decode a snapshot's variables: %w", err)
+	}
+	variables, err = payloads.Resolve(ctx, row.InstanceID, variables)
+	if err != nil {
+		return models.VariableSnapshotModel{}, fmt.Errorf("could not read a snapshot's variables: %w", err)
 	}
 	return models.VariableSnapshotModel{
 		Base: models.Base{

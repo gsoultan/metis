@@ -12,6 +12,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/migrations"
+	"github.com/gsoultan/metis/server/repositories/payloads"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
@@ -40,6 +41,11 @@ const liveKeyFillFor = time.Hour
 // replica finishing a late exchange for the window that just closed still
 // finds its row.
 const sharedCountKept = 5 * time.Minute
+
+// payloadSweepGrace is how long an instance's payload directory is left
+// alone after it last changed, whatever the database says: longer than any
+// transaction that creates an instance.
+const payloadSweepGrace = time.Hour
 
 // startRetentionSweeps cuts back the tables whose rows answer a question only
 // for a while: has this webhook delivery been seen, has this request already
@@ -133,6 +139,16 @@ func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time, 
 	if keep.variableSnapshots > 0 {
 		forget(ctx, "variable_snapshots", database, func(ctx context.Context) (int64, error) {
 			return a.repo.VariableSnapshot().ForgetCapturedBefore(ctx, now.Add(-keep.variableSnapshots))
+		})
+	}
+	// A removed instance's kept values go after it: those of instances the
+	// retention sweep removed, and of instances whose creation was rolled back.
+	// The hour leaves alone an instance being created now, whose row is not
+	// committed yet.
+	if payloads.Enabled() {
+		forget(ctx, "payloads", database, func(ctx context.Context) (int64, error) {
+			removed, err := payloads.SweepGone(ctx, now.Add(-payloadSweepGrace), a.repo.Process().Existing)
+			return int64(removed), err
 		})
 	}
 	if keep.finishedJobs > 0 {

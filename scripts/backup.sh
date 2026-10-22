@@ -45,6 +45,20 @@ case "${METIS_BACKUP_ENGINE:-postgres}" in
     ;;
 esac
 
+# The payload directory, when values are kept out of the rows. A row that
+# refers to a value the backup does not hold restores as an instance nothing can
+# read, so it is taken after the database: every value a row in the dump refers
+# to was written before the row was. The values are sealed with ENCRYPTION_KEY,
+# as the rows are.
+PAYLOAD_STATUS=no
+if [ -n "${METIS_PAYLOAD_DIR:-}" ]; then
+  [ -d "$METIS_PAYLOAD_DIR" ] || die "METIS_PAYLOAD_DIR is set to ${METIS_PAYLOAD_DIR}, which is not a directory; the rows that refer to it would restore unreadable"
+  note "archiving the payload directory"
+  tar --create --gzip --file="${TARGET}/payloads.tar.gz" --directory="$METIS_PAYLOAD_DIR" .
+  chmod 600 "${TARGET}/payloads.tar.gz"
+  PAYLOAD_STATUS=yes
+fi
+
 # The key, encrypted to an operator rather than written in the clear. If gpg is
 # unavailable this stops rather than falling back to plaintext: a key sitting
 # beside its database in a backup directory is worse than no backup, because it
@@ -104,6 +118,7 @@ engine=${METIS_BACKUP_ENGINE:-postgres}
 encryption_key_included=$([ -n "$KEY_RECIPIENT" ] && echo yes || echo no)
 config_included=${CONFIG_STATUS}
 config_source=${CONFIG_PATH}
+payloads_included=${PAYLOAD_STATUS}
 MANIFEST
 
 note "written to ${TARGET}"

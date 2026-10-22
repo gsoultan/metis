@@ -57,6 +57,12 @@ explain_failure() {
 note "restoring from:"
 sed 's/^/  /' "${SOURCE}/manifest.txt"
 
+# Checked before anything is restored: a database restored without the values
+# its rows refer to is a half-restore that looks whole.
+if [ -f "${SOURCE}/payloads.tar.gz" ] && [ -z "${METIS_PAYLOAD_DIR:-}" ]; then
+  die "this backup holds a payload directory; set METIS_PAYLOAD_DIR to where the server will read it, and run again"
+fi
+
 if [ "${METIS_RESTORE_ASSUME_STOPPED:-}" != "true" ]; then
   printf '\nrestore: is every engine replica stopped? A running engine will overwrite this restore. [type "stopped" to continue] '
   read -r answer
@@ -96,6 +102,16 @@ case "$engine" in
     die "manifest names an unsupported engine: '$engine'"
     ;;
 esac
+
+# The payload directory, when the backup holds one. Restored over whatever is
+# there, as the database is: a value the restored rows do not refer to is
+# removed by the server's sweep once its instance is found gone.
+if [ -f "${SOURCE}/payloads.tar.gz" ]; then
+  note "restoring the payload directory into ${METIS_PAYLOAD_DIR}"
+  mkdir -p "$METIS_PAYLOAD_DIR"
+  chmod 700 "$METIS_PAYLOAD_DIR"
+  tar --extract --gzip --file="${SOURCE}/payloads.tar.gz" --directory="$METIS_PAYLOAD_DIR"
+fi
 
 if [ -f "${SOURCE}/encryption-key.gpg" ]; then
   note "the encryption key is in ${SOURCE}/encryption-key.gpg — decrypt it and set ENCRYPTION_KEY before starting:"
