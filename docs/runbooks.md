@@ -1381,7 +1381,7 @@ LIMIT 10;
   plan that changed after a data or index change. `EXPLAIN (ANALYZE, BUFFERS)`
   it.
 - **Nothing unusual, just many** is a pool too small for the load. Raise
-  `METIS_DB_MAX_OPEN_CONNS`, remembering it sizes two pools per process and that
+  `METIS_DB_MAX_OPEN_CONNS`, remembering that
   PostgreSQL's `max_connections` is shared with everything else that connects.
 
 ---

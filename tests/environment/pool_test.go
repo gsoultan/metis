@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/config"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/migrations"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -62,48 +64,55 @@ func TestAnEnvironmentRowOpensAndMigratesItsDatabase(t *testing.T) {
 // The registry hands back the connection for an environment, and says plainly
 // when there is none.
 func TestTheRegistryTracksConnectionsPerEnvironment(t *testing.T) {
-	gorms.ResetEnvironmentDBs()
-	t.Cleanup(gorms.ResetEnvironmentDBs)
-
-	staging, production := uuid.New(), uuid.New()
-	stagingDB, err := gorms.Open("postgres", environmentDSN(t))
+	ctx := t.Context()
+	dsn := config.PostgresURL(environmentDSN(t))
+	conn, err := db.Open(ctx, dsn)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
+	t.Cleanup(conn.Close)
 
-	if _, ok := gorms.EnvironmentDB(staging); ok {
+	staging, production := uuid.New(), uuid.New()
+	stagingPool, err := db.NewPool(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(stagingPool.Close)
+
+	if _, ok := conn.EnvironmentPools()[staging]; ok {
 		t.Fatal("nothing is registered yet")
 	}
 
-	if replaced := gorms.RegisterEnvironmentDB(staging, stagingDB); replaced != nil {
+	if replaced := conn.RegisterEnvironment(staging, stagingPool); replaced != nil {
 		t.Fatal("registering the first connection replaces nothing")
 	}
 
-	got, ok := gorms.EnvironmentDB(staging)
-	if !ok || got != stagingDB {
+	got, ok := conn.EnvironmentPools()[staging]
+	if !ok || got != stagingPool {
 		t.Fatal("the registered connection should come back")
 	}
 
 	// An environment nobody registered is a normal answer, not an error: it can
 	// be disabled, or its database can have been unreachable at boot.
-	if _, ok := gorms.EnvironmentDB(production); ok {
+	if _, ok := conn.EnvironmentPools()[production]; ok {
 		t.Fatal("an unregistered environment has no connection")
 	}
 
 	// Re-opening an environment hands back the old handle so the caller can
 	// close it, rather than closing it out from under requests in flight.
-	replacement, err := gorms.Open("postgres", environmentDSN(t))
+	replacement, err := db.NewPool(ctx, dsn)
 	if err != nil {
 		t.Fatalf("open replacement: %v", err)
 	}
-	if replaced := gorms.RegisterEnvironmentDB(staging, replacement); replaced != stagingDB {
+	t.Cleanup(replacement.Close)
+	if replaced := conn.RegisterEnvironment(staging, replacement); replaced != stagingPool {
 		t.Fatal("re-registering should hand back the connection it displaced")
 	}
 
-	if _, ok := gorms.ForgetEnvironmentDB(staging); !ok {
+	if _, ok := conn.ForgetEnvironment(staging); !ok {
 		t.Fatal("forgetting a registered environment should report what it dropped")
 	}
-	if _, ok := gorms.EnvironmentDB(staging); ok {
+	if _, ok := conn.EnvironmentPools()[staging]; ok {
 		t.Fatal("a forgotten environment has no connection")
 	}
 }

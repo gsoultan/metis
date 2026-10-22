@@ -74,9 +74,6 @@ func (h *environmentHarness) serve(handler http.Handler) {
 // so their databases can be dropped.
 func (h *environmentHarness) closeEnvironments() {
 	for _, id := range h.created {
-		if gormDB, open := gorms.ForgetEnvironmentDB(id); open {
-			closeDB(gormDB)
-		}
 		if pool, open := h.conn.ForgetEnvironment(id); open {
 			pool.Close()
 		}

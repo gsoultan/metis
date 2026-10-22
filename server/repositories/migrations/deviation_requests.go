@@ -2,6 +2,7 @@ package migrations
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -228,7 +229,11 @@ func giveTheLedgerItsLiveKeyAndRequest(ctx context.Context, db *gorm.DB) error {
 // another transaction holds, so a long transaction cannot make a batch sit on
 // the locks it already took; the migration is restartable and says so.
 func FillLiveVisitKeys(ctx context.Context, db *gorm.DB) error {
-	filled, err := GiveLiveRowsTheirKey(ctx, db)
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("reach the connection pool: %w", err)
+	}
+	filled, err := GiveLiveRowsTheirKey(ctx, sqlDB)
 	if lockNotAvailable(err) {
 		return fmt.Errorf("a row of instance_deviations was held for more than %s by a long transaction; "+
 			"the upgrade stopped rather than wait on it with row locks held, and will finish when started again once that ends: %w",
@@ -265,31 +270,10 @@ func FillLiveVisitKeys(ctx context.Context, db *gorm.DB) error {
 // stops two live rows of an instance from sharing a visit key; given one such
 // pair, the update here fails on the new index (VisitHeldTwice) rather than
 // give both rows the key.
-func GiveLiveRowsTheirKey(ctx context.Context, db *gorm.DB) (int, error) {
+func GiveLiveRowsTheirKey(ctx context.Context, db *sql.DB) (int, error) {
 	filled := 0
 	for {
-		var ids []string
-		var n int64
-		err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			if err := tx.Exec(fmt.Sprintf("SET LOCAL lock_timeout = '%s'", deviationRequestsLockWait)).Error; err != nil {
-				return fmt.Errorf("bound the wait for a ledger row: %w", err)
-			}
-			if err := tx.Raw(`SELECT id::text FROM instance_deviations
-				WHERE visit_key IS NOT NULL AND live_visit_key IS NULL AND status IN ('applied', 'pending_approval')
-				LIMIT ?`, deviationRequestsBatch).Scan(&ids).Error; err != nil {
-				return err
-			}
-			if len(ids) == 0 {
-				return nil
-			}
-			res := tx.Exec(`
-				UPDATE instance_deviations
-				   SET live_visit_key = visit_key
-				 WHERE id IN ?
-				   AND visit_key IS NOT NULL AND live_visit_key IS NULL AND status IN ('applied', 'pending_approval')`, ids)
-			n = res.RowsAffected
-			return res.Error
-		})
+		ids, n, err := giveLiveRowsTheirKeyBatch(ctx, db)
 		if err != nil {
 			return filled, err
 		}
@@ -298,6 +282,58 @@ func GiveLiveRowsTheirKey(ctx context.Context, db *gorm.DB) (int, error) {
 		}
 		filled += int(n)
 	}
+}
+
+// giveLiveRowsTheirKeyBatch is one batch of GiveLiveRowsTheirKey, in a
+// transaction of its own: the ids it picked, and how many of them it filled.
+func giveLiveRowsTheirKeyBatch(ctx context.Context, db *sql.DB) (ids []string, filled int64, err error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err = tx.ExecContext(ctx, fmt.Sprintf("SET LOCAL lock_timeout = '%s'", deviationRequestsLockWait)); err != nil {
+		return nil, 0, fmt.Errorf("bound the wait for a ledger row: %w", err)
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id::text FROM instance_deviations
+		WHERE visit_key IS NOT NULL AND live_visit_key IS NULL AND status IN ('applied', 'pending_approval')
+		LIMIT $1`, deviationRequestsBatch)
+	if err != nil {
+		return nil, 0, err
+	}
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, 0, err
+		}
+		ids = append(ids, id)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	if len(ids) > 0 {
+		var res sql.Result
+		res, err = tx.ExecContext(ctx, `
+			UPDATE instance_deviations
+			   SET live_visit_key = visit_key
+			 WHERE id = ANY($1::uuid[])
+			   AND visit_key IS NOT NULL AND live_visit_key IS NULL AND status IN ('applied', 'pending_approval')`, ids)
+		if err != nil {
+			return nil, 0, err
+		}
+		if filled, err = res.RowsAffected(); err != nil {
+			return nil, 0, err
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, 0, err
+	}
+	return ids, filled, nil
 }
 
 // moveVisitUniquenessToTheLiveKey builds the ledger's new indexes without
