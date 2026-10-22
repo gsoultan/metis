@@ -8,6 +8,8 @@ import (
 	"fmt"
 
 	"github.com/gsoultan/metis/server/repositories/store/auditentry"
+	"github.com/gsoultan/metis/server/repositories/store/batchoperation"
+	"github.com/gsoultan/metis/server/repositories/store/batchoperationitem"
 	"github.com/gsoultan/metis/server/repositories/store/broadcastevent"
 	"github.com/gsoultan/metis/server/repositories/store/compensatableactivity"
 	"github.com/gsoultan/metis/server/repositories/store/connector"
@@ -76,40 +78,42 @@ var FlushOrder = map[string]int{
 	"webhooks":                    12,
 	"workflow_groups":             13,
 	"workflow_users":              14,
-	"connector_instances":         15,
-	"decision_definitions":        16,
-	"decision_releases":           17,
-	"deployments":                 18,
-	"environments":                19,
-	"external_task_workers":       20,
-	"forms":                       21,
-	"groups":                      22,
-	"memberships":                 23,
-	"outgoing_webhooks":           24,
-	"participant_sources":         25,
-	"platform_role_assignments":   26,
-	"process_definition_releases": 27,
-	"process_definitions":         28,
-	"process_instances":           29,
-	"tasks":                       30,
-	"user_organizations":          31,
-	"user_projects":               32,
-	"variable_snapshots":          33,
-	"webhook_deliveries":          34,
-	"workflow_group_memberships":  35,
-	"audit_logs":                  36,
-	"broadcast_events":            37,
-	"compensatable_activities":    38,
-	"deployment_resources":        39,
-	"deviation_requests":          40,
-	"event_subscriptions":         41,
-	"external_tasks":              42,
-	"instance_deviations":         43,
-	"jobs":                        44,
-	"notifications":               45,
-	"outgoing_webhook_deliveries": 46,
-	"service_calls":               47,
-	"incidents":                   48,
+	"batch_operations":            15,
+	"connector_instances":         16,
+	"decision_definitions":        17,
+	"decision_releases":           18,
+	"deployments":                 19,
+	"environments":                20,
+	"external_task_workers":       21,
+	"forms":                       22,
+	"groups":                      23,
+	"memberships":                 24,
+	"outgoing_webhooks":           25,
+	"participant_sources":         26,
+	"platform_role_assignments":   27,
+	"process_definition_releases": 28,
+	"process_definitions":         29,
+	"process_instances":           30,
+	"tasks":                       31,
+	"user_organizations":          32,
+	"user_projects":               33,
+	"variable_snapshots":          34,
+	"webhook_deliveries":          35,
+	"workflow_group_memberships":  36,
+	"audit_logs":                  37,
+	"batch_operation_items":       38,
+	"broadcast_events":            39,
+	"compensatable_activities":    40,
+	"deployment_resources":        41,
+	"deviation_requests":          42,
+	"event_subscriptions":         43,
+	"external_tasks":              44,
+	"instance_deviations":         45,
+	"jobs":                        46,
+	"notifications":               47,
+	"outgoing_webhook_deliveries": 48,
+	"service_calls":               49,
+	"incidents":                   50,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -351,6 +355,240 @@ func (p AuditEntryWithProjectQuery) All(ctx context.Context, ex runtime.Executor
 			// A foreign key pointing at a row that is not there. The database
 			// forbids it, so reaching this means the constraint was dropped.
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "audit_logs", "projects")
+		}
+		out[i].Project = targets[j]
+	}
+	return out, nil
+}
+
+// BatchOperationItemWithBatchOperationRow is batch_operation_items with its BatchOperation loaded.
+type BatchOperationItemWithBatchOperationRow struct {
+	batchoperationitem.Row
+	BatchOperation batchoperation.Row
+}
+
+type BatchOperationItemWithBatchOperationQuery struct {
+	q batchoperationitem.Query
+}
+
+// BatchOperationItemWithBatchOperation starts the plan.
+func BatchOperationItemWithBatchOperation() BatchOperationItemWithBatchOperationQuery {
+	return BatchOperationItemWithBatchOperationQuery{q: batchoperationitem.New()}
+}
+
+func (p BatchOperationItemWithBatchOperationQuery) Where(ps ...batchoperationitem.Pred) BatchOperationItemWithBatchOperationQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p BatchOperationItemWithBatchOperationQuery) WhereIf(cond bool, pr batchoperationitem.Pred) BatchOperationItemWithBatchOperationQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p BatchOperationItemWithBatchOperationQuery) Any(ps ...batchoperationitem.Pred) BatchOperationItemWithBatchOperationQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p BatchOperationItemWithBatchOperationQuery) Not(pr batchoperationitem.Pred) BatchOperationItemWithBatchOperationQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p BatchOperationItemWithBatchOperationQuery) NotAny(ps ...batchoperationitem.Pred) BatchOperationItemWithBatchOperationQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p BatchOperationItemWithBatchOperationQuery) Order(ts ...batchoperationitem.Sort) BatchOperationItemWithBatchOperationQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p BatchOperationItemWithBatchOperationQuery) Limit(n int64) BatchOperationItemWithBatchOperationQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p BatchOperationItemWithBatchOperationQuery) Offset(n int64) BatchOperationItemWithBatchOperationQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p BatchOperationItemWithBatchOperationQuery) After(r BatchOperationItemWithBatchOperationRow) BatchOperationItemWithBatchOperationQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p BatchOperationItemWithBatchOperationQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p BatchOperationItemWithBatchOperationQuery) All(ctx context.Context, ex runtime.Executor) ([]BatchOperationItemWithBatchOperationRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]BatchOperationItemWithBatchOperationRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = BatchOperationItemWithBatchOperationRow{Row: r}
+		key := r.BatchOperationID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := batchoperation.New().Unordered().
+		Where(batchoperation.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.BatchOperationID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "batch_operation_items", "batch_operations")
+		}
+		out[i].BatchOperation = targets[j]
+	}
+	return out, nil
+}
+
+// BatchOperationWithProjectRow is batch_operations with its Project loaded.
+type BatchOperationWithProjectRow struct {
+	batchoperation.Row
+	Project project.Row
+}
+
+type BatchOperationWithProjectQuery struct {
+	q batchoperation.Query
+}
+
+// BatchOperationWithProject starts the plan.
+func BatchOperationWithProject() BatchOperationWithProjectQuery {
+	return BatchOperationWithProjectQuery{q: batchoperation.New()}
+}
+
+func (p BatchOperationWithProjectQuery) Where(ps ...batchoperation.Pred) BatchOperationWithProjectQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p BatchOperationWithProjectQuery) WhereIf(cond bool, pr batchoperation.Pred) BatchOperationWithProjectQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p BatchOperationWithProjectQuery) Any(ps ...batchoperation.Pred) BatchOperationWithProjectQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p BatchOperationWithProjectQuery) Not(pr batchoperation.Pred) BatchOperationWithProjectQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p BatchOperationWithProjectQuery) NotAny(ps ...batchoperation.Pred) BatchOperationWithProjectQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p BatchOperationWithProjectQuery) Order(ts ...batchoperation.Sort) BatchOperationWithProjectQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p BatchOperationWithProjectQuery) Limit(n int64) BatchOperationWithProjectQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p BatchOperationWithProjectQuery) Offset(n int64) BatchOperationWithProjectQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p BatchOperationWithProjectQuery) After(r BatchOperationWithProjectRow) BatchOperationWithProjectQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p BatchOperationWithProjectQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p BatchOperationWithProjectQuery) All(ctx context.Context, ex runtime.Executor) ([]BatchOperationWithProjectRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]BatchOperationWithProjectRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = BatchOperationWithProjectRow{Row: r}
+		key := r.ProjectID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := project.New().Unordered().
+		Where(project.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.ProjectID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "batch_operations", "projects")
 		}
 		out[i].Project = targets[j]
 	}

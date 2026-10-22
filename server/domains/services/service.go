@@ -41,6 +41,7 @@ type service struct {
 	contracts.DeviationService
 	contracts.RetentionHoldService
 	contracts.RetentionPeriodService
+	contracts.BatchOperationService
 }
 
 type ServiceParams struct {
@@ -73,6 +74,7 @@ type ServiceParams struct {
 	DeviationService       contracts.DeviationService
 	RetentionHoldService   contracts.RetentionHoldService
 	RetentionPeriodService contracts.RetentionPeriodService
+	BatchOperationService  contracts.BatchOperationService
 }
 
 func NewService(p ServiceParams) ServiceFacade {
@@ -88,6 +90,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	}
 	if p.RetentionPeriodService == nil {
 		p.RetentionPeriodService = serviceimpl.NewUnavailableRetentionPeriodService()
+	}
+	if p.BatchOperationService == nil {
+		p.BatchOperationService = serviceimpl.NewUnavailableBatchOperationService()
 	}
 	if p.SimulationCaseService == nil {
 		p.SimulationCaseService = serviceimpl.NewUnavailableSimulationCaseService()
@@ -122,6 +127,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		DeviationService:         p.DeviationService,
 		RetentionHoldService:     p.RetentionHoldService,
 		RetentionPeriodService:   p.RetentionPeriodService,
+		BatchOperationService:    p.BatchOperationService,
 	}
 }
 
@@ -252,6 +258,7 @@ func NewServiceFacade(
 	})
 
 	deviationLedger := serviceimpl.NewDeviationLedger(repo)
+	instanceDeviator := serviceimpl.NewInstanceDeviationService(repo, engine)
 	var settings facadeSettings
 	for _, option := range options {
 		option(&settings)
@@ -287,11 +294,13 @@ func NewServiceFacade(
 		SimulationService:     simulationSvc,
 		SimulationCaseService: serviceimpl.NewSimulationCaseService(repo),
 		DeviationService: serviceimpl.NewDeviationService(deviationLedger,
-			serviceimpl.NewInstanceDeviationService(repo, engine),
+			instanceDeviator,
 			serviceimpl.NewDeviationRequestService(repo, engine,
 				serviceimpl.WithSoleAdministratorOrganizations(settings.soleAdministratorOrganizations))),
 		RetentionHoldService:   serviceimpl.NewRetentionHoldService(repo, auditWriter),
 		RetentionPeriodService: serviceimpl.NewRetentionPeriodService(repo),
+		BatchOperationService: serviceimpl.NewBatchOperationService(repo, instanceDeviator, jobSvc,
+			serviceimpl.AccountLoader(userSvc), serviceimpl.DefaultBatchOperationSettings()),
 	})
 }
 

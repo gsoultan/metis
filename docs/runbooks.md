@@ -515,6 +515,58 @@ incident with the instance's other open incidents.
 
 ---
 
+## Retrying or cancelling many instances at once
+
+When one cause left hundreds of instances failed or wrong, a batch operation
+retries or cancels every instance of a project a filter matches, and keeps
+what came of each. It acts on each instance exactly as the single-instance
+route does, so a cancel writes each instance's ledger row and withdraws its
+tasks, and a retry resolves each of its open incidents. A retry is an
+operator's; a cancel is an administrator's. Both need a reason.
+
+The filter is the instance list's: `status`, `definition_id`, `business_key`
+and `needs_attention` (an instance with an open incident). Ask without
+`"dry_run": false` first, which only counts:
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"kind": "retry", "reason": "<why>", "filter": {"needs_attention": true}}' \
+  "$METIS/api/v1/projects/<project-id>/batch-operations" | jq '{matched, too_many, limit}'
+```
+
+One operation takes at most 10,000 instances, and a project runs at most five
+at once. Send the same body with `"dry_run": false` to start it; the answer is
+`202` with the operation. The instances are fixed when it starts: one that
+matches the filter later is not added.
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" "$METIS/api/v1/batch-operations/<operation-id>" \
+  | jq '.operation | {status, total, succeeded, failed, skipped, pending}'
+curl -sH "Authorization: Bearer $TOKEN" \
+  "$METIS/api/v1/batch-operations/<operation-id>/items?status=failed" | jq '.items[] | {instance_id, detail}'
+```
+
+Each instance ends `succeeded`, `failed` with why, or `skipped`: a retry of
+an instance with no open incident, a cancel of one already ended, a cancel
+that waits for a second administrator (the detail names the request), or one
+the operation had not reached when it stopped. **Fix the cause before a retry**,
+as for one incident: retried while the cause is still there, each instance
+fails again.
+
+The operation acts as whoever asked, as they stand when each few dozen
+instances are reached. If their account is deleted or loses the role, it
+stops itself, `stopped_by` is `metis`, and what it had not reached is
+skipped. To stop one yourself:
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"reason": "<why>"}' "$METIS/api/v1/batch-operations/<operation-id>/stop"
+```
+
+An instance already acted on stays as it is: stopping does not undo a cancel.
+
+---
+
 ## Approving a request for a second administrator
 
 A waive of a step, and a migration that skips a step or loosens a rule on work

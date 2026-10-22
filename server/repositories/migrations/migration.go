@@ -850,6 +850,7 @@ func Schema(models []any) []Migration {
 		webhookSecrets(),
 		simulationCases(),
 		jobOrganization(),
+		batchOperations(),
 	}
 }
 

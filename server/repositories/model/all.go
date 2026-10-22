@@ -70,6 +70,9 @@ func All() []any {
 		&RetentionPeriod{},
 		// Saved simulation test cases, per process.
 		&SimulationCase{},
+		// Acts asked for on many instances at once, and what came of each.
+		&BatchOperation{},
+		&BatchOperationItem{},
 
 		// The inbound surface and the machinery underneath it.
 		&Webhook{},

@@ -4,6 +4,7 @@ import (
 	"github.com/go-kit/kit/endpoint"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services"
+	"github.com/gsoultan/metis/server/endpoints/batchoperation"
 	"github.com/gsoultan/metis/server/endpoints/collaboration"
 	"github.com/gsoultan/metis/server/endpoints/connector"
 	"github.com/gsoultan/metis/server/endpoints/decision"
@@ -48,6 +49,7 @@ type Endpoints struct {
 	Incident          incident.Endpoints
 	Deviation         deviation.Endpoints
 	RetentionHold     retentionhold.Endpoints
+	BatchOperation    batchoperation.Endpoints
 	RetentionPeriod   retentionperiod.Endpoints
 	Organization      organization.Endpoints
 	Process           process.Endpoints
@@ -334,6 +336,17 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	periodEndpoints.ListRetentionPeriods = protected("ListRetentionPeriods")(periodEndpoints.ListRetentionPeriods)
 	periodEndpoints.RetentionPeriodHistory = protected("RetentionPeriodHistory")(periodEndpoints.RetentionPeriodHistory)
 
+	// Retrying or cancelling many instances at once runs the organization
+	// day to day, as resolving one incident does. The service asks again who
+	// is calling, and refuses a cancel to anybody but an administrator, as a
+	// cancel of one instance is refused.
+	batchEndpoints := batchoperation.MakeEndpoints(s)
+	batchEndpoints.StartBatchOperation = operator("StartBatchOperation")(batchEndpoints.StartBatchOperation)
+	batchEndpoints.GetBatchOperation = operator("GetBatchOperation")(batchEndpoints.GetBatchOperation)
+	batchEndpoints.ListBatchOperations = operator("ListBatchOperations")(batchEndpoints.ListBatchOperations)
+	batchEndpoints.BatchOperationItems = operator("BatchOperationItems")(batchEndpoints.BatchOperationItems)
+	batchEndpoints.StopBatchOperation = operator("StopBatchOperation")(batchEndpoints.StopBatchOperation)
+
 	organizationEndpoints := organization.MakeEndpoints(s)
 	// Was public: logging and nothing else, so any signed-in account could
 	// create organizations over HTTP, and anybody at all over the gRPC
@@ -500,6 +513,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		Incident:          incidentEndpoints,
 		Deviation:         deviationEndpoints,
 		RetentionHold:     holdEndpoints,
+		BatchOperation:    batchEndpoints,
 		RetentionPeriod:   periodEndpoints,
 		Organization:      organizationEndpoints,
 		Process:           processEndpoints,

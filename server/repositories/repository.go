@@ -14,6 +14,7 @@ type repository struct {
 	retentionHold         contracts.RetentionHoldRepository
 	retentionPeriod       contracts.RetentionPeriodRepository
 	simulationCase        contracts.SimulationCaseRepository
+	batchOperation        contracts.BatchOperationRepository
 	broadcast             contracts.BroadcastRepository
 	sharedCounter         contracts.SharedCounterRepository
 	connector             contracts.ConnectorRepository
@@ -68,6 +69,7 @@ func NewRepository(conn *stormdb.Conn) Repository {
 		retentionHold:         pg.NewRetentionHoldRepository(conn),
 		retentionPeriod:       pg.NewRetentionPeriodRepository(conn),
 		simulationCase:        pg.NewSimulationCaseRepository(conn),
+		batchOperation:        pg.NewBatchOperationRepository(conn),
 		broadcast:             pg.NewBroadcastRepository(conn),
 		sharedCounter:         pg.NewSharedCounterRepository(conn),
 		connector:             pg.NewConnectorRepository(conn),
@@ -111,6 +113,9 @@ func (r *repository) RetentionHold() contracts.RetentionHoldRepository {
 }
 func (r *repository) RetentionPeriod() contracts.RetentionPeriodRepository {
 	return r.retentionPeriod
+}
+func (r *repository) BatchOperation() contracts.BatchOperationRepository {
+	return r.batchOperation
 }
 func (r *repository) SimulationCase() contracts.SimulationCaseRepository {
 	return r.simulationCase
