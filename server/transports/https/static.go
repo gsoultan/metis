@@ -5,12 +5,14 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"io/fs"
 	"mime"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/rs/zerolog/log"
 )
@@ -25,37 +27,53 @@ import (
 // anything. The distroless image has no reverse proxy to add either, so this is
 // where it has to happen.
 //
-// The dist is embedded and immutable for the life of the process, so every file
-// is read once at construction, gzipped once, and its ETag computed once. Serving
-// is then a map lookup and a write — no per-request compression, no per-request
-// stat.
+// The dist is embedded and immutable for the life of the process, so each
+// file's type and ETag are worked out once, at construction, and each one is
+// gzipped once — the first time a browser asks for it. Serving is then a map
+// lookup and a write: no per-request compression, no per-request stat.
+//
+// It used to read and gzip every file up front and keep both copies: the
+// heaviest thing the server did at boot (0.6 s of CPU at the best compression
+// level, for every replica and every test that built a handler) and about a
+// quarter of the heap of an idle server, mostly spent on fonts and chunks a
+// session never opens. The uncompressed bytes already live in the binary, so
+// they are streamed from there instead of copied, and only the gzipped bytes a
+// browser has asked for are held.
 type staticHandler struct {
+	files  fs.FS
 	assets map[string]*staticAsset
 	index  *staticAsset
 }
 
 type staticAsset struct {
+	path        string
 	contentType string
 	etag        string
-	raw         []byte
-	gzipped     []byte // nil when compressing did not pay off
+	size        int64
 	// immutable is true for content-hashed assets under /assets, which may be
 	// cached forever; index.html and the rest must be revalidated so a deploy
 	// is seen.
 	immutable bool
+	// compressible is whether gzipping the type can pay off at all; images and
+	// fonts are compressed already.
+	compressible bool
+
+	gzipOnce sync.Once
+	gzipped  []byte // nil when compressing did not pay off
 }
 
 func newStaticHandler(distFS fs.FS) (*staticHandler, error) {
-	h := &staticHandler{assets: map[string]*staticAsset{}}
+	h := &staticHandler{files: distFS, assets: map[string]*staticAsset{}}
+	// One buffer for the walk, rather than io.Copy's fresh 32 kB per file.
+	buf := make([]byte, 32*1024)
 	err := fs.WalkDir(distFS, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		raw, err := fs.ReadFile(distFS, p)
+		a, err := describeAsset(distFS, p, buf)
 		if err != nil {
 			return err
 		}
-		a := buildAsset(p, raw)
 		h.assets["/"+p] = a
 		if p == "index.html" {
 			h.index = a
@@ -82,28 +100,77 @@ var contentTypeOverrides = map[string]string{
 	".wasm":        "application/wasm",
 }
 
-func buildAsset(p string, raw []byte) *staticAsset {
+// sniffLength is how much of a file http.DetectContentType reads.
+const sniffLength = 512
+
+// describeAsset works out what serving one file needs to know, reading it
+// through once, by way of buf, without keeping it.
+func describeAsset(distFS fs.FS, p string, buf []byte) (*staticAsset, error) {
+	f, err := distFS.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	digest := sha256.New()
+	head := &prefixBuffer{limit: sniffLength}
+	size, err := io.CopyBuffer(io.MultiWriter(digest, head), f, buf)
+	if err != nil {
+		return nil, err
+	}
+
 	ext := path.Ext(p)
 	ct, ok := contentTypeOverrides[ext]
 	if !ok {
 		ct = mime.TypeByExtension(ext)
 	}
 	if ct == "" {
-		ct = http.DetectContentType(raw)
+		ct = http.DetectContentType(head.bytes)
 	}
-	sum := sha256.Sum256(raw)
-	a := &staticAsset{
+	sum := digest.Sum(nil)
+	return &staticAsset{
+		path:        p,
 		contentType: ct,
 		etag:        `"` + hex.EncodeToString(sum[:16]) + `"`,
-		raw:         raw,
+		size:        size,
 		// Vite writes content-hashed names under assets/, so the bytes behind a
 		// name never change: cache them forever. Everything else is revalidated.
-		immutable: strings.HasPrefix(p, "assets/"),
+		immutable:    strings.HasPrefix(p, "assets/"),
+		compressible: compressibleType(ct),
+	}, nil
+}
+
+// prefixBuffer keeps the first limit bytes written to it and discards the rest.
+type prefixBuffer struct {
+	limit int
+	bytes []byte
+}
+
+func (b *prefixBuffer) Write(p []byte) (int, error) {
+	if room := b.limit - len(b.bytes); room > 0 {
+		b.bytes = append(b.bytes, p[:min(room, len(p))]...)
 	}
-	if gz := gzipBytes(raw); len(gz) > 0 && len(gz) < len(raw)-64 && compressibleType(ct) {
-		a.gzipped = gz
+	return len(p), nil
+}
+
+// gzippedFrom is the asset gzipped, compressed on first use and kept; nil when
+// compressing does not pay off.
+func (a *staticAsset) gzippedFrom(distFS fs.FS) []byte {
+	if !a.compressible {
+		return nil
 	}
-	return a
+	a.gzipOnce.Do(func() {
+		raw, err := fs.ReadFile(distFS, a.path)
+		if err != nil {
+			// Served uncompressed instead, which is slower but correct.
+			log.Warn().Err(err).Str("path", a.path).Msg("Could not read an embedded asset to compress it")
+			return
+		}
+		if gz := gzipBytes(raw); len(gz) > 0 && len(gz) < len(raw)-64 {
+			a.gzipped = gz
+		}
+	})
+	return a.gzipped
 }
 
 func gzipBytes(raw []byte) []byte {
@@ -164,29 +231,63 @@ func (h *staticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body := asset.raw
-	if asset.gzipped != nil && acceptsGzip(r) {
-		header.Set("Content-Encoding", "gzip")
-		header.Add("Vary", "Accept-Encoding")
-		body = asset.gzipped
+	if acceptsGzip(r) {
+		if gz := asset.gzippedFrom(h.files); gz != nil {
+			header.Set("Content-Encoding", "gzip")
+			header.Add("Vary", "Accept-Encoding")
+			h.write(w, r, gz)
+			return
+		}
 	}
+	h.stream(w, r, asset)
+}
 
-	// Written directly rather than through http.ServeContent: a Range request
-	// over the gzipped bytes would otherwise be answered with byte offsets into
-	// the compressed stream, which no client can reassemble. The assets are
-	// small and fully in memory, so range support buys nothing here.
-	header.Set("Content-Length", strconv.Itoa(len(body)))
+// write sends bytes already in memory.
+//
+// Written directly rather than through http.ServeContent: a Range request
+// over the gzipped bytes would otherwise be answered with byte offsets into
+// the compressed stream, which no client can reassemble. The assets are
+// small and fully in memory, so range support buys nothing here.
+func (h *staticHandler) write(w http.ResponseWriter, r *http.Request, body []byte) {
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	if r.Method == http.MethodHead {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 	if _, err := w.Write(body); err != nil {
-		// A failed write here is the client having gone away mid-response, which
-		// is normal and not actionable — the status line is already sent, so
-		// there is nothing left to tell them. Logged at debug rather than
-		// discarded so a genuine pattern of truncated assets is still findable.
-		log.Debug().Err(err).Str("path", r.URL.Path).Msg("Static asset write did not complete")
+		logIncompleteWrite(r, err)
 	}
+}
+
+// stream sends an asset uncompressed, straight from the embedded dist.
+func (h *staticHandler) stream(w http.ResponseWriter, r *http.Request, asset *staticAsset) {
+	w.Header().Set("Content-Length", strconv.FormatInt(asset.size, 10))
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	f, err := h.files.Open(asset.path)
+	if err != nil {
+		// Embedded and listed at construction, so this cannot happen short of
+		// a corrupt binary; the headers are not sent yet, so say so properly.
+		w.Header().Del("Content-Length")
+		http.Error(w, "Asset unavailable", http.StatusInternalServerError)
+		log.Error().Err(err).Str("path", asset.path).Msg("An embedded asset listed at startup could not be opened")
+		return
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := io.Copy(w, f); err != nil {
+		logIncompleteWrite(r, err)
+	}
+}
+
+// logIncompleteWrite records a write that did not complete. That is the
+// client having gone away mid-response, which is normal and not actionable —
+// the status line is already sent, so there is nothing left to tell them.
+// Logged at debug rather than discarded so a genuine pattern of truncated
+// assets is still findable.
+func logIncompleteWrite(r *http.Request, err error) {
+	log.Debug().Err(err).Str("path", r.URL.Path).Msg("Static asset write did not complete")
 }
 
 // resolve maps a request path to an asset, falling back to index.html for the

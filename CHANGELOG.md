@@ -1024,6 +1024,15 @@ does not undo a migration.
 
 ### Changed
 
+- **The server starts without compressing the whole UI, and holds less of
+  it.** Every asset was read, copied and gzipped at the best level when the
+  server started: about 0.3 s of CPU and 170 MB allocated at each boot, and
+  5 MB of heap held for the life of the process, mostly for fonts and pages
+  a session never opens. An asset is now gzipped the first time a browser
+  asks for it and kept, and the uncompressed bytes are streamed from the
+  binary. Building the handler takes 4 ms and holds 0.5 MB; what browsers
+  are sent is unchanged.
+
 - **A step repeated over an empty list is skipped.** A step run once per item
   of a list that is empty used to run once anyway, with no item: a service
   call with nothing to send, an approval task nobody was listed for. Now the
