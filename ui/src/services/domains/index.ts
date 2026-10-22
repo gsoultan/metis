@@ -1,3 +1,4 @@
+export { auditService } from "./auditService";
 export { authService } from "./authService";
 export { collaborationService } from "./collaborationService";
 export { connectorService } from "./connectorService";

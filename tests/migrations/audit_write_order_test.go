@@ -107,6 +107,12 @@ func TestMigration28GivesEveryNewAuditEntryThePlaceItWasWrittenIn(t *testing.T) 
 		t.Fatalf("report drift: %v", err)
 	}
 	for _, line := range drift {
+		// Dropping seq above took migration 46's indexes with it, which name
+		// seq too, and this test runs 28 again and not 46: they are 46's to
+		// build, and its own test checks them.
+		if strings.Contains(line, `"ix_audit_logs_operations`) {
+			continue
+		}
 		if strings.Contains(line, `"audit_logs"`) && strings.Contains(line, `"seq"`) {
 			t.Errorf("audit_logs.seq differs from the model: %s", line)
 		}

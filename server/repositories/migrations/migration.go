@@ -851,6 +851,7 @@ func Schema(models []any) []Migration {
 		simulationCases(),
 		jobOrganization(),
 		batchOperations(),
+		auditActor(),
 	}
 }
 

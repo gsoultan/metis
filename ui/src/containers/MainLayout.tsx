@@ -87,7 +87,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const isDesigner = location.pathname.includes('/designer');
   const worksWithoutProject =
     location.pathname === '/' ||
-    ['/projects', '/organizations', '/users', '/groups', '/settings', '/profile'].some((path) =>
+    ['/projects', '/organizations', '/users', '/groups', '/audit', '/settings', '/profile'].some((path) =>
       location.pathname.includes(path),
     );
 

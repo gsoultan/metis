@@ -32,6 +32,7 @@ type Row struct {
 	Narrative  runtime.Null[string]
 	Data       runtime.JSON
 	Seq        runtime.Null[int64]
+	Actor      runtime.Null[string]
 	DeletedAt  runtime.Null[time.Time]
 }
 
@@ -71,7 +72,7 @@ const (
 	opNotExists runtime.Op = 27
 )
 
-const nCols = 13
+const nCols = 14
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -264,6 +265,13 @@ func (q *Query) cursor(col uint32, r Row) {
 		q.nums[q.nn] = int64(r.Seq.V)
 		q.nn++
 	case 12:
+		if int(q.ns) >= len(q.strs) {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = r.Actor.V
+		q.ns++
+	case 13:
 		if int(q.ntm) >= len(q.tims) {
 			q.over = true
 			return
@@ -442,7 +450,8 @@ var (
 	Narrative  = NullTextCol{9}
 	Data       = JSONCol{10}
 	Seq        = NullInt64Col{11}
-	DeletedAt  = NullTimeCol{12}
+	Actor      = NullTextCol{12}
+	DeletedAt  = NullTimeCol{13}
 )
 
 // UUIDCol addresses a uuid column.
@@ -821,6 +830,13 @@ func (q *Query) leaf(p Pred) {
 			}
 			q.anyI64[q.nai64] = p.anyI64
 			q.nai64++
+		case 12:
+			if int(q.nas) >= 3 {
+				q.over = true
+				return
+			}
+			q.anyStr[q.nas] = p.anyStr
+			q.nas++
 		}
 		q.push(runtime.MakeLeaf(uint32(p.op), uint32(p.col)))
 		return
@@ -915,6 +931,13 @@ func (q *Query) leaf(p Pred) {
 		q.nums[q.nn] = p.num
 		q.nn++
 	case 12:
+		if int(q.ns) >= 6 {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = p.str
+		q.ns++
+	case 13:
 		if int(q.ntm) >= 4 {
 			q.over = true
 			return
@@ -1025,6 +1048,19 @@ func (q Query) SeqIn(v ...int64) Query               { return q.Where(Seq.In(v..
 func (q Query) SeqNotIn(v ...int64) Query            { return q.Where(Seq.NotIn(v...)) }
 func (q Query) SeqIsNull() Query                     { return q.Where(Seq.IsNull()) }
 func (q Query) SeqIsNotNull() Query                  { return q.Where(Seq.IsNotNull()) }
+func (q Query) ActorEq(v string) Query               { return q.Where(Actor.Eq(v)) }
+func (q Query) ActorNotEq(v string) Query            { return q.Where(Actor.NotEq(v)) }
+func (q Query) ActorGt(v string) Query               { return q.Where(Actor.Gt(v)) }
+func (q Query) ActorGte(v string) Query              { return q.Where(Actor.Gte(v)) }
+func (q Query) ActorLt(v string) Query               { return q.Where(Actor.Lt(v)) }
+func (q Query) ActorLte(v string) Query              { return q.Where(Actor.Lte(v)) }
+func (q Query) ActorEqLower(v string) Query          { return q.Where(Actor.EqLower(v)) }
+func (q Query) ActorLike(v string) Query             { return q.Where(Actor.Like(v)) }
+func (q Query) ActorILike(v string) Query            { return q.Where(Actor.ILike(v)) }
+func (q Query) ActorIn(v ...string) Query            { return q.Where(Actor.In(v...)) }
+func (q Query) ActorNotIn(v ...string) Query         { return q.Where(Actor.NotIn(v...)) }
+func (q Query) ActorIsNull() Query                   { return q.Where(Actor.IsNull()) }
+func (q Query) ActorIsNotNull() Query                { return q.Where(Actor.IsNotNull()) }
 func (q Query) DeletedAtEq(v time.Time) Query        { return q.Where(DeletedAt.Eq(v)) }
 func (q Query) DeletedAtNotEq(v time.Time) Query     { return q.Where(DeletedAt.NotEq(v)) }
 func (q Query) DeletedAtGt(v time.Time) Query        { return q.Where(DeletedAt.Gt(v)) }
@@ -1039,7 +1075,7 @@ func (q Query) DeletedAtIsNotNull() Query            { return q.Where(DeletedAt.
 // can narrow what it sees and cannot widen it. Reaching the deleted
 // rows is a different function, and visibly so.
 const softDeleteWhere = `"deleted_at" IS NULL`
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "instance_id", "type", "node_id", "node_name", "message", "narrative", "data", "seq", "deleted_at" FROM "audit_logs"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "instance_id", "type", "node_id", "node_name", "message", "narrative", "data", "seq", "actor", "deleted_at" FROM "audit_logs"`
 const countPrefix = `SELECT count(*) FROM "audit_logs"`
 const existsPrefix = `SELECT 1 FROM "audit_logs"`
 const existsSuffix = ` LIMIT 1`
@@ -1148,6 +1184,12 @@ var orderTable = [nCols][4]string{
 		"\"seq\" ASC NULLS FIRST",
 		"\"seq\" DESC NULLS LAST",
 	},
+	{ // actor
+		"\"actor\"",
+		"\"actor\" DESC",
+		"\"actor\" ASC NULLS FIRST",
+		"\"actor\" DESC NULLS LAST",
+	},
 	{ // deleted_at
 		"\"deleted_at\"",
 		"\"deleted_at\" DESC",
@@ -1171,6 +1213,7 @@ var identTable = [nCols]string{
 	"\"narrative\"",
 	"\"data\"",
 	"\"seq\"",
+	"\"actor\"",
 	"\"deleted_at\"",
 }
 
@@ -1204,7 +1247,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [13][28]runtime.Frag{
+var fragTable = [14][28]runtime.Frag{
 	{ // id
 		{}, // opNone
 		{A: "\"id\" = $", B: ""},
@@ -1565,6 +1608,36 @@ var fragTable = [13][28]runtime.Frag{
 		{},
 		{},
 	},
+	{ // actor
+		{}, // opNone
+		{A: "\"actor\" = $", B: ""},
+		{A: "\"actor\" <> $", B: ""},
+		{A: "\"actor\" > $", B: ""},
+		{A: "\"actor\" >= $", B: ""},
+		{A: "\"actor\" < $", B: ""},
+		{A: "\"actor\" <= $", B: ""},
+		{A: "lower(\"actor\") = lower($", B: ")"},
+		{A: "\"actor\" LIKE $", B: ""},
+		{A: "\"actor\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"actor\" = ANY($", B: ")"},
+		{A: "\"actor\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"actor\" IS NULL", B: ""},
+		{A: "\"actor\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
 	{ // deleted_at
 		{}, // opNone
 		{A: "\"deleted_at\" = $", B: ""},
@@ -1762,7 +1835,8 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 	r.Narrative = runtime.NullText(rv[9], sl)
 	r.Data = runtime.JSON(runtime.JSONB(rv[10], sl))
 	r.Seq = runtime.Nullable(rv[11], runtime.Int8)
-	r.DeletedAt = runtime.Nullable(rv[12], runtime.Timestamptz)
+	r.Actor = runtime.NullText(rv[12], sl)
+	r.DeletedAt = runtime.Nullable(rv[13], runtime.Timestamptz)
 	return nil
 }
 
@@ -1873,6 +1947,10 @@ func (q Query) bindPreds(b *binder) []any {
 				b.anyI64[nai64] = q.anyI64[nai64]
 				v = append(v, &b.anyI64[nai64])
 				nai64++
+			case 12:
+				b.anyStr[nas] = q.anyStr[nas]
+				v = append(v, &b.anyStr[nas])
+				nas++
 			}
 			continue
 		}
@@ -1926,6 +2004,10 @@ func (q Query) bindPreds(b *binder) []any {
 			v = append(v, &b.nums[nn])
 			nn++
 		case 12:
+			b.strs[ns] = q.strs[ns]
+			v = append(v, &b.strs[ns])
+			ns++
+		case 13:
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
@@ -2066,7 +2148,7 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "audit_logs" ("id", "created_at", "updated_at", "project_id", "instance_id", "type", "node_id", "node_name", "message", "narrative", "data", "seq", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING "id", "created_at", "updated_at", "project_id", "instance_id", "type", "node_id", "node_name", "message", "narrative", "data", "seq", "deleted_at"`
+const insertSQL = `INSERT INTO "audit_logs" ("id", "created_at", "updated_at", "project_id", "instance_id", "type", "node_id", "node_name", "message", "narrative", "data", "seq", "actor", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING "id", "created_at", "updated_at", "project_id", "instance_id", "type", "node_id", "node_name", "message", "narrative", "data", "seq", "actor", "deleted_at"`
 
 const updatePrefix = `UPDATE "audit_logs" SET `
 const deletePrefix = `DELETE FROM "audit_logs"`
@@ -2084,10 +2166,11 @@ const (
 	dNarrative  uint64 = 1 << 7
 	dData       uint64 = 1 << 8
 	dSeq        uint64 = 1 << 9
-	dDeletedAt  uint64 = 1 << 10
+	dActor      uint64 = 1 << 10
+	dDeletedAt  uint64 = 1 << 11
 )
 
-const nUpdatable = 11
+const nUpdatable = 12
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
@@ -2101,6 +2184,7 @@ var setFrags = [nUpdatable]runtime.Frag{
 	{A: "\"narrative\" = $", B: ""},   // narrative
 	{A: "\"data\" = $", B: ""},        // data
 	{A: "\"seq\" = $", B: ""},         // seq
+	{A: "\"actor\" = $", B: ""},       // actor
 	{A: "\"deleted_at\" = $", B: ""},  // deleted_at
 }
 
@@ -2118,6 +2202,7 @@ var exprFrags = [nUpdatable]runtime.Frag{
 	{},                                   // narrative has no server-side form
 	{},                                   // data has no server-side form
 	{A: "\"seq\" = \"seq\" + 1", B: ""},  // seq = its own value plus one
+	{},                                   // actor has no server-side form
 	{A: "\"deleted_at\" = now()", B: ""}, // deleted_at = the database's clock
 }
 
@@ -2142,10 +2227,11 @@ const (
 	iNarrative  uint64 = 1 << 9
 	iData       uint64 = 1 << 10
 	iSeq        uint64 = 1 << 11
-	iDeletedAt  uint64 = 1 << 12
+	iActor      uint64 = 1 << 12
+	iDeletedAt  uint64 = 1 << 13
 )
 
-const nInsertable = 13
+const nInsertable = 14
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -2161,6 +2247,7 @@ var insCols = [nInsertable]string{
 	"\"narrative\"",
 	"\"data\"",
 	"\"seq\"",
+	"\"actor\"",
 	"\"deleted_at\"",
 }
 
@@ -2170,7 +2257,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"audit_logs\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"type\", \"node_id\", \"node_name\", \"message\", \"narrative\", \"data\", \"seq\", \"deleted_at\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"type\", \"node_id\", \"node_name\", \"message\", \"narrative\", \"data\", \"seq\", \"actor\", \"deleted_at\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -2189,7 +2276,7 @@ var updOpCache = runtime.NewMaskCache()
 // part of it. Without it m.Row() would hold what the row held BEFORE
 // the statement, so a caller reading back the counter it just
 // incremented would get the old number and never know.
-const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"type\", \"node_id\", \"node_name\", \"message\", \"narrative\", \"data\", \"seq\", \"deleted_at\""
+const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"instance_id\", \"type\", \"node_id\", \"node_name\", \"message\", \"narrative\", \"data\", \"seq\", \"actor\", \"deleted_at\""
 
 // Masks reports how many distinct UPDATE shapes have compiled.
 func Masks() int { return updCache.Masks() }
@@ -2350,6 +2437,20 @@ func (m *Mut) SetSeqNull() {
 	m.expr &^= dSeq
 }
 
+func (m *Mut) SetActor(v string) {
+	m.row.Actor = runtime.Null[string]{V: v, Valid: true}
+	m.dirty |= dActor
+	m.expr &^= dActor
+}
+
+// SetActorNull writes SQL NULL. It is a separate method because a
+// zero value and an absent value are different facts.
+func (m *Mut) SetActorNull() {
+	m.row.Actor = runtime.Null[string]{}
+	m.dirty |= dActor
+	m.expr &^= dActor
+}
+
 func (m *Mut) SetDeletedAt(v time.Time) {
 	m.row.DeletedAt = runtime.Null[time.Time]{V: v, Valid: true}
 	m.dirty |= dDeletedAt
@@ -2488,6 +2589,18 @@ func (n *Ins) SetSeqNull() {
 	n.set |= iSeq
 }
 
+func (n *Ins) SetActor(v string) {
+	n.row.Actor = runtime.Null[string]{V: v, Valid: true}
+	n.set |= iActor
+}
+
+// SetActorNull writes SQL NULL explicitly, which is not the same as
+// leaving the column unset and taking its default.
+func (n *Ins) SetActorNull() {
+	n.row.Actor = runtime.Null[string]{}
+	n.set |= iActor
+}
+
 func (n *Ins) SetDeletedAt(v time.Time) {
 	n.row.DeletedAt = runtime.Null[time.Time]{V: v, Valid: true}
 	n.set |= iDeletedAt
@@ -2545,7 +2658,7 @@ var conflictSpecs = []string{
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 11)
+	set := make([]string, 0, 12)
 	switch i {
 	case 0:
 		if mask&(1<<2) != 0 {
@@ -2579,6 +2692,9 @@ func assignable(i uint8, mask uint64) []string {
 			set = append(set, "seq")
 		}
 		if mask&(1<<12) != 0 {
+			set = append(set, "actor")
+		}
+		if mask&(1<<13) != 0 {
 			set = append(set, "deleted_at")
 		}
 	}
@@ -2639,6 +2755,7 @@ var assignFor = map[string]string{
 	"narrative":   "\"narrative\" = EXCLUDED.\"narrative\"",
 	"data":        "\"data\" = EXCLUDED.\"data\"",
 	"seq":         "\"seq\" = EXCLUDED.\"seq\"",
+	"actor":       "\"actor\" = EXCLUDED.\"actor\"",
 	"deleted_at":  "\"deleted_at\" = EXCLUDED.\"deleted_at\"",
 }
 
@@ -2708,6 +2825,8 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 11:
 			args = append(args, n.row.Seq.Arg())
 		case 12:
+			args = append(args, n.row.Actor.Arg())
+		case 13:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -2746,7 +2865,7 @@ func Inserts() int { return insCache.Masks() }
 // not treat a zero as 'unset': that guess is why other ORMs cannot insert
 // a false, a 0 or an empty string into a column with a default.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 13)
+	args := make([]any, 0, 14)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2759,6 +2878,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.Narrative.Arg())
 	args = append(args, r.Data)
 	args = append(args, r.Seq.Arg())
+	args = append(args, r.Actor.Arg())
 	args = append(args, r.DeletedAt.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
@@ -2798,6 +2918,7 @@ var copyCols = []string{
 	"narrative",
 	"data",
 	"seq",
+	"actor",
 	"deleted_at",
 }
 
@@ -2805,7 +2926,7 @@ var copyCols = []string{
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [13]any
+	buf  [14]any
 }
 
 func (s *rowSource) Next() bool {
@@ -2835,7 +2956,8 @@ func (s *rowSource) Values() []any {
 	s.buf[9] = r.Narrative.Ptr()
 	s.buf[10] = &r.Data
 	s.buf[11] = r.Seq.Ptr()
-	s.buf[12] = r.DeletedAt.Ptr()
+	s.buf[12] = r.Actor.Ptr()
+	s.buf[13] = r.DeletedAt.Ptr()
 	return s.buf[:]
 }
 
@@ -2879,8 +3001,9 @@ func InsertOp(r Row) runtime.BatchOp {
 	mask |= 1 << 10
 	mask |= 1 << 11
 	mask |= 1 << 12
+	mask |= 1 << 13
 	st := stmtForInsertNoReturn(mask, 0)
-	args := make([]any, 0, 13)
+	args := make([]any, 0, 14)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2893,6 +3016,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.Narrative.Arg())
 	args = append(args, r.Data)
 	args = append(args, r.Seq.Arg())
+	args = append(args, r.Actor.Arg())
 	args = append(args, r.DeletedAt.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
@@ -2952,6 +3076,8 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 11:
 			args = append(args, n.row.Seq.Arg())
 		case 12:
+			args = append(args, n.row.Actor.Arg())
+		case 13:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -3020,6 +3146,8 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 9:
 			args = append(args, m.row.Seq.Arg())
 		case 10:
+			args = append(args, m.row.Actor.Arg())
+		case 11:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}
@@ -3138,6 +3266,8 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 9:
 			args = append(args, m.row.Seq.Arg())
 		case 10:
+			args = append(args, m.row.Actor.Arg())
+		case 11:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}

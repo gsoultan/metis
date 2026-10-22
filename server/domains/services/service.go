@@ -42,6 +42,7 @@ type service struct {
 	contracts.RetentionHoldService
 	contracts.RetentionPeriodService
 	contracts.BatchOperationService
+	contracts.OperationLogService
 }
 
 type ServiceParams struct {
@@ -75,6 +76,7 @@ type ServiceParams struct {
 	RetentionHoldService   contracts.RetentionHoldService
 	RetentionPeriodService contracts.RetentionPeriodService
 	BatchOperationService  contracts.BatchOperationService
+	OperationLogService    contracts.OperationLogService
 }
 
 func NewService(p ServiceParams) ServiceFacade {
@@ -93,6 +95,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	}
 	if p.BatchOperationService == nil {
 		p.BatchOperationService = serviceimpl.NewUnavailableBatchOperationService()
+	}
+	if p.OperationLogService == nil {
+		p.OperationLogService = serviceimpl.NewUnavailableOperationLogService()
 	}
 	if p.SimulationCaseService == nil {
 		p.SimulationCaseService = serviceimpl.NewUnavailableSimulationCaseService()
@@ -128,6 +133,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		RetentionHoldService:     p.RetentionHoldService,
 		RetentionPeriodService:   p.RetentionPeriodService,
 		BatchOperationService:    p.BatchOperationService,
+		OperationLogService:      p.OperationLogService,
 	}
 }
 
@@ -301,6 +307,7 @@ func NewServiceFacade(
 		RetentionPeriodService: serviceimpl.NewRetentionPeriodService(repo),
 		BatchOperationService: serviceimpl.NewBatchOperationService(repo, instanceDeviator, jobSvc,
 			serviceimpl.AccountLoader(userSvc), serviceimpl.DefaultBatchOperationSettings()),
+		OperationLogService: serviceimpl.NewOperationLogService(repo),
 	})
 }
 

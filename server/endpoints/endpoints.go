@@ -15,6 +15,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/group"
 	"github.com/gsoultan/metis/server/endpoints/incident"
 	"github.com/gsoultan/metis/server/endpoints/notification"
+	"github.com/gsoultan/metis/server/endpoints/operationlog"
 	"github.com/gsoultan/metis/server/endpoints/organization"
 	"github.com/gsoultan/metis/server/endpoints/outgoingwebhook"
 	"github.com/gsoultan/metis/server/endpoints/participant"
@@ -50,6 +51,7 @@ type Endpoints struct {
 	Deviation         deviation.Endpoints
 	RetentionHold     retentionhold.Endpoints
 	BatchOperation    batchoperation.Endpoints
+	OperationLog      operationlog.Endpoints
 	RetentionPeriod   retentionperiod.Endpoints
 	Organization      organization.Endpoints
 	Process           process.Endpoints
@@ -347,6 +349,12 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	batchEndpoints.BatchOperationItems = operator("BatchOperationItems")(batchEndpoints.BatchOperationItems)
 	batchEndpoints.StopBatchOperation = operator("StopBatchOperation")(batchEndpoints.StopBatchOperation)
 
+	// The audit log names every person's acts on every instance of the
+	// organization, which no one project's view shows: an administrator's.
+	// The service asks again, of the organization the request acts in.
+	operationLogEndpoints := operationlog.MakeEndpoints(s)
+	operationLogEndpoints.ListOperations = adminOnly("ListOperations")(operationLogEndpoints.ListOperations)
+
 	organizationEndpoints := organization.MakeEndpoints(s)
 	// Was public: logging and nothing else, so any signed-in account could
 	// create organizations over HTTP, and anybody at all over the gRPC
@@ -514,6 +522,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		Deviation:         deviationEndpoints,
 		RetentionHold:     holdEndpoints,
 		BatchOperation:    batchEndpoints,
+		OperationLog:      operationLogEndpoints,
 		RetentionPeriod:   periodEndpoints,
 		Organization:      organizationEndpoints,
 		Process:           processEndpoints,

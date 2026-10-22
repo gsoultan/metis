@@ -191,6 +191,19 @@ func actorName(entry entities.AuditEntry) string {
 	return "System"
 }
 
+// entryActor is who acted, for the audit log: the entry's own Actor, or
+// else the actor its data names. Unlike actorName it never says "System": an
+// entry nobody's act wrote names nobody, and stays out of the log.
+func entryActor(entry entities.AuditEntry) string {
+	if entry.Actor != "" {
+		return entry.Actor
+	}
+	if s, ok := entry.Data["actor"].(string); ok {
+		return s
+	}
+	return ""
+}
+
 // subjectName returns the task or node name from the entry, preferring the
 // node name over a generic fallback.
 func subjectName(entry entities.AuditEntry) string {
@@ -207,6 +220,7 @@ func toAuditModel(e entities.AuditEntry) models.AuditModel {
 		Message:   e.Message,
 		Narrative: e.Narrative,
 		Data:      e.Data,
+		Actor:     entryActor(e),
 	}
 	m.ID = models.UUID(e.ID)
 	if m.ID == models.NilUUID {
