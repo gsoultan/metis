@@ -1024,6 +1024,13 @@ does not undo a migration.
 
 ### Changed
 
+- **The server holds one connection pool per database, not two.** GORM's pool,
+  opened at boot to run the migrations, closes once they finish, for the main
+  database and for each environment, instead of staying open beside the storm
+  pool for the life of the process. `METIS_DB_MAX_OPEN_CONNS` no longer counts
+  twice against `max_connections`. The `database` readiness check now pings the
+  storm pool, and the `go_sql_*{db_name="gorm"}` metric series are gone.
+
 - **A step repeated over an empty list is skipped.** A step run once per item
   of a list that is empty used to run once anyway, with no item: a service
   call with nothing to send, an approval task nobody was listed for. Now the
