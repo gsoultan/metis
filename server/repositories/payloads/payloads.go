@@ -31,6 +31,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/google/uuid"
 
@@ -72,7 +73,11 @@ const (
 var ErrNotConfigured = errors.New("this instance holds a value kept in the payload directory, and " + EnvDir + " is not set")
 
 type store struct {
-	root      string
+	// dir is the directory's absolute path, for saying where it is.
+	dir string
+	// root is every file operation's way in: a name that would lead out of
+	// the directory, by a "..", a link or otherwise, is refused by it.
+	root      *os.Root
 	threshold int
 }
 
@@ -86,30 +91,42 @@ var (
 func Configure(dir string, threshold int) error {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
-		mu.Lock()
-		active = nil
-		mu.Unlock()
-		return nil
+		return install(nil)
 	}
 	if threshold < MinThreshold {
 		return fmt.Errorf("%s must be at least %d bytes, not %d", EnvThreshold, MinThreshold, threshold)
 	}
-	root, err := filepath.Abs(dir)
+	path, err := filepath.Abs(dir)
 	if err != nil {
 		return fmt.Errorf("%s: %w", EnvDir, err)
 	}
-	if err := os.MkdirAll(root, 0o700); err != nil {
-		return fmt.Errorf("%s: could not create %s: %w", EnvDir, root, err)
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return fmt.Errorf("%s: could not create %s: %w", EnvDir, path, err)
 	}
-	probe, err := os.CreateTemp(root, ".probe-*")
+	root, err := os.OpenRoot(path)
 	if err != nil {
-		return fmt.Errorf("%s: %s is not writable: %w", EnvDir, root, err)
+		return fmt.Errorf("%s: could not open %s: %w", EnvDir, path, err)
 	}
-	_ = probe.Close()
-	_ = os.Remove(probe.Name())
+	probe := ".probe-" + uuid.NewString()
+	if err := root.WriteFile(probe, nil, 0o600); err != nil {
+		return errors.Join(fmt.Errorf("%s: %s is not writable: %w", EnvDir, path, err), root.Close())
+	}
+	if err := root.Remove(probe); err != nil {
+		return errors.Join(fmt.Errorf("%s: could not remove a file from %s: %w", EnvDir, path, err), root.Close())
+	}
+	return install(&store{dir: path, root: root, threshold: threshold})
+}
+
+// install makes s the store, and closes the one it replaces. Only a start or
+// a test configures the store, so nothing is using the old one.
+func install(s *store) error {
 	mu.Lock()
-	active = &store{root: root, threshold: threshold}
+	previous := active
+	active = s
 	mu.Unlock()
+	if previous != nil {
+		return previous.root.Close()
+	}
 	return nil
 }
 
@@ -134,14 +151,17 @@ func Enabled() bool {
 // Root is the configured directory, or "" when the store is off.
 func Root() string {
 	if s := current(); s != nil {
-		return s.root
+		return s.dir
 	}
 	return ""
 }
 
-// ResetForTest turns the store off.
+// ResetForTest turns the store off. It panics if the store it replaces will
+// not close, which in a test is a leak worth stopping on.
 func ResetForTest() {
-	_ = Configure("", 0)
+	if err := install(nil); err != nil {
+		panic(err)
+	}
 }
 
 func current() *store {
@@ -265,8 +285,9 @@ func partition(ctx context.Context) string {
 	return "main"
 }
 
-func (s *store) instanceDir(ctx context.Context, instance uuid.UUID) string {
-	return filepath.Join(s.root, partition(ctx), instance.String())
+// instanceDir is the instance's directory, relative to the root.
+func instanceDir(ctx context.Context, instance uuid.UUID) string {
+	return filepath.Join(partition(ctx), instance.String())
 }
 
 // put seals encoded into the instance's directory under a name for its
@@ -276,19 +297,19 @@ func (s *store) put(ctx context.Context, instance uuid.UUID, encoded []byte) (st
 	if err != nil {
 		return "", err
 	}
-	dir := s.instanceDir(ctx, instance)
+	dir := instanceDir(ctx, instance)
 	path := filepath.Join(dir, name)
-	if _, err := os.Stat(path); err == nil {
+	if _, err := s.root.Stat(path); err == nil {
 		return name, nil
 	}
 	sealed, err := crypto.Encrypt(string(encoded))
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := s.root.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	if err := writeFile(dir, path, []byte(sealed)); err != nil {
+	if err := s.writeFile(dir, path, []byte(sealed)); err != nil {
 		return "", err
 	}
 	return name, nil
@@ -296,36 +317,46 @@ func (s *store) put(ctx context.Context, instance uuid.UUID, encoded []byte) (st
 
 // writeFile writes data to path whole or not at all: to a file beside it,
 // synced, then renamed over it. A reader never sees half a value, and a
-// crash leaves at most a temporary file.
-func writeFile(dir, path string, data []byte) error {
-	temp, err := os.CreateTemp(dir, ".write-*")
+// crash leaves at most a temporary file, which the instance's directory is
+// removed with.
+func (s *store) writeFile(dir, path string, data []byte) error {
+	temp := filepath.Join(dir, ".write-"+uuid.NewString())
+	file, err := s.root.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(temp.Name()) }()
-	if _, err := temp.Write(data); err != nil {
-		_ = temp.Close()
+	_, err = file.Write(data)
+	if err == nil {
+		err = file.Sync()
+	}
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = s.root.Rename(temp, path)
+	}
+	if err != nil {
+		return errors.Join(err, s.root.Remove(temp))
+	}
+	return s.syncDir(dir)
+}
+
+// syncDir makes a rename in dir durable. A file system that cannot sync a
+// directory says so with EINVAL, and the rename then stands as it is.
+func (s *store) syncDir(dir string) error {
+	handle, err := s.root.Open(dir)
+	if err != nil {
 		return err
 	}
-	if err := temp.Sync(); err != nil {
-		_ = temp.Close()
-		return err
+	err = handle.Sync()
+	if errors.Is(err, syscall.EINVAL) {
+		err = nil
 	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(temp.Name(), path); err != nil {
-		return err
-	}
-	if handle, err := os.Open(dir); err == nil {
-		_ = handle.Sync()
-		_ = handle.Close()
-	}
-	return nil
+	return errors.Join(err, handle.Close())
 }
 
 func (s *store) get(ctx context.Context, instance uuid.UUID, name string) (any, error) {
-	sealed, err := os.ReadFile(filepath.Join(s.instanceDir(ctx, instance), name))
+	sealed, err := s.root.ReadFile(filepath.Join(instanceDir(ctx, instance), name))
 	if err != nil {
 		return nil, err
 	}

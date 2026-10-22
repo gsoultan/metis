@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -29,14 +28,14 @@ func Reseal(check bool) (ResealCount, error) {
 	if s == nil {
 		return count, nil
 	}
-	err := filepath.WalkDir(s.root, func(path string, entry fs.DirEntry, err error) error {
+	err := fs.WalkDir(s.root.FS(), ".", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if entry.IsDir() || !validName(entry.Name()) {
 			return nil
 		}
-		sealed, err := os.ReadFile(path)
+		sealed, err := s.root.ReadFile(path)
 		if err != nil {
 			return err
 		}
@@ -54,7 +53,7 @@ func Reseal(check bool) (ResealCount, error) {
 			count.Moved++
 			return nil
 		}
-		if err := writeFile(filepath.Dir(path), path, []byte(resealed)); err != nil {
+		if err := s.writeFile(filepath.Dir(path), path, []byte(resealed)); err != nil {
 			return err
 		}
 		count.Moved++
@@ -84,8 +83,8 @@ func SweepGone(ctx context.Context, notBefore time.Time, existing Existing) (int
 	if s == nil {
 		return 0, nil
 	}
-	root := filepath.Join(s.root, partition(ctx))
-	entries, err := os.ReadDir(root)
+	root := partition(ctx)
+	entries, err := fs.ReadDir(s.root.FS(), root)
 	if errors.Is(err, fs.ErrNotExist) {
 		return 0, nil
 	}
@@ -106,7 +105,7 @@ func SweepGone(ctx context.Context, notBefore time.Time, existing Existing) (int
 			if found[id] {
 				continue
 			}
-			if err := os.RemoveAll(filepath.Join(root, id.String())); err != nil {
+			if err := s.root.RemoveAll(filepath.Join(root, id.String())); err != nil {
 				return err
 			}
 			removed++
