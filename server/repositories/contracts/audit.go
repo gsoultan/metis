@@ -17,6 +17,9 @@ type AuditRepository interface {
 	// NodeVisits counts the entries of eventType for each node of an
 	// instance, in the order each node was first reached.
 	NodeVisits(ctx context.Context, instanceID uuid.UUID, eventType string) ([]NodeVisit, error)
+	// FirstByInstance returns an instance's oldest entry of eventType, and
+	// false when it has none.
+	FirstByInstance(ctx context.Context, instanceID uuid.UUID, eventType string) (models.AuditModel, bool, error)
 	// ListByProject returns at most limit of a project's entries, oldest
 	// first. The limit is the caller's, because a project's whole trail is
 	// more than any one read should hold.

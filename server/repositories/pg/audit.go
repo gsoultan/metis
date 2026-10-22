@@ -69,6 +69,23 @@ func (r *auditRepository) ListByInstance(ctx context.Context, instanceID uuid.UU
 	return r.read(ctx, q.Order(oldestFirst()...).Limit(allRows))
 }
 
+// FirstByInstance returns an instance's oldest entry of one type.
+//
+// One row, however long the instance has run: a replay reads the variables an
+// instance was started with, and the trail behind that entry can be a year of
+// loops.
+func (r *auditRepository) FirstByInstance(ctx context.Context, instanceID uuid.UUID, eventType string) (models.AuditModel, bool, error) {
+	q, ok, err := r.scoped(ctx, auditentry.InstanceID.Eq(instanceID))
+	if err != nil || !ok {
+		return models.AuditModel{}, false, err
+	}
+	entries, err := r.read(ctx, q.Where(auditentry.Type.Eq(eventType)).Order(oldestFirst()...).Limit(1))
+	if err != nil || len(entries) == 0 {
+		return models.AuditModel{}, false, err
+	}
+	return entries[0], true, nil
+}
+
 // ListByProject returns the oldest limit entries of a project's history,
 // oldest first.
 func (r *auditRepository) ListByProject(ctx context.Context, projectID uuid.UUID, limit int64) ([]models.AuditModel, error) {

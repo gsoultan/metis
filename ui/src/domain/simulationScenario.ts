@@ -50,7 +50,7 @@ export interface VariableRow {
  * simulation cannot charge a real card.
  */
 export type SimulationAnswer =
-  | { nodeId: string; kind: 'person'; actor: string; after: string }
+  | { nodeId: string; kind: 'person'; actor: string; after: string; returns?: VariableRow[] }
   | { nodeId: string; kind: 'service'; outcome: 'succeed' | 'fail'; returns: VariableRow[]; failureCode: string }
   | { nodeId: string; kind: 'message'; arrivesAfter: string };
 
@@ -72,19 +72,30 @@ export interface Scenario {
   savedId?: string;
   /** What the run must end with. See `simulationCase`. */
   expect?: Expectation;
+  /** A real instance this case replays. See `ReplayOf`. */
+  replay?: ReplayOf;
 }
 
 /**
- * What is being simulated.
- *
- * Three modes, because simulation is asked for at three different moments:
- * before a definition is deployed, against one that is, and against a real
- * instance whose recorded variables answer "would the new version have helped?".
+ * A case read off a real instance: what it started with, who did each step and
+ * what they entered, what its services answered. The server reads all of that;
+ * the case only names the instance, and where to run it — the diagram on
+ * screen, or the version live now, which is the "would the new version have
+ * handled it?" question.
+ */
+export interface ReplayOf {
+  instanceId: string;
+  on: 'diagram' | 'live';
+}
+
+/**
+ * What is being simulated: a deployed version, or the canvas before anybody
+ * deploys it. A real instance is replayed on either, which is a property of
+ * the case (`Scenario.replay`), not a third kind of target.
  */
 export type SimulationTarget =
   | { kind: 'deployed'; projectId: string; definitionKey: string; version: number }
-  | { kind: 'draft'; projectId: string; definitionKey: string; definition: DraftDefinition }
-  | { kind: 'replay'; projectId: string; instanceId: string; definitionKey: string; version: number };
+  | { kind: 'draft'; projectId: string; definitionKey: string; definition: DraftDefinition };
 
 /* ── Durations, in the words people use ───────────────────────────────────── */
 
@@ -269,7 +280,7 @@ export interface SimulationRequest {
 }
 
 type WireAnswer =
-  | { node: string; kind: 'person'; actor: string; after: string }
+  | { node: string; kind: 'person'; actor: string; after: string; returns?: ProcessVariables }
   | { node: string; kind: 'service'; returns: ProcessVariables }
   | { node: string; kind: 'service'; fails: string }
   | { node: string; kind: 'message'; arrives_after: string };
@@ -298,7 +309,9 @@ export const SIMULATION_CLOCK_START = '2026-01-05T09:00:00Z';
 function toWire(answer: SimulationAnswer): WireAnswer {
   switch (answer.kind) {
     case 'person':
-      return { node: answer.nodeId, kind: 'person', actor: answer.actor, after: answer.after };
+      return answer.returns !== undefined && answer.returns.length > 0
+        ? { node: answer.nodeId, kind: 'person', actor: answer.actor, after: answer.after, returns: variablesOf(answer.returns) }
+        : { node: answer.nodeId, kind: 'person', actor: answer.actor, after: answer.after };
     case 'message':
       return { node: answer.nodeId, kind: 'message', arrives_after: answer.arrivesAfter };
     case 'service':
@@ -319,18 +332,23 @@ export function simulationRequest(scenario: Scenario, target: SimulationTarget):
     max_steps: DEFAULT_MAX_STEPS,
   };
 
+  if (scenario.replay !== undefined) {
+    // On what is live: no key and no version, so the server runs the
+    // instance's own process as it is now — whatever has been deployed since.
+    if (scenario.replay.on === 'live') {
+      return { ...base, replay_instance_id: scenario.replay.instanceId };
+    }
+    return { ...onTarget(base, target), replay_instance_id: scenario.replay.instanceId };
+  }
+  return onTarget(base, target);
+}
+
+function onTarget(base: Omit<SimulationRequest, 'definition_key'>, target: SimulationTarget): SimulationRequest {
   switch (target.kind) {
     case 'deployed':
       return { ...base, definition_key: target.definitionKey, version: target.version };
     case 'draft':
       return { ...base, definition_key: target.definitionKey, definition: target.definition };
-    case 'replay':
-      return {
-        ...base,
-        definition_key: target.definitionKey,
-        version: target.version,
-        replay_instance_id: target.instanceId,
-      };
   }
 }
 
@@ -342,7 +360,9 @@ export function simulationRequest(scenario: Scenario, target: SimulationTarget):
  * model inlined in it would be a worse answer than saying so.
  */
 export function goSnippet(request: SimulationRequest, scenario: Scenario): string | null {
-  if (request.definition !== undefined) return null;
+  // A replay reads its case off an instance CI does not have. The curl beside
+  // it still shows the call.
+  if (request.definition !== undefined || request.replay_instance_id !== undefined) return null;
 
   const vars = Object.entries(request.variables)
     .map(([key, value]) => `            ${JSON.stringify(key)}: ${goLiteral(value)},`)

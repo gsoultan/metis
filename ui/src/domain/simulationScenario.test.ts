@@ -194,15 +194,36 @@ describe('simulationRequest', () => {
     expect(request.version).toBeUndefined();
   });
 
-  it('carries the instance id when replaying a real case', () => {
-    const request = simulationRequest(scenario, {
-      kind: 'replay',
-      projectId: 'proj-1',
-      instanceId: 'inst-9',
-      definitionKey: 'expense-approval',
-      version: 5,
-    });
+  it('carries the instance id when replaying a real case on the diagram', () => {
+    const request = simulationRequest({ ...scenario, replay: { instanceId: 'inst-9', on: 'diagram' } }, deployed);
     expect(request.replay_instance_id).toBe('inst-9');
+    expect(request.definition_key).toBe(deployed.definitionKey);
+    expect(request.version).toBe(deployed.version);
+  });
+
+  it('names no version when replaying on what is live, so the server runs what is live now', () => {
+    const request = simulationRequest({ ...scenario, replay: { instanceId: 'inst-9', on: 'live' } }, deployed);
+    expect(request.replay_instance_id).toBe('inst-9');
+    expect(request.definition_key).toBeUndefined();
+    expect(request.version).toBeUndefined();
+    expect(request.definition).toBeUndefined();
+  });
+
+  it('sends what a person entered when the answer carries it', () => {
+    const replayed = upsertAnswer(scenario, {
+      nodeId: 'Approve',
+      kind: 'person',
+      actor: 'sarah',
+      after: 'PT1H',
+      returns: [{ id: 'r1', name: 'approved', value: 'true' }],
+    });
+    expect(simulationRequest(replayed, deployed).answers).toContainEqual({
+      node: 'Approve',
+      kind: 'person',
+      actor: 'sarah',
+      after: 'PT1H',
+      returns: { approved: true },
+    });
   });
 
   it('translates answers into the wire vocabulary, keyed by node', () => {

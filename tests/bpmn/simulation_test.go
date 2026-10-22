@@ -39,9 +39,13 @@ import (
 type simHarness struct {
 	repo       repositories.Repository
 	simulation servicecontracts.SimulationService
-	projectID  uuid.UUID
-	db         *gorm.DB
-	ctx        context.Context
+	// engine and tasks run real instances, for a replay to read back.
+	engine    servicecontracts.ExecutionEngine
+	tasks     servicecontracts.TaskService
+	defs      servicecontracts.DefinitionService
+	projectID uuid.UUID
+	db        *gorm.DB
+	ctx       context.Context
 }
 
 // newSimHarness deploys a small expense approval: start → approve (a person) →
@@ -53,6 +57,10 @@ func newSimHarness(t *testing.T) *simHarness {
 	repo := repositories.NewRepository(testutils.StormConn(db))
 
 	dispatcher := observerimpl.NewEventDispatcher()
+	// The trail a real instance leaves, as the application registers it: a
+	// replay reads what the instance was started with, and the path it took,
+	// back off it.
+	dispatcher.Register(observerimpl.NewAuditLogObserver(repo.Audit()))
 	orgSvc := serviceimpl.NewOrganizationService(repo)
 	projectSvc := serviceimpl.NewProjectService(repo)
 	defSvc := serviceimpl.NewDefinitionService(repo)
@@ -114,7 +122,10 @@ func newSimHarness(t *testing.T) *simHarness {
 		t.Fatalf("deploy definition: %v", err)
 	}
 
-	return &simHarness{repo: repo, simulation: simulation, projectID: project.ID, db: db, ctx: ctx}
+	return &simHarness{
+		repo: repo, simulation: simulation, engine: engine, tasks: taskSvc, defs: defSvc,
+		projectID: project.ID, db: db, ctx: ctx,
+	}
 }
 
 func (h *simHarness) request() entities.SimulationRequest {

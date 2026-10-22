@@ -25,6 +25,7 @@ import {
   upsertAnswer,
   validateScenario,
   type AnswerKind,
+  type ReplayOf,
   type Scenario,
   type SimulationAnswer,
   type SimulationTarget,
@@ -45,7 +46,7 @@ import {
   type SimulationStep,
   type Verdict,
 } from '../domain/simulationTrace';
-import type { Expectation } from '../domain/simulationCase';
+import { rowsOf, type Expectation } from '../domain/simulationCase';
 import { runSimulation, runSimulationBatch } from '../services/domains/simulationService';
 import type { ProcessVariables } from '../services/types';
 
@@ -116,6 +117,38 @@ export function useSimulation(target: SimulationTarget | null) {
     setActiveId(created.id);
     setRun(null);
   }, []);
+
+  /**
+   * Opens a case that replays a real instance. It starts empty: the first run
+   * reads the case off the instance and fills it in, so what was read is on
+   * screen to see and change.
+   */
+  const addReplayCase = useCallback(
+    (instanceId: string) => {
+      const existing = cases.find((c) => c.replay?.instanceId === instanceId);
+      if (existing !== undefined) {
+        setActiveId(existing.id);
+        setRun(null);
+        return existing;
+      }
+      const created: Scenario = {
+        ...emptyScenario(uuidv4(), `Instance ${instanceId.slice(0, 8)}`),
+        replay: { instanceId, on: 'diagram' },
+      };
+      setCases((current) => [...current, created]);
+      setActiveId(created.id);
+      setRun(null);
+      return created;
+    },
+    [cases],
+  );
+
+  const setReplayOn = useCallback(
+    (on: ReplayOf['on']) => {
+      if (active?.replay !== undefined) patchCase(active.id, { replay: { ...active.replay, on } });
+    },
+    [active, patchCase],
+  );
 
   const removeCase = useCallback((id: string) => {
     setCases((current) => (current.length === 1 ? current : current.filter((c) => c.id !== id)));
@@ -221,6 +254,9 @@ export function useSimulation(target: SimulationTarget | null) {
       return runSimulation(simulationRequest(scenario, target));
     },
     onSuccess: (result, scenario) => {
+      if (scenario.replay !== undefined && result.replay !== undefined && isBlank(scenario)) {
+        patchCase(scenario.id, { variables: rowsOf(result.replay.startedWith), answers: result.replay.answers });
+      }
       setRun(result);
       setPlaying(false);
       setSuite((current) => ({ ...current, [scenario.id]: result }));
@@ -367,6 +403,8 @@ export function useSimulation(target: SimulationTarget | null) {
     removeCase,
     loadSaved,
     markSaved,
+    addReplayCase,
+    setReplayOn,
     setExpect,
 
     addVariable,

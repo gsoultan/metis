@@ -135,6 +135,30 @@ function AnswerFields({
           value={answer.after}
           onChange={(after) => onChange({ ...answer, after })}
         />
+        {/* Only a replayed task has these: what the person entered, read off
+            the real instance. Changing one is how a replay asks "and if they
+            had said no?". */}
+        {answer.returns !== undefined && answer.returns.length > 0 && (
+          <Stack gap={4}>
+            <Text size="xs" fw={500}>
+              They entered
+            </Text>
+            {answer.returns.map((row) => (
+              <TextInput
+                key={row.id}
+                size="xs"
+                label={row.name}
+                value={row.value}
+                onChange={(event) =>
+                  onChange({
+                    ...answer,
+                    returns: answer.returns?.map((r) => (r.id === row.id ? { ...r, value: event.currentTarget.value } : r)),
+                  })
+                }
+              />
+            ))}
+          </Stack>
+        )}
       </Stack>
     );
   }
@@ -209,7 +233,13 @@ function DurationField({
     <Select
       size="xs"
       label={label}
-      data={DURATION_CHOICES}
+      // A value off the list — one a replay read off a real task, or one
+      // somebody typed — is offered as itself, or the field would show blank.
+      data={
+        value === '' || DURATION_CHOICES.some((choice) => choice.value === value)
+          ? DURATION_CHOICES
+          : [...DURATION_CHOICES, { value, label: value }]
+      }
       value={value}
       onChange={(next) => onChange(next ?? '')}
       allowDeselect={false}

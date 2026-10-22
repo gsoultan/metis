@@ -464,6 +464,27 @@ does not undo a migration.
   - `GET` and `POST /api/v1/projects/{id}/simulation-cases/{process_key}`,
     `PUT` and `DELETE /api/v1/projects/{id}/simulation-cases/{process_key}/{case_id}`.
 
+- **Replay a real instance on another version.** Open an instance in the
+  designer, switch to Simulate and press **Replay the instance you opened**:
+  the case is read off the instance — what it was started with, who did each
+  step and how long they took, what they entered, what its services
+  answered — and run on the diagram on screen or on whatever is live. The rail
+  says where the run went somewhere the instance did not ("It reaches CFO
+  signs off, which the instance never did"), and the case it read stays on
+  screen to change and run again. Nothing about the instance is changed.
+  Designers only, like simulation itself.
+  - `POST /api/v1/simulations` runs `replay_instance_id`, which it used to
+    refuse. With no `definition_key` it runs the instance's own process as it
+    is live; the reply carries `replay`, with what was read and the steps
+    only one of the two reached. Variables and answers sent beside it win
+    over what was read.
+  - A person's answer can carry `returns`, the values they entered, as a
+    service's answer already could.
+  - What people entered is not kept per task, so a replay reads it from what
+    the instance holds now, for the fields each task's form declares, and says
+    so. When a message arrived is not kept either, so a replay stops and asks
+    at a message wait.
+
 - **Finished instances can be removed after a set number of days.** Set
   `METIS_RETENTION_FINISHED_INSTANCES_DAYS` and every ten minutes the sweep
   removes completed and cancelled instances older than that, with their tasks,
@@ -1134,6 +1155,10 @@ does not undo a migration.
   to anybody who is not an operator or an administrator.
 
 ### Fixed
+
+- **A simulation says which version it ran.** Every run reported version 0,
+  whichever version it was of, because the version was read off the
+  instance's own copy of its definition, which carries only the id.
 
 - **A simulation run in the designer shows how it ended.** Every run was
   shown as stopped on an incident, with nothing under what happened, because

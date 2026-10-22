@@ -13,8 +13,10 @@ import {
   nodeStatesAt,
   passed,
   reached,
+  replayVerdict,
   variablesAt,
   verdict,
+  type ReplayRead,
   type SimulationRun,
   type SimulationStep,
 } from './simulationTrace';
@@ -258,5 +260,47 @@ describe('verdict', () => {
 
   it('is quietly good when the run finished clean', () => {
     expect(verdict(run([]))).toMatchObject({ tone: 'good', headline: 'Finished at End' });
+  });
+});
+
+describe('replayVerdict', () => {
+  const read = (onlyInRun: string[], onlyInInstance: string[]): ReplayRead => ({
+    instanceId: 'inst-1',
+    version: 1,
+    status: 'completed',
+    startedWith: { amount: 120 },
+    answers: [],
+    path: ['start', 'approve', 'decide', 'paid'],
+    onlyInRun,
+    onlyInInstance,
+    notes: [],
+  });
+  const names: Record<string, string> = { finance: 'Finance lead signs off', paid: 'Paid', decide: 'Approved?' };
+  const label = (id: string) => names[id] ?? id;
+
+  it('says nothing for a run that replayed nothing', () => {
+    expect(replayVerdict(run([]))).toBeNull();
+  });
+
+  it('says so when the run took the instance’s path', () => {
+    expect(replayVerdict(run([], { replay: read([], []) }))?.tone).toBe('good');
+  });
+
+  it('names, in the diagram’s words, where the run went and the instance did not', () => {
+    const v = replayVerdict(run([], { outcome: 'needs_answer', replay: read(['finance'], ['paid']) }), label);
+    expect(v?.tone).toBe('warn');
+    expect(v?.detail).toContain('It reaches Finance lead signs off, which the instance never did.');
+    expect(v?.detail).toContain('It has not reached Paid yet');
+  });
+
+  it('does not call an unfinished run different for steps it may still reach', () => {
+    const v = replayVerdict(run([], { outcome: 'needs_answer', replay: read([], ['paid']) }), label);
+    expect(v?.tone).toBe('asking');
+  });
+
+  it('calls a finished run that skipped a step the instance took different', () => {
+    const v = replayVerdict(run([], { outcome: 'completed', replay: read([], ['decide']) }), label);
+    expect(v?.tone).toBe('warn');
+    expect(v?.detail).toBe('It never reaches Approved?, which the instance did.');
   });
 });

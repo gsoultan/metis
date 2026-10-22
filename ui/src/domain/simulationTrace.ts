@@ -12,6 +12,7 @@
  * no accumulated state, no mutation. Scrub to step 7, then back to 2, and the
  * canvas at 2 is identical to the first time it was there.
  */
+import type { SimulationAnswer } from './simulationScenario';
 import type { ProcessVariables } from '../services/types';
 
 /**
@@ -105,6 +106,59 @@ export interface SimulationRun {
   variables: ProcessVariables;
   incidents: SimulationIncident[];
   steps: SimulationStep[];
+  /** Set when the run replayed a real instance. */
+  replay?: ReplayRead;
+}
+
+/**
+ * What a replay read off the real instance, and where the run and the
+ * instance parted.
+ */
+export interface ReplayRead {
+  instanceId: string;
+  /** The version the instance ran on, and where it is now. */
+  version: number;
+  status: string;
+  startedWith: ProcessVariables;
+  answers: SimulationAnswer[];
+  /** The steps the instance reached, in the order it first reached them. */
+  path: string[];
+  onlyInRun: string[];
+  onlyInInstance: string[];
+  /** What could not be read off the instance, in words. */
+  notes: string[];
+}
+
+/**
+ * A replay's comparison as the one line the rail leads with.
+ *
+ * A step the instance reached and an unfinished run has not is not yet a
+ * difference — the run may still get there once it is answered — so it is
+ * said as "not yet", and only a finished run claims the instance went
+ * somewhere it would not.
+ */
+export function replayVerdict(run: SimulationRun, label: (nodeId: string) => string = (id) => id): Verdict | null {
+  const replay = run.replay;
+  if (replay === undefined) return null;
+  const names = (ids: string[]) => ids.map(label).join(', ');
+  if (replay.onlyInRun.length === 0 && replay.onlyInInstance.length === 0) {
+    return { tone: 'good', headline: 'Takes the path the real instance took' };
+  }
+  const parts: string[] = [];
+  if (replay.onlyInRun.length > 0) {
+    parts.push(`It reaches ${names(replay.onlyInRun)}, which the instance never did.`);
+  }
+  if (replay.onlyInInstance.length > 0) {
+    parts.push(
+      run.outcome === 'completed'
+        ? `It never reaches ${names(replay.onlyInInstance)}, which the instance did.`
+        : `It has not reached ${names(replay.onlyInInstance)} yet, which the instance did.`,
+    );
+  }
+  if (replay.onlyInRun.length === 0 && run.outcome !== 'completed') {
+    return { tone: 'asking', headline: 'So far, the path the real instance took', detail: parts.join(' ') };
+  }
+  return { tone: 'warn', headline: 'Goes another way than the real instance', detail: parts.join(' ') };
 }
 
 /** The last index the transport can move to. -1 for a run with no steps. */

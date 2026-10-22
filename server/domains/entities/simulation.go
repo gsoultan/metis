@@ -76,8 +76,9 @@ type SimulationAnswer struct {
 	Actor string `json:"actor,omitempty"`
 	After string `json:"after,omitempty"`
 
-	// Returns is what a service task hands back, merged into the instance
-	// variables exactly as a worker's completion would.
+	// Returns is what a service task hands back, or what a person entered on
+	// their task, merged into the instance variables exactly as a worker's or
+	// a form's completion would.
 	Returns map[string]any `json:"returns,omitempty"`
 	// Fails is an error code instead of a result, so a boundary error event can
 	// be exercised without anything actually failing.
@@ -145,6 +146,13 @@ type SimulationRequest struct {
 	Draft     *ProcessDefinition `json:"draft,omitzero"`
 	DraftBPMN string             `json:"draft_bpmn,omitzero"`
 
+	// ReplayInstanceID runs a real instance's case: it starts with the
+	// variables that instance was started with, and its people, services and
+	// clock answer as they did for it. Variables and Answers given beside it
+	// win over what was read off the instance, node by node. The run is
+	// compared with the path the instance took, in SimulationRun.Replay.
+	ReplayInstanceID uuid.UUID `json:"replay_instance_id,omitzero"`
+
 	Variables map[string]any     `json:"variables"`
 	Answers   []SimulationAnswer `json:"answers"`
 
@@ -192,6 +200,37 @@ type SimulationRun struct {
 	Variables         map[string]any       `json:"variables"`
 	Incidents         []SimulationIncident `json:"incidents"`
 	Steps             []SimulationStep     `json:"steps"`
+
+	// Replay is set when the run replayed a real instance.
+	Replay *SimulationReplay `json:"replay,omitempty"`
+}
+
+// SimulationReplay is what a replay read off the real instance, and where the
+// run went somewhere the instance did not.
+//
+// The scenario is returned as well as run, so a client can show it, keep it
+// as a case and change it: a replay that only said "it differs" would leave
+// nobody able to see why.
+type SimulationReplay struct {
+	InstanceID uuid.UUID `json:"instance_id"`
+	// Version is the version the instance ran on, and Status where it is now.
+	Version int    `json:"version"`
+	Status  string `json:"status"`
+
+	// StartedWith and Answers are the case read off the instance, before any
+	// the request gave were laid over them.
+	StartedWith map[string]any     `json:"started_with"`
+	Answers     []SimulationAnswer `json:"answers"`
+
+	// Path is the steps the instance reached, in the order it first reached
+	// them. OnlyInRun is the steps the run reached and the instance never
+	// did; OnlyInInstance the other way round. Both empty: the same path.
+	Path           []string `json:"path"`
+	OnlyInRun      []string `json:"only_in_run"`
+	OnlyInInstance []string `json:"only_in_instance"`
+
+	// Notes say what could not be read off the instance, in words.
+	Notes []string `json:"notes"`
 }
 
 // DefaultSimulationMaxSteps bounds a run that would otherwise loop forever.
