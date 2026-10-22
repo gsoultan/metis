@@ -1,0 +1,26 @@
+/* Docked beside the canvas: the diagram stays in view while a step is edited. */
+.panel {
+  width: 440px;
+  max-width: 100%;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+  background-color: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8));
+  box-shadow: -8px 0 24px -16px rgba(15, 23, 42, 0.25);
+}
+
+.header {
+  background-color: var(--mantine-color-body);
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.body {
+  min-height: 0;
+}
+
+.footer {
+  background-color: var(--mantine-color-body);
+  border-top: 1px solid var(--mantine-color-default-border);
+}

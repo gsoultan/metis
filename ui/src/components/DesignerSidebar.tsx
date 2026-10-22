@@ -51,6 +51,9 @@ type DragStartHandler = (
   initialData?: Partial<BPMNNodeData>,
 ) => void;
 
+/** Adds an entry without a drag: a click, or Enter on a focused entry. */
+type AddHandler = (nodeType: string, initialData?: Partial<BPMNNodeData>) => void;
+
 /**
  * The palette, grouped and labelled by what each thing DOES.
  *
@@ -134,9 +137,11 @@ const paletteItems: Array<{
 
 interface DesignerSidebarProps {
   embedded?: boolean;
+  /** Adds the entry to the canvas. Without it the palette only drags. */
+  onAdd?: AddHandler;
 }
 
-export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
+export function DesignerSidebar({ embedded, onAdd }: DesignerSidebarProps) {
   const [search, setSearch] = useState('');
   const expertMode = useAppStore((state) => state.expertMode);
   const { data: connectorsData, isLoading: connectorsLoading } = useConnectors();
@@ -208,7 +213,7 @@ export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
       {!embedded && (
         <Box>
           <Text fw={600} size="md" mb={4}>Building blocks</Text>
-          <Text size="xs" c="dimmed">Drag one onto the canvas to add a step</Text>
+          <Text size="xs" c="dimmed">Click one to add it, or drag it where it goes</Text>
         </Box>
       )}
       
@@ -232,9 +237,9 @@ export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
       
       <Box className={classes.scrollArea}>
         {search ? (
-          <Stack gap="xs">
+          <Stack gap={2}>
             {filteredItems.flatMap(group => group.items).map((item) => (
-              <DesignerItem key={`${item.type}-${item.label}`} item={item} onDragStart={onDragStart} />
+              <DesignerItem key={`${item.type}-${item.label}`} item={item} onDragStart={onDragStart} onAdd={onAdd} />
             ))}
             {filteredItems.length === 0 && (
               <Box py="xl" style={{ textAlign: 'center' }}>
@@ -251,7 +256,8 @@ export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
             // and the palette opened with everything collapsed except the one
             // section a beginner wants last.
             defaultValue={['Start and finish', 'Steps', 'Decisions and branching']}
-            variant="separated"
+            variant="default"
+            chevronPosition="left"
             classNames={{
               item: classes.accordionItem,
               control: classes.accordionControl,
@@ -264,13 +270,14 @@ export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
                 <Accordion.Control>
                   <Group gap="xs">
                     {group.group === 'Connectors' && connectorsLoading && <Loader size={12} />}
-                    <Text size="sm" fw={600}>{group.group}</Text>
+                    <Text span inherit>{group.group}</Text>
+                    <Text span size="xs" c="dimmed" fw={500}>{group.items.length}</Text>
                   </Group>
                 </Accordion.Control>
                 <Accordion.Panel>
-                  <Stack gap="xs">
+                  <Stack gap={2}>
                     {group.items.map((item) => (
-                      <DesignerItem key={item.label} item={item} onDragStart={onDragStart} />
+                      <DesignerItem key={item.label} item={item} onDragStart={onDragStart} onAdd={onAdd} />
                     ))}
                   </Stack>
                 </Accordion.Panel>
@@ -303,7 +310,15 @@ export function DesignerSidebar({ embedded }: DesignerSidebarProps) {
   );
 }
 
-function DesignerItem({ item, onDragStart }: { item: PaletteEntry; onDragStart: DragStartHandler }) {
+function DesignerItem({
+  item,
+  onDragStart,
+  onAdd,
+}: {
+  item: PaletteEntry;
+  onDragStart: DragStartHandler;
+  onAdd?: AddHandler;
+}) {
   return (
     <Tooltip
       multiline
@@ -329,21 +344,28 @@ function DesignerItem({ item, onDragStart }: { item: PaletteEntry; onDragStart: 
         </Box>
       }
     >
+      {/*
+        A button, not a div: dragging was the only way onto the canvas, so
+        nobody on a keyboard could add a step at all. A click or Enter adds it
+        in the middle of the view; a drag still puts it exactly where it goes.
+      */}
       <UnstyledButton
-        component="div"
+        type="button"
         draggable
-        onDragStart={(event) => onDragStart(event, item.type, item.data)}
+        onDragStart={(event: React.DragEvent) => onDragStart(event, item.type, item.data)}
+        onClick={onAdd ? () => onAdd(item.type, item.data) : undefined}
+        aria-label={onAdd ? `Add ${item.label}` : item.label}
         className={classes.item}
       >
         <Group gap="sm" wrap="nowrap" align="center">
-          <GripVertical size={14} color="var(--mantine-color-dimmed)" />
           <ThemeIcon color={item.color} variant="light" radius="md" size="md">
             <item.icon size={16} />
           </ThemeIcon>
           <Box style={{ flex: 1, minWidth: 0 }}>
             <Text size="sm" fw={600} truncate>{item.label}</Text>
-            <Text size="xs" c="dimmed">{item.description}</Text>
+            <Text size="xs" c="dimmed" lineClamp={1}>{item.description}</Text>
           </Box>
+          <GripVertical size={14} className={classes.grip} aria-hidden />
         </Group>
       </UnstyledButton>
     </Tooltip>

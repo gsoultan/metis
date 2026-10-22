@@ -1,0 +1,26 @@
+.bar {
+  background-color: var(--mantine-color-body);
+  border-bottom: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4));
+}
+
+/* The name reads as a title until it is clicked, then as the field it is. */
+.name {
+  font-size: var(--mantine-font-size-lg);
+  font-weight: 800;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 6px;
+  margin-left: -6px;
+  border-radius: var(--mantine-radius-sm);
+  border: 1px solid transparent;
+  text-overflow: ellipsis;
+}
+
+.name:hover {
+  border-color: var(--mantine-color-default-border);
+}
+
+.name:focus {
+  border-color: var(--mantine-color-indigo-5);
+  background-color: var(--mantine-color-body);
+}
