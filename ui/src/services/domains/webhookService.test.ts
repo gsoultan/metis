@@ -43,3 +43,24 @@ describe("webhookService writes", () => {
     await expect(webhookService.deleteWebhook("w-1")).rejects.toThrow("webhook not found");
   });
 });
+
+describe("webhookService simulation", () => {
+  let restore = () => {};
+  afterEach(() => restore());
+
+  test("simulateWebhookDelivery posts the body as text, with only the headers given", async () => {
+    const simulation = { would_act: true, enabled: true, signature: { checked: false, valid: false }, message_name: "m", waiting: [], waiting_total: 0 };
+    const stub = stubFetch({ simulation });
+    restore = stub.restore;
+    const body = '{"order":{"id":"PO-1"}}';
+    expect(await webhookService.simulateWebhookDelivery("w-1", { body })).toEqual(simulation);
+    expect(stub.sent[0].method).toBe("POST");
+    expect(stub.sent[0].url).toEndWith("/webhooks/w-1/simulate");
+    expect(stub.sent[0].body).toEqual({ body });
+  });
+
+  test("simulateWebhookDelivery raises the refusal", async () => {
+    ({ restore } = stubFetch({ err: "no such webhook" }));
+    await expect(webhookService.simulateWebhookDelivery("w-1", { body: "{}" })).rejects.toThrow("no such webhook");
+  });
+});

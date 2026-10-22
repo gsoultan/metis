@@ -189,6 +189,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	webhookEndpoints.SetWebhookEnabled = designer("SetWebhookEnabled")(webhookEndpoints.SetWebhookEnabled)
 	webhookEndpoints.CloseLegacySignatures = designer("CloseLegacySignatures")(webhookEndpoints.CloseLegacySignatures)
 	webhookEndpoints.DeleteWebhook = designer("DeleteWebhook")(webhookEndpoints.DeleteWebhook)
+	// A simulation changes nothing, but it checks signatures with the
+	// webhook's secret and names the instances waiting on its message: the
+	// same people who set the webhook up, and nobody else.
+	webhookEndpoints.SimulateDelivery = designer("SimulateWebhookDelivery")(webhookEndpoints.SimulateDelivery)
 
 	// An outgoing webhook is a standing channel out of the project: every
 	// event it is given is posted to an address somebody typed. Opening,

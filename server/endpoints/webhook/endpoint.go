@@ -26,6 +26,7 @@ type Endpoints struct {
 	SetWebhookEnabled     endpoint.Endpoint
 	CloseLegacySignatures endpoint.Endpoint
 	DeleteWebhook         endpoint.Endpoint
+	SimulateDelivery      endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -35,6 +36,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		SetWebhookEnabled:     MakeSetWebhookEnabledEndpoint(s),
 		CloseLegacySignatures: MakeCloseLegacySignaturesEndpoint(s),
 		DeleteWebhook:         MakeDeleteWebhookEndpoint(s),
+		SimulateDelivery:      MakeSimulateDeliveryEndpoint(s),
 	}
 }
 
@@ -113,5 +115,25 @@ func MakeDeleteWebhookEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			return DeleteWebhookResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		return DeleteWebhookResponse{Err: s.DeleteWebhook(ctx, id)}, nil
+	}
+}
+
+func MakeSimulateDeliveryEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(SimulateDeliveryRequest)
+		if !ok {
+			return SimulateDeliveryResponse{Err: errWrongRequestType}, nil
+		}
+		id, err := uuid.Parse(req.ID)
+		if err != nil {
+			return SimulateDeliveryResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
+		}
+		result, err := s.SimulateWebhookDelivery(ctx, id, entities.WebhookSimulation{
+			Body:       []byte(req.Body),
+			Timestamp:  req.Timestamp,
+			DeliveryID: req.DeliveryID,
+			Signature:  req.Signature,
+		})
+		return SimulateDeliveryResponse{Result: result, Err: err}, nil
 	}
 }

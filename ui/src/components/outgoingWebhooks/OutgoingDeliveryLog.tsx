@@ -152,7 +152,7 @@ function Log({ hook, onSendTest }: { hook: ApiOutgoingWebhook; onSendTest: (hook
   );
 }
 
-function DeliveryRow({
+export function DeliveryRow({
   delivery,
   selected,
   onOpen,
@@ -177,7 +177,10 @@ function DeliveryRow({
         </UnstyledButton>
       </Table.Td>
       <Table.Td>
-        <Badge color={TONE_COLOR[outcome.tone]} variant="light" styles={{ label: { textTransform: 'none' } }}>
+        {/* A dot, not a tint: green and yellow text on their own tint measure
+            3.81:1 and 2.69:1 in this theme, under AA. The label keeps the
+            page's text colour and the dot carries the tone. */}
+        <Badge color={TONE_COLOR[outcome.tone]} variant="dot" styles={{ label: { textTransform: 'none' } }}>
           {outcome.label}
         </Badge>
       </Table.Td>

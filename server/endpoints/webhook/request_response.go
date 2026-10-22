@@ -71,3 +71,23 @@ type DeleteWebhookResponse struct {
 }
 
 func (r DeleteWebhookResponse) Failed() error { return r.Err }
+
+// SimulateDeliveryRequest is a delivery pasted in to see what it would do.
+//
+// The body is text, exactly as the partner would send it: a signature is
+// checked over these bytes, so it must not be decoded and encoded again.
+type SimulateDeliveryRequest struct {
+	ID         string `json:"-"`
+	Body       string `json:"body"`
+	Timestamp  string `json:"timestamp,omitzero"`
+	DeliveryID string `json:"delivery_id,omitzero"`
+	Signature  string `json:"signature,omitzero"`
+}
+
+// SimulateDeliveryResponse says what a real delivery would have done.
+type SimulateDeliveryResponse struct {
+	Result entities.WebhookSimulationResult `json:"simulation"`
+	Err    error                            `json:"err,omitzero"`
+}
+
+func (r SimulateDeliveryResponse) Failed() error { return r.Err }
