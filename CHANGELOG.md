@@ -1024,6 +1024,13 @@ does not undo a migration.
 
 ### Changed
 
+- **The live event stream encodes an event only for somebody who can
+  receive it.** Every step of every instance raised an event that was encoded
+  twice, even on a replica with no browser open for that organization and no
+  bus to other replicas. Now an event nobody could receive costs about 0.1 µs
+  instead of 11 µs, and one that is delivered is encoded once. An event that
+  cannot be encoded is logged rather than dropped without a word.
+
 - **A step repeated over an empty list is skipped.** A step run once per item
   of a list that is empty used to run once anyway, with no item: a service
   call with nothing to send, an approval task nobody was listed for. Now the
