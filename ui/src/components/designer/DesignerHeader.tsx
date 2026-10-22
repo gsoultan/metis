@@ -35,6 +35,8 @@ interface DesignerHeaderProps {
   deploying: boolean;
   /** Why Deploy is unavailable, or null when it is. */
   deployBlockedBy: string | null;
+  /** Two cards floating over the canvas, rather than a bar above it. */
+  floating?: boolean;
 }
 
 /**
@@ -63,10 +65,19 @@ export function DesignerHeader({
   onDeploy,
   deploying,
   deployBlockedBy,
+  floating = false,
 }: DesignerHeaderProps) {
   return (
-    <Group justify="space-between" wrap="nowrap" gap="md" px="md" py={10} className={classes.bar}>
-      <Group gap="sm" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
+    <Group
+      justify="space-between"
+      wrap="nowrap"
+      gap="md"
+      px={floating ? 0 : 'md'}
+      py={floating ? 0 : 10}
+      align="flex-start"
+      className={floating ? classes.floatingBar : classes.bar}
+    >
+      <Group gap="sm" wrap="nowrap" className={floating ? classes.card : undefined} style={{ flex: floating ? '0 1 auto' : 1, minWidth: 0 }}>
         <Tooltip label="Back to processes">
           <ActionIcon variant="subtle" color="gray" size="lg" aria-label="Back to processes" onClick={onBack}>
             <ArrowLeft size={18} />
@@ -111,7 +122,7 @@ export function DesignerHeader({
         </Box>
       </Group>
 
-      <Group gap="sm" wrap="nowrap">
+      <Group gap="sm" wrap="nowrap" className={floating ? classes.card : undefined}>
         {/*
           Two halves of one screen rather than two screens: you simulate the
           thing you are editing, on the diagram you are looking at. In the URL

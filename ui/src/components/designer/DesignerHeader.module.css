@@ -24,3 +24,24 @@
   border-color: var(--mantine-color-indigo-5);
   background-color: var(--mantine-color-body);
 }
+
+/* Over the canvas: the bar itself lets clicks through to the diagram, and
+   only its two cards take them. */
+.floatingBar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.card {
+  pointer-events: auto;
+  padding: 6px 10px;
+  border-radius: var(--mantine-radius-lg);
+  background-color: light-dark(rgba(255, 255, 255, 0.92), rgba(37, 38, 43, 0.92));
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--mantine-color-default-border);
+  box-shadow: var(--mantine-shadow-sm);
+}

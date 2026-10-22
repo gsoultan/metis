@@ -71,6 +71,7 @@ import { ConditionCell } from '../components/decisions/ConditionCell';
 import { CoverageCard } from '../components/decisions/CoverageCard';
 import { DecisionVersionsModal } from '../components/decisions/DecisionVersionsModal';
 import { SaveDecisionModal } from '../components/decisions/SaveDecisionModal';
+import { TrialRow } from '../components/decisions/TrialRow';
 import { TrialPanel } from '../components/decisions/TrialPanel';
 import type { GridCellProps } from '../components/decisions/gridCell';
 import {
@@ -432,6 +433,13 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
     [savedPayload],
   );
   const highlighted = matchedLines(outcome, rules, table, savedTable);
+  // The last Try-it answer, as both the case row and the Try it tab show it.
+  const shownTrial = outcome && {
+    outcome,
+    standing: trialStanding(outcome, table, savedTable),
+    staleReason: staleNote(table, savedTable),
+    lines: highlighted,
+  };
 
   const handleSave = () => {
     // Checked again as it stands: the list on screen can be a keystroke behind.
@@ -778,6 +786,19 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                     </Table.Th>
                     <Table.Th w={44} />
                   </Table.Tr>
+                  {/* Pinned under the headings, so a case stays in view while
+                      the lines it matched are scrolled to. */}
+                  <TrialRow
+                    target={target}
+                    inputs={inputs}
+                    outputs={outputs}
+                    values={testInputs}
+                    onValues={setTestInputs}
+                    onRun={handleTest}
+                    running={isTesting}
+                    error={testError}
+                    answer={shownTrial}
+                  />
                 </Table.Thead>
 
                 <Table.Tbody>
@@ -1064,14 +1085,7 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                   onRun={handleTest}
                   running={isTesting}
                   error={testError}
-                  answer={
-                    outcome && {
-                      outcome,
-                      standing: trialStanding(outcome, table, savedTable),
-                      staleReason: staleNote(table, savedTable),
-                      lines: highlighted,
-                    }
-                  }
+                  answer={shownTrial}
                 />
                 {/* The examples were stored with the table and shown nowhere, and
                     every save wiped them. They are saved with the table now, and run

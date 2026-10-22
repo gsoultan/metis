@@ -1,0 +1,7 @@
+/* The case being tried: tinted, and set off from the rules under it. */
+.row > td {
+  background-color: light-dark(var(--mantine-color-orange-0), rgba(253, 126, 20, 0.08));
+  border-bottom: 2px dashed light-dark(var(--mantine-color-orange-3), var(--mantine-color-orange-8));
+  padding-top: 6px;
+  padding-bottom: 6px;
+}

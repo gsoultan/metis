@@ -173,7 +173,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
   const [processKey, setProcessKey] = useState(initialKey || 'new_process');
   // The palette is open from the start: it is how a step gets onto the canvas,
   // and a newcomer should not have to find it first.
-  const [componentsOpened, { open: openComponents, close: closeComponents, toggle: toggleComponents }] = useDisclosure(true);
+  const [componentsOpened, { open: openComponents, close: closeComponents, toggle: toggleComponents }] = useDisclosure(false);
   const [spotlightOpened, { toggle: toggleSpotlight, close: closeSpotlight }] = useDisclosure(false);
   const [checklistOpened, { open: openChecklist, close: closeChecklist }] = useDisclosure(false);
   const [clearCanvasOpened, { open: openClearCanvas, close: closeClearCanvas }] = useDisclosure(false);
@@ -359,7 +359,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     const updatedNodes = autoLayoutNodes(nodes, edges);
     setNodes(updatedNodes);
     pushToHistory(updatedNodes, edges);
-    reactFlowInstance?.fitView({ duration: 800 });
+    reactFlowInstance?.fitView({ duration: 800, padding: { top: '96px', left: '150px', right: '120px', bottom: '48px' } });
   }, [edges, nodes, pushToHistory, reactFlowInstance]);
 
   const handleProcessNameChange = useCallback(
@@ -619,6 +619,37 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     setSelectedEdge(null);
   }, [edges, nodes, pushToHistory, selectedEdge, selectedNode]);
 
+  /** Deletes one step by id, with its arrows: the delete on the step's own pad. */
+  const removeNode = useCallback(
+    (id: string) => {
+      const nextNodes = nodes.filter((node) => node.id !== id);
+      const nextEdges = edges.filter((edge) => edge.source !== id && edge.target !== id);
+      setNodes(nextNodes);
+      setEdges(nextEdges);
+      pushToHistory(nextNodes, nextEdges);
+      setSelectedNode((current) => (current?.id === id ? null : current));
+    },
+    [edges, nodes, pushToHistory],
+  );
+
+  /**
+   * Adds a step after the one named, joined by an arrow: the "+" on a step's
+   * pad. The same placement a palette click uses with that step selected.
+   */
+  const addNodeAfter = useCallback(
+    (id: string, type: string, initialData: Partial<BPMNNodeData> = {}) => {
+      const after = nodes.find((node) => node.id === id);
+      if (!after) return;
+      const joined = followsOn(String(after.type), type);
+      const position = {
+        x: after.position.x + (after.measured?.width ?? DEFAULT_STEP_WIDTH) + STEP_GAP,
+        y: after.position.y + (after.measured?.height ?? DEFAULT_STEP_HEIGHT) / 2 - DEFAULT_STEP_HEIGHT / 2,
+      };
+      placeNode(type, initialData, clearSpot(position, nodes), { select: true, after: joined ? after : null });
+    },
+    [nodes, placeNode],
+  );
+
   const updateNodeData = useCallback((id: string, newData: Partial<BPMNNodeData>) => {
     setNodes((currentNodes) =>
       currentNodes.map((node) => {
@@ -794,7 +825,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     }
 
     setTimeout(() => {
-      reactFlowInstance.fitView();
+      reactFlowInstance.fitView({ padding: { top: '96px', left: '150px', right: '120px', bottom: '48px' } });
     }, 100);
   }, [loadedData, reactFlowInstance]);
 
@@ -933,6 +964,8 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     onDragOver,
     onDrop,
     addNodeAt,
+    addNodeAfter,
+    removeNode,
     onNodeClick,
     onEdgeClick,
     onPaneClick,

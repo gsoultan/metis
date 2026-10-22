@@ -23,6 +23,7 @@ import { CanvasToolbar } from '../components/designer/CanvasToolbar';
 import { DesignerHeader } from '../components/designer/DesignerHeader';
 import { EmptyCanvasHint } from '../components/designer/EmptyCanvasHint';
 import { DesignerSidebar } from '../components/DesignerSidebar';
+import { NodeActionsContext } from '../components/designer/NodeActionsContext';
 import classes from './ProcessDesigner.module.css';
 import { PropertyPanel } from '../components/PropertyPanel';
 import { DesignerModals } from '../components/DesignerModals';
@@ -40,6 +41,12 @@ import { useSimulationCases } from '../hooks/useSimulationCases';
 import { useSimulationTarget } from '../hooks/useSimulationTarget';
 import { useAppStore } from '../store/useAppStore';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
+
+/** A fit that keeps the diagram clear of the cards floating over the canvas. */
+const FIT = {
+  padding: { top: '96px', left: '150px', right: '120px', bottom: '48px' },
+  maxZoom: 1.1,
+} as const;
 
 export function ProcessDesigner({
   definitionId,
@@ -190,6 +197,11 @@ export function ProcessDesigner({
         ? `Fix ${blockingIssues} ${blockingIssues === 1 ? 'problem' : 'problems'} before deploying`
         : null;
 
+  const nodeActions = useMemo(
+    () => ({ addAfter: designer.addNodeAfter, remove: designer.removeNode }),
+    [designer.addNodeAfter, designer.removeNode],
+  );
+
   /** The middle of the visible canvas, on screen: where a clicked step lands. */
   const canvasRef = useRef<HTMLDivElement>(null);
   const addAtCentre = useCallback(
@@ -225,13 +237,17 @@ export function ProcessDesigner({
       const height = node.measured.height ?? 60;
       const corner = reactFlowInstance.flowToScreenPosition(at);
       const margin = 24;
+      // The settings card covers the right of the canvas, the cards at the
+      // top its first 64px, and the tool rail its left edge.
       const hidden =
-        corner.x < bounds.left + margin ||
-        corner.y < bounds.top + margin ||
-        corner.x + width * zoom > bounds.right - margin ||
+        corner.x < bounds.left + 72 + margin ||
+        corner.y < bounds.top + 64 + margin ||
+        corner.x + width * zoom > bounds.right - 434 - margin ||
         corner.y + height * zoom > bounds.bottom - margin;
       if (hidden) {
-        void reactFlowInstance.setCenter(at.x + width / 2, at.y + height / 2, { zoom, duration: 300 });
+        // Centred in the part of the canvas the card leaves showing.
+        const shift = (434 - 72) / 2 / zoom;
+        void reactFlowInstance.setCenter(at.x + width / 2 + shift, at.y + height / 2, { zoom, duration: 300 });
       }
     });
     return () => cancelAnimationFrame(frame);
@@ -269,30 +285,6 @@ export function ProcessDesigner({
         </Alert>
       )}
 
-      <DesignerHeader
-        processName={processName}
-        onNameChange={handleProcessNameChange}
-        processKey={processKey}
-        lastSaved={lastSaved}
-        simulating={simulating}
-        onModeChange={(mode) =>
-          navigate({
-            to: '/designer',
-            search: { ...search, mode },
-            replace: true,
-          })
-        }
-        issues={issues}
-        onSelectIssue={selectById}
-        onBack={() => navigate({ to: '/models', search: { tab: 'processes' } })}
-        onImport={onImport}
-        onExport={onExport}
-        importing={importMutation.isPending}
-        exporting={exportMutation.isPending}
-        onDeploy={onSave}
-        deploying={createDefinition.isPending}
-        deployBlockedBy={deployBlockedBy}
-      />
       <input
         type="file"
         ref={fileInputRef}
@@ -302,34 +294,8 @@ export function ProcessDesigner({
       />
 
       <Box style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
-        {/*
-          The building blocks stay open beside the canvas, as they do in
-          bpmn.io and Camunda Modeler. They used to live in a drawer behind an
-          "Add step" button that sat with Import and Export and read as one of
-          them, so a newcomer's first job was finding where the steps were.
-        */}
-        {!simulating && componentsOpened && (
-          <Box component="aside" aria-label="Building blocks" className={classes.palette}>
-            <Group justify="space-between" wrap="nowrap" mb={2}>
-              <Text fw={700} size="sm">
-                Building blocks
-              </Text>
-              <CloseButton size="sm" aria-label="Hide building blocks" onClick={closeComponents} />
-            </Group>
-            {/* Says what a click will do, because with a step selected it
-                does more than add: it joins the new step on after it. */}
-            <Text size="xs" c="dimmed" mb="sm" lineClamp={2}>
-              {selectedNode && canFollow(String(selectedNode.type))
-                ? `Click to add after “${labelOf(selectedNode.id)}”, or drag onto the canvas`
-                : 'Click to add, or drag onto the canvas'}
-            </Text>
-            <Box style={{ flex: 1, minHeight: 0 }}>
-              <DesignerSidebar embedded onAdd={addAtCentre} />
-            </Box>
-          </Box>
-        )}
-
         <Box ref={canvasRef} className={classes.canvas}>
+        <NodeActionsContext.Provider value={simulating ? null : nodeActions}>
         <ReactFlow<Node<BPMNNodeData>, Edge<BPMNEdgeData>>
           proOptions={{ hideAttribution: true }}
           nodes={canvasNodes}
@@ -347,7 +313,7 @@ export function ProcessDesigner({
           onPaneClick={simulating ? sim.stopAnswering : onPaneClick}
           nodeTypes={nodeTypes}
           fitView
-          fitViewOptions={{ padding: 0.25, maxZoom: 1.1 }}
+          fitViewOptions={FIT}
           style={{ width: '100%', height: '100%' }}
         >
           <Background
@@ -365,6 +331,8 @@ export function ProcessDesigner({
             pannable
             zoomable
             ariaLabel="Overview of the whole diagram"
+            position="bottom-left"
+            style={{ marginLeft: 76 }}
             className={classes.minimap}
             maskColor="light-dark(rgba(241, 243, 245, 0.7), rgba(26, 27, 30, 0.7))"
             nodeBorderRadius={6}
@@ -400,24 +368,6 @@ export function ProcessDesigner({
             </Box>
           ))}
 
-          {!simulating && (
-            <Panel position="bottom-center">
-              <CanvasToolbar
-                paletteOpen={componentsOpened}
-                onTogglePalette={toggleComponents}
-                canUndo={historyIndex > 0}
-                canRedo={historyIndex < history.length - 1}
-                undoSteps={Math.max(historyIndex, 0)}
-                onUndo={undo}
-                onRedo={redo}
-                onZoomIn={() => reactFlowInstance?.zoomIn()}
-                onZoomOut={() => reactFlowInstance?.zoomOut()}
-                onFit={() => reactFlowInstance?.fitView({ padding: 0.25, maxZoom: 1.1 })}
-                onAutoLayout={onAutoLayout}
-                onClear={clearCanvas}
-              />
-            </Panel>
-          )}
 
           {nodes.length === 0 && !simulating && (
             <Panel position="top-center" style={{ marginTop: 96 }}>
@@ -438,31 +388,103 @@ export function ProcessDesigner({
             <SimulationAnswerCard sim={sim} nodeId={awaitingNode} label={awaitingLabel} />
           )}
         </ReactFlow>
+        </NodeActionsContext.Provider>
+
+          <DesignerHeader
+                floating
+            processName={processName}
+            onNameChange={handleProcessNameChange}
+            processKey={processKey}
+            lastSaved={lastSaved}
+            simulating={simulating}
+            onModeChange={(mode) =>
+              navigate({
+                to: '/designer',
+                search: { ...search, mode },
+                replace: true,
+              })
+            }
+            issues={issues}
+            onSelectIssue={selectById}
+            onBack={() => navigate({ to: '/models', search: { tab: 'processes' } })}
+            onImport={onImport}
+            onExport={onExport}
+            importing={importMutation.isPending}
+            exporting={exportMutation.isPending}
+            onDeploy={onSave}
+            deploying={createDefinition.isPending}
+            deployBlockedBy={deployBlockedBy}
+          />
+
+          {/*
+            Canvas first: the diagram runs edge to edge, and everything else
+            floats over it — the name and actions in two cards at the top, the
+            tools in a rail down the left, the building blocks in a flyout from
+            its "+", and a step's settings in a card on the right.
+          */}
+          {!simulating && (
+            <Box className={classes.rail}>
+              <CanvasToolbar
+                vertical
+                paletteOpen={componentsOpened}
+                onTogglePalette={toggleComponents}
+                canUndo={historyIndex > 0}
+                canRedo={historyIndex < history.length - 1}
+                undoSteps={Math.max(historyIndex, 0)}
+                onUndo={undo}
+                onRedo={redo}
+                onZoomIn={() => reactFlowInstance?.zoomIn()}
+                onZoomOut={() => reactFlowInstance?.zoomOut()}
+                onFit={() => reactFlowInstance?.fitView(FIT)}
+                onAutoLayout={onAutoLayout}
+                onClear={clearCanvas}
+              />
+            </Box>
+          )}
+
+          {!simulating && componentsOpened && (
+            <Box component="aside" aria-label="Building blocks" className={classes.flyout}>
+              <Group justify="space-between" wrap="nowrap" mb={2}>
+                <Text fw={700} size="sm">
+                  Add a step
+                </Text>
+                <CloseButton size="sm" aria-label="Hide building blocks" onClick={closeComponents} />
+              </Group>
+              {/* Says what a click will do, because with a step selected it
+                  does more than add: it joins the new step on after it. */}
+              <Text size="xs" c="dimmed" mb="sm" lineClamp={2}>
+                {selectedNode && canFollow(String(selectedNode.type))
+                  ? `Click to add after “${labelOf(selectedNode.id)}”, or drag onto the canvas`
+                  : 'Click to add, or drag onto the canvas'}
+              </Text>
+              <Box style={{ flex: 1, minHeight: 0 }}>
+                <DesignerSidebar embedded onAdd={addAtCentre} />
+              </Box>
+            </Box>
+          )}
+
+          {/*
+            Not in simulate mode: a run is a trace of the model as it was when
+            the run started, and editing mid-trace would leave the canvas
+            showing a diagram the steps below it never ran on.
+          */}
+          {!simulating && (
+            <PropertyPanel
+              floating
+              selectedNode={selectedNode}
+              selectedEdge={selectedEdge}
+              onClose={designer.closeSelection}
+              onDelete={deleteSelected}
+              updateNodeData={updateNodeData}
+              updateEdgeData={updateEdgeData}
+              nodes={nodes}
+              edges={edges}
+              instanceId={instanceId}
+              onViewInstance={onViewInstance}
+            />
+          )}
         </Box>
 
-        {/*
-          The step's settings, docked beside the diagram rather than over it:
-          they used to open as a full-screen dialog, so the diagram — the
-          thing being configured — vanished the moment a step was clicked.
-
-          Not in simulate mode: a run is a trace of the model as it was when
-          the run started, and editing mid-trace would leave the canvas
-          showing a diagram the steps below it never ran on.
-        */}
-        {!simulating && (
-          <PropertyPanel
-            selectedNode={selectedNode}
-            selectedEdge={selectedEdge}
-            onClose={designer.closeSelection}
-            onDelete={deleteSelected}
-            updateNodeData={updateNodeData}
-            updateEdgeData={updateEdgeData}
-            nodes={nodes}
-            edges={edges}
-            instanceId={instanceId}
-            onViewInstance={onViewInstance}
-          />
-        )}
 
         {simulating && (
           <Box

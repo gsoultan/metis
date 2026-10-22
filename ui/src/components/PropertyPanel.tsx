@@ -83,6 +83,8 @@ interface PropertyPanelProps {
   nodes?: Node<BPMNNodeData>[];
   instanceId?: string | null;
   onViewInstance?: (id: string, defId: string) => void;
+  /** A card floating over the canvas, its sections in tabs, rather than a docked column. */
+  floating?: boolean;
 }
 
 
@@ -97,6 +99,7 @@ export function PropertyPanel({
   nodes = [],
   instanceId = null,
   onViewInstance,
+  floating = false,
 }: PropertyPanelProps) {
   const expertMode = useAppStore((state) => state.expertMode);
   const setExpertMode = useAppStore((state) => state.setExpertMode);
@@ -409,6 +412,51 @@ export function PropertyPanel({
           <Container size="xl">{footer}</Container>
         </Box>
       </Modal>
+    );
+  }
+
+  if (floating) {
+    /*
+      The floating card shows one part at a time. A step's settings run to
+      four sections, and as one scroll the checks — the part that says what is
+      wrong — were the last thing reached. Here each is one click away.
+    */
+    return (
+      <Box component="aside" aria-label={`Settings for ${title}`} className={classes.floating}>
+        <Box px="md" pt="md" pb="xs" className={classes.header}>
+          <Group justify="space-between" wrap="nowrap" align="flex-start" gap="xs">
+            {header}
+            {headerControls}
+          </Group>
+        </Box>
+        <Tabs defaultValue="about" keepMounted={false} className={classes.tabs}>
+          <Tabs.List grow px="xs">
+            <Tabs.Tab value="about">About</Tabs.Tab>
+            <Tabs.Tab value="setup">{selectedNode ? 'Setup' : 'Condition'}</Tabs.Tab>
+            {selectedNode && <Tabs.Tab value="data">Data</Tabs.Tab>}
+            <Tabs.Tab value="checks">Checks</Tabs.Tab>
+          </Tabs.List>
+          <ScrollArea style={{ flex: 1 }} scrollbarSize={6}>
+            <Box p="md">
+              <Tabs.Panel value="about">{about}</Tabs.Panel>
+              <Tabs.Panel value="setup">{configuration}</Tabs.Panel>
+              {selectedNode && <Tabs.Panel value="data">{data}</Tabs.Panel>}
+              <Tabs.Panel value="checks">
+                <Stack gap="md">
+                  <Group justify="space-between">
+                    <Text size="xs" c="dimmed">Expert settings</Text>
+                    {expertSwitch}
+                  </Group>
+                  {checks}
+                </Stack>
+              </Tabs.Panel>
+            </Box>
+          </ScrollArea>
+        </Tabs>
+        <Box px="md" py="sm" className={classes.footer}>
+          {footer}
+        </Box>
+      </Box>
     );
   }
 

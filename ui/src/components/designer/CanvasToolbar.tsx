@@ -1,14 +1,16 @@
-import { ActionIcon, Divider, Group, Paper, Tooltip } from '@mantine/core';
+import { ActionIcon, Divider, Flex, Paper, Tooltip } from '@mantine/core';
 import {
   LayoutGrid,
   Maximize,
   PanelLeftClose,
   PanelLeftOpen,
+  Plus,
   Redo2,
   Trash,
   Undo2,
   ZoomIn,
   ZoomOut,
+  X,
 } from 'lucide-react';
 
 interface CanvasToolbarProps {
@@ -24,6 +26,8 @@ interface CanvasToolbarProps {
   onFit: () => void;
   onAutoLayout: () => void;
   onClear: () => void;
+  /** A rail down the left of the canvas, rather than a bar under it. */
+  vertical?: boolean;
 }
 
 /**
@@ -35,58 +39,79 @@ interface CanvasToolbarProps {
  * shows or hides the building blocks.
  */
 export function CanvasToolbar(props: CanvasToolbarProps) {
+  const vertical = props.vertical ?? false;
+  const tooltipSide = vertical ? 'right' : 'top';
   return (
-    <Paper p={4} withBorder radius="xl" shadow="md" mb="md" bg="var(--mantine-color-body)">
-      <Group gap={4} wrap="nowrap">
-        <Tool
-          label={props.paletteOpen ? 'Hide building blocks' : 'Show building blocks'}
-          onClick={props.onTogglePalette}
-          active={props.paletteOpen}
-        >
-          {props.paletteOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
-        </Tool>
+    <Paper p={4} withBorder radius="xl" shadow="md" mb={vertical ? 0 : 'md'} bg="var(--mantine-color-body)">
+      <Flex gap={4} direction={vertical ? 'column' : 'row'} align="center" wrap="nowrap">
+        {vertical ? (
+          <Tooltip label={props.paletteOpen ? 'Hide building blocks' : 'Add a step'} position={tooltipSide}>
+            <ActionIcon
+              aria-label={props.paletteOpen ? 'Hide building blocks' : 'Add a step'}
+              aria-pressed={props.paletteOpen}
+              variant="filled"
+              color="indigo"
+              size="xl"
+              radius="xl"
+              onClick={props.onTogglePalette}
+            >
+              {props.paletteOpen ? <X size={20} /> : <Plus size={20} />}
+            </ActionIcon>
+          </Tooltip>
+        ) : (
+          <Tool
+            side={tooltipSide}
+            label={props.paletteOpen ? 'Hide building blocks' : 'Show building blocks'}
+            onClick={props.onTogglePalette}
+            active={props.paletteOpen}
+          >
+            {props.paletteOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+          </Tool>
+        )}
 
-        <Divider orientation="vertical" />
+        <Divider orientation={vertical ? 'horizontal' : 'vertical'} w={vertical ? 24 : undefined} />
 
         <Tool
+            side={tooltipSide}
           label={props.canUndo ? `Undo (${props.undoSteps} ${props.undoSteps === 1 ? 'step' : 'steps'})` : 'Undo'}
           onClick={props.onUndo}
           disabled={!props.canUndo}
         >
           <Undo2 size={18} />
         </Tool>
-        <Tool label="Redo" onClick={props.onRedo} disabled={!props.canRedo}>
+        <Tool side={tooltipSide} label="Redo" onClick={props.onRedo} disabled={!props.canRedo}>
           <Redo2 size={18} />
         </Tool>
 
-        <Divider orientation="vertical" />
+        <Divider orientation={vertical ? 'horizontal' : 'vertical'} w={vertical ? 24 : undefined} />
 
-        <Tool label="Zoom in" onClick={props.onZoomIn}>
+        <Tool side={tooltipSide} label="Zoom in" onClick={props.onZoomIn}>
           <ZoomIn size={18} />
         </Tool>
-        <Tool label="Zoom out" onClick={props.onZoomOut}>
+        <Tool side={tooltipSide} label="Zoom out" onClick={props.onZoomOut}>
           <ZoomOut size={18} />
         </Tool>
-        <Tool label="Fit diagram to view" onClick={props.onFit}>
+        <Tool side={tooltipSide} label="Fit diagram to view" onClick={props.onFit}>
           <Maximize size={18} />
         </Tool>
-        <Tool label="Tidy up the layout" onClick={props.onAutoLayout}>
+        <Tool side={tooltipSide} label="Tidy up the layout" onClick={props.onAutoLayout}>
           <LayoutGrid size={18} />
         </Tool>
 
-        <Divider orientation="vertical" />
+        <Divider orientation={vertical ? 'horizontal' : 'vertical'} w={vertical ? 24 : undefined} />
 
         {/* The accessible name and the tooltip say the same thing: a screen
             reader user and a sighted user are told the same action. */}
-        <Tool label="Clear the canvas" onClick={props.onClear} color="red">
+        <Tool side={tooltipSide} label="Clear the canvas" onClick={props.onClear} color="red">
           <Trash size={18} />
         </Tool>
-      </Group>
+      </Flex>
     </Paper>
   );
 }
 
 function Tool({
+  side = 'top',
   label,
   onClick,
   disabled,
@@ -94,6 +119,7 @@ function Tool({
   color = 'gray',
   children,
 }: {
+  side?: 'top' | 'right';
   label: string;
   onClick: () => void;
   disabled?: boolean;
@@ -102,7 +128,7 @@ function Tool({
   children: React.ReactNode;
 }) {
   return (
-    <Tooltip label={label}>
+    <Tooltip label={label} position={side}>
       <ActionIcon
         aria-label={label}
         aria-pressed={active}
