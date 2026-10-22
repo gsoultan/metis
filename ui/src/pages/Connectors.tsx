@@ -21,6 +21,7 @@ import { useState, useTransition } from 'react';
 
 import { ConnectorManifests } from '../components/ConnectorManifests';
 import { PageHeader } from '../components/PageHeader';
+import { OutgoingWebhookSettings } from '../components/outgoingWebhooks/OutgoingWebhookSettings';
 import { WebhookSettings } from '../components/WebhookSettings';
 import { ConnectorInstanceTable } from '../components/connectors/ConnectorInstanceTable';
 import { ConnectorSetupWizard } from '../components/connectors/ConnectorSetupWizard';
@@ -180,8 +181,10 @@ export function Connectors() {
       />
 
       {/* Outbound and inbound belong together: to whoever is wiring a system
-          up, calling a partner and being called by one are the same job. */}
+          up, calling a partner, telling one what happened and being called by
+          one are the same job. */}
       <ConnectorManifests />
+      <OutgoingWebhookSettings />
       <WebhookSettings />
 
       <Paper p="xl" radius="lg" withBorder shadow="sm">

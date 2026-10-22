@@ -446,6 +446,14 @@ does not undo a migration.
   saved and at every dial, and no delivery carries process variables
   ([Sending events: outgoing
   webhooks](docs/integration.md#sending-events-outgoing-webhooks)).
+- **Outgoing webhooks in the UI.** The connectors page lists a project's
+  outgoing webhooks with the events each is sent. An administrator adds one
+  there, choosing its events in plain words and copying its secret from the
+  one dialog that shows it; sends it a test and sees the request, the
+  receiver's answer and how the signature was made; and reads its delivery
+  log, filtered by where deliveries stand, retrying or stopping one from it.
+  A failure says what to do next, such as checking the signing secret on a
+  401.
 - **Try an outgoing webhook, and read what it was sent.** An administrator can
   send a webhook a signed sample of any of its events and see the request as
   it went out, signature included, and the receiver's answer; the sample is
