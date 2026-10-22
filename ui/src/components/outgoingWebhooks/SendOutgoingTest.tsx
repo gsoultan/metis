@@ -6,8 +6,8 @@
  * for whoever set the webhook up; and how the signature was made, for the
  * developer whose check refused it.
  */
-import { Alert, Badge, Button, Code, Group, Modal, Select, Stack, Tabs, Text } from '@mantine/core';
-import { Send } from 'lucide-react';
+import { Alert, Button, Code, Group, Modal, Select, Stack, Tabs, Text, ThemeIcon } from '@mantine/core';
+import { CheckCircle2, Send, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 import { EVENT_GROUPS, eventLabel, prettyBody, troubleHint } from '../../domain/outgoingWebhooks';
@@ -67,12 +67,12 @@ function TestPanel({ hook }: { hook: ApiOutgoingWebhook }) {
           {errorMessage(send.error)}
         </Alert>
       )}
-      {send.data && <TestResult test={send.data} />}
+      {send.data && <OutgoingTestResult test={send.data} />}
     </Stack>
   );
 }
 
-function TestResult({ test }: { test: ApiOutgoingTest }) {
+export function OutgoingTestResult({ test }: { test: ApiOutgoingTest }) {
   const { response } = test;
   const hint = troubleHint(response.status_code, response.error);
   const headline = response.status_code ? String(response.status_code) : 'No answer';
@@ -80,9 +80,14 @@ function TestResult({ test }: { test: ApiOutgoingTest }) {
   return (
     <Stack gap="sm">
       <Group gap="sm">
-        <Badge color={test.accepted ? 'green' : 'red'} variant="filled" size="lg">
+        {/* The status in words beside an icon rather than on a filled badge:
+            white on this theme's filled green measures 3.45:1, under AA. */}
+        <ThemeIcon color={test.accepted ? 'green' : 'red'} variant="light" size="lg" radius="xl" aria-hidden>
+          {test.accepted ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
+        </ThemeIcon>
+        <Text size="lg" fw={700}>
           {headline}
-        </Badge>
+        </Text>
         <div>
           <Text size="sm" fw={600}>
             {test.accepted ? 'The receiver accepted it' : 'The receiver did not accept it'}

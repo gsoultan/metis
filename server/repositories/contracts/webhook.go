@@ -15,6 +15,11 @@ type WebhookRepository interface {
 	// authenticated, and the row it returns is what establishes the tenant.
 	GetByToken(ctx context.Context, token string) (models.WebhookModel, error)
 
+	// Get reads one webhook within the caller's scope, with the secret
+	// decrypted so a signature can be checked against it. The secret is for
+	// the server: nothing that calls this may put it in a response.
+	Get(ctx context.Context, id uuid.UUID) (models.WebhookModel, error)
+
 	// ListByProject returns a project's webhooks with their secrets blanked.
 	ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.WebhookModel, error)
 
@@ -35,6 +40,10 @@ type WebhookRepository interface {
 	// with that ID. A false means the sender is retrying something already
 	// acted on.
 	ClaimDelivery(ctx context.Context, webhookID uuid.UUID, deliveryID string) (bool, error)
+
+	// DeliveryReceived reports whether a delivery with this ID has been
+	// claimed and not yet forgotten, without claiming it.
+	DeliveryReceived(ctx context.Context, webhookID uuid.UUID, deliveryID string) (bool, error)
 
 	// ForgetDeliveriesBefore drops delivery records older than the cutoff.
 	ForgetDeliveriesBefore(ctx context.Context, cutoff time.Time) (int64, error)

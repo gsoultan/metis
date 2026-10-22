@@ -1666,6 +1666,42 @@ A `401` for a sender you believe is right is nearly always the wrong secret, a
 body re-encoded after signing, a timestamp or delivery ID header that differs
 from what was signed, or a timestamp in milliseconds.
 
+### Trying a delivery before the partner sends one
+
+Setting a sender up usually goes wrong in one of three places: the body is not
+shaped the way the correlation rule expects, the value it finds is not the one
+the process waits on, or the signature is computed over different bytes. Each
+can be found without asking the partner to send again.
+
+On **Connectors → Incoming webhooks**, *Try a delivery* takes the body the
+partner would post and, optionally, its `X-Metis-Timestamp`, `X-Delivery-Id`
+and `X-Metis-Signature`. It runs the checks a real delivery meets, in the same
+order, and says what came of each: whether the webhook is switched on, whether
+the signature matches its secret and is recent enough, what the correlation
+rule finds, whether that delivery ID was already acted on, and which waiting
+instances a real delivery would move on (or, with no correlation rule, which
+processes it would start). When a real delivery would be refused it says so in
+the words the sender would be answered with.
+
+It is a dry run. No message is sent, so no process moves, and the delivery ID
+is looked up rather than claimed, so the real delivery that follows is still
+the first. The answer never contains the signature a body should have had:
+that would let anybody allowed to simulate sign any body as the partner.
+
+```
+POST /api/v1/webhooks/<webhook id>/simulate
+Authorization: Bearer <token of a designer>
+
+{"body": "{\"data\":{\"order_ref\":\"PO-4182\"}}",
+ "timestamp": "1767225600", "delivery_id": "evt_0001", "signature": "v2=…"}
+```
+
+`body` is the raw body as text, because the signature is over those bytes. The
+signature fields may be left out; the answer then says the signature was not
+checked. The answer is `{"simulation": {...}}` with `would_act`, `refusal`,
+`signature`, `body_problem`, `correlation_key`, `already_received`, the first 20
+`waiting` instances and `waiting_total`, and `starts`.
+
 ### Legacy signatures, and moving off them
 
 Before v2 a signature was the HMAC of the body alone, sent as

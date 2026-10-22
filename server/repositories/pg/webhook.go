@@ -44,6 +44,16 @@ func (r *webhookRepository) GetByToken(ctx context.Context, token string) (model
 	return webhookFrom(row)
 }
 
+// Get reads a webhook within the caller's scope, its secret opened. A webhook
+// of a project the caller cannot see is not found, as it is everywhere else.
+func (r *webhookRepository) Get(ctx context.Context, id uuid.UUID) (models.WebhookModel, error) {
+	row, err := r.one(ctx, id)
+	if err != nil {
+		return models.WebhookModel{}, err
+	}
+	return webhookFrom(row)
+}
+
 func (r *webhookRepository) ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.WebhookModel, error) {
 	scoped, visible, err := r.scopedProjects(ctx, projectID)
 	if err != nil || !visible {
@@ -196,6 +206,22 @@ func (r *webhookRepository) ClaimDelivery(ctx context.Context, webhookID uuid.UU
 		return false, fmt.Errorf("could not record the delivery: %w", err)
 	}
 	return true, nil
+}
+
+// DeliveryReceived looks a delivery ID up without claiming it, so asking
+// leaves the real delivery free to be the first.
+func (r *webhookRepository) DeliveryReceived(ctx context.Context, webhookID uuid.UUID, deliveryID string) (bool, error) {
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return false, err
+	}
+	found, err := webhookdelivery.New().
+		Where(webhookdelivery.WebhookID.Eq(webhookID), webhookdelivery.DeliveryID.Eq(deliveryID)).
+		Exists(ctx, ex)
+	if err != nil {
+		return false, fmt.Errorf("could not look the delivery up: %w", err)
+	}
+	return found, nil
 }
 
 // ForgetDeliveriesBefore drops the de-duplication records that are older than

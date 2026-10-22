@@ -363,6 +363,7 @@ const en: Catalogue = {
   'access.action.UpdateConnector': 'Update connector',
   'access.action.UpdateConnectorInstance': 'Update connector instance',
   'access.action.CloseLegacySignatures': 'Close legacy signatures',
+  'access.action.SimulateWebhookDelivery': 'Simulate webhook delivery',
   'access.action.CreateWebhook': 'Create webhook',
   'access.action.DeleteWebhook': 'Delete webhook',
   'access.action.SetWebhookEnabled': 'Set webhook enabled',

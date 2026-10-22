@@ -463,6 +463,16 @@ does not undo a migration.
   log, filtered by where deliveries stand, retrying or stopping one from it.
   A failure says what to do next, such as checking the signing secret on a
   401.
+- **Try a delivery to an incoming webhook before the partner sends one.**
+  Each incoming webhook on the connectors page has *Try a delivery*: paste the
+  body the partner would post, optionally with its three signature headers,
+  and see each check a real delivery meets, in order. Whether the signature
+  matches the webhook's secret, which value the correlation rule finds, which
+  waiting instances it would move on or which processes it would start, and
+  why a real delivery would be refused. It is a dry run: no process moves and
+  the delivery ID is not used up. The answer never contains the signature a
+  body should have had. For a designer, as setting the webhook up is
+  ([Trying a delivery](docs/integration.md#trying-a-delivery-before-the-partner-sends-one)).
 - **Try an outgoing webhook, and read what it was sent.** An administrator can
   send a webhook a signed sample of any of its events and see the request as
   it went out, signature included, and the receiver's answer; the sample is
@@ -1194,6 +1204,12 @@ does not undo a migration.
   to anybody who is not an operator or an administrator.
 
 ### Fixed
+
+- **An outgoing webhook's delivery log and test result are readable.** A
+  delivery's outcome was drawn as green or yellow text on its own tint, at
+  3.81:1 and 2.69:1 in light mode, and a test's status as white on a filled
+  green, at 3.45:1, all under the 4.5:1 AA asks. The outcome keeps the page's
+  text colour beside a coloured dot, and the status is text beside an icon.
 
 - **A simulation says which version it ran.** Every run reported version 0,
   whichever version it was of, because the version was read off the

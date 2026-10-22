@@ -13,6 +13,8 @@
  *
  * It also says which webhooks still accept legacy signatures, which a captured
  * delivery can be replayed under, and until when — see LegacySigningNotice.
+ * And each one can be tried with a pasted delivery before the partner sends a
+ * real one — see SimulateDelivery.
  */
 import {
   ActionIcon,
@@ -34,13 +36,14 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { AlertTriangle, Check, Copy, Plus, Trash2, Webhook } from 'lucide-react';
+import { AlertTriangle, Check, Copy, FlaskConical, Plus, Trash2, Webhook } from 'lucide-react';
 import { useState } from 'react';
 
 import { useCreateWebhook, useDeleteWebhook, useSetWebhookEnabled, useWebhooks } from '../hooks/useWebhooks';
 import type { ApiWebhook } from '../services/domains/webhookService';
 import { errorMessage } from '../services/shared/errors';
 import { LegacySigningNotice } from './webhooks/LegacySigningNotice';
+import { SimulateDelivery } from './webhooks/SimulateDelivery';
 import { WebhookSigningHelp } from './webhooks/WebhookSigningHelp';
 
 export function WebhookSettings() {
@@ -57,6 +60,7 @@ export function WebhookSettings() {
   // Held only until the modal is dismissed. There is nowhere to fetch it from
   // afterwards, which is the point.
   const [justCreated, setJustCreated] = useState<ApiWebhook | null>(null);
+  const [trying, setTrying] = useState<ApiWebhook | null>(null);
 
   const webhooks = data?.webhooks ?? [];
 
@@ -169,17 +173,27 @@ export function WebhookSettings() {
                     />
                   </Table.Td>
                   <Table.Td>
-                    <Tooltip label="Remove — the partner's URL stops working">
-                      <ActionIcon
-                        aria-label={`Delete the ${hook.name || hook.message_name} webhook`}
-                        variant="subtle"
-                        color="red"
-                        size="sm"
-                        onClick={() => removeWebhook(hook)}
+                    <Group gap={4} wrap="nowrap" justify="flex-end">
+                      <Button
+                        size="compact-xs"
+                        variant="default"
+                        leftSection={<FlaskConical size={12} />}
+                        onClick={() => setTrying(hook)}
                       >
-                        <Trash2 size={14} />
-                      </ActionIcon>
-                    </Tooltip>
+                        Try a delivery
+                      </Button>
+                      <Tooltip label="Remove — the partner's URL stops working">
+                        <ActionIcon
+                          aria-label={`Delete the ${hook.name || hook.message_name} webhook`}
+                          variant="subtle"
+                          color="red"
+                          size="sm"
+                          onClick={() => removeWebhook(hook)}
+                        >
+                          <Trash2 size={14} />
+                        </ActionIcon>
+                      </Tooltip>
+                    </Group>
                   </Table.Td>
                 </Table.Tr>
               ))}
@@ -227,6 +241,8 @@ export function WebhookSettings() {
           </Group>
         </Stack>
       </Modal>
+
+      <SimulateDelivery hook={trying} onClose={() => setTrying(null)} />
 
       <Modal
         opened={justCreated !== null}

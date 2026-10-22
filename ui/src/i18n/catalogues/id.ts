@@ -315,6 +315,7 @@ const id: Catalogue = {
   'access.action.UpdateConnector': 'Perbarui konektor',
   'access.action.UpdateConnectorInstance': 'Perbarui instansi konektor',
   'access.action.CloseLegacySignatures': 'Berhenti menerima tanda tangan lama',
+  'access.action.SimulateWebhookDelivery': 'Simulasikan pengiriman webhook',
   'access.action.CreateWebhook': 'Buat webhook',
   'access.action.DeleteWebhook': 'Hapus webhook',
   'access.action.SetWebhookEnabled': 'Aktifkan atau nonaktifkan webhook',

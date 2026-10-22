@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AUTHORED_STALE_TIME } from '../services/queryDefaults';
 
 import { processService } from '../services/api';
-import type { CreateWebhookPayload } from '../services/domains/webhookService';
+import type { CreateWebhookPayload, SimulateDeliveryPayload } from '../services/domains/webhookService';
 import { useAppStore } from '../store/useAppStore';
 
 export const useWebhooks = () => {
@@ -52,3 +52,9 @@ export const useDeleteWebhook = () => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['webhooks'] }),
   });
 };
+
+/** A dry run changes nothing, so nothing is read again after it. */
+export const useSimulateWebhookDelivery = (id: string) =>
+  useMutation({
+    mutationFn: (payload: SimulateDeliveryPayload) => processService.simulateWebhookDelivery(id, payload),
+  });

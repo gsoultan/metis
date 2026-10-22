@@ -15,12 +15,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import type { ApiWebhook } from '../services/domains/webhookService';
+import type { ApiWebhook, ApiWebhookSimulation } from '../services/domains/webhookService';
 import { standInForAppStore } from '../test/appStoreStandIn';
 import { customPropertiesOf, resolveColour, schemeVariables, type ColourScheme } from '../testing/themeColours';
 import { cssVariablesResolver, theme } from '../theme';
 import { AA_NORMAL_TEXT, contrastRatio } from '../theme/contrast';
 import { CloseLegacyWindow } from './webhooks/CloseLegacyWindow';
+import { SimulationResult } from './webhooks/SimulateDelivery';
 import { WebhookSettings } from './WebhookSettings';
 
 const store = standInForAppStore((specifier, factory) => mock.module(specifier, factory));
@@ -107,4 +108,51 @@ describe('the webhooks card, in either colour scheme', () => {
       expect(ratio, `"${label}" is ${ratio.toFixed(2)}:1 in ${scheme} mode`).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
     });
   }
+});
+
+const simulated: ApiWebhookSimulation = {
+  would_act: true,
+  enabled: true,
+  signature: { checked: true, valid: true },
+  message_name: 'payment.received',
+  correlation_expression: 'order.id',
+  correlation_key: 'PO-4182',
+  waiting: [
+    {
+      instance_id: 'i-1',
+      process_name: 'Purchase approval',
+      business_key: 'PO-4182',
+      node_id: 'wait',
+      node_name: 'Wait for payment',
+      since: '2026-10-21T09:00:00Z',
+    },
+  ],
+  waiting_total: 3,
+};
+
+const VERDICTS: [string, ApiWebhookSimulation][] = [
+  ['A real delivery would be acted on', simulated],
+  ['A real delivery would change nothing', { ...simulated, would_act: false, already_received: true }],
+  ['A real delivery would be refused', { ...simulated, would_act: false, refusal: 'This webhook is switched off.' }],
+];
+
+describe('trying a delivery', () => {
+  it('is offered on every webhook', () => {
+    const html = drawn(<WebhookSettings />);
+    expect(html.match(/Try a delivery/g)?.length).toBe(webhooks.length);
+  });
+
+  it('names what it would move, and says how many more it did not name', () => {
+    const html = drawn(<SimulationResult result={simulated} />);
+    expect(html).toContain('Dry run · nothing changed');
+    expect(html).toContain('Purchase approval · PO-4182');
+    expect(html).toContain('Waiting at &quot;Wait for payment&quot;');
+    expect(html).toContain('and 2 more');
+  });
+
+  it('says what a real delivery would do in words, for each outcome', () => {
+    for (const [verdict, result] of VERDICTS) {
+      expect(drawn(<SimulationResult result={result} />)).toContain(verdict);
+    }
+  });
 });

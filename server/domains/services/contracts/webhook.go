@@ -33,6 +33,12 @@ type WebhookService interface {
 
 	DeleteWebhook(ctx context.Context, id uuid.UUID) error
 
+	// SimulateWebhookDelivery says what a delivery like this one would do,
+	// without doing any of it: no process moves and its delivery ID is not
+	// recorded. The webhook's secret checks a signature given with it and is
+	// never part of the answer.
+	SimulateWebhookDelivery(ctx context.Context, id uuid.UUID, delivery entities.WebhookSimulation) (entities.WebhookSimulationResult, error)
+
 	// ForgetOldDeliveries drops the delivery records that have outlived any
 	// sender's retry schedule.
 	ForgetOldDeliveries(ctx context.Context) (int64, error)
