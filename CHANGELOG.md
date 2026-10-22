@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 44 run at the first boot; eight of them stop
+administrator. Migrations 31 to 44 run at the first boot; nine of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -100,9 +100,25 @@ does not undo a migration.
   if `process_instances` is held for more than two seconds**. It then builds
   the index the search reads through concurrently ([Migration
   39](docs/upgrading.md#migration-39-an-instance-carries-a-business-key)).
+- **40** adds the two tables outgoing webhooks are kept in. Nothing existing
+  is rewritten ([Migration
+  40](docs/upgrading.md#migration-40-outgoing-webhooks)).
+- **`WEBHOOK_ENDPOINTS` is deprecated.** It still posts every event of every
+  project to every address in it, unsigned and once, and now says so in the log
+  at boot. Register each of its receivers as an outgoing webhook of its
+  project, then unset it.
 - **41** creates the table of the workers that fetch external tasks. It is new
   and empty, so it holds nothing up ([Migration
   41](docs/upgrading.md#migration-41-the-workers-that-fetch-external-tasks)).
+- **42** encrypts every inbound webhook's secret, and **stops the upgrade if
+  no `ENCRYPTION_KEY` is configured** while any secret is still in the clear.
+  Once it has run the previous release refuses every signed delivery, so a
+  rollback means restoring the backup ([Migration
+  42](docs/upgrading.md#migration-42-inbound-webhook-secrets-are-sealed)).
+- **43** creates the simulation cases a process keeps, and stops if
+  `projects` is held for more than two seconds; it finishes on the next start
+  ([Migration
+  43](docs/upgrading.md#migration-43-a-process-keeps-its-simulation-cases)).
 - **44** gives every job the organization it is work for, and **stops the
   upgrade if `jobs` is held for more than two seconds**. It then builds the
   index the claim reads through concurrently. Jobs made before it carry no
@@ -110,6 +126,15 @@ does not undo a migration.
   44](docs/upgrading.md#migration-44-a-job-carries-its-organization)).
 
 ### Security
+
+- **An inbound webhook's secret is encrypted at rest.** The secret a partner
+  signs deliveries with was stored as it was, though it was documented as
+  encrypted, so a backup, a read replica or a `SELECT` on `webhooks` was enough
+  to forge any partner's deliveries. It is sealed with `ENCRYPTION_KEY` like
+  every other credential now, and migration 42 seals the secrets already
+  stored, deleted webhooks' included. Partners change nothing: the secret
+  itself is the same. `metis --reseal` moves these secrets with the rest when
+  the key is rotated.
 
 - **A group's roles now grant what they say.** The group editor said everyone
   in a group holds its roles, but nothing read them: giving a group a role
@@ -395,6 +420,17 @@ does not undo a migration.
   for being fair. Measured on PostgreSQL 16: 4ms a round with 50 organizations
   holding jobs, 10ms with 100,000.
 
+- **Outgoing webhooks.** An administrator registers an address for a
+  project's `process.started`, `process.completed`, `task.created` and
+  `task.completed` events, and each one is posted to it signed with the
+  webhook's own secret, with a delivery id that stays the same across retries.
+  The event is queued in the transaction of the step that raised it, so a
+  rolled-back step is never announced and a committed one is announced even if
+  the server stops; a receiver that does not accept it is tried ten times over
+  about a day. The address is checked against the egress policy when it is
+  saved and at every dial, and no delivery carries process variables
+  ([Sending events: outgoing
+  webhooks](docs/integration.md#sending-events-outgoing-webhooks)).
 - **Simulate the diagram you are editing, without deploying it.** In the
   designer, Simulate now runs the canvas: the version you opened while the
   canvas still does what it does, and a draft once you change a step, a
@@ -409,6 +445,17 @@ does not undo a migration.
     file), in place of `definition_key` and `version`. Both at once is a 400.
   - A batch case carrying `replay_instance_id` is now refused as the single
     endpoint refuses it. It was run against the live definition instead.
+
+- **Simulation cases are saved with the process, and say what they expect.**
+  A case built in the designer's Simulate mode can be saved with the process,
+  so everybody who opens it gets the same cases, and **Expect this result**
+  turns the run on screen into what the case must end with: how it ends,
+  where, and the few values that matter. A run that differs says what
+  differs in words ("It ended at CFO signs off, not Approved"), and **Run
+  every case** marks each one passed or not against its own expectation. A
+  process keeps at most 20 cases. Designers only, like simulation itself.
+  - `GET` and `POST /api/v1/projects/{id}/simulation-cases/{process_key}`,
+    `PUT` and `DELETE /api/v1/projects/{id}/simulation-cases/{process_key}/{case_id}`.
 
 - **Finished instances can be removed after a set number of days.** Set
   `METIS_RETENTION_FINISHED_INSTANCES_DAYS` and every ten minutes the sweep

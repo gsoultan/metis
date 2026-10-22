@@ -15,6 +15,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/incident"
 	"github.com/gsoultan/metis/server/endpoints/notification"
 	"github.com/gsoultan/metis/server/endpoints/organization"
+	"github.com/gsoultan/metis/server/endpoints/outgoingwebhook"
 	"github.com/gsoultan/metis/server/endpoints/participant"
 	"github.com/gsoultan/metis/server/endpoints/participantsource"
 	"github.com/gsoultan/metis/server/endpoints/platformuser"
@@ -25,6 +26,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/role"
 	"github.com/gsoultan/metis/server/endpoints/setup"
 	"github.com/gsoultan/metis/server/endpoints/simulation"
+	"github.com/gsoultan/metis/server/endpoints/simulationcase"
 	"github.com/gsoultan/metis/server/endpoints/task"
 	"github.com/gsoultan/metis/server/endpoints/user"
 	"github.com/gsoultan/metis/server/endpoints/webhook"
@@ -36,6 +38,7 @@ type Endpoints struct {
 	Connector         connector.Endpoints
 	Decision          decision.Endpoints
 	Webhook           webhook.Endpoints
+	OutgoingWebhook   outgoingwebhook.Endpoints
 	Definition        definition.Endpoints
 	Environment       environment.Endpoints
 	Participant       participant.Endpoints
@@ -55,6 +58,7 @@ type Endpoints struct {
 	Group             group.Endpoints
 	Notification      notification.Endpoints
 	Simulation        simulation.Endpoints
+	SimulationCase    simulationcase.Endpoints
 	Role              role.Endpoints
 }
 
@@ -181,6 +185,16 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	webhookEndpoints.SetWebhookEnabled = designer("SetWebhookEnabled")(webhookEndpoints.SetWebhookEnabled)
 	webhookEndpoints.CloseLegacySignatures = designer("CloseLegacySignatures")(webhookEndpoints.CloseLegacySignatures)
 	webhookEndpoints.DeleteWebhook = designer("DeleteWebhook")(webhookEndpoints.DeleteWebhook)
+
+	// An outgoing webhook is a standing channel out of the project: every
+	// event it is given is posted to an address somebody typed. Opening,
+	// reopening or closing one is an administrator's act. Reading the list is
+	// not, because a designer needs to know where a process's events go.
+	outgoingWebhookEndpoints := outgoingwebhook.MakeEndpoints(s)
+	outgoingWebhookEndpoints.ListOutgoingWebhooks = protected("ListOutgoingWebhooks")(outgoingWebhookEndpoints.ListOutgoingWebhooks)
+	outgoingWebhookEndpoints.CreateOutgoingWebhook = adminOnly("CreateOutgoingWebhook")(outgoingWebhookEndpoints.CreateOutgoingWebhook)
+	outgoingWebhookEndpoints.SetOutgoingWebhookEnabled = adminOnly("SetOutgoingWebhookEnabled")(outgoingWebhookEndpoints.SetOutgoingWebhookEnabled)
+	outgoingWebhookEndpoints.DeleteOutgoingWebhook = adminOnly("DeleteOutgoingWebhook")(outgoingWebhookEndpoints.DeleteOutgoingWebhook)
 
 	definitionEndpoints := definition.MakeEndpoints(s)
 
@@ -445,6 +459,13 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	simulationEndpoints.Simulate = designer("Simulate")(simulationEndpoints.Simulate)
 	simulationEndpoints.SimulateBatch = designer("SimulateBatch")(simulationEndpoints.SimulateBatch)
 
+	// A process's saved cases are its simulation's own material, on the same
+	// gate: reading one shows the variables and answers a case runs with.
+	simulationCaseEndpoints := simulationcase.MakeEndpoints(s)
+	simulationCaseEndpoints.ListSimulationCases = designer("ListSimulationCases")(simulationCaseEndpoints.ListSimulationCases)
+	simulationCaseEndpoints.SaveSimulationCase = designer("SaveSimulationCase")(simulationCaseEndpoints.SaveSimulationCase)
+	simulationCaseEndpoints.DeleteSimulationCase = designer("DeleteSimulationCase")(simulationCaseEndpoints.DeleteSimulationCase)
+
 	// What each role is required for, read from the gates above as the factory
 	// built them. Last, so that every one of them is in it: a gate built after
 	// this line would be enforced and missing from the legend, which is the
@@ -462,6 +483,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		Connector:         connectorEndpoints,
 		Decision:          decisionEndpoints,
 		Webhook:           webhookEndpoints,
+		OutgoingWebhook:   outgoingWebhookEndpoints,
 		Definition:        definitionEndpoints,
 		Environment:       environmentEndpoints,
 		Participant:       participantEndpoints,
@@ -481,6 +503,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		Group:             groupEndpoints,
 		Notification:      notificationEndpoints,
 		Simulation:        simulationEndpoints,
+		SimulationCase:    simulationCaseEndpoints,
 		Role:              roleEndpoints,
 	}
 }

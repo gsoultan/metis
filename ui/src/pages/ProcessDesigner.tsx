@@ -51,6 +51,7 @@ import { decorateEdges, decorateNodes } from '../domain/simulationCanvas';
 import { answerKindFor } from '../domain/simulationScenario';
 import { useProcessDesigner } from '../hooks/useProcessDesigner';
 import { useSimulation } from '../hooks/useSimulation';
+import { useSimulationCases } from '../hooks/useSimulationCases';
 import { useSimulationTarget } from '../hooks/useSimulationTarget';
 import { useAppStore } from '../store/useAppStore';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
@@ -134,6 +135,7 @@ export function ProcessDesigner({
   });
 
   const sim = useSimulation(simulationTarget);
+  const savedCases = useSimulationCases(sim, currentProjectId, processKey, simulating);
 
   /*
    * The canvas the simulation draws on is the designer's own, dressed. Nothing
@@ -179,6 +181,15 @@ export function ProcessDesigner({
   const onSimulationNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node<BPMNNodeData>) => answerNode(node.id),
     [answerNode],
+  );
+
+  /** What the diagram calls a node, for the sentences simulation writes. */
+  const labelOf = useCallback(
+    (nodeId: string) => {
+      const found = nodes.find((node) => node.id === nodeId);
+      return typeof found?.data.label === 'string' && found.data.label !== '' ? found.data.label : nodeId;
+    },
+    [nodes],
   );
 
   const awaitingNode = sim.editing;
@@ -586,7 +597,13 @@ export function ProcessDesigner({
               backgroundColor: 'light-dark(var(--mantine-color-white), var(--mantine-color-dark-7))',
             }}
           >
-            <SimulationRail sim={sim} target={simulationTarget} onAnswerAwaiting={answerNode} />
+            <SimulationRail
+              sim={sim}
+              cases={savedCases}
+              target={simulationTarget}
+              labelOf={labelOf}
+              onAnswerAwaiting={answerNode}
+            />
           </Box>
         )}
       </Box>

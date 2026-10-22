@@ -45,6 +45,7 @@ import {
   type SimulationStep,
   type Verdict,
 } from '../domain/simulationTrace';
+import type { Expectation } from '../domain/simulationCase';
 import { runSimulation, runSimulationBatch } from '../services/domains/simulationService';
 import type { ProcessVariables } from '../services/types';
 
@@ -77,6 +78,11 @@ const EMPTY_VIEW: SimulationView = {
   clockLabel: '',
   step: null,
 };
+
+/** A case nobody has put anything into yet. */
+function isBlank(scenario: Scenario): boolean {
+  return scenario.variables.length === 0 && scenario.answers.length === 0;
+}
 
 export function useSimulation(target: SimulationTarget | null) {
   const [cases, setCases] = useState<Scenario[]>(() => [emptyScenario(uuidv4(), 'First case')]);
@@ -119,6 +125,33 @@ export function useSimulation(target: SimulationTarget | null) {
       return next;
     });
   }, []);
+
+  /**
+   * Opens the cases saved with the process.
+   *
+   * Local cases that hold something and were never saved are kept beside
+   * them: somebody who built a case before the saved ones arrived has not
+   * asked for it to be thrown away.
+   */
+  const loadSaved = useCallback((saved: Scenario[]) => {
+    if (saved.length === 0) return;
+    setCases((current) => [...saved, ...current.filter((c) => c.savedId === undefined && !isBlank(c))]);
+    setActiveId(saved[0].id);
+    setRun(null);
+    setSuite({});
+  }, []);
+
+  /** Records the id a case was saved under. */
+  const markSaved = useCallback((id: string, savedId: string) => {
+    setCases((current) => current.map((c) => (c.id === id ? { ...c, savedId } : c)));
+  }, []);
+
+  const setExpect = useCallback(
+    (expect: Expectation) => {
+      if (active !== null) patchCase(active.id, { expect });
+    },
+    [active, patchCase],
+  );
 
   const setVariable = useCallback(
     (rowId: string, change: Partial<VariableRow>) => {
@@ -332,6 +365,9 @@ export function useSimulation(target: SimulationTarget | null) {
     patchCase,
     addCase,
     removeCase,
+    loadSaved,
+    markSaved,
+    setExpect,
 
     addVariable,
     setVariable,

@@ -23,6 +23,8 @@ type Repository interface {
 	RetentionHold() contracts.RetentionHoldRepository
 	// RetentionPeriod is the periods processes are given, a row per change.
 	RetentionPeriod() contracts.RetentionPeriodRepository
+	// SimulationCase is the simulation test cases each process keeps.
+	SimulationCase() contracts.SimulationCaseRepository
 
 	// SharedCounter holds the counts that rate limits and circuit breakers
 	// enforce across replicas rather than per process.
@@ -58,6 +60,11 @@ type Repository interface {
 	// Webhook stores the public addresses partners post events to, and the
 	// deliveries already acted on.
 	Webhook() contracts.WebhookRepository
+
+	// OutgoingWebhook stores the addresses a project posts its events to, and
+	// OutgoingWebhookQueue what each of them is owed.
+	OutgoingWebhook() contracts.OutgoingWebhookRepository
+	OutgoingWebhookQueue() contracts.OutgoingWebhookQueue
 
 	// ConnectorManifest stores connectors described by a document rather than
 	// by Go.

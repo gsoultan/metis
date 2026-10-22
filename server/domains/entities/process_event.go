@@ -1,5 +1,7 @@
 package entities
 
+import "github.com/google/uuid"
+
 // ProcessEvent represents an event in the process lifecycle.
 type ProcessEvent struct {
 	Type      string           `json:"type"`
@@ -29,6 +31,10 @@ type ProcessEvent struct {
 	// as much, was told nothing. Not sent to browsers or webhooks: what they
 	// receive for a withdrawal is what it was.
 	Owner string `json:"-"`
+	// TaskID is the task a task event is about. Not sent to browsers, which
+	// refetch the task list rather than read one task out of an event; an
+	// outgoing webhook names it, so a receiver can say which task it means.
+	TaskID uuid.UUID `json:"-"`
 	// Audited says the code that raised this event wrote its audit entry
 	// itself, so the audit observer must not write a second one.
 	//
@@ -58,3 +64,15 @@ const (
 	EventTaskResolved     = "TaskResolved"
 	EventProcessCompleted = "ProcessCompleted"
 )
+
+// ProjectOf returns the project an event belongs to: its own, or its
+// instance's.
+func (e ProcessEvent) ProjectOf() uuid.UUID {
+	if e.Project != nil && e.Project.ID != uuid.Nil {
+		return e.Project.ID
+	}
+	if e.Instance != nil && e.Instance.Project != nil {
+		return e.Instance.Project.ID
+	}
+	return uuid.Nil
+}

@@ -140,6 +140,7 @@ func (a *App) runEnvironment(ctx context.Context, handler http.Handler, row mode
 	// Both bindings, for the reason environmentHandler applies both: a worker
 	// that carried only one would poll one database and write to another.
 	a.svc.StartWorkers(db.Bind(environmentCtx, id))
+	a.svc.StartOutgoingWebhookDeliveries(db.Bind(environmentCtx, id))
 	a.environments.listeners.Go(func() {
 		serveEnvironmentPort(environmentCtx, row.Name, listener, environmentHandler(id, handler))
 	})

@@ -410,6 +410,7 @@ func (s *taskService) lockedTask(ctx context.Context, id uuid.UUID) (models.Task
 // it has been audited only when there is a writer to have done it.
 func (s *taskService) announce(ctx context.Context, event entities.ProcessEvent, task entities.Task, auditType, actor string) {
 	event.Audited = s.auditWriter != nil
+	event.TaskID = task.ID
 	s.engine.DispatchEvent(ctx, event)
 	s.recordAuditEvent(ctx, task, auditType, actor)
 }

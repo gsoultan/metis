@@ -68,10 +68,16 @@ func All() []any {
 		// Instances kept out of the retention sweep.
 		&RetentionHold{},
 		&RetentionPeriod{},
+		// Saved simulation test cases, per process.
+		&SimulationCase{},
 
 		// The inbound surface and the machinery underneath it.
 		&Webhook{},
 		&WebhookDelivery{},
+		// The outbound surface: where a project's events are posted, and the
+		// queue they are posted from.
+		&OutgoingWebhook{},
+		&OutgoingWebhookDelivery{},
 		&Notification{},
 		&IdempotencyRecord{},
 		&SharedCounter{},

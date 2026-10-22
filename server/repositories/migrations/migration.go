@@ -845,7 +845,10 @@ func Schema(models []any) []Migration {
 		retentionHolds(),
 		retentionPeriods(),
 		businessKey(),
+		outgoingWebhooks(),
 		externalTaskWorkers(),
+		webhookSecrets(),
+		simulationCases(),
 		jobOrganization(),
 	}
 }
