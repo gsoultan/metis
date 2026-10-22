@@ -110,7 +110,7 @@ func describeAsset(distFS fs.FS, p string, buf []byte) (*staticAsset, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = f.Close() }()
+	defer closeAsset(f, p)
 
 	digest := sha256.New()
 	head := &prefixBuffer{limit: sniffLength}
@@ -275,9 +275,18 @@ func (h *staticHandler) stream(w http.ResponseWriter, r *http.Request, asset *st
 		log.Error().Err(err).Str("path", asset.path).Msg("An embedded asset listed at startup could not be opened")
 		return
 	}
-	defer func() { _ = f.Close() }()
+	defer closeAsset(f, asset.path)
 	if _, err := io.Copy(w, f); err != nil {
 		logIncompleteWrite(r, err)
+	}
+}
+
+// closeAsset closes a file of the embedded dist. Nothing is written through
+// it, so a failure loses nothing, but it would mean the dist is not what it
+// was at construction.
+func closeAsset(f fs.File, p string) {
+	if err := f.Close(); err != nil {
+		log.Debug().Err(err).Str("path", p).Msg("Could not close an embedded asset")
 	}
 }
 

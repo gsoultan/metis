@@ -14,7 +14,7 @@ import (
 
 func get(t *testing.T, h http.Handler, method, target string, gzipOK bool) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(method, target, nil)
+	req := httptest.NewRequestWithContext(t.Context(), method, target, nil)
 	if gzipOK {
 		req.Header.Set("Accept-Encoding", "gzip")
 	}
@@ -131,7 +131,7 @@ func BenchmarkServeLargestChunkGzipped(b *testing.B) {
 			largest, size = p, a.size
 		}
 	}
-	req := httptest.NewRequest(http.MethodGet, largest, nil)
+	req := httptest.NewRequestWithContext(b.Context(), http.MethodGet, largest, nil)
 	req.Header.Set("Accept-Encoding", "gzip")
 	b.ReportAllocs()
 	for b.Loop() {
