@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/db"
@@ -207,4 +208,41 @@ func (r *processRepository) forgetOneBatch(ctx context.Context, args []any) (int
 		return 0, err
 	}
 	return removed, nil
+}
+
+// existingInstancesSQL answers which of a list of ids have a row. Read by the
+// primary key, a batch at a time.
+const existingInstancesSQL = `SELECT id FROM process_instances WHERE id = ANY($1::uuid[])`
+
+func (r *processRepository) Existing(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]bool, error) {
+	if !entities.IsSystemContext(ctx) {
+		return nil, fmt.Errorf("%w: asking which instances exist spans every tenant", apierr.ErrForbidden)
+	}
+	found := make(map[uuid.UUID]bool, len(ids))
+	if len(ids) == 0 {
+		return found, nil
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	texts := make([]string, len(ids))
+	for i, id := range ids {
+		texts[i] = id.String()
+	}
+	rows, err := ex.Query(ctx, existingInstancesSQL, []any{texts})
+	if err != nil {
+		return nil, fmt.Errorf("could not read which instances exist: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		values := rows.RawValues()
+		var id uuid.UUID
+		if len(values) == 0 || len(values[0]) != len(id) {
+			return nil, errors.New("could not read which instances exist: an id is not a uuid")
+		}
+		copy(id[:], values[0])
+		found[id] = true
+	}
+	return found, rows.Err()
 }

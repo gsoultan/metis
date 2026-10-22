@@ -10,6 +10,7 @@ import (
 
 	"github.com/gsoultan/metis/internal/pkg/config"
 	"github.com/gsoultan/metis/internal/pkg/crypto"
+	"github.com/gsoultan/metis/server/repositories/payloads"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
@@ -90,6 +91,19 @@ func (a *App) handleReseal(ctx context.Context, check bool) error {
 				Bool("check", check).Msg("Reseal")
 			total.add(count)
 		}
+	}
+	payloadCount, err := payloads.Reseal(check)
+	if err != nil {
+		return fmt.Errorf("reseal the payload directory: %w", err)
+	}
+	if payloads.Enabled() {
+		event := log.Info()
+		if payloadCount.Unreadable > 0 {
+			event = log.Error()
+		}
+		event.Str("dir", payloads.Root()).Int("moved", payloadCount.Moved).Int("current", payloadCount.Current).
+			Int("unreadable", payloadCount.Unreadable).Bool("check", check).Msg("Reseal")
+		total.add(resealCount{Moved: payloadCount.Moved, Current: payloadCount.Current, Unreadable: payloadCount.Unreadable})
 	}
 	configCount, err := resealConfigFile(config.DefaultConfigPath, check)
 	if err != nil {

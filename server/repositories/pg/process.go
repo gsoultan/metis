@@ -10,6 +10,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/payloads"
 	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 	"github.com/gsoultan/storm/runtime"
 )
@@ -34,10 +35,13 @@ func (r *processRepository) Create(ctx context.Context, m models.ProcessInstance
 	if err != nil {
 		return uuid.Nil, err
 	}
-	ins := processinstance.Create()
-	if id := uuid.UUID(m.ID); id != uuid.Nil {
-		ins.SetID(id)
+	// The id is chosen here rather than by the database: a value kept out of
+	// the row is kept under it, before the row is written.
+	if uuid.UUID(m.ID) == uuid.Nil {
+		m.ID = models.UUID(uuid.Must(uuid.NewV7()))
 	}
+	ins := processinstance.Create()
+	ins.SetID(uuid.UUID(m.ID))
 	ins.SetProjectID(projectID)
 	ins.SetDefinitionID(uuid.UUID(m.DefinitionID))
 	ins.SetStatus(string(m.Status))
@@ -46,7 +50,7 @@ func (r *processRepository) Create(ctx context.Context, m models.ProcessInstance
 	}
 	setOrNullString(ins.SetParentNodeID, ins.SetParentNodeIDNull, m.ParentNodeID)
 	setOrNullString(ins.SetBusinessKey, ins.SetBusinessKeyNull, m.BusinessKey)
-	if err := writeInstanceState(ins.SetVariables, ins.SetTokens, ins.SetCompletedNodes,
+	if err := writeInstanceState(ctx, ins.SetVariables, ins.SetTokens, ins.SetCompletedNodes,
 		ins.SetCompensatedNodes, ins.SetMultiInstance, ins.SetJoins, m); err != nil {
 		return uuid.Nil, err
 	}
@@ -62,7 +66,7 @@ func (r *processRepository) Get(ctx context.Context, id uuid.UUID) (models.Proce
 	if err != nil {
 		return models.ProcessInstanceModel{}, err
 	}
-	return instanceFrom(row)
+	return instanceFrom(ctx, row)
 }
 
 // GetForUpdate reads an instance and holds it until the transaction ends.
@@ -76,7 +80,7 @@ func (r *processRepository) GetForUpdate(ctx context.Context, id uuid.UUID) (mod
 	if err != nil {
 		return models.ProcessInstanceModel{}, err
 	}
-	return instanceFrom(row)
+	return instanceFrom(ctx, row)
 }
 
 func (r *processRepository) Update(ctx context.Context, m models.ProcessInstanceModel) error {
@@ -98,7 +102,7 @@ func (r *processRepository) Update(ctx context.Context, m models.ProcessInstance
 		mut.SetParentInstanceIDNull()
 	}
 	setOrNullString(mut.SetParentNodeID, mut.SetParentNodeIDNull, m.ParentNodeID)
-	if err := writeInstanceState(mut.SetVariables, mut.SetTokens, mut.SetCompletedNodes,
+	if err := writeInstanceState(ctx, mut.SetVariables, mut.SetTokens, mut.SetCompletedNodes,
 		mut.SetCompensatedNodes, mut.SetMultiInstance, mut.SetJoins, m); err != nil {
 		return err
 	}
@@ -142,7 +146,7 @@ func (r *processRepository) ListByDefinition(ctx context.Context, definitionID u
 	if err != nil {
 		return nil, fmt.Errorf("could not list the instances of a version: %w", err)
 	}
-	return instancesFrom(rows)
+	return instancesFrom(ctx, rows)
 }
 
 func (r *processRepository) ListByParent(ctx context.Context, parentInstanceID uuid.UUID) ([]models.ProcessInstanceModel, error) {
@@ -171,7 +175,7 @@ func (r *processRepository) ScanByStatus(ctx context.Context, status models.Proc
 		return err
 	}
 	err = everyBatch(ctx, ex, q.Order(processinstance.ID.Asc()), instanceScanBatchSize, func(rows []processinstance.Row) error {
-		batch, err := instancesFrom(rows)
+		batch, err := instancesFrom(ctx, rows)
 		if err != nil {
 			return err
 		}
@@ -603,7 +607,7 @@ func (r *processRepository) list(ctx context.Context, scoped []uuid.UUID, preds 
 	if err != nil {
 		return nil, fmt.Errorf("could not list process instances: %w", err)
 	}
-	return instancesFrom(rows)
+	return instancesFrom(ctx, rows)
 }
 
 func (r *processRepository) paged(ctx context.Context, scoped []uuid.UUID, f contracts.InstanceFilter, only []uuid.UUID, p contracts.Pagination) (contracts.Page[models.ProcessInstanceModel], error) {
@@ -633,7 +637,7 @@ func (r *processRepository) paged(ctx context.Context, scoped []uuid.UUID, f con
 	if err != nil {
 		return empty, fmt.Errorf("could not list process instances: %w", err)
 	}
-	items, err := instancesFrom(rows)
+	items, err := instancesFrom(ctx, rows)
 	if err != nil {
 		return empty, err
 	}
@@ -665,9 +669,15 @@ func (r *processRepository) scopedQuery(ctx context.Context, scoped []uuid.UUID,
 // writeInstanceState encodes the six columns that carry an instance's state.
 //
 // Variables go through models.EncryptedMap so the ciphertext is identical to
-// what the GORM repository wrote; the rest are ordinary jsonb.
-func writeInstanceState(setVariables func(string), setTokens, setCompleted, setCompensated, setMulti, setJoins func(runtime.JSON), m models.ProcessInstanceModel) error {
-	encrypted, err := m.Variables.Value()
+// what the GORM repository wrote; the rest are ordinary jsonb. A value too
+// large for the row is kept in the payload directory first, and the row
+// refers to it (see package payloads).
+func writeInstanceState(ctx context.Context, setVariables func(string), setTokens, setCompleted, setCompensated, setMulti, setJoins func(runtime.JSON), m models.ProcessInstanceModel) error {
+	stored, err := payloads.Offload(ctx, uuid.UUID(m.ID), m.Variables)
+	if err != nil {
+		return err
+	}
+	encrypted, err := models.EncryptedMap(stored).Value()
 	if err != nil {
 		return fmt.Errorf("could not encrypt the instance's variables: %w", err)
 	}
@@ -693,10 +703,10 @@ func writeInstanceState(setVariables func(string), setTokens, setCompleted, setC
 	return nil
 }
 
-func instancesFrom(rows []processinstance.Row) ([]models.ProcessInstanceModel, error) {
+func instancesFrom(ctx context.Context, rows []processinstance.Row) ([]models.ProcessInstanceModel, error) {
 	out := make([]models.ProcessInstanceModel, 0, len(rows))
 	for _, row := range rows {
-		instance, err := instanceFrom(row)
+		instance, err := instanceFrom(ctx, row)
 		if err != nil {
 			return nil, err
 		}
@@ -705,7 +715,7 @@ func instancesFrom(rows []processinstance.Row) ([]models.ProcessInstanceModel, e
 	return out, nil
 }
 
-func instanceFrom(row processinstance.Row) (models.ProcessInstanceModel, error) {
+func instanceFrom(ctx context.Context, row processinstance.Row) (models.ProcessInstanceModel, error) {
 	m := models.ProcessInstanceModel{
 		Base: models.Base{
 			ID:        models.UUID(row.ID),
@@ -726,6 +736,11 @@ func instanceFrom(row processinstance.Row) (models.ProcessInstanceModel, error) 
 		if err := m.Variables.Scan(row.Variables); err != nil {
 			return models.ProcessInstanceModel{}, fmt.Errorf("could not decrypt the instance's variables: %w", err)
 		}
+		resolved, err := payloads.Resolve(ctx, row.ID, m.Variables)
+		if err != nil {
+			return models.ProcessInstanceModel{}, fmt.Errorf("could not read instance %s's variables: %w", row.ID, err)
+		}
+		m.Variables = resolved
 	}
 	for _, part := range []struct {
 		name string

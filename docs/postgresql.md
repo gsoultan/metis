@@ -200,6 +200,48 @@ is at `.../retention-periods/{key}/history`. The sweep takes this table in
 A failed sweep is logged as `A retention sweep failed` with the table and the
 database. The table then keeps growing until a sweep succeeds.
 
+### Large variable values
+
+An instance's variables are one encrypted column, rewritten whole every time
+the instance moves, and every move also copies them whole into
+`variable_snapshots`. An instance carrying a 2 MB document therefore writes
+2 MB of row and 2 MB of snapshot at every step, whether or not the document
+changed, and each copy is kept.
+
+Set `METIS_PAYLOAD_DIR` and a top-level variable larger than
+`METIS_PAYLOAD_THRESHOLD_BYTES` (64 KiB by default) is kept in that directory
+instead: sealed with `ENCRYPTION_KEY`, in a file of its instance's named by a
+keyed fingerprint of its content, written once. The row and every snapshot
+hold a reference of a few dozen bytes. A step that leaves the value as it was
+writes the same reference and no file; a step that changes it writes one new
+file. Everything that reads an instance gets the value, not the reference:
+the engine, expressions, tasks, workers and the API see no difference.
+
+The directory is laid out as `main/<instance-id>/` and
+`environment-<id>/<instance-id>/`, one per database, and:
+
+- **Every replica must see the same directory**, read-write: a shared volume
+  or a network file system. The image's root is read-only, so mount it.
+- **A value is kept for as long as its instance.** A file a later step
+  replaced stays, because a snapshot may still refer to it; removing
+  snapshots with `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` does not remove
+  the files. The retention sweep removes an instance's directory once the
+  instance is gone, and leaves any directory changed in the last hour.
+- **A file that cannot be read is an error**, never a missing variable: the
+  instance's reads fail until the file is back. Back the directory up with
+  the database — `scripts/backup.sh` archives it when `METIS_PAYLOAD_DIR` is
+  set, after the dump — and restore both.
+- **`metis --reseal` reseals the files** with the columns when the key is
+  rotated.
+- Turning it on changes nothing already stored: a value moves out of its row
+  the next time its instance is written. **Turning it off** keeps new values
+  in their rows, but an instance that refers to the directory cannot be read
+  without it, so leave it set while any does.
+
+Only the instance row and its snapshots refer to the directory. The copies an
+instance hands out — a task's or an external task's variables, a job's
+payload, an audit entry — still carry the value itself.
+
 ---
 
 ## A production configuration, end to end

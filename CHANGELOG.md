@@ -413,6 +413,15 @@ does not undo a migration.
 
 ### Added
 
+- **Large variable values can be kept out of the instance's row.** With
+  `METIS_PAYLOAD_DIR` set, a variable larger than
+  `METIS_PAYLOAD_THRESHOLD_BYTES` (64 KiB by default) is sealed into a file
+  once, and the instance row and each variable snapshot refer to it. An
+  instance carrying a document used to write it again into its row and into a
+  new snapshot at every step. Nothing that reads an instance sees the
+  difference. Off unless set; the directory must be shared by every replica
+  and backed up with the database, which `scripts/backup.sh` now does
+  ([Large variable values](docs/postgresql.md#large-variable-values)).
 - **Retry or cancel every instance a filter matches, in one request.** An
   operator retries, and an administrator cancels, the instances of a project
   that match the instance list's filter: status, process, business key, or
