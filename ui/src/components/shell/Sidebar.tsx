@@ -10,6 +10,7 @@ import {
   LayoutGrid,
   Network,
   Play,
+  ScrollText,
   ShieldCheck,
   Table2,
   TerminalSquare,
@@ -17,6 +18,9 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react';
+import { hasRole } from '../../domain/access';
+import { PRIVILEGED_ROLE } from '../../domain/roles';
+import { useViewerAccess } from '../../hooks/useViewerAccess';
 import { useAppStore } from '../../store/useAppStore';
 import { BuildVersion } from './BuildVersion';
 import classes from './Sidebar.module.css';
@@ -50,6 +54,11 @@ interface NavItem {
   to: string;
   /** Shown in the collapsed tooltip to explain a non-obvious destination. */
   hint?: string;
+  /**
+   * Offered only to administrators. This decides what is shown, never what is
+   * allowed: the server refuses the page's reads to anybody else regardless.
+   */
+  adminOnly?: boolean;
 }
 
 interface NavSection {
@@ -102,6 +111,13 @@ const sections: NavSection[] = [
       { icon: Building2, label: 'nav.organizations', to: '/organizations' },
       { icon: ShieldCheck, label: 'nav.groups', to: '/groups' },
       { icon: Users, label: 'nav.platformAccess', to: '/users', hint: 'Accounts that administer Metis' },
+      {
+        icon: ScrollText,
+        label: 'nav.audit',
+        to: '/audit',
+        hint: 'Who did what across this organization',
+        adminOnly: true,
+      },
     ],
   },
 ];
@@ -147,6 +163,10 @@ export function Sidebar() {
   const { sidebarExpanded, toggleSidebar } = useAppStore();
   const { t } = useTranslation();
   const collapsed = !sidebarExpanded;
+  const isAdministrator = hasRole(useViewerAccess(), PRIVILEGED_ROLE);
+  const visibleSections = sections
+    .map((section) => ({ ...section, items: section.items.filter((item) => !item.adminOnly || isAdministrator) }))
+    .filter((section) => section.items.length > 0);
 
   return (
     // Not <nav>: AppShell.Navbar is already the navigation landmark, and a
@@ -161,7 +181,7 @@ export function Sidebar() {
       </Link>
 
       <div className={classes.scroll}>
-        {sections.map((section) => (
+        {visibleSections.map((section) => (
           <div key={section.label}>
             {collapsed ? (
               <div className={classes.sectionRule} aria-hidden />

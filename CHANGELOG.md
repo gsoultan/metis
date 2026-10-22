@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 45 run at the first boot; ten of them stop
+administrator. Migrations 31 to 46 run at the first boot; eleven of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -74,7 +74,7 @@ action, in the order it bites:
   release reads neither ([Migrations 37 and
   38](docs/upgrading.md#migrations-37-and-38-retention-holds-and-periods)).
 
-Migrations 31 to 45 run at the first boot. Take a backup first: a rollback
+Migrations 31 to 46 run at the first boot. Take a backup first: a rollback
 does not undo a migration.
 
 - **31** gives a task the run of its step it was created for, and **stops the
@@ -128,6 +128,11 @@ does not undo a migration.
   stops if `projects` is held for more than two seconds; it finishes on the
   next start ([Migration
   45](docs/upgrading.md#migration-45-batch-operations)).
+- **46** gives every audit entry a column naming who acted, and **stops the
+  upgrade if `audit_logs` is held for more than two seconds**. It then builds
+  the audit log's two indexes concurrently. Entries written before it keep
+  their actor only on the instance's history ([Migration
+  46](docs/upgrading.md#migration-46-an-audit-entry-names-who-acted)).
 
 ### Security
 
@@ -413,6 +418,17 @@ does not undo a migration.
 
 ### Added
 
+- **An audit log of what people did, across the organization.** Who waived,
+  cancelled, held, migrated, reassigned, activated, approved or rejected
+  what was written down on each instance's own history and nowhere it could
+  be searched. The Audit log page, under Administer, lists every entry a
+  person's act wrote, newest first, filtered by who, which kind, which
+  project and when, and links each to its instance. It is an
+  administrator's, of their own organization, and outlives the instances it
+  names: the retention sweep removes instances and never the trail. Acts
+  recorded before migration 46 are not in it
+  (`GET /api/v1/audit/operations`; [The audit
+  log](docs/runbooks.md#reading-the-audit-log)).
 - **Large variable values can be kept out of the instance's row.** With
   `METIS_PAYLOAD_DIR` set, a variable larger than
   `METIS_PAYLOAD_THRESHOLD_BYTES` (64 KiB by default) is sealed into a file

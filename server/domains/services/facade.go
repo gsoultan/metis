@@ -71,6 +71,9 @@ type ServiceFacade interface {
 	// BatchOperationService retries or cancels many instances at once, and
 	// keeps what came of each.
 	serviceContracts.BatchOperationService
+	// OperationLogService reads the audit log: who did what across the
+	// organization.
+	serviceContracts.OperationLogService
 
 	// RetentionPeriodService gives a process a retention period of its own,
 	// an administrator's act with a reason, every change kept.

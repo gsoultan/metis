@@ -352,6 +352,7 @@ func approvalEntry(request entities.DeviationRequest, row entities.Deviation, de
 			decision.Decider, stepOf(row), decision.Reason)
 	}
 	entry := approvalNote(requestEntry(eventType, request, row, narrative), request, decision)
+	entry.Actor = decision.Decider
 	maps.Copy(entry.Data, selfApprovalRecord(decision))
 	return entry
 }
@@ -508,12 +509,14 @@ func (s *instanceDeviationService) settleWaiveRequest(
 	entry := requestEntry(eventType, settled, row, narrative(stepOf(row)))
 	switch requestStatus {
 	case entities.DeviationRequestRejected:
+		entry.Actor = decision.Decider
 		entry.Data["rejected_by"] = decision.Decider
 		// Said only when it is so, as every mark on an entry is.
 		if decision.DeciderID == request.RequestedByID {
 			entry.Data["withdrawn"] = true
 		}
 	case entities.DeviationRequestStale:
+		entry.Actor = decision.Decider
 		entry.Data["attempted_by"] = decision.Decider
 	}
 	if err := s.writeEntries(ctx, row, entry); err != nil {

@@ -43,6 +43,10 @@ func (s *stubAuditRepo) ListByProject(_ context.Context, _ uuid.UUID, _ int64) (
 	return nil, nil
 }
 
+func (s *stubAuditRepo) ListOperations(_ context.Context, _ repocont.OperationFilter) ([]models.AuditModel, error) {
+	return nil, nil
+}
+
 func TestNarrativeFor(t *testing.T) {
 	t.Parallel()
 

@@ -13,6 +13,7 @@ import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated.index'
+import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated.audit'
 import { Route as AuthenticatedConnectorsRouteImport } from './routes/_authenticated.connectors'
 import { Route as AuthenticatedDecisionEditorRouteImport } from './routes/_authenticated.decision-editor'
 import { Route as AuthenticatedDecisionsRouteImport } from './routes/_authenticated.decisions'
@@ -51,6 +52,13 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   getParentRoute: () => AuthenticatedRoute,
 } as any).lazy(() =>
   import('./routes/_authenticated.index.lazy').then((d) => d.Route),
+)
+const AuthenticatedAuditRoute = AuthenticatedAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AuthenticatedRoute,
+} as any).lazy(() =>
+  import('./routes/_authenticated.audit.lazy').then((d) => d.Route),
 )
 const AuthenticatedConnectorsRoute = AuthenticatedConnectorsRouteImport.update({
   id: '/connectors',
@@ -167,6 +175,7 @@ export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
+  '/audit': typeof AuthenticatedAuditRoute
   '/connectors': typeof AuthenticatedConnectorsRoute
   '/decision-editor': typeof AuthenticatedDecisionEditorRoute
   '/decisions': typeof AuthenticatedDecisionsRoute
@@ -188,6 +197,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
+  '/audit': typeof AuthenticatedAuditRoute
   '/connectors': typeof AuthenticatedConnectorsRoute
   '/decision-editor': typeof AuthenticatedDecisionEditorRoute
   '/decisions': typeof AuthenticatedDecisionsRoute
@@ -212,6 +222,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/login': typeof LoginRoute
   '/setup': typeof SetupRoute
+  '/_authenticated/audit': typeof AuthenticatedAuditRoute
   '/_authenticated/connectors': typeof AuthenticatedConnectorsRoute
   '/_authenticated/decision-editor': typeof AuthenticatedDecisionEditorRoute
   '/_authenticated/decisions': typeof AuthenticatedDecisionsRoute
@@ -237,6 +248,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/setup'
+    | '/audit'
     | '/connectors'
     | '/decision-editor'
     | '/decisions'
@@ -258,6 +270,7 @@ export interface FileRouteTypes {
   to:
     | '/login'
     | '/setup'
+    | '/audit'
     | '/connectors'
     | '/decision-editor'
     | '/decisions'
@@ -281,6 +294,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/login'
     | '/setup'
+    | '/_authenticated/audit'
     | '/_authenticated/connectors'
     | '/_authenticated/decision-editor'
     | '/_authenticated/decisions'
@@ -335,6 +349,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/audit': {
+      id: '/_authenticated/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof AuthenticatedAuditRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/connectors': {
@@ -460,6 +481,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteChildren {
+  AuthenticatedAuditRoute: typeof AuthenticatedAuditRoute
   AuthenticatedConnectorsRoute: typeof AuthenticatedConnectorsRoute
   AuthenticatedDecisionEditorRoute: typeof AuthenticatedDecisionEditorRoute
   AuthenticatedDecisionsRoute: typeof AuthenticatedDecisionsRoute
@@ -481,6 +503,7 @@ interface AuthenticatedRouteChildren {
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedAuditRoute: AuthenticatedAuditRoute,
   AuthenticatedConnectorsRoute: AuthenticatedConnectorsRoute,
   AuthenticatedDecisionEditorRoute: AuthenticatedDecisionEditorRoute,
   AuthenticatedDecisionsRoute: AuthenticatedDecisionsRoute,

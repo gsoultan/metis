@@ -803,6 +803,35 @@ It was not run against an installation that 0.4.0 itself had migrated.
 **Rolling back** needs nothing: no schema changed. 0.4.0 applies a mapping as
 it did.
 
+## Migration 46: an audit entry names who acted
+
+Migration 46 adds `audit_logs.actor`, a nullable column with no default, so
+the audit log can list what people did without opening each entry's sealed
+data. That changes the catalogue and does not rewrite the table, but it needs
+the table to itself for a moment, and every step of every running process
+writes to it. So the migration waits at most two seconds for it and then
+stops, saying
+
+```
+audit_logs was held for more than 2s by a long query or transaction; the
+upgrade stopped rather than hold every running process behind it, and will
+finish when started again once that ends
+```
+
+Start the server again once the query has ended. The log's two indexes,
+`ix_audit_logs_operations` and `ix_audit_logs_operations_by_actor`, are then
+built `CONCURRENTLY` over only the entries that name somebody, so they do not
+stop writes while they build, and stay the size of what people did.
+
+Entries already written are not backfilled: their actor is inside sealed data,
+and filling the column would decrypt and rewrite every audit row. They stay on
+their instance's history and are not in the audit log. A replica still on the
+previous release writes entries with no actor, which the log leaves out, until
+it is replaced.
+
+**Rolling back** leaves the column and the indexes in place. The previous
+release neither reads nor writes them.
+
 ## Migration 45: batch operations
 
 Migration 45 creates `batch_operations`, one row per retry or cancel asked for

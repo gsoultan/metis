@@ -98,7 +98,9 @@ func (s *instanceDeviationService) request(
 		"unless this organization has been set up as having one administrator and nobody else administers it. "+
 		"The request expires on %s. Reason: %s",
 		asked.RequestedBy, plan.NodeName, asked.ExpiresAt.UTC().Format(decidedOnLayout), command.Reason)
-	recorded, err := s.actions.record(ctx, row, requestEntry(EventDeviationRequested, asked, row, narrative))
+	entry := requestEntry(EventDeviationRequested, asked, row, narrative)
+	entry.Actor = asked.RequestedBy
+	recorded, err := s.actions.record(ctx, row, entry)
 	if err != nil {
 		return none, effectFailed(fmt.Sprintf("recording that “%s” was asked to be waived", plan.NodeName), err)
 	}

@@ -567,6 +567,40 @@ An instance already acted on stays as it is: stopping does not undo a cancel.
 
 ---
 
+## Reading the audit log
+
+When the question is who did something rather than what happened to one
+instance (who cancelled these orders, what did this account do last week, who
+approved that waive), the audit log answers it across the organization. It
+lists every trail entry a person's act wrote, newest first: tasks claimed,
+completed, assigned, delegated, edited or escalated; steps waived, activated
+or skipped; instances cancelled, held or migrated; requests for a second
+administrator and how each was decided; retention holds placed and released.
+Each instance's own history still holds everything, the engine's entries
+included.
+
+It is an administrator's, of the organization they are signed in to. The
+page is **Audit log** under Administer; the route takes the same filters:
+
+```bash
+curl -sH "Authorization: Bearer $TOKEN" \
+  "$METIS/api/v1/audit/operations?actor=<username>&type=instance_cancelled&from=2026-10-01T00:00:00Z" \
+  | jq '.operations[] | {at, actor, type, instance_id, narrative}'
+```
+
+`actor`, `type`, `project` (an id), `from` and `to` (RFC 3339; `to` is the
+moment every entry is before) are all optional. A page holds 50 entries, or
+`limit` up to 200; when there are more, the reply's `next` goes back as
+`before` for the next page. A value the route cannot read is refused with
+`400` rather than ignored.
+
+An entry outlives its instance: the retention sweep removes finished
+instances and never the trail, so the log still names an instance that is
+gone. Acts recorded before migration 46 are not in it; they stay on their
+instance's history.
+
+---
+
 ## Approving a request for a second administrator
 
 A waive of a step, and a migration that skips a step or loosens a rule on work

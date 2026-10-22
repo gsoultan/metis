@@ -41,6 +41,7 @@ func (a AuditModelAdapter) ToModel() models.AuditModel {
 		Message:   a.Entry.Message,
 		Narrative: a.Entry.Narrative,
 		Data:      a.Entry.Data,
+		Actor:     a.Entry.Actor,
 	}
 }
 
@@ -58,6 +59,7 @@ func (a AuditEntityAdapter) ToEntity() entities.AuditEntry {
 		Message:   a.Model.Message,
 		Narrative: a.Model.Narrative,
 		Data:      a.Model.Data,
+		Actor:     a.Model.Actor,
 		Timestamp: a.Model.CreatedAt,
 	}
 }

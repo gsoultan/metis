@@ -10,6 +10,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/store/auditentry"
+	"github.com/gsoultan/storm/runtime"
 )
 
 type auditRepository struct{ conn }
@@ -51,6 +52,7 @@ func (r *auditRepository) Create(ctx context.Context, entry models.AuditModel) e
 	setOrNullString(ins.SetNodeID, ins.SetNodeIDNull, entry.NodeID)
 	setOrNullString(ins.SetNodeName, ins.SetNodeNameNull, entry.NodeName)
 	setOrNullString(ins.SetNarrative, ins.SetNarrativeNull, entry.Narrative)
+	setOrNullString(ins.SetActor, ins.SetActorNull, entry.Actor)
 	if _, err := ins.Insert(ctx, ex); err != nil {
 		return fmt.Errorf("could not record the audit entry: %w", err)
 	}
@@ -94,6 +96,46 @@ func (r *auditRepository) ListByProject(ctx context.Context, projectID uuid.UUID
 		return nil, err
 	}
 	return r.read(ctx, q.Order(oldestFirst()...).Limit(limit))
+}
+
+// ListOperations returns the audit log: the entries that name who acted,
+// newest first, a page at a time.
+//
+// Read through the partial indexes of migration 46, which hold only these
+// entries: the whole log by created_at and seq, or one person's. A page
+// continues from the entry the last one ended on, by a row comparison on the
+// same two columns, so a page costs the same however far back it is and an
+// entry written while somebody pages cannot shift what they see. Each entry's
+// instance may be long gone — the retention sweep removes instances and never
+// the trail — so nothing here reads the instance.
+func (r *auditRepository) ListOperations(ctx context.Context, filter contracts.OperationFilter) ([]models.AuditModel, error) {
+	q, ok, err := r.scoped(ctx, auditentry.Actor.IsNotNull())
+	if err != nil || !ok {
+		return nil, err
+	}
+	if filter.Actor != "" {
+		q = q.Where(auditentry.Actor.Eq(filter.Actor))
+	}
+	if filter.Type != "" {
+		q = q.Where(auditentry.Type.Eq(filter.Type))
+	}
+	if filter.ProjectID != uuid.Nil {
+		q = q.Where(auditentry.ProjectID.Eq(filter.ProjectID))
+	}
+	if !filter.From.IsZero() {
+		q = q.Where(auditentry.CreatedAt.Gte(filter.From))
+	}
+	if !filter.To.IsZero() {
+		q = q.Where(auditentry.CreatedAt.Lt(filter.To))
+	}
+	q = q.Order(auditentry.CreatedAt.Desc(), auditentry.Seq.Desc())
+	if filter.Before != nil {
+		q = q.After(auditentry.Row{
+			CreatedAt: filter.Before.At,
+			Seq:       runtime.Null[int64]{V: filter.Before.Seq, Valid: true},
+		})
+	}
+	return r.read(ctx, q.Limit(filter.Limit))
 }
 
 // LatestByInstance returns a window of an instance's history counted from its
@@ -258,6 +300,7 @@ func (r *auditRepository) read(ctx context.Context, q auditentry.Query) ([]model
 			NodeName:   valueOr(row.NodeName),
 			Message:    row.Message,
 			Narrative:  valueOr(row.Narrative),
+			Actor:      valueOr(row.Actor),
 		}
 		if seq, ok := row.Seq.Get(); ok {
 			entry.Seq = &seq

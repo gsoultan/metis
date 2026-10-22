@@ -59,6 +59,8 @@ var actionNouns = []struct{ noun, area string }{
 	{"Instance", areaInstances},
 	// A batch operation retries or cancels instances.
 	{"BatchOperation", areaInstances},
+	// The audit log: what people did across the organization.
+	{"ListOperations", areaOrganizations},
 	// A hold keeps an instance; the project's list of them names no instance.
 	{"RetentionHold", areaInstances},
 	// A retention period is a process's: how long its finished instances

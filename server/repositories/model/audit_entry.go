@@ -38,6 +38,13 @@ type AuditEntry struct {
 	// back as a serial and leaves out of the drift report.
 	Seq *int64
 
+	// Actor is the person who acted, for an entry somebody's act wrote: a
+	// waive, a migration, a reassignment, a hold. Nil for the engine's own
+	// entries, and for every entry written before migration 46, whose actor
+	// is only in Data. Plain, unlike Data, so the audit log can be filtered by
+	// it.
+	Actor *string
+
 	DeletedAt *time.Time
 }
 
@@ -45,7 +52,13 @@ func (a *AuditEntry) Schema(t *storm.Table) {
 	t.Name("audit_logs")
 	t.Col(&a.Type).Size(64)
 	t.Col(&a.NodeID).Size(255)
+	t.Col(&a.Actor).Size(255)
 	t.Col(&a.DeletedAt).Index()
+	// The audit log: the entries that name somebody, newest first, and one
+	// person's. Partial, so they are the size of what people did rather than
+	// of everything the engine wrote. Spelled as PostgreSQL prints it back.
+	t.Index(&a.CreatedAt, &a.Seq).Where("(actor IS NOT NULL)").Named("ix_audit_logs_operations")
+	t.Index(&a.Actor, &a.CreatedAt, &a.Seq).Where("(actor IS NOT NULL)").Named("ix_audit_logs_operations_by_actor")
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&a.DeletedAt)

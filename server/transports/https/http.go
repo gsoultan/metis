@@ -28,6 +28,7 @@ import (
 	"github.com/gsoultan/metis/server/transports/https/group"
 	"github.com/gsoultan/metis/server/transports/https/incidents"
 	"github.com/gsoultan/metis/server/transports/https/notification"
+	"github.com/gsoultan/metis/server/transports/https/operationlog"
 	"github.com/gsoultan/metis/server/transports/https/organizations"
 	"github.com/gsoultan/metis/server/transports/https/outgoingwebhooks"
 	"github.com/gsoultan/metis/server/transports/https/participants"
@@ -89,6 +90,7 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 	deviations.RegisterHandlers(m, eps.Deviation, options)
 	retentionholds.RegisterHandlers(m, eps.RetentionHold, options)
 	batchoperations.RegisterHandlers(m, eps.BatchOperation, options)
+	operationlog.RegisterHandlers(m, eps.OperationLog, options)
 	retentionperiods.RegisterHandlers(m, eps.RetentionPeriod, options)
 	notification.RegisterHandlers(m, eps.Notification, options)
 	decisions.RegisterHandlers(m, eps.Decision, options)
