@@ -22,6 +22,23 @@ type OutgoingWebhookService interface {
 	SetOutgoingWebhookEnabled(ctx context.Context, id uuid.UUID, enabled bool) error
 
 	DeleteOutgoingWebhook(ctx context.Context, id uuid.UUID) error
+
+	// SendOutgoingWebhookTest posts a sample of event, marked as a test, to
+	// the webhook now, signed as a real delivery is, and says exactly what was
+	// sent and what came back. No event names the webhook's first. It is
+	// logged and never retried.
+	SendOutgoingWebhookTest(ctx context.Context, id uuid.UUID, event entities.OutgoingWebhookEvent) (entities.OutgoingWebhookTest, error)
+
+	// ListOutgoingWebhookDeliveries reads a page of a webhook's log, newest
+	// first.
+	ListOutgoingWebhookDeliveries(ctx context.Context, id uuid.UUID, filter entities.OutgoingWebhookLogFilter) ([]entities.OutgoingWebhookLogEntry, error)
+
+	// RetryOutgoingWebhookDelivery makes a pending or failed delivery due now.
+	RetryOutgoingWebhookDelivery(ctx context.Context, deliveryID uuid.UUID) error
+
+	// StopOutgoingWebhookDelivery fails a pending delivery, so nothing more is
+	// sent of it.
+	StopOutgoingWebhookDelivery(ctx context.Context, deliveryID uuid.UUID) error
 }
 
 // OutgoingWebhookDeliverer posts what outgoing webhooks are owed.

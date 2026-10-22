@@ -2,7 +2,11 @@ package outgoingwebhook
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
@@ -21,6 +25,11 @@ type Endpoints struct {
 	CreateOutgoingWebhook     endpoint.Endpoint
 	SetOutgoingWebhookEnabled endpoint.Endpoint
 	DeleteOutgoingWebhook     endpoint.Endpoint
+
+	SendOutgoingWebhookTest       endpoint.Endpoint
+	ListOutgoingWebhookDeliveries endpoint.Endpoint
+	RetryOutgoingWebhookDelivery  endpoint.Endpoint
+	StopOutgoingWebhookDelivery   endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -29,6 +38,15 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		CreateOutgoingWebhook:     makeCreateEndpoint(s),
 		SetOutgoingWebhookEnabled: makeSetEnabledEndpoint(s),
 		DeleteOutgoingWebhook:     makeDeleteEndpoint(s),
+
+		SendOutgoingWebhookTest:       makeSendTestEndpoint(s),
+		ListOutgoingWebhookDeliveries: makeListDeliveriesEndpoint(s),
+		RetryOutgoingWebhookDelivery: makeDeliveryEndpoint(func(ctx context.Context, id uuid.UUID) error {
+			return s.RetryOutgoingWebhookDelivery(ctx, id)
+		}),
+		StopOutgoingWebhookDelivery: makeDeliveryEndpoint(func(ctx context.Context, id uuid.UUID) error {
+			return s.StopOutgoingWebhookDelivery(ctx, id)
+		}),
 	}
 }
 
@@ -108,6 +126,124 @@ func makeDeleteEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		return DeleteResponse{Err: s.DeleteOutgoingWebhook(ctx, id)}, nil
 	}
+}
+
+func makeSendTestEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(SendTestRequest)
+		if !ok {
+			return SendTestResponse{Err: errWrongRequestType}, nil
+		}
+		id, err := parseID("outgoing webhook", req.ID)
+		if err != nil {
+			return SendTestResponse{Err: err}, nil
+		}
+		test, err := s.SendOutgoingWebhookTest(ctx, id, entities.OutgoingWebhookEvent(req.Event))
+		if err != nil {
+			return SendTestResponse{Err: err}, nil
+		}
+		view := TestViewOf(test)
+		return SendTestResponse{Test: &view}, nil
+	}
+}
+
+func makeListDeliveriesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ListDeliveriesRequest)
+		if !ok {
+			return ListDeliveriesResponse{Err: errWrongRequestType}, nil
+		}
+		id, err := parseID("outgoing webhook", req.ID)
+		if err != nil {
+			return ListDeliveriesResponse{Err: err}, nil
+		}
+		limit := logPage(req.Limit)
+		filter := entities.OutgoingWebhookLogFilter{
+			Status: entities.OutgoingWebhookDeliveryStatus(req.Status),
+			Limit:  limit,
+		}
+		if req.Before != "" {
+			before, err := decodeCursor(req.Before)
+			if err != nil {
+				return ListDeliveriesResponse{Err: err}, nil
+			}
+			filter.Before = &before
+		}
+		entries, err := s.ListOutgoingWebhookDeliveries(ctx, id, filter)
+		if err != nil {
+			return ListDeliveriesResponse{Err: err}, nil
+		}
+		views := make([]DeliveryView, 0, len(entries))
+		for _, entry := range entries {
+			views = append(views, DeliveryViewOf(entry))
+		}
+		resp := ListDeliveriesResponse{Deliveries: views}
+		// A full page may have more behind it; a short one has not.
+		if len(entries) == limit {
+			last := entries[len(entries)-1]
+			resp.NextBefore = encodeCursor(entities.OutgoingWebhookLogCursor{CreatedAt: last.CreatedAt, ID: last.ID})
+		}
+		return resp, nil
+	}
+}
+
+func makeDeliveryEndpoint(act func(context.Context, uuid.UUID) error) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(DeliveryRequest)
+		if !ok {
+			return DeliveryResponse{Err: errWrongRequestType}, nil
+		}
+		id, err := parseID("delivery", req.DeliveryID)
+		if err != nil {
+			return DeliveryResponse{Err: err}, nil
+		}
+		return DeliveryResponse{Err: act(ctx, id)}, nil
+	}
+}
+
+// defaultLogPage and maxLogPage bound a page of the log.
+const (
+	defaultLogPage = 50
+	maxLogPage     = 200
+)
+
+func logPage(asked int) int {
+	switch {
+	case asked <= 0:
+		return defaultLogPage
+	case asked > maxLogPage:
+		return maxLogPage
+	default:
+		return asked
+	}
+}
+
+// encodeCursor and decodeCursor carry where a page ended as one opaque token:
+// the delivery's creation time to the nanosecond and its id.
+func encodeCursor(c entities.OutgoingWebhookLogCursor) string {
+	raw := strconv.FormatInt(c.CreatedAt.UnixNano(), 10) + "." + c.ID.String()
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
+}
+
+func decodeCursor(token string) (entities.OutgoingWebhookLogCursor, error) {
+	invalid := apierr.Invalidf("%q is not a page of this log; pass the next_before of the previous page", token)
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return entities.OutgoingWebhookLogCursor{}, invalid
+	}
+	nanos, id, found := strings.Cut(string(raw), ".")
+	if !found {
+		return entities.OutgoingWebhookLogCursor{}, invalid
+	}
+	at, err := strconv.ParseInt(nanos, 10, 64)
+	if err != nil {
+		return entities.OutgoingWebhookLogCursor{}, invalid
+	}
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return entities.OutgoingWebhookLogCursor{}, invalid
+	}
+	return entities.OutgoingWebhookLogCursor{CreatedAt: time.Unix(0, at).UTC(), ID: parsed}, nil
 }
 
 func parseID(what, raw string) (uuid.UUID, error) {

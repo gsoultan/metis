@@ -397,6 +397,13 @@ does not undo a migration.
   saved and at every dial, and no delivery carries process variables
   ([Sending events: outgoing
   webhooks](docs/integration.md#sending-events-outgoing-webhooks)).
+- **Try an outgoing webhook, and read what it was sent.** An administrator can
+  send a webhook a signed sample of any of its events and see the request as
+  it went out, signature included, and the receiver's answer; the sample is
+  marked as a test and names no real instance. Each webhook keeps a log of its
+  deliveries, newest first and filtered by where they stand, from which a
+  pending or failed delivery can be retried at once and a pending one stopped
+  ([Trying a receiver](docs/integration.md#trying-a-receiver-and-reading-what-it-was-sent)).
 - **Simulate the diagram you are editing, without deploying it.** In the
   designer, Simulate now runs the canvas: the version you opened while the
   canvas still does what it does, and a draft once you change a step, a

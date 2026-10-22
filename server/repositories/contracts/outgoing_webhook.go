@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -27,4 +28,21 @@ type OutgoingWebhookRepository interface {
 	// Delete removes a webhook. Its log stays readable until the retention
 	// sweep removes it; what it was still owed is never sent.
 	Delete(ctx context.Context, id uuid.UUID) error
+
+	// Signing reads a webhook with its secret unsealed, for a test sent by
+	// hand. Nothing it returns is shown to the caller.
+	Signing(ctx context.Context, id uuid.UUID) (entities.OutgoingWebhook, error)
+
+	// Deliveries reads a page of a webhook's log, newest first.
+	Deliveries(ctx context.Context, webhookID uuid.UUID, filter entities.OutgoingWebhookLogFilter) ([]entities.OutgoingWebhookLogEntry, error)
+
+	// RetryDelivery makes a pending or failed delivery due at now. One that
+	// failed is given one more attempt; its count is not reset.
+	RetryDelivery(ctx context.Context, deliveryID uuid.UUID, now time.Time) error
+
+	// StopDelivery fails a pending delivery at once, saying why.
+	StopDelivery(ctx context.Context, deliveryID uuid.UUID, now time.Time, reason string) error
+
+	// RecordTest logs a delivery sent by hand, settled as it came out.
+	RecordTest(ctx context.Context, webhookID uuid.UUID, test entities.OutgoingWebhookTest) error
 }

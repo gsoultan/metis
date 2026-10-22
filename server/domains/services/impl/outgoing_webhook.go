@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -37,11 +38,19 @@ const (
 
 type outgoingWebhookService struct {
 	webhooks contracts.OutgoingWebhookRepository
+	// sender posts the tests sent by hand, on the same guarded client and
+	// timeout as the worker's.
+	sender *outgoingWebhookSender
+	now    func() time.Time
 }
 
 // NewOutgoingWebhookService creates the registry of outgoing webhooks.
-func NewOutgoingWebhookService(webhooks contracts.OutgoingWebhookRepository) servicecontracts.OutgoingWebhookService {
-	return &outgoingWebhookService{webhooks: webhooks}
+func NewOutgoingWebhookService(webhooks contracts.OutgoingWebhookRepository, settings OutgoingWebhookSettings) servicecontracts.OutgoingWebhookService {
+	return &outgoingWebhookService{
+		webhooks: webhooks,
+		sender:   newOutgoingWebhookSender(settings.Timeout),
+		now:      func() time.Time { return time.Now().UTC() },
+	}
 }
 
 // CreateOutgoingWebhook checks an address and the events asked for, and
