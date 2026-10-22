@@ -73,10 +73,13 @@ func (s *batchOperationService) StartBatchOperations(ctx context.Context) {
 				return
 			case <-ticker.C:
 				// A panic here would end the ticker, and with it every operation.
-				_ = runRecovered("batch operation poll", func() error {
+				if err := runRecovered("batch operation poll", func() error {
 					s.drain(ctx)
 					return nil
-				})
+				}); err != nil {
+					// Logged with its stack by runRecovered; the next tick polls again.
+					continue
+				}
 			}
 		}
 	}()
@@ -97,6 +100,9 @@ func (s *batchOperationService) drain(ctx context.Context) {
 			return
 		}
 		if err := s.turn(ctx, operation); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			// Not lost: the operation is still running, and is taken again
 			// when its lease runs out.
 			log.Error().Err(err).Str("batch_operation", operation.ID.String()).
@@ -121,8 +127,10 @@ func (s *batchOperationService) turn(ctx context.Context, operation entities.Bat
 		return err
 	}
 	for _, instance := range pending {
-		if ctx.Err() != nil {
-			return nil
+		if err := ctx.Err(); err != nil {
+			// Shutting down: what is left stays pending, and the lease lets
+			// another worker take it.
+			return err
 		}
 		item := s.act(acting, operation, instance)
 		settledAt := s.now()
