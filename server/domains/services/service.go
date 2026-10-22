@@ -29,6 +29,8 @@ type service struct {
 	contracts.CollaborationService
 	contracts.MessagingService
 	contracts.WebhookService
+	contracts.OutgoingWebhookService
+	contracts.OutgoingWebhookDeliverer
 	contracts.AdHocActivator
 	contracts.UserService
 	contracts.GroupService
@@ -59,6 +61,8 @@ type ServiceParams struct {
 	CollaborationService   contracts.CollaborationService
 	MessagingService       contracts.MessagingService
 	WebhookService         contracts.WebhookService
+	OutgoingWebhooks       contracts.OutgoingWebhookService
+	OutgoingDeliveries     contracts.OutgoingWebhookDeliverer
 	AdHocActivator         contracts.AdHocActivator
 	UserService            contracts.UserService
 	GroupService           contracts.GroupService
@@ -89,33 +93,35 @@ func NewService(p ServiceParams) ServiceFacade {
 		p.SimulationCaseService = serviceimpl.NewUnavailableSimulationCaseService()
 	}
 	return &service{
-		OrganizationService:    p.OrganizationService,
-		ProjectService:         p.ProjectService,
-		DefinitionService:      p.DefinitionService,
-		EnvironmentService:     p.EnvironmentService,
-		WorkflowUserService:    p.WorkflowUserService,
-		ParticipantSyncService: p.ParticipantSyncService,
-		PlatformUserService:    p.PlatformUserService,
-		TaskService:            p.TaskService,
-		ExecutionEngine:        p.ExecutionEngine,
-		JobService:             p.JobService,
-		ExternalTaskService:    p.ExternalTaskService,
-		DecisionService:        p.DecisionService,
-		MigrationService:       p.MigrationService,
-		ConnectorService:       p.ConnectorService,
-		CollaborationService:   p.CollaborationService,
-		MessagingService:       p.MessagingService,
-		WebhookService:         p.WebhookService,
-		AdHocActivator:         p.AdHocActivator,
-		UserService:            p.UserService,
-		GroupService:           p.GroupService,
-		SetupService:           p.SetupService,
-		NotificationService:    p.NotificationService,
-		SimulationService:      p.SimulationService,
-		SimulationCaseService:  p.SimulationCaseService,
-		DeviationService:       p.DeviationService,
-		RetentionHoldService:   p.RetentionHoldService,
-		RetentionPeriodService: p.RetentionPeriodService,
+		OrganizationService:      p.OrganizationService,
+		ProjectService:           p.ProjectService,
+		DefinitionService:        p.DefinitionService,
+		EnvironmentService:       p.EnvironmentService,
+		WorkflowUserService:      p.WorkflowUserService,
+		ParticipantSyncService:   p.ParticipantSyncService,
+		PlatformUserService:      p.PlatformUserService,
+		TaskService:              p.TaskService,
+		ExecutionEngine:          p.ExecutionEngine,
+		JobService:               p.JobService,
+		ExternalTaskService:      p.ExternalTaskService,
+		DecisionService:          p.DecisionService,
+		MigrationService:         p.MigrationService,
+		ConnectorService:         p.ConnectorService,
+		CollaborationService:     p.CollaborationService,
+		MessagingService:         p.MessagingService,
+		WebhookService:           p.WebhookService,
+		OutgoingWebhookService:   p.OutgoingWebhooks,
+		OutgoingWebhookDeliverer: p.OutgoingDeliveries,
+		AdHocActivator:           p.AdHocActivator,
+		UserService:              p.UserService,
+		GroupService:             p.GroupService,
+		SetupService:             p.SetupService,
+		NotificationService:      p.NotificationService,
+		SimulationService:        p.SimulationService,
+		SimulationCaseService:    p.SimulationCaseService,
+		DeviationService:         p.DeviationService,
+		RetentionHoldService:     p.RetentionHoldService,
+		RetentionPeriodService:   p.RetentionPeriodService,
 	}
 }
 
@@ -269,13 +275,16 @@ func NewServiceFacade(
 		CollaborationService:   collaborationSvc,
 		MessagingService:       messagingSvc,
 		WebhookService:         webhookSvc,
-		AdHocActivator:         adHocActivator,
-		UserService:            userSvc,
-		GroupService:           groupSvc,
-		SetupService:           setupSvc,
-		NotificationService:    notificationSvc,
-		SimulationService:      simulationSvc,
-		SimulationCaseService:  serviceimpl.NewSimulationCaseService(repo),
+		OutgoingWebhooks:       serviceimpl.NewOutgoingWebhookService(repo.OutgoingWebhook()),
+		OutgoingDeliveries: serviceimpl.NewOutgoingWebhookDeliverer(repo.OutgoingWebhookQueue(),
+			serviceimpl.ResolveOutgoingWebhookSettings()),
+		AdHocActivator:        adHocActivator,
+		UserService:           userSvc,
+		GroupService:          groupSvc,
+		SetupService:          setupSvc,
+		NotificationService:   notificationSvc,
+		SimulationService:     simulationSvc,
+		SimulationCaseService: serviceimpl.NewSimulationCaseService(repo),
 		DeviationService: serviceimpl.NewDeviationService(deviationLedger,
 			serviceimpl.NewInstanceDeviationService(repo, engine),
 			serviceimpl.NewDeviationRequestService(repo, engine,

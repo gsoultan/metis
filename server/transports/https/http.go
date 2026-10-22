@@ -28,6 +28,7 @@ import (
 	"github.com/gsoultan/metis/server/transports/https/incidents"
 	"github.com/gsoultan/metis/server/transports/https/notification"
 	"github.com/gsoultan/metis/server/transports/https/organizations"
+	"github.com/gsoultan/metis/server/transports/https/outgoingwebhooks"
 	"github.com/gsoultan/metis/server/transports/https/participants"
 	"github.com/gsoultan/metis/server/transports/https/participantsources"
 	"github.com/gsoultan/metis/server/transports/https/platformusers"
@@ -92,6 +93,7 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 	connectors.RegisterHandlers(m, eps.Connector, options)
 	collaboration.RegisterHandlers(m, eps.Collaboration, options)
 	webhookadmin.RegisterHandlers(m, eps.Webhook, options)
+	outgoingwebhooks.RegisterHandlers(m, eps.OutgoingWebhook, options)
 	simulations.RegisterHandlers(m, eps.Simulation, options)
 	simulationcases.RegisterHandlers(m, eps.SimulationCase, options)
 	roles.RegisterHandlers(m, eps.Role, options)

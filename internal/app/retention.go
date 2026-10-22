@@ -120,6 +120,7 @@ func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time, 
 	forget(ctx, "external_task_workers", database, func(ctx context.Context) (int64, error) {
 		return a.repo.ExternalTaskWorker().ForgetIdle(ctx, now.Add(-entities.WorkerForgottenAfter))
 	})
+	forget(ctx, "outgoing_webhook_deliveries", database, a.svc.ForgetOldOutgoingDeliveries)
 	// No storm connection means idempotency records are held in the serving
 	// process, which sweeps its own.
 	if a.storm != nil {

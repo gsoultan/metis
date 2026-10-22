@@ -61,6 +61,11 @@ type Repository interface {
 	// deliveries already acted on.
 	Webhook() contracts.WebhookRepository
 
+	// OutgoingWebhook stores the addresses a project posts its events to, and
+	// OutgoingWebhookQueue what each of them is owed.
+	OutgoingWebhook() contracts.OutgoingWebhookRepository
+	OutgoingWebhookQueue() contracts.OutgoingWebhookQueue
+
 	// ConnectorManifest stores connectors described by a document rather than
 	// by Go.
 	ConnectorManifest() contracts.ConnectorManifestRepository

@@ -817,6 +817,28 @@ neither lists nor saves cases until it is rolled forward.
 **Rolling back** leaves the table behind, unused; the previous release does
 not read it.
 
+## Migration 42: inbound webhook secrets are sealed
+
+Migration 42 encrypts every inbound webhook's secret with `ENCRYPTION_KEY`,
+in one transaction; the `webhooks` table is small, and only rows whose secret
+is still in the clear are touched, so a repeated run changes nothing. With no
+key configured it stops the upgrade rather than leave the secrets readable.
+
+During a rolling upgrade a replica on the previous release still writes a new
+webhook's secret in the clear, and the upgraded replicas read it as it is.
+Those secrets stay in the clear until somebody seals them: once every replica
+is rolled forward, run
+
+```sql
+DELETE FROM schema_migrations WHERE version = 42;
+```
+
+and restart one replica, which runs the migration again over what is left.
+
+**Rolling back** to the previous release is not safe once this has run: it
+reads the sealed value as the secret, and every signed delivery is refused.
+Restore from the backup taken before the upgrade instead.
+
 ## Migration 41: the workers that fetch external tasks
 
 Migration 41 creates `external_task_workers`, a row for each worker that has
@@ -834,6 +856,21 @@ too.
 
 **Rolling back** leaves the table in place, unread. The previous release
 neither reads nor writes it.
+
+## Migration 40: outgoing webhooks
+
+Migration 40 creates `outgoing_webhooks` and `outgoing_webhook_deliveries` with
+their indexes. Both are new and empty, so it takes no lock that running work
+waits on. Rolling back leaves them in place, unused; the previous release does
+not read them.
+
+`WEBHOOK_ENDPOINTS` still works and is deprecated. It posts every event of
+every project to every address in it, unsigned, once, and drops the event if
+the receiver is down. Register each receiver as an outgoing webhook of the
+project it wants
+([Sending events: outgoing webhooks](integration.md#sending-events-outgoing-webhooks)),
+point it at the signature, then unset the variable. Until then the receiver
+gets both.
 
 ## Migration 39: an instance carries a business key
 

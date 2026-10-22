@@ -74,6 +74,10 @@ func All() []any {
 		// The inbound surface and the machinery underneath it.
 		&Webhook{},
 		&WebhookDelivery{},
+		// The outbound surface: where a project's events are posted, and the
+		// queue they are posted from.
+		&OutgoingWebhook{},
+		&OutgoingWebhookDelivery{},
 		&Notification{},
 		&IdempotencyRecord{},
 		&SharedCounter{},

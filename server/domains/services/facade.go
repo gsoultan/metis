@@ -39,6 +39,11 @@ type ServiceFacade interface {
 
 	// WebhookService receives events partners post to the public hook endpoint.
 	serviceContracts.WebhookService
+
+	// OutgoingWebhookService manages the addresses a project posts its events
+	// to, and OutgoingWebhookDeliverer posts what each is owed.
+	serviceContracts.OutgoingWebhookService
+	serviceContracts.OutgoingWebhookDeliverer
 	serviceContracts.AdHocActivator
 	serviceContracts.UserService
 	serviceContracts.GroupService

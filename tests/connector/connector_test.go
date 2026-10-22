@@ -135,13 +135,15 @@ func (m *MockRepository) ExternalTask() contracts.ExternalTaskRepository { retur
 func (m *MockRepository) ExternalTaskWorker() contracts.ExternalTaskWorkerRepository {
 	return nil
 }
-func (m *MockRepository) Form() contracts.FormRepository                 { return nil }
-func (m *MockRepository) Incident() contracts.IncidentRepository         { return nil }
-func (m *MockRepository) Job() contracts.JobRepository                   { return nil }
-func (m *MockRepository) Organization() contracts.OrganizationRepository { return nil }
-func (m *MockRepository) Process() contracts.ProcessRepository           { return nil }
-func (m *MockRepository) ServiceCall() contracts.ServiceCallRepository   { return nil }
-func (m *MockRepository) Webhook() contracts.WebhookRepository           { return nil }
+func (m *MockRepository) Form() contracts.FormRepository                       { return nil }
+func (m *MockRepository) Incident() contracts.IncidentRepository               { return nil }
+func (m *MockRepository) Job() contracts.JobRepository                         { return nil }
+func (m *MockRepository) Organization() contracts.OrganizationRepository       { return nil }
+func (m *MockRepository) Process() contracts.ProcessRepository                 { return nil }
+func (m *MockRepository) ServiceCall() contracts.ServiceCallRepository         { return nil }
+func (m *MockRepository) Webhook() contracts.WebhookRepository                 { return nil }
+func (m *MockRepository) OutgoingWebhook() contracts.OutgoingWebhookRepository { return nil }
+func (m *MockRepository) OutgoingWebhookQueue() contracts.OutgoingWebhookQueue { return nil }
 func (m *MockRepository) ConnectorManifest() contracts.ConnectorManifestRepository {
 	return nil
 }

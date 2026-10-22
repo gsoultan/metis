@@ -1707,6 +1707,115 @@ cannot change, such as GitHub's `X-Hub-Signature-256` — cannot produce v2.
 Before its window closes, put a small relay in front of Metis that checks the
 sender's own signature and re-signs each delivery with v2 as it forwards it.
 
+## Sending events: outgoing webhooks
+
+The other direction: Metis telling your system that something happened in a
+project's processes. An administrator registers an address for the events it
+wants, and every one of those events is posted to it, signed, until the
+receiver accepts it.
+
+```
+POST /api/v1/projects/<project id>/outgoing-webhooks
+{"name": "Finance ledger", "url": "https://ledger.example.com/hooks/metis",
+ "events": ["process.completed", "task.completed"]}
+```
+
+The answer carries the webhook's `secret`. **It is shown once**; it is
+encrypted at rest and no read path returns it. Put it in the receiver's
+settings.
+
+| Event | When |
+| :-- | :-- |
+| `process.started` | An instance of a process starts |
+| `process.completed` | An instance finishes |
+| `task.created` | A task is waiting for somebody |
+| `task.completed` | Somebody completes a task |
+
+Routes, all under `/api/v1`:
+
+| Route | Who |
+| :-- | :-- |
+| `GET /projects/{id}/outgoing-webhooks` | anyone signed in to the project's organization |
+| `POST /projects/{id}/outgoing-webhooks` | an administrator |
+| `POST /outgoing-webhooks/{id}/enabled` with `{"enabled": false}` | an administrator |
+| `DELETE /outgoing-webhooks/{id}` | an administrator |
+
+Registering one is an administrator's act because it is a standing channel out
+of the project: every event it is given goes to an address somebody typed.
+
+### What a receiver gets
+
+```
+POST /hooks/metis
+Content-Type: application/json
+User-Agent: Metis-Webhook/2.0
+X-Metis-Event: task.completed
+X-Delivery-Id: 0192f3a1-7c4e-7b20-9d1a-3e5f6a7b8c9d
+X-Metis-Timestamp: 1792577214
+X-Metis-Signature: v2=6a1f0c…
+
+{
+  "event_id": "0192f3a1-7c4d-7f00-8b1e-2c3d4e5f6a7b",
+  "event": "task.completed",
+  "occurred_at": "2026-10-21T10:41:00Z",
+  "project_id": "…",
+  "instance": {"id": "…", "business_key": "PO-4182", "process_key": "purchase",
+               "process_name": "Purchase approval", "process_version": 3, "status": "active"},
+  "node": {"id": "approve", "name": "Manager approval"},
+  "task": {"id": "…", "assignee": "alice"}
+}
+```
+
+- **The signature is the one partners sign inbound deliveries with**
+  ([Signing a delivery](#signing-a-delivery)): `v2=` and the hex HMAC-SHA256,
+  keyed with the secret, of `<timestamp>.<delivery id>.<raw body>`. Verify it
+  over the raw bytes before parsing them, and refuse a timestamp more than five
+  minutes from your clock.
+- **No process variables.** A delivery says what happened and to which case.
+  The variables are the project's business data; a receiver that needs them
+  asks the API with credentials of its own.
+- **At least once.** A receiver that accepted an event and answered too late
+  to be believed gets it again. `X-Delivery-Id` is the same on every attempt
+  at one delivery, so remember the ones you have handled. `event_id` is the
+  same in every webhook the event went to.
+- **Not in order.** Retries interleave with new events. Order by
+  `occurred_at` if order matters.
+
+### Retries
+
+Any `2xx` within 10 seconds is accepted. Anything else — another status, no
+answer, a redirect, which is never followed — is tried again after 1, 5, 15
+and 30 minutes, then 1, 2, 4, 6 and 8 hours: ten attempts over about a day,
+each spread by up to a fifth either way. After the tenth the delivery is
+failed and stays in the log. An address this installation refuses to call is
+failed at once, since no retry changes that.
+
+The queue is written in the same transaction as the step that raised the
+event, so a step that rolled back is never announced, and one that committed
+is announced even if the server stops a moment later. Switching a webhook off
+holds what it is owed until it is switched on again; deleting one drops it.
+Deliveries are kept for 30 days.
+
+### Addresses Metis will post to
+
+`https` only, with no user name or password in it. The address is checked
+against the egress policy when it is saved, and the address it resolves to is
+checked again on every attempt, so a name that is later pointed inside the
+network is refused at the dial. Loopback, link-local, private and
+carrier-grade NAT ranges are refused unless `METIS_HTTP_ALLOW_PRIVATE_NETWORKS`
+is set or the host is in `METIS_HTTP_ALLOWED_HOSTS`; plain `http` is allowed
+only where private networks are, which is a developer's machine.
+
+A webhook lives in the database of the port it was registered on, like an
+inbound one, and hears the events of the instances that run there.
+
+For whoever runs Metis: `METIS_OUTGOING_WEBHOOK_WORKERS` (8 per database),
+`METIS_OUTGOING_WEBHOOK_POLL_INTERVAL` (2s) and
+`METIS_OUTGOING_WEBHOOK_TIMEOUT` (10s). `WEBHOOK_ENDPOINTS`, which posted
+every event of every project to every address in it, unsigned and once, still
+works and is deprecated: register each of its receivers as an outgoing webhook
+of its project, then unset it.
+
 ## Letting a decision table say who approves
 
 An approval matrix — "under 10k the team lead, over 10k the CFO, anything from a

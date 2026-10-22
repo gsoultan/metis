@@ -100,15 +100,36 @@ does not undo a migration.
   if `process_instances` is held for more than two seconds**. It then builds
   the index the search reads through concurrently ([Migration
   39](docs/upgrading.md#migration-39-an-instance-carries-a-business-key)).
+- **40** adds the two tables outgoing webhooks are kept in. Nothing existing
+  is rewritten ([Migration
+  40](docs/upgrading.md#migration-40-outgoing-webhooks)).
+- **`WEBHOOK_ENDPOINTS` is deprecated.** It still posts every event of every
+  project to every address in it, unsigned and once, and now says so in the log
+  at boot. Register each of its receivers as an outgoing webhook of its
+  project, then unset it.
 - **41** creates the table of the workers that fetch external tasks. It is new
   and empty, so it holds nothing up ([Migration
   41](docs/upgrading.md#migration-41-the-workers-that-fetch-external-tasks)).
+- **42** encrypts every inbound webhook's secret, and **stops the upgrade if
+  no `ENCRYPTION_KEY` is configured** while any secret is still in the clear.
+  Once it has run the previous release refuses every signed delivery, so a
+  rollback means restoring the backup ([Migration
+  42](docs/upgrading.md#migration-42-inbound-webhook-secrets-are-sealed)).
 - **43** creates the simulation cases a process keeps, and stops if
   `projects` is held for more than two seconds; it finishes on the next start
   ([Migration
   43](docs/upgrading.md#migration-43-a-process-keeps-its-simulation-cases)).
 
 ### Security
+
+- **An inbound webhook's secret is encrypted at rest.** The secret a partner
+  signs deliveries with was stored as it was, though it was documented as
+  encrypted, so a backup, a read replica or a `SELECT` on `webhooks` was enough
+  to forge any partner's deliveries. It is sealed with `ENCRYPTION_KEY` like
+  every other credential now, and migration 42 seals the secrets already
+  stored, deleted webhooks' included. Partners change nothing: the secret
+  itself is the same. `metis --reseal` moves these secrets with the rest when
+  the key is rotated.
 
 - **A group's roles now grant what they say.** The group editor said everyone
   in a group holds its roles, but nothing read them: giving a group a role
@@ -383,6 +404,17 @@ does not undo a migration.
 
 ### Added
 
+- **Outgoing webhooks.** An administrator registers an address for a
+  project's `process.started`, `process.completed`, `task.created` and
+  `task.completed` events, and each one is posted to it signed with the
+  webhook's own secret, with a delivery id that stays the same across retries.
+  The event is queued in the transaction of the step that raised it, so a
+  rolled-back step is never announced and a committed one is announced even if
+  the server stops; a receiver that does not accept it is tried ten times over
+  about a day. The address is checked against the egress policy when it is
+  saved and at every dial, and no delivery carries process variables
+  ([Sending events: outgoing
+  webhooks](docs/integration.md#sending-events-outgoing-webhooks)).
 - **Simulate the diagram you are editing, without deploying it.** In the
   designer, Simulate now runs the canvas: the version you opened while the
   canvas still does what it does, and a draft once you change a step, a

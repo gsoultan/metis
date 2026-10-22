@@ -41,7 +41,7 @@ func (r *webhookRepository) GetByToken(ctx context.Context, token string) (model
 	if !found {
 		return models.WebhookModel{}, fmt.Errorf("%w: no such webhook", apierr.ErrNotFound)
 	}
-	return webhookFrom(row), nil
+	return webhookFrom(row)
 }
 
 func (r *webhookRepository) ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.WebhookModel, error) {
@@ -63,7 +63,11 @@ func (r *webhookRepository) ListByProject(ctx context.Context, projectID uuid.UU
 	}
 	out := make([]models.WebhookModel, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, webhookFrom(row))
+		m, err := webhookFrom(row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
 	}
 	return out, nil
 }
@@ -72,6 +76,12 @@ func (r *webhookRepository) Create(ctx context.Context, w models.WebhookModel) e
 	projectID := uuid.UUID(w.ProjectID)
 	if err := r.requireProjectInTenant(ctx, projectID); err != nil {
 		return err
+	}
+	// Sealed like every other credential at rest. A database backup or a
+	// read-only replica must not be enough to sign a delivery as the partner.
+	secret, err := sealedText(w.Secret)
+	if err != nil {
+		return fmt.Errorf("could not encrypt the webhook's secret: %w", err)
 	}
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
@@ -84,7 +94,7 @@ func (r *webhookRepository) Create(ctx context.Context, w models.WebhookModel) e
 	ins.SetProjectID(projectID)
 	ins.SetName(w.Name)
 	ins.SetToken(w.Token)
-	ins.SetSecret(w.Secret)
+	ins.SetSecret(secret)
 	ins.SetSignatureHeader(w.SignatureHeader)
 	ins.SetMessageName(w.MessageName)
 	ins.SetEnabled(w.Enabled)
@@ -231,7 +241,14 @@ func (r *webhookRepository) one(ctx context.Context, id uuid.UUID) (webhook.Row,
 	return row, nil
 }
 
-func webhookFrom(row webhook.Row) models.WebhookModel {
+// webhookFrom maps a row to the model, opening the sealed secret. A secret
+// that is not sealed — written by a replica from before sealing, while an
+// upgrade rolls out — is read as it was, and migration 42 seals it.
+func webhookFrom(row webhook.Row) (models.WebhookModel, error) {
+	secret, err := openedText(row.Secret)
+	if err != nil {
+		return models.WebhookModel{}, fmt.Errorf("could not decrypt the webhook's secret: %w", err)
+	}
 	m := models.WebhookModel{
 		Base: models.Base{
 			ID:        models.UUID(row.ID),
@@ -241,7 +258,7 @@ func webhookFrom(row webhook.Row) models.WebhookModel {
 		ProjectID:             models.UUID(row.ProjectID),
 		Name:                  row.Name,
 		Token:                 row.Token,
-		Secret:                row.Secret,
+		Secret:                secret,
 		SignatureHeader:       row.SignatureHeader,
 		MessageName:           row.MessageName,
 		CorrelationExpression: valueOr(row.CorrelationExpression),
@@ -250,5 +267,5 @@ func webhookFrom(row webhook.Row) models.WebhookModel {
 	if until, ok := row.LegacySignaturesUntil.Get(); ok {
 		m.LegacySignaturesUntil = &until
 	}
-	return m
+	return m, nil
 }
