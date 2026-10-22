@@ -80,7 +80,16 @@ func TestALargeVariableIsKeptOnceOutsideTheInstanceRow(t *testing.T) {
 	if err != nil || len(files) != 1 {
 		t.Fatalf("the instance's directory holds %d files (%v), want the document once", len(files), err)
 	}
-	sealed, err := os.ReadFile(filepath.Join(dir, "main", instanceID.String(), files[0].Name()))
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := root.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	sealed, err := root.ReadFile(filepath.Join("main", instanceID.String(), files[0].Name()))
 	if err != nil || strings.Contains(string(sealed), "payload-store-marker") {
 		t.Errorf("the kept document is in the clear, or unreadable (%v)", err)
 	}

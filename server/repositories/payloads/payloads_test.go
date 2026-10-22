@@ -80,7 +80,7 @@ func TestALargeValueIsKeptOnceAndReadBackAsItWas(t *testing.T) {
 	if len(files) != 1 {
 		t.Fatalf("kept %v, want one file", files)
 	}
-	sealed, err := os.ReadFile(filepath.Join(dir, "main", instance.String(), files[0]))
+	sealed, err := readUnder(t, dir, filepath.Join("main", instance.String(), files[0]))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,4 +201,19 @@ func TestTheSweepRemovesOnlyGoneInstancesDirectories(t *testing.T) {
 	if kept(t, dir, live) == nil || kept(t, dir, fresh) == nil {
 		t.Error("the sweep removed a live instance's values, or a fresh one's")
 	}
+}
+
+// readUnder reads name inside dir, and nothing outside it.
+func readUnder(t *testing.T, dir, name string) ([]byte, error) {
+	t.Helper()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := root.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	return root.ReadFile(name)
 }
