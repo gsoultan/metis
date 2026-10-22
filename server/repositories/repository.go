@@ -30,6 +30,8 @@ type repository struct {
 	process               contracts.ProcessRepository
 	serviceCall           contracts.ServiceCallRepository
 	webhook               contracts.WebhookRepository
+	outgoingWebhook       contracts.OutgoingWebhookRepository
+	outgoingWebhookQueue  contracts.OutgoingWebhookQueue
 	connectorManifest     contracts.ConnectorManifestRepository
 	project               contracts.ProjectRepository
 	subscription          contracts.SubscriptionRepository
@@ -81,6 +83,8 @@ func NewRepository(conn *stormdb.Conn) Repository {
 		process:               pg.NewProcessRepository(conn),
 		serviceCall:           pg.NewServiceCallRepository(conn),
 		webhook:               pg.NewWebhookRepository(conn),
+		outgoingWebhook:       pg.NewOutgoingWebhookRepository(conn),
+		outgoingWebhookQueue:  pg.NewOutgoingWebhookQueue(conn),
 		connectorManifest:     pg.NewConnectorManifestRepository(conn),
 		project:               pg.NewProjectRepository(conn),
 		subscription:          pg.NewSubscriptionRepository(conn),
@@ -129,6 +133,12 @@ func (r *repository) Organization() contracts.OrganizationRepository { return r.
 func (r *repository) Process() contracts.ProcessRepository           { return r.process }
 func (r *repository) ServiceCall() contracts.ServiceCallRepository   { return r.serviceCall }
 func (r *repository) Webhook() contracts.WebhookRepository           { return r.webhook }
+func (r *repository) OutgoingWebhook() contracts.OutgoingWebhookRepository {
+	return r.outgoingWebhook
+}
+func (r *repository) OutgoingWebhookQueue() contracts.OutgoingWebhookQueue {
+	return r.outgoingWebhookQueue
+}
 func (r *repository) ConnectorManifest() contracts.ConnectorManifestRepository {
 	return r.connectorManifest
 }

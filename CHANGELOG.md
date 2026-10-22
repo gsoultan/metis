@@ -74,7 +74,7 @@ action, in the order it bites:
   release reads neither ([Migrations 37 and
   38](docs/upgrading.md#migrations-37-and-38-retention-holds-and-periods)).
 
-Migrations 31 to 39 run at the first boot. Take a backup first: a rollback
+Migrations 31 to 40 run at the first boot. Take a backup first: a rollback
 does not undo a migration.
 
 - **31** gives a task the run of its step it was created for, and **stops the
@@ -100,6 +100,13 @@ does not undo a migration.
   if `process_instances` is held for more than two seconds**. It then builds
   the index the search reads through concurrently ([Migration
   39](docs/upgrading.md#migration-39-an-instance-carries-a-business-key)).
+- **40** adds the two tables outgoing webhooks are kept in. Nothing existing
+  is rewritten ([Migration
+  40](docs/upgrading.md#migration-40-outgoing-webhooks)).
+- **`WEBHOOK_ENDPOINTS` is deprecated.** It still posts every event of every
+  project to every address in it, unsigned and once, and now says so in the log
+  at boot. Register each of its receivers as an outgoing webhook of its
+  project, then unset it.
 - **41** creates the table of the workers that fetch external tasks. It is new
   and empty, so it holds nothing up ([Migration
   41](docs/upgrading.md#migration-41-the-workers-that-fetch-external-tasks)).
@@ -379,6 +386,17 @@ does not undo a migration.
 
 ### Added
 
+- **Outgoing webhooks.** An administrator registers an address for a
+  project's `process.started`, `process.completed`, `task.created` and
+  `task.completed` events, and each one is posted to it signed with the
+  webhook's own secret, with a delivery id that stays the same across retries.
+  The event is queued in the transaction of the step that raised it, so a
+  rolled-back step is never announced and a committed one is announced even if
+  the server stops; a receiver that does not accept it is tried ten times over
+  about a day. The address is checked against the egress policy when it is
+  saved and at every dial, and no delivery carries process variables
+  ([Sending events: outgoing
+  webhooks](docs/integration.md#sending-events-outgoing-webhooks)).
 - **Simulate the diagram you are editing, without deploying it.** In the
   designer, Simulate now runs the canvas: the version you opened while the
   canvas still does what it does, and a draft once you change a step, a
