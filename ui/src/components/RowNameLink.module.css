@@ -1,0 +1,13 @@
+/* A row's name is its link: it reads as text until it is pointed at. */
+.name {
+  max-width: 100%;
+  border-radius: var(--mantine-radius-xs);
+  color: var(--mantine-color-text);
+}
+
+.name:hover,
+.name:focus-visible {
+  color: var(--mantine-color-indigo-7);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

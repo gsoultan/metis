@@ -15,12 +15,14 @@ import {
   Text,
   ThemeIcon,
   Tooltip,
+  Menu,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useNavigate } from '@tanstack/react-router';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { Eye, GitBranch, History, Network, Play, Plus } from 'lucide-react';
+import { Eye, GitBranch, History, MoreHorizontal, Network, Pencil, Play, Plus } from 'lucide-react';
+import { RowNameLink } from '../components/RowNameLink';
 import { lazy, Suspense, useState } from 'react';
 
 import { BPMNGraph } from '../components/BPMNGraph';
@@ -181,8 +183,11 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
                         <ThemeIcon color="indigo" variant="light" radius="md">
                           <Network size={16} />
                         </ThemeIcon>
-                        <Stack gap={0}>
-                          <Text fw={700} size="sm">{def.name}</Text>
+                        {/* The name opens the process, as a name does everywhere
+                            else: the only way in was an unlabelled branch icon
+                            among three others. */}
+                        <Stack gap={0} style={{ minWidth: 0 }}>
+                          <RowNameLink name={def.name} onOpen={() => onEditModel?.(def.id)} />
                           {def.documentation && <Text size="xs" c="dimmed" lineClamp={1}>{def.documentation}</Text>}
                         </Stack>
                       </Group>
@@ -228,7 +233,22 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
                       <Text size="xs" c="dimmed">{dayjs(def.createdAt).fromNow()}</Text>
                     </Table.Td>
                     <Table.Td>
-                      <Group gap="xs" justify="flex-end">
+                      {/*
+                        Four icon buttons in four colours, three of them
+                        unlabelled, used to sit here; which one edited the
+                        process was a guess. Open and Run say what they do,
+                        and the occasional actions are in a labelled menu.
+                      */}
+                      <Group gap="xs" justify="flex-end" wrap="nowrap">
+                        <Button
+                          size="xs"
+                          variant="default"
+                          leftSection={<Pencil size={14} />}
+                          aria-label={`Edit ${def.name}`}
+                          onClick={() => onEditModel?.(def.id)}
+                        >
+                          Open
+                        </Button>
                         <Button
                           size="xs"
                           variant="light"
@@ -239,21 +259,29 @@ export function DefinitionList({ onEditModel, hideHeader }: { onEditModel?: (id:
                         >
                           Run
                         </Button>
-                        <Tooltip label="Version history">
-                          <ActionIcon aria-label={`Version history of ${def.name}`} variant="light" color="orange" onClick={() => setHistoryKey(def.key)}>
-                            <History size={16} />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Edit flow">
-                          <ActionIcon aria-label={`Edit ${def.name}`} variant="light" color="blue" onClick={() => onEditModel?.(def.id)}>
-                            <GitBranch size={16} />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="View diagram">
-                          <ActionIcon aria-label={`View ${def.name}`} variant="light" color="indigo" onClick={() => setSelectedDef(def)}>
-                            <Eye size={16} />
-                          </ActionIcon>
-                        </Tooltip>
+                        <Menu position="bottom-end" shadow="md" width={200}>
+                          <Menu.Target>
+                            <ActionIcon variant="subtle" color="gray" aria-label={`More for ${def.name}`}>
+                              <MoreHorizontal size={16} />
+                            </ActionIcon>
+                          </Menu.Target>
+                          <Menu.Dropdown>
+                            <Menu.Item
+                              leftSection={<Eye size={14} />}
+                              aria-label={`View ${def.name}`}
+                              onClick={() => setSelectedDef(def)}
+                            >
+                              Preview diagram
+                            </Menu.Item>
+                            <Menu.Item
+                              leftSection={<History size={14} />}
+                              aria-label={`Version history of ${def.name}`}
+                              onClick={() => setHistoryKey(def.key)}
+                            >
+                              Version history
+                            </Menu.Item>
+                          </Menu.Dropdown>
+                        </Menu>
                       </Group>
                     </Table.Td>
                   </Table.Tr>

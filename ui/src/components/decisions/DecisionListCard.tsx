@@ -11,7 +11,7 @@
  * saying which was in force. Each row names the live version — what opening it
  * opens — and the newest when that is waiting behind it.
  */
-import { ActionIcon, Badge, Box, Button, Card, Group, Pagination, Skeleton, Stack, Table, Text, TextInput, ThemeIcon, Tooltip } from '@mantine/core';
+import { Badge, Box, Button, Card, Group, Pagination, Skeleton, Stack, Table, Text, TextInput, ThemeIcon, Tooltip } from '@mantine/core';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { Edit2, History, Search, Table2 } from 'lucide-react';
@@ -21,6 +21,7 @@ import { decisionRowVersions } from '../../domain/decisionVersions';
 import { pageSpan } from '../../domain/pageSpan';
 import type { ApiDecisionSummary } from '../../services/types';
 import { ErrorState } from '../state';
+import { RowNameLink } from '../RowNameLink';
 
 dayjs.extend(relativeTime);
 
@@ -160,9 +161,8 @@ function DecisionRow({
           <ThemeIcon color="cyan" variant="light" radius="md">
             <Table2 size={16} />
           </ThemeIcon>
-          <Text fw={700} size="sm">
-            {decision.name}
-          </Text>
+          {/* The name opens the decision, as a name does everywhere else. */}
+          <RowNameLink name={decision.name} onOpen={() => onEdit(decision.id)} />
         </Group>
       </Table.Td>
       <Table.Td>
@@ -187,19 +187,34 @@ function DecisionRow({
         </Text>
       </Table.Td>
       <Table.Td>
-        <Group gap="xs" justify="flex-end">
+        {/* Labelled, not two coloured icons: which one opened the table and
+            which one its history was a guess. */}
+        <Group gap="xs" justify="flex-end" wrap="nowrap">
           <Tooltip label="Open the live version">
-            <ActionIcon aria-label={`Edit ${decision.name}`} variant="light" color="blue" onClick={() => onEdit(decision.id)}>
-              <Edit2 size={16} />
-            </ActionIcon>
+            <Button
+              size="xs"
+              variant="default"
+              leftSection={<Edit2 size={14} />}
+              aria-label={`Edit ${decision.name}`}
+              onClick={() => onEdit(decision.id)}
+            >
+              Open
+            </Button>
           </Tooltip>
           {/* Deleting is in here too, a version at a time: the row stands for
               the live version, and deleting that out from under the others
               is the one delete the server refuses. */}
-          <Tooltip label="Versions: make one live, roll back, or delete one">
-            <ActionIcon aria-label={`Version history of ${decision.name}`} variant="light" color="orange" onClick={() => onHistory(decision)}>
-              <History size={16} />
-            </ActionIcon>
+          <Tooltip label="Make one live, roll back, or delete one">
+            <Button
+              size="xs"
+              variant="subtle"
+              color="gray"
+              leftSection={<History size={14} />}
+              aria-label={`Version history of ${decision.name}`}
+              onClick={() => onHistory(decision)}
+            >
+              Versions
+            </Button>
           </Tooltip>
         </Group>
       </Table.Td>
