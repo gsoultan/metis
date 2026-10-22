@@ -1221,6 +1221,17 @@ does not undo a migration.
 
 ### Fixed
 
+- **A step reached, a process started and a task created reach the browser
+  and the webhooks.** An event about an instance the engine had in hand did
+  not encode: a token it had just added points back at that instance, and the
+  encoder followed the loop a thousand levels down before giving up. The
+  event stream dropped those events without a word, so a new task appeared in
+  an inbox only on the next refresh, and the deprecated installation-wide
+  webhook (`WEBHOOK_ENDPOINTS`) was never sent them and logged an error for
+  each. Following the loop was also most of what a request spent: a full
+  journey through the API now sustains about 70% more per minute and
+  allocates a fifth of what it did.
+
 - **An outgoing webhook's delivery log and test result are readable.** A
   delivery's outcome was drawn as green or yellow text on its own tint, at
   3.81:1 and 2.69:1 in light mode, and a test's status as white on a filled
