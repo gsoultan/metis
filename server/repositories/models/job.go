@@ -24,6 +24,7 @@ type JobModel struct {
 	Base
 	InstanceID       UUID           `gorm:"index" json:"instance_id,omitzero"`
 	DefinitionID     UUID           `json:"definition_id,omitzero"`
+	OrganizationID   *UUID          `json:"organization_id,omitzero"`
 	NodeID           string         `json:"node_id"`
 	IterationID      string         `json:"iteration_id,omitzero"`
 	Type             JobType        `json:"type"`

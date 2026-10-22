@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 43 run at the first boot; eight of them stop
+administrator. Migrations 31 to 44 run at the first boot; nine of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -74,7 +74,7 @@ action, in the order it bites:
   release reads neither ([Migrations 37 and
   38](docs/upgrading.md#migrations-37-and-38-retention-holds-and-periods)).
 
-Migrations 31 to 43 run at the first boot. Take a backup first: a rollback
+Migrations 31 to 44 run at the first boot. Take a backup first: a rollback
 does not undo a migration.
 
 - **31** gives a task the run of its step it was created for, and **stops the
@@ -119,6 +119,11 @@ does not undo a migration.
   `projects` is held for more than two seconds; it finishes on the next start
   ([Migration
   43](docs/upgrading.md#migration-43-a-process-keeps-its-simulation-cases)).
+- **44** gives every job the organization it is work for, and **stops the
+  upgrade if `jobs` is held for more than two seconds**. It then builds the
+  index the claim reads through concurrently. Jobs made before it carry no
+  organization and share one turn until they have run ([Migration
+  44](docs/upgrading.md#migration-44-a-job-carries-its-organization)).
 
 ### Security
 
@@ -403,6 +408,17 @@ does not undo a migration.
   left alone.
 
 ### Added
+
+- **Workers share their time between organizations.** The job claim took the
+  oldest due jobs whoever they belonged to, so one organization that queued
+  ten thousand timers at once held every worker until they had all run, and
+  another's reminder due a second later waited behind them. Each organization
+  with work due now has its oldest job in the first turn of a round, its
+  second oldest in the second, and so on; one organization alone still gets a
+  full round. A round looks at up to 1,000 organizations, from a random place
+  each time, and fills whatever is left oldest first, so it is never smaller
+  for being fair. Measured on PostgreSQL 16: 4ms a round with 50 organizations
+  holding jobs, 10ms with 100,000.
 
 - **Outgoing webhooks.** An administrator registers an address for a
   project's `process.started`, `process.completed`, `task.created` and

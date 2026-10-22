@@ -849,6 +849,7 @@ func Schema(models []any) []Migration {
 		externalTaskWorkers(),
 		webhookSecrets(),
 		simulationCases(),
+		jobOrganization(),
 	}
 }
 
