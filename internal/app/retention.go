@@ -314,7 +314,11 @@ func fillLiveKeys(ctx context.Context, database string, pool *pgxpool.Pool) {
 	// Borrowed from the storm pool rather than opened: the handle owns no
 	// connections, and closing it leaves the pool as it was.
 	ledger := stdlib.OpenDBFromPool(pool)
-	defer func() { _ = ledger.Close() }()
+	defer func() {
+		if err := ledger.Close(); err != nil {
+			log.Warn().Err(err).Str("database", database).Msg("Could not let go of the handle the ledger fill borrowed")
+		}
+	}()
 	filled, err := migrations.GiveLiveRowsTheirKey(ctx, ledger)
 	if filled > 0 {
 		log.Warn().Str("database", database).Int("filled", filled).

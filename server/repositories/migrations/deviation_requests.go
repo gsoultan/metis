@@ -286,6 +286,8 @@ func GiveLiveRowsTheirKey(ctx context.Context, db *sql.DB) (int, error) {
 
 // giveLiveRowsTheirKeyBatch is one batch of GiveLiveRowsTheirKey, in a
 // transaction of its own: the ids it picked, and how many of them it filled.
+// A rollback that fails is reported beside the error that caused it, since the
+// connection it leaves behind is the next batch's to deal with.
 func giveLiveRowsTheirKeyBatch(ctx context.Context, db *sql.DB) (ids []string, filled int64, err error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -293,32 +295,20 @@ func giveLiveRowsTheirKeyBatch(ctx context.Context, db *sql.DB) (ids []string, f
 	}
 	defer func() {
 		if err != nil {
-			_ = tx.Rollback()
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				err = errors.Join(err, fmt.Errorf("roll back the batch: %w", rollbackErr))
+			}
 		}
 	}()
-	if _, err = tx.ExecContext(ctx, fmt.Sprintf("SET LOCAL lock_timeout = '%s'", deviationRequestsLockWait)); err != nil {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("SET LOCAL lock_timeout = '%s'", deviationRequestsLockWait)); err != nil {
 		return nil, 0, fmt.Errorf("bound the wait for a ledger row: %w", err)
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT id::text FROM instance_deviations
-		WHERE visit_key IS NOT NULL AND live_visit_key IS NULL AND status IN ('applied', 'pending_approval')
-		LIMIT $1`, deviationRequestsBatch)
+	ids, err = keylessLiveRows(ctx, tx)
 	if err != nil {
 		return nil, 0, err
 	}
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			rows.Close()
-			return nil, 0, err
-		}
-		ids = append(ids, id)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, 0, err
-	}
 	if len(ids) > 0 {
-		var res sql.Result
-		res, err = tx.ExecContext(ctx, `
+		res, err := tx.ExecContext(ctx, `
 			UPDATE instance_deviations
 			   SET live_visit_key = visit_key
 			 WHERE id = ANY($1::uuid[])
@@ -330,10 +320,34 @@ func giveLiveRowsTheirKeyBatch(ctx context.Context, db *sql.DB) (ids []string, f
 			return nil, 0, err
 		}
 	}
-	if err = tx.Commit(); err != nil {
+	if err := tx.Commit(); err != nil {
 		return nil, 0, err
 	}
 	return ids, filled, nil
+}
+
+// keylessLiveRows picks up to deviationRequestsBatch ledger rows that hold a
+// visit and have no live key.
+func keylessLiveRows(ctx context.Context, tx *sql.Tx) (ids []string, err error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id::text FROM instance_deviations
+		WHERE visit_key IS NOT NULL AND live_visit_key IS NULL AND status IN ('applied', 'pending_approval')
+		LIMIT $1`, deviationRequestsBatch)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // moveVisitUniquenessToTheLiveKey builds the ledger's new indexes without
