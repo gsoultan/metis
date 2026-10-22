@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 41 run at the first boot; seven of them stop
+administrator. Migrations 31 to 42 run at the first boot; seven of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -74,7 +74,7 @@ action, in the order it bites:
   release reads neither ([Migrations 37 and
   38](docs/upgrading.md#migrations-37-and-38-retention-holds-and-periods)).
 
-Migrations 31 to 40 run at the first boot. Take a backup first: a rollback
+Migrations 31 to 42 run at the first boot. Take a backup first: a rollback
 does not undo a migration.
 
 - **31** gives a task the run of its step it was created for, and **stops the
@@ -110,8 +110,22 @@ does not undo a migration.
 - **41** creates the table of the workers that fetch external tasks. It is new
   and empty, so it holds nothing up ([Migration
   41](docs/upgrading.md#migration-41-the-workers-that-fetch-external-tasks)).
+- **42** encrypts every inbound webhook's secret, and **stops the upgrade if
+  no `ENCRYPTION_KEY` is configured** while any secret is still in the clear.
+  Once it has run the previous release refuses every signed delivery, so a
+  rollback means restoring the backup ([Migration
+  42](docs/upgrading.md#migration-42-inbound-webhook-secrets-are-sealed)).
 
 ### Security
+
+- **An inbound webhook's secret is encrypted at rest.** The secret a partner
+  signs deliveries with was stored as it was, though it was documented as
+  encrypted, so a backup, a read replica or a `SELECT` on `webhooks` was enough
+  to forge any partner's deliveries. It is sealed with `ENCRYPTION_KEY` like
+  every other credential now, and migration 42 seals the secrets already
+  stored, deleted webhooks' included. Partners change nothing: the secret
+  itself is the same. `metis --reseal` moves these secrets with the rest when
+  the key is rotated.
 
 - **A group's roles now grant what they say.** The group editor said everyone
   in a group holds its roles, but nothing read them: giving a group a role

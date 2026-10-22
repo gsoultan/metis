@@ -847,6 +847,7 @@ func Schema(models []any) []Migration {
 		businessKey(),
 		outgoingWebhooks(),
 		externalTaskWorkers(),
+		webhookSecrets(),
 	}
 }
 
