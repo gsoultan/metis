@@ -1,5 +1,6 @@
 // Package outgoingwebhooks serves the addresses a project posts its events to:
-// listing, registering, switching and removing them.
+// listing, registering, switching and removing them, sending one a test, and
+// reading and acting on its log of deliveries.
 package outgoingwebhooks
 
 import (
@@ -9,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/rs/zerolog/log"
@@ -31,6 +33,14 @@ func RegisterHandlers(m *http.ServeMux, eps outgoingwebhook.Endpoints, options [
 		eps.SetOutgoingWebhookEnabled, decodeSetEnabled, common.EncodeResponse, options...))
 	m.Handle("DELETE /api/v1/outgoing-webhooks/{id}", httptransport.NewServer(
 		eps.DeleteOutgoingWebhook, decodeDelete, common.EncodeResponse, options...))
+	m.Handle("POST /api/v1/outgoing-webhooks/{id}/test", httptransport.NewServer(
+		eps.SendOutgoingWebhookTest, decodeSendTest, common.EncodeResponse, options...))
+	m.Handle("GET /api/v1/outgoing-webhooks/{id}/deliveries", httptransport.NewServer(
+		eps.ListOutgoingWebhookDeliveries, decodeListDeliveries, common.EncodeResponse, options...))
+	m.Handle("POST /api/v1/outgoing-webhook-deliveries/{id}/retry", httptransport.NewServer(
+		eps.RetryOutgoingWebhookDelivery, decodeDelivery, common.EncodeResponse, options...))
+	m.Handle("POST /api/v1/outgoing-webhook-deliveries/{id}/stop", httptransport.NewServer(
+		eps.StopOutgoingWebhookDelivery, decodeDelivery, common.EncodeResponse, options...))
 }
 
 func decodeList(_ context.Context, r *http.Request) (any, error) {
@@ -59,17 +69,70 @@ func decodeDelete(_ context.Context, r *http.Request) (any, error) {
 	return outgoingwebhook.DeleteRequest{ID: r.PathValue("id")}, nil
 }
 
+// decodeSendTest takes an optional event; an empty body sends the webhook's
+// first.
+func decodeSendTest(_ context.Context, r *http.Request) (any, error) {
+	var req outgoingwebhook.SendTestRequest
+	if err := decodeOptional(r, &req, `{"event": "task.completed"}, or nothing`); err != nil {
+		return nil, err
+	}
+	req.ID = r.PathValue("id")
+	return req, nil
+}
+
+func decodeListDeliveries(_ context.Context, r *http.Request) (any, error) {
+	query := r.URL.Query()
+	req := outgoingwebhook.ListDeliveriesRequest{
+		ID:     r.PathValue("id"),
+		Status: query.Get("status"),
+		Before: query.Get("before"),
+	}
+	if raw := query.Get("limit"); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil || limit < 1 {
+			return nil, apierr.Invalidf("limit is a whole number of deliveries, at least 1")
+		}
+		req.Limit = limit
+	}
+	return req, nil
+}
+
+func decodeDelivery(_ context.Context, r *http.Request) (any, error) {
+	return outgoingwebhook.DeliveryRequest{DeliveryID: r.PathValue("id")}, nil
+}
+
 // decodeStrict reads one JSON object with no fields but dst's and nothing
 // after it. shape is what the refusal tells the caller to send instead.
 func decodeStrict(r *http.Request, dst any, shape string) error {
+	body, err := readBody(r, shape)
+	if err != nil {
+		return err
+	}
+	return decodeObject(r, body, dst, shape)
+}
+
+// decodeOptional is decodeStrict for a body that may be left out entirely.
+func decodeOptional(r *http.Request, dst any, shape string) error {
+	body, err := readBody(r, shape)
+	if err != nil || len(bytes.TrimSpace(body)) == 0 {
+		return err
+	}
+	return decodeObject(r, body, dst, shape)
+}
+
+func readBody(r *http.Request, shape string) ([]byte, error) {
 	body, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, maxBodyBytes))
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			return apierr.Invalidf("this request is larger than %d KiB, which is more than a webhook needs", maxBodyBytes>>10)
+			return nil, apierr.Invalidf("this request is larger than %d KiB, which is more than a webhook needs", maxBodyBytes>>10)
 		}
-		return unreadable(r, err, shape)
+		return nil, unreadable(r, err, shape)
 	}
+	return body, nil
+}
+
+func decodeObject(r *http.Request, body []byte, dst any, shape string) error {
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(dst); err != nil {

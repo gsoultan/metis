@@ -1739,6 +1739,10 @@ Routes, all under `/api/v1`:
 | `POST /projects/{id}/outgoing-webhooks` | an administrator |
 | `POST /outgoing-webhooks/{id}/enabled` with `{"enabled": false}` | an administrator |
 | `DELETE /outgoing-webhooks/{id}` | an administrator |
+| `POST /outgoing-webhooks/{id}/test`, optionally with `{"event": "task.completed"}` | an administrator |
+| `GET /outgoing-webhooks/{id}/deliveries?status=failed&limit=50&before=…` | an administrator |
+| `POST /outgoing-webhook-deliveries/{id}/retry` | an administrator |
+| `POST /outgoing-webhook-deliveries/{id}/stop` | an administrator |
 
 Registering one is an administrator's act because it is a standing channel out
 of the project: every event it is given goes to an address somebody typed.
@@ -1795,6 +1799,34 @@ event, so a step that rolled back is never announced, and one that committed
 is announced even if the server stops a moment later. Switching a webhook off
 holds what it is owed until it is switched on again; deleting one drops it.
 Deliveries are kept for 30 days.
+
+### Trying a receiver, and reading what it was sent
+
+**Send test** posts a sample of an event to the webhook now, signed exactly as
+a real delivery is, and answers with the request as it went out — the URL,
+every header including the signature, and the body — and what the receiver
+said back. The sample is marked `"test": true`, names a made-up instance with
+the business key `TEST-0001`, and is sent whether or not the webhook is
+switched on, so a receiver can be checked before anything real reaches it.
+Leave the event out and the webhook's first is sent. A test is logged like any
+delivery and is never retried.
+
+The **log** lists a webhook's deliveries newest first, 50 to a page by default
+and at most 200. Filter it with `status` (`pending`, `delivered` or `failed`),
+and pass the `next_before` of one page as `before` to read the next. Each
+entry has the body that was posted, how many attempts were made, the last
+answer's status and the start of its body, and, while it is pending, when the
+next attempt is due.
+
+From the log, **retry** makes a pending or failed delivery due at once. A
+failed one gets one more attempt; its count is not reset, so if that attempt
+is refused too it is failed again rather than starting the day of retries
+over. **Stop** fails a pending delivery, so nothing more is sent of it; an
+attempt already on its way when it is stopped is not recorded over it.
+
+All four are an administrator's: a test posts to the address, and the log
+holds what receivers answered, which is theirs to say and not every reader's
+to see.
 
 ### Addresses Metis will post to
 

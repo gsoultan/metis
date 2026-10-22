@@ -65,13 +65,26 @@ func newOutgoingWebhookSender(timeout time.Duration) *outgoingWebhookSender {
 // post signs and posts a delivery, and says what came of it. It never
 // returns an error: every way an attempt can fail is an outcome to record.
 func (s *outgoingWebhookSender) post(ctx context.Context, delivery entities.OutgoingWebhookDelivery, now time.Time) entities.OutgoingWebhookAttempt {
-	attempt := entities.OutgoingWebhookAttempt{At: now}
 	req, err := signedRequest(ctx, delivery, now)
 	if err != nil {
-		attempt.Error = "the request could not be made: " + err.Error()
-		attempt.Permanent = true
-		return attempt
+		return unmadeAttempt(err, now)
 	}
+	return s.send(req, now)
+}
+
+// unmadeAttempt is the outcome of a request that could not be built, which no
+// retry changes.
+func unmadeAttempt(err error, now time.Time) entities.OutgoingWebhookAttempt {
+	return entities.OutgoingWebhookAttempt{
+		At:        now,
+		Error:     "the request could not be made: " + err.Error(),
+		Permanent: true,
+	}
+}
+
+// send posts a signed request and says what came of it.
+func (s *outgoingWebhookSender) send(req *http.Request, now time.Time) entities.OutgoingWebhookAttempt {
+	attempt := entities.OutgoingWebhookAttempt{At: now}
 	resp, err := s.client.Do(req)
 	if err != nil {
 		attempt.Error, attempt.Permanent = describeSendFailure(err)

@@ -195,6 +195,13 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	outgoingWebhookEndpoints.CreateOutgoingWebhook = adminOnly("CreateOutgoingWebhook")(outgoingWebhookEndpoints.CreateOutgoingWebhook)
 	outgoingWebhookEndpoints.SetOutgoingWebhookEnabled = adminOnly("SetOutgoingWebhookEnabled")(outgoingWebhookEndpoints.SetOutgoingWebhookEnabled)
 	outgoingWebhookEndpoints.DeleteOutgoingWebhook = adminOnly("DeleteOutgoingWebhook")(outgoingWebhookEndpoints.DeleteOutgoingWebhook)
+	// A test posts to the address now, and the log holds what receivers
+	// answered, which is theirs to say and not every reader's to see; moving a
+	// delivery on or stopping it changes what leaves the project.
+	outgoingWebhookEndpoints.SendOutgoingWebhookTest = adminOnly("SendOutgoingWebhookTest")(outgoingWebhookEndpoints.SendOutgoingWebhookTest)
+	outgoingWebhookEndpoints.ListOutgoingWebhookDeliveries = adminOnly("ListOutgoingWebhookDeliveries")(outgoingWebhookEndpoints.ListOutgoingWebhookDeliveries)
+	outgoingWebhookEndpoints.RetryOutgoingWebhookDelivery = adminOnly("RetryOutgoingWebhookDelivery")(outgoingWebhookEndpoints.RetryOutgoingWebhookDelivery)
+	outgoingWebhookEndpoints.StopOutgoingWebhookDelivery = adminOnly("StopOutgoingWebhookDelivery")(outgoingWebhookEndpoints.StopOutgoingWebhookDelivery)
 
 	definitionEndpoints := definition.MakeEndpoints(s)
 
