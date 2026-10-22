@@ -22,6 +22,7 @@ type repository struct {
 	environment           contracts.EnvironmentRepository
 	deployment            contracts.DeploymentRepository
 	externalTask          contracts.ExternalTaskRepository
+	externalTaskWorker    contracts.ExternalTaskWorkerRepository
 	form                  contracts.FormRepository
 	incident              contracts.IncidentRepository
 	job                   contracts.JobRepository
@@ -29,6 +30,8 @@ type repository struct {
 	process               contracts.ProcessRepository
 	serviceCall           contracts.ServiceCallRepository
 	webhook               contracts.WebhookRepository
+	outgoingWebhook       contracts.OutgoingWebhookRepository
+	outgoingWebhookQueue  contracts.OutgoingWebhookQueue
 	connectorManifest     contracts.ConnectorManifestRepository
 	project               contracts.ProjectRepository
 	subscription          contracts.SubscriptionRepository
@@ -72,6 +75,7 @@ func NewRepository(conn *stormdb.Conn) Repository {
 		environment:           pg.NewEnvironmentRepository(conn),
 		deployment:            pg.NewDeploymentRepository(conn),
 		externalTask:          pg.NewExternalTaskRepository(conn),
+		externalTaskWorker:    pg.NewExternalTaskWorkerRepository(conn),
 		form:                  pg.NewFormRepository(conn),
 		incident:              pg.NewIncidentRepository(conn),
 		job:                   pg.NewJobRepository(conn),
@@ -79,6 +83,8 @@ func NewRepository(conn *stormdb.Conn) Repository {
 		process:               pg.NewProcessRepository(conn),
 		serviceCall:           pg.NewServiceCallRepository(conn),
 		webhook:               pg.NewWebhookRepository(conn),
+		outgoingWebhook:       pg.NewOutgoingWebhookRepository(conn),
+		outgoingWebhookQueue:  pg.NewOutgoingWebhookQueue(conn),
 		connectorManifest:     pg.NewConnectorManifestRepository(conn),
 		project:               pg.NewProjectRepository(conn),
 		subscription:          pg.NewSubscriptionRepository(conn),
@@ -117,6 +123,9 @@ func (r *repository) Definition() contracts.DefinitionRepository     { return r.
 func (r *repository) Environment() contracts.EnvironmentRepository   { return r.environment }
 func (r *repository) Deployment() contracts.DeploymentRepository     { return r.deployment }
 func (r *repository) ExternalTask() contracts.ExternalTaskRepository { return r.externalTask }
+func (r *repository) ExternalTaskWorker() contracts.ExternalTaskWorkerRepository {
+	return r.externalTaskWorker
+}
 func (r *repository) Form() contracts.FormRepository                 { return r.form }
 func (r *repository) Incident() contracts.IncidentRepository         { return r.incident }
 func (r *repository) Job() contracts.JobRepository                   { return r.job }
@@ -124,6 +133,12 @@ func (r *repository) Organization() contracts.OrganizationRepository { return r.
 func (r *repository) Process() contracts.ProcessRepository           { return r.process }
 func (r *repository) ServiceCall() contracts.ServiceCallRepository   { return r.serviceCall }
 func (r *repository) Webhook() contracts.WebhookRepository           { return r.webhook }
+func (r *repository) OutgoingWebhook() contracts.OutgoingWebhookRepository {
+	return r.outgoingWebhook
+}
+func (r *repository) OutgoingWebhookQueue() contracts.OutgoingWebhookQueue {
+	return r.outgoingWebhookQueue
+}
 func (r *repository) ConnectorManifest() contracts.ConnectorManifestRepository {
 	return r.connectorManifest
 }

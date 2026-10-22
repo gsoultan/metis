@@ -11,8 +11,7 @@ import (
 )
 
 // WebhookSecretsMigration is the version under which the inbound webhooks'
-// secrets were sealed. 40 and 41 are left to the branches that claimed 40
-// while this one was open.
+// secrets were sealed. 41 is the external task workers'.
 const WebhookSecretsMigration = 42
 
 // webhookSecrets is migration 42.

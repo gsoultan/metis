@@ -64,6 +64,13 @@ func allowPrivateNetworks() bool {
 	return err == nil && v
 }
 
+// PrivateNetworksAllowed reports whether this installation may call loopback,
+// link-local and private addresses: a developer's machine, as a rule. A
+// destination that is only acceptable there, such as plain HTTP, can ask.
+func PrivateNetworksAllowed() bool {
+	return allowPrivateNetworks()
+}
+
 // allowedHosts returns the explicit egress allowlist, if one is configured.
 // METIS_HTTP_ALLOWED_HOSTS is a comma-separated list of hostnames; when set,
 // only these hosts may be contacted.

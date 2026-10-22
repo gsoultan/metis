@@ -241,3 +241,7 @@ func (externalTaskStub) Create(context.Context, *entities.ExternalTask) error { 
 func (externalTaskStub) ExtendLock(context.Context, uuid.UUID, string, int64) (time.Time, error) {
 	return time.Time{}, nil
 }
+
+func (externalTaskStub) ExternalTaskTopics(context.Context) ([]entities.ExternalTaskTopic, error) {
+	return nil, nil
+}

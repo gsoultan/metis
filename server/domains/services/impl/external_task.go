@@ -53,10 +53,14 @@ func (s *externalTaskService) FetchAndLock(ctx context.Context, topic string, wo
 	if err != nil {
 		return nil, err
 	}
+	if err := checkWorkerVersion(entities.WorkerVersionFrom(ctx)); err != nil {
+		return nil, err
+	}
 	ms, err := s.repo.ExternalTask().FetchAndLock(ctx, topic, workerID, maxTasks, lockDuration)
 	if err != nil {
 		return nil, err
 	}
+	s.recordWorker(ctx, topic, workerID)
 	res := make([]*entities.ExternalTask, len(ms))
 	for i, m := range ms {
 		task := adapters.ExternalTaskEntityAdapter{Model: *m}.ToEntity()

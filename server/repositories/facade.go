@@ -42,6 +42,9 @@ type Repository interface {
 	Environment() contracts.EnvironmentRepository
 	Deployment() contracts.DeploymentRepository
 	ExternalTask() contracts.ExternalTaskRepository
+	// ExternalTaskWorker is the workers that fetch them, as each fetch last
+	// left them.
+	ExternalTaskWorker() contracts.ExternalTaskWorkerRepository
 	Form() contracts.FormRepository
 	Incident() contracts.IncidentRepository
 	Job() contracts.JobRepository
@@ -55,6 +58,11 @@ type Repository interface {
 	// Webhook stores the public addresses partners post events to, and the
 	// deliveries already acted on.
 	Webhook() contracts.WebhookRepository
+
+	// OutgoingWebhook stores the addresses a project posts its events to, and
+	// OutgoingWebhookQueue what each of them is owed.
+	OutgoingWebhook() contracts.OutgoingWebhookRepository
+	OutgoingWebhookQueue() contracts.OutgoingWebhookQueue
 
 	// ConnectorManifest stores connectors described by a document rather than
 	// by Go.

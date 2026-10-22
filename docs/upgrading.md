@@ -825,6 +825,39 @@ and restart one replica, which runs the migration again over what is left.
 reads the sealed value as the secret, and every signed delivery is refused.
 Restore from the backup taken before the upgrade instead.
 
+## Migration 41: the workers that fetch external tasks
+
+Migration 41 creates `external_task_workers`, a row for each worker that has
+fetched a topic in an organization, with the version it said it was and when it
+last fetched. The table is new and empty, so creating it holds nothing up. Each
+environment's database gets its own, beside that environment's external tasks.
+
+Workers are recorded from the first fetch after the upgrade, so for up to two
+minutes after it every topic with work on offer is listed as unserved and
+counted by `metis_external_task_topics_unserved`. The alert on it waits ten
+minutes, which is past that. A replica still on the previous release records
+nothing for the fetches it answers, so during a rolling deploy a topic its
+workers alone serve can read as unserved; the alert waits ten minutes for this
+too.
+
+**Rolling back** leaves the table in place, unread. The previous release
+neither reads nor writes it.
+
+## Migration 40: outgoing webhooks
+
+Migration 40 creates `outgoing_webhooks` and `outgoing_webhook_deliveries` with
+their indexes. Both are new and empty, so it takes no lock that running work
+waits on. Rolling back leaves them in place, unused; the previous release does
+not read them.
+
+`WEBHOOK_ENDPOINTS` still works and is deprecated. It posts every event of
+every project to every address in it, unsigned, once, and drops the event if
+the receiver is down. Register each receiver as an outgoing webhook of the
+project it wants
+([Sending events: outgoing webhooks](integration.md#sending-events-outgoing-webhooks)),
+point it at the signature, then unset the variable. Until then the receiver
+gets both.
+
 ## Migration 39: an instance carries a business key
 
 Migration 39 adds `process_instances.business_key`, a nullable column with no

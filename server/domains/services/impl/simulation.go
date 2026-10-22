@@ -68,12 +68,23 @@ func (s *simulationService) Simulate(ctx context.Context, req entities.Simulatio
 
 	var run entities.SimulationRun
 	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		if req.IsDraft() {
+			if err := s.stageDraft(txCtx, &req); err != nil {
+				return err
+			}
+		}
 		run = s.drive(txCtx, engine, &req, clock, recorder)
 		return errRollbackSimulation
 	})
 
 	if err != nil && !errors.Is(err, errRollbackSimulation) {
 		return entities.SimulationRun{}, err
+	}
+	if req.IsDraft() {
+		// The version and id the run used were rolled back with it.
+		run.Definition.Version = 0
+		run.Definition.ID = uuid.Nil
+		run.Definition.Draft = true
 	}
 	return run, nil
 }

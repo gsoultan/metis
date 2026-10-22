@@ -144,7 +144,7 @@ The tables that grow without bound over an installation's life are
 `process_instances`, `tasks`, `incidents` and `notifications` growing with the
 work itself. Start by measuring, not by deleting.
 
-Three tables are cut back by the server itself, because their rows answer a
+Four tables are cut back by the server itself, because their rows answer a
 question only for a while. Every replica sweeps them at start-up and every ten
 minutes after that, 5,000 rows per statement, on the main database and on each
 open environment's:
@@ -154,6 +154,7 @@ open environment's:
 | `webhook_deliveries` | 48 hours | Longer than any sender's retry schedule, which is what the record de-duplicates. |
 | `idempotency_records` | 15 minutes once answered; a day if never answered | Answers older than the TTL are reclaimed, not replayed. An unanswered claim may still belong to a running request, because the server sets no write deadline. |
 | `shared_counters` | 5 minutes | The rate-limit windows are one minute long. |
+| `external_task_workers` | 7 days since the worker last fetched | Long enough to say who served a topic before a weekend; worker ids made fresh at each start, as a container's hostname is, do not pile up. |
 
 Three more are cut back only when you say for how long to keep them. **All
 are off by default**, and an upgrade removes nothing until one is set:

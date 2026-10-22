@@ -3,8 +3,10 @@ package external_task
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-kit/kit/endpoint"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services"
 )
 
@@ -13,6 +15,8 @@ type Endpoints struct {
 	CompleteExternal      endpoint.Endpoint
 	HandleExternalFailure endpoint.Endpoint
 	ExtendExternalLock    endpoint.Endpoint
+	// ListExternalTaskWorkers lists the topics and the workers serving them.
+	ListExternalTaskWorkers endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -21,6 +25,8 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		CompleteExternal:      MakeCompleteExternalEndpoint(s),
 		HandleExternalFailure: MakeHandleExternalFailureEndpoint(s),
 		ExtendExternalLock:    MakeExtendExternalLockEndpoint(s),
+
+		ListExternalTaskWorkers: MakeListExternalTaskWorkersEndpoint(s),
 	}
 }
 
@@ -30,6 +36,7 @@ func MakeFetchAndLockExternalEndpoint(s services.ServiceFacade) endpoint.Endpoin
 		if !ok {
 			return nil, fmt.Errorf("external_task: expected a FetchAndLockExternalRequest, got %T", request)
 		}
+		ctx = entities.WithWorkerVersion(ctx, req.WorkerVersion)
 		tasks, err := s.FetchAndLock(ctx, req.Topic, req.WorkerID, req.MaxTasks, req.LockDuration)
 		if err != nil {
 			return FetchAndLockExternalResponse{Error: err.Error()}, nil
@@ -77,5 +84,21 @@ func MakeExtendExternalLockEndpoint(s services.ServiceFacade) endpoint.Endpoint 
 			return ExtendExternalLockResponse{Err: err}, nil
 		}
 		return ExtendExternalLockResponse{LockExpiration: until}, nil
+	}
+}
+
+func MakeListExternalTaskWorkersEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, _ any) (any, error) {
+		topics, err := s.ExternalTaskTopics(ctx)
+		if err != nil {
+			return ListExternalTaskWorkersResponse{Err: err}, nil
+		}
+		if topics == nil {
+			topics = []entities.ExternalTaskTopic{}
+		}
+		return ListExternalTaskWorkersResponse{
+			LiveWindowSeconds: int64(entities.WorkerLiveWindow / time.Second),
+			Topics:            topics,
+		}, nil
 	}
 }
