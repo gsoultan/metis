@@ -25,6 +25,9 @@ type Repository interface {
 	RetentionPeriod() contracts.RetentionPeriodRepository
 	// SimulationCase is the simulation test cases each process keeps.
 	SimulationCase() contracts.SimulationCaseRepository
+	// BatchOperation is the acts asked for on many instances at once, and
+	// what came of each instance.
+	BatchOperation() contracts.BatchOperationRepository
 
 	// SharedCounter holds the counts that rate limits and circuit breakers
 	// enforce across replicas rather than per process.

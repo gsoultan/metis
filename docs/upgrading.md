@@ -803,6 +803,23 @@ It was not run against an installation that 0.4.0 itself had migrated.
 **Rolling back** needs nothing: no schema changed. 0.4.0 applies a mapping as
 it did.
 
+## Migration 45: batch operations
+
+Migration 45 creates `batch_operations`, one row per retry or cancel asked for
+on many instances, with a foreign key to `projects`, and
+`batch_operation_items`, one row per instance of each. Adding that key needs
+`projects` for a moment, so the migration waits at most two seconds for it
+and then stops, saying that `projects` was held by a long query or
+transaction. Start the server again once that has ended.
+
+Nothing existing is read or rewritten. A replica on the previous release
+neither starts nor works through an operation; one started on a new replica is
+worked through by the new replicas alone.
+
+**Rolling back** leaves the tables behind, unused, and an operation still
+running stays `running` without being worked through. Stop it before rolling
+back if what it had left matters.
+
 ## Migration 44: a job carries its organization
 
 Migration 44 adds `jobs.organization_id`, a nullable column with no default,

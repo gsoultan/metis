@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 44 run at the first boot; nine of them stop
+administrator. Migrations 31 to 45 run at the first boot; ten of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -74,7 +74,7 @@ action, in the order it bites:
   release reads neither ([Migrations 37 and
   38](docs/upgrading.md#migrations-37-and-38-retention-holds-and-periods)).
 
-Migrations 31 to 44 run at the first boot. Take a backup first: a rollback
+Migrations 31 to 45 run at the first boot. Take a backup first: a rollback
 does not undo a migration.
 
 - **31** gives a task the run of its step it was created for, and **stops the
@@ -124,6 +124,10 @@ does not undo a migration.
   index the claim reads through concurrently. Jobs made before it carry no
   organization and share one turn until they have run ([Migration
   44](docs/upgrading.md#migration-44-a-job-carries-its-organization)).
+- **45** creates the batch operations and their per-instance results, and
+  stops if `projects` is held for more than two seconds; it finishes on the
+  next start ([Migration
+  45](docs/upgrading.md#migration-45-batch-operations)).
 
 ### Security
 
@@ -409,6 +413,17 @@ does not undo a migration.
 
 ### Added
 
+- **Retry or cancel every instance a filter matches, in one request.** An
+  operator retries, and an administrator cancels, the instances of a project
+  that match the instance list's filter: status, process, business key, or
+  needing attention. A dry run says how many match; one operation takes up to
+  10,000. It is worked through in the background, each instance exactly as the
+  single-instance retry or cancel does it, and keeps what came of each:
+  succeeded, failed with why, or skipped. It acts as whoever asked, checked
+  again every 50 instances, and stops itself if they lose the role. Anybody
+  who runs the organization can stop it with a reason ([Retrying or cancelling
+  many instances at
+  once](docs/runbooks.md#retrying-or-cancelling-many-instances-at-once)).
 - **Workers share their time between organizations.** The job claim took the
   oldest due jobs whoever they belonged to, so one organization that queued
   ten thousand timers at once held every worker until they had all run, and

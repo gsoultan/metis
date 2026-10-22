@@ -62,6 +62,15 @@ func WithSystemContext(ctx context.Context) context.Context {
 	return context.WithValue(ctx, systemContextKey{}, true)
 }
 
+// WithoutSystemContext unmarks work as system work: what is done with the
+// context it answers is scoped to whichever organization it then names, as a
+// request's is. Background work that acts for one person — a batch operation
+// carrying out what somebody asked for — starts from the system context its
+// worker runs in, and must not keep it.
+func WithoutSystemContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, systemContextKey{}, false)
+}
+
 // IsSystemContext reports whether this context was marked as system work.
 func IsSystemContext(ctx context.Context) bool {
 	marked, ok := ctx.Value(systemContextKey{}).(bool)

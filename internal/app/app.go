@@ -832,6 +832,7 @@ func (a *App) startSharedLimits(ctx context.Context) {
 func (a *App) startBackgroundWork(ctx context.Context) {
 	a.svc.StartWorkers(ctx)
 	a.svc.StartOutgoingWebhookDeliveries(ctx)
+	a.svc.StartBatchOperations(ctx)
 	// Directory syncs, for the sources that carry a schedule. A no-op when
 	// there is no storm connection: there are no sources to run.
 	a.svc.StartScheduledSyncs(ctx)
