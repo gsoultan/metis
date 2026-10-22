@@ -55,6 +55,8 @@ type ServiceFacade interface {
 	// because it is a first-class product surface — the Go SDK calls it, and CI
 	// gates on it — not a test affordance.
 	serviceContracts.SimulationService
+	// SimulationCaseService keeps the test cases each process is simulated against.
+	serviceContracts.SimulationCaseService
 
 	// DeviationService reads what was done to one instance that its process did
 	// not decide, and waives, cancels or holds one instance where it stands

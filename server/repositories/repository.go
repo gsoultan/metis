@@ -13,6 +13,7 @@ type repository struct {
 	deviationDecider      contracts.DeviationDecider
 	retentionHold         contracts.RetentionHoldRepository
 	retentionPeriod       contracts.RetentionPeriodRepository
+	simulationCase        contracts.SimulationCaseRepository
 	broadcast             contracts.BroadcastRepository
 	sharedCounter         contracts.SharedCounterRepository
 	connector             contracts.ConnectorRepository
@@ -66,6 +67,7 @@ func NewRepository(conn *stormdb.Conn) Repository {
 		deviationDecider:      pg.NewDeviationDecider(conn),
 		retentionHold:         pg.NewRetentionHoldRepository(conn),
 		retentionPeriod:       pg.NewRetentionPeriodRepository(conn),
+		simulationCase:        pg.NewSimulationCaseRepository(conn),
 		broadcast:             pg.NewBroadcastRepository(conn),
 		sharedCounter:         pg.NewSharedCounterRepository(conn),
 		connector:             pg.NewConnectorRepository(conn),
@@ -109,6 +111,9 @@ func (r *repository) RetentionHold() contracts.RetentionHoldRepository {
 }
 func (r *repository) RetentionPeriod() contracts.RetentionPeriodRepository {
 	return r.retentionPeriod
+}
+func (r *repository) SimulationCase() contracts.SimulationCaseRepository {
+	return r.simulationCase
 }
 func (r *repository) Broadcast() contracts.BroadcastRepository { return r.broadcast }
 func (r *repository) SharedCounter() contracts.SharedCounterRepository {

@@ -20,6 +20,7 @@
  * no example at all.
  */
 import type { ProcessVariables } from '../services/types';
+import type { Expectation } from './simulationCase';
 import type { DraftDefinition } from './simulationDraft';
 
 /**
@@ -67,6 +68,10 @@ export interface Scenario {
    * because the default is right for everybody who is not writing a CI gate.
    */
   seed: number;
+  /** The case's id on the server, once it has been saved with its process. */
+  savedId?: string;
+  /** What the run must end with. See `simulationCase`. */
+  expect?: Expectation;
 }
 
 /**

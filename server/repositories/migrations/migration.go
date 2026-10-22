@@ -848,6 +848,7 @@ func Schema(models []any) []Migration {
 		outgoingWebhooks(),
 		externalTaskWorkers(),
 		webhookSecrets(),
+		simulationCases(),
 	}
 }
 

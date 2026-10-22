@@ -41,6 +41,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/retentionhold"
 	"github.com/gsoultan/metis/server/repositories/store/retentionperiod"
 	"github.com/gsoultan/metis/server/repositories/store/servicecall"
+	"github.com/gsoultan/metis/server/repositories/store/simulationcase"
 	"github.com/gsoultan/metis/server/repositories/store/subscription"
 	"github.com/gsoultan/metis/server/repositories/store/task"
 	"github.com/gsoultan/metis/server/repositories/store/user"
@@ -70,44 +71,45 @@ var FlushOrder = map[string]int{
 	"retention_holds":             7,
 	"retention_periods":           8,
 	"shared_counters":             9,
-	"users":                       10,
-	"webhooks":                    11,
-	"workflow_groups":             12,
-	"workflow_users":              13,
-	"connector_instances":         14,
-	"decision_definitions":        15,
-	"decision_releases":           16,
-	"deployments":                 17,
-	"environments":                18,
-	"external_task_workers":       19,
-	"forms":                       20,
-	"groups":                      21,
-	"memberships":                 22,
-	"outgoing_webhooks":           23,
-	"participant_sources":         24,
-	"platform_role_assignments":   25,
-	"process_definition_releases": 26,
-	"process_definitions":         27,
-	"process_instances":           28,
-	"tasks":                       29,
-	"user_organizations":          30,
-	"user_projects":               31,
-	"variable_snapshots":          32,
-	"webhook_deliveries":          33,
-	"workflow_group_memberships":  34,
-	"audit_logs":                  35,
-	"broadcast_events":            36,
-	"compensatable_activities":    37,
-	"deployment_resources":        38,
-	"deviation_requests":          39,
-	"event_subscriptions":         40,
-	"external_tasks":              41,
-	"instance_deviations":         42,
-	"jobs":                        43,
-	"notifications":               44,
-	"outgoing_webhook_deliveries": 45,
-	"service_calls":               46,
-	"incidents":                   47,
+	"simulation_cases":            10,
+	"users":                       11,
+	"webhooks":                    12,
+	"workflow_groups":             13,
+	"workflow_users":              14,
+	"connector_instances":         15,
+	"decision_definitions":        16,
+	"decision_releases":           17,
+	"deployments":                 18,
+	"environments":                19,
+	"external_task_workers":       20,
+	"forms":                       21,
+	"groups":                      22,
+	"memberships":                 23,
+	"outgoing_webhooks":           24,
+	"participant_sources":         25,
+	"platform_role_assignments":   26,
+	"process_definition_releases": 27,
+	"process_definitions":         28,
+	"process_instances":           29,
+	"tasks":                       30,
+	"user_organizations":          31,
+	"user_projects":               32,
+	"variable_snapshots":          33,
+	"webhook_deliveries":          34,
+	"workflow_group_memberships":  35,
+	"audit_logs":                  36,
+	"broadcast_events":            37,
+	"compensatable_activities":    38,
+	"deployment_resources":        39,
+	"deviation_requests":          40,
+	"event_subscriptions":         41,
+	"external_tasks":              42,
+	"instance_deviations":         43,
+	"jobs":                        44,
+	"notifications":               45,
+	"outgoing_webhook_deliveries": 46,
+	"service_calls":               47,
+	"incidents":                   48,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -6610,6 +6612,123 @@ func (p ServiceCallWithProjectQuery) All(ctx context.Context, ex runtime.Executo
 			// A foreign key pointing at a row that is not there. The database
 			// forbids it, so reaching this means the constraint was dropped.
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "service_calls", "projects")
+		}
+		out[i].Project = targets[j]
+	}
+	return out, nil
+}
+
+// SimulationCaseWithProjectRow is simulation_cases with its Project loaded.
+type SimulationCaseWithProjectRow struct {
+	simulationcase.Row
+	Project project.Row
+}
+
+type SimulationCaseWithProjectQuery struct {
+	q simulationcase.Query
+}
+
+// SimulationCaseWithProject starts the plan.
+func SimulationCaseWithProject() SimulationCaseWithProjectQuery {
+	return SimulationCaseWithProjectQuery{q: simulationcase.New()}
+}
+
+func (p SimulationCaseWithProjectQuery) Where(ps ...simulationcase.Pred) SimulationCaseWithProjectQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p SimulationCaseWithProjectQuery) WhereIf(cond bool, pr simulationcase.Pred) SimulationCaseWithProjectQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p SimulationCaseWithProjectQuery) Any(ps ...simulationcase.Pred) SimulationCaseWithProjectQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p SimulationCaseWithProjectQuery) Not(pr simulationcase.Pred) SimulationCaseWithProjectQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p SimulationCaseWithProjectQuery) NotAny(ps ...simulationcase.Pred) SimulationCaseWithProjectQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p SimulationCaseWithProjectQuery) Order(ts ...simulationcase.Sort) SimulationCaseWithProjectQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p SimulationCaseWithProjectQuery) Limit(n int64) SimulationCaseWithProjectQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p SimulationCaseWithProjectQuery) Offset(n int64) SimulationCaseWithProjectQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p SimulationCaseWithProjectQuery) After(r SimulationCaseWithProjectRow) SimulationCaseWithProjectQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p SimulationCaseWithProjectQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p SimulationCaseWithProjectQuery) All(ctx context.Context, ex runtime.Executor) ([]SimulationCaseWithProjectRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]SimulationCaseWithProjectRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = SimulationCaseWithProjectRow{Row: r}
+		key := r.ProjectID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := project.New().Unordered().
+		Where(project.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.ProjectID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "simulation_cases", "projects")
 		}
 		out[i].Project = targets[j]
 	}

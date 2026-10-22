@@ -13,14 +13,17 @@
  * to reopen it is "try it with a bigger amount", which is one click away, and
  * the uncommon reasons stay out of the way.
  */
-import { ActionIcon, Badge, Button, Collapse, Divider, Group, Menu, ScrollArea, Select, Stack, Text, TextInput, Tooltip } from '@mantine/core';
+import { ActionIcon, Badge, Button, Divider, Group, Menu, ScrollArea, Select, Stack, Text, TextInput, Tooltip } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { ChevronDown, ChevronRight, CirclePlus, ListChecks, MoreHorizontal, Play, RotateCcw, TerminalSquare, Trash2 } from 'lucide-react';
+import { CirclePlus, ListChecks, MoreHorizontal, Play, RotateCcw, Save, TerminalSquare, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
-import { formatValue } from '../../domain/simulationScenario';
-import { passed } from '../../domain/simulationTrace';
+import { casePassed, checkExpectation, expectationVerdict, hasExpectation } from '../../domain/simulationCase';
 import type { SimulationController } from '../../hooks/useSimulation';
+import type { SimulationCasesController } from '../../hooks/useSimulationCases';
+import { SimulationExpect } from './SimulationExpect';
+import { Section } from './SimulationSection';
+import { VariablesAtCursor } from './SimulationVariablesNow';
 import { SimulationInputs } from './SimulationInputs';
 import { SimulationTestModal } from './SimulationTestModal';
 import { SimulationTimeline } from './SimulationTimeline';
@@ -30,11 +33,17 @@ import { errorMessage } from '../../services/shared/errors';
 
 export function SimulationRail({
   sim,
+  cases,
   target,
+  labelOf,
   onAnswerAwaiting,
 }: {
   sim: SimulationController;
+  /** Saving and deleting cases with the process. */
+  cases: SimulationCasesController;
   target: SimulationTarget | null;
+  /** What the diagram calls a node, for sentences that name one. */
+  labelOf: (nodeId: string) => string;
   /**
    * Open the answer card for the step the run is waiting on.
    *
@@ -50,6 +59,17 @@ export function SimulationRail({
   const hasRun = sim.run !== null;
   // Setup is open until a run exists, then folds itself away.
   const [setupOpen, setup] = useDisclosure(true);
+  const [expectOpen, expectSection] = useDisclosure(false);
+  const active = sim.active;
+  // A case nobody has put anything into is not worth a warning.
+  const worthSaving =
+    active !== null && (active.savedId !== undefined || active.variables.length > 0 || active.answers.length > 0);
+  const unsaved = cases.available && worthSaving && !cases.isSaved(active);
+  const check =
+    sim.run !== null && active !== null && hasExpectation(active.expect)
+      ? checkExpectation(sim.run, active.expect, labelOf)
+      : null;
+  const caseError = cases.loadError ?? cases.saveError ?? cases.removeError ?? null;
 
   return (
     <Stack gap={0} h="100%" style={{ minHeight: 0 }}>
@@ -79,6 +99,14 @@ export function SimulationRail({
           />
         )}
 
+        {unsaved && (
+          <Tooltip label="Only in this tab. Save it with the process from the case menu." withArrow>
+            <Badge size="xs" variant="light" color="gray" radius="sm" style={{ flexShrink: 0 }}>
+              Not saved
+            </Badge>
+          </Tooltip>
+        )}
+
         <Menu position="bottom-end" withinPortal>
           <Menu.Target>
             <ActionIcon variant="subtle" color="gray" aria-label="Case options">
@@ -90,6 +118,13 @@ export function SimulationRail({
               New case
             </Menu.Item>
             <Menu.Item onClick={() => setRenaming(true)}>Rename</Menu.Item>
+            <Menu.Item
+              leftSection={<Save size={14} />}
+              onClick={() => active !== null && cases.save(active)}
+              disabled={!unsaved || cases.saving}
+            >
+              {active?.savedId === undefined ? 'Save with this process' : 'Save changes'}
+            </Menu.Item>
             <Menu.Item
               leftSection={<ListChecks size={14} />}
               onClick={sim.startAll}
@@ -104,7 +139,7 @@ export function SimulationRail({
             <Menu.Item
               leftSection={<Trash2 size={14} />}
               color="red"
-              onClick={() => sim.active && sim.removeCase(sim.active.id)}
+              onClick={() => active !== null && cases.remove(active)}
               disabled={sim.cases.length === 1}
             >
               Delete case
@@ -125,7 +160,7 @@ export function SimulationRail({
                   size="xs"
                   radius="sm"
                   variant={item.id === sim.activeId ? 'filled' : 'light'}
-                  color={passed(result) ? 'teal' : 'red'}
+                  color={casePassed(item, result, labelOf) ? 'teal' : 'red'}
                   style={{ cursor: 'pointer' }}
                   onClick={() => sim.selectCase(item.id)}
                 >
@@ -151,6 +186,12 @@ export function SimulationRail({
                   : undefined
               }
             />
+          )}
+
+          {check !== null && <SimulationVerdict verdict={expectationVerdict(check)} />}
+
+          {caseError !== null && (
+            <SimulationVerdict verdict={{ tone: 'warn', headline: 'Saved cases could not be read or written', detail: errorMessage(caseError) }} />
           )}
 
           {sim.error !== null && (
@@ -201,6 +242,16 @@ export function SimulationRail({
             <SimulationInputs sim={sim} />
           </Section>
 
+          <Section
+            label="It should end"
+            count={active?.expect?.variables.length ?? 0}
+            opened={expectOpen}
+            collapsible
+            onToggle={expectSection.toggle}
+          >
+            <SimulationExpect sim={sim} labelOf={labelOf} />
+          </Section>
+
           {/* ── What happened ────────────────────────────────────────────── */}
           {hasRun && (
             <>
@@ -222,98 +273,5 @@ export function SimulationRail({
         target={target}
       />
     </Stack>
-  );
-}
-
-/** A heading that folds, used only where folding earns its keep. */
-function Section({
-  label,
-  count,
-  opened,
-  collapsible,
-  onToggle,
-  children,
-}: {
-  label: string;
-  count: number;
-  opened: boolean;
-  collapsible: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  const heading = (
-    <Group gap={6} wrap="nowrap">
-      {collapsible && (opened ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
-      <Text size="sm" fw={600}>
-        {label}
-      </Text>
-      {count > 0 && (
-        <Badge size="xs" variant="default" radius="sm" fw={500}>
-          {count}
-        </Badge>
-      )}
-    </Group>
-  );
-
-  return (
-    <Stack gap={6}>
-      {collapsible ? (
-        <Group
-          gap={6}
-          onClick={onToggle}
-          style={{ cursor: 'pointer', userSelect: 'none' }}
-          role="button"
-          tabIndex={0}
-          aria-expanded={opened}
-          onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && onToggle()}
-        >
-          {heading}
-        </Group>
-      ) : (
-        heading
-      )}
-      <Collapse expanded={opened}>{children}</Collapse>
-    </Stack>
-  );
-}
-
-/**
- * The variables as they stand at the cursor.
- *
- * Folded by default: it matters when a value is wrong, and until then it is
- * four lines of noise under the thing people are actually reading.
- */
-function VariablesAtCursor({ sim }: { sim: SimulationController }) {
-  const [opened, { toggle }] = useDisclosure(false);
-  const names = Object.keys(sim.variables);
-  if (names.length === 0) return null;
-
-  return (
-    <Section label="Variables now" count={names.length} opened={opened} collapsible onToggle={toggle}>
-      <Stack gap={2}>
-        {names.map((name) => {
-          const changed = sim.changedKeys.includes(name);
-          return (
-            <Group key={name} justify="space-between" gap="sm" wrap="nowrap">
-              <Group gap={4} wrap="nowrap" style={{ minWidth: 0 }}>
-                <Text size="xs" c="dimmed" truncate>
-                  {name}
-                </Text>
-                {/* A glyph, not a colour: a change marked only by colour is a
-                    change some people never see. */}
-                {changed && (
-                  <Text size="xs" c="blue.7" aria-label="changed at this step">
-                    ✎
-                  </Text>
-                )}
-              </Group>
-              <Text size="xs" fw={changed ? 600 : 400} truncate ff="monospace">
-                {formatValue(sim.variables[name])}
-              </Text>
-            </Group>
-          );
-        })}
-      </Stack>
-    </Section>
   );
 }

@@ -114,7 +114,7 @@ type columnRef struct{ table, column string }
 // already on it, so there is nothing for 22 to repair and no upgraded
 // installation that has its columns nullable.
 var createdAfterMigration22 = map[string]bool{"instance_deviations": true, "deviation_requests": true, "retention_holds": true, "retention_periods": true, "external_task_workers": true,
-	"outgoing_webhooks": true, "outgoing_webhook_deliveries": true}
+	"outgoing_webhooks": true, "outgoing_webhook_deliveries": true, "simulation_cases": true}
 
 // columnsTheReaderNeeds is the model's own answer: a storm field that is not a
 // pointer is not nullable, and the generated reader is compiled from that.
