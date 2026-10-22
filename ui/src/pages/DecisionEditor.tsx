@@ -22,6 +22,7 @@ import {
   ActionIcon,
   Alert,
   Badge,
+  Box,
   Button,
   Center,
   Code,
@@ -35,9 +36,11 @@ import {
   Stack,
   Switch,
   Table,
+  Tabs,
   TagsInput,
   Text,
   TextInput,
+  ThemeIcon,
   Title,
   Tooltip,
   rem,
@@ -49,10 +52,15 @@ import {
   AlertTriangle,
   ArrowLeft,
   ChevronsUpDown,
+  FlaskConical,
   History,
   Info,
+  ListChecks,
   Plus,
+  Quote,
   Save,
+  Settings2,
+  Table2,
   Trash2,
 } from 'lucide-react';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
@@ -65,7 +73,6 @@ import { DecisionVersionsModal } from '../components/decisions/DecisionVersionsM
 import { SaveDecisionModal } from '../components/decisions/SaveDecisionModal';
 import { TrialPanel } from '../components/decisions/TrialPanel';
 import type { GridCellProps } from '../components/decisions/gridCell';
-import { PageHeader } from '../components/PageHeader';
 import {
   AGGREGATIONS,
   ANY_VALUE,
@@ -119,6 +126,7 @@ import {
 import { errorMessage } from '../services/shared/errors';
 import type { CreateDecisionPayload } from '../services/types';
 import { useAppStore } from '../store/useAppStore';
+import classes from './DecisionEditor.module.css';
 
 const isError = (problem: TableProblem) => problem.severity === 'error';
 
@@ -218,6 +226,8 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
   const openState = openEntry !== null ? DECISION_VERSION_STATES[decisionVersionState(openEntry, versions)] : null;
   const [historyOpen, setHistoryOpen] = useState(false);
   const [askingSave, setAskingSave] = useState(false);
+  const [railTab, setRailTab] = useState('logic');
+  const usedByCount = impact?.processes?.length ?? 0;
 
   const [name, setName] = useState(search.name || 'New Decision');
   const [key, setKey] = useState(search.key || 'new_decision');
@@ -518,63 +528,109 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
 
   return (
     <Stack gap="lg" p="md">
-      <PageHeader
-        title={definitionId ? name : 'New decision table'}
-        description={summary}
-        meta={
-          <Group gap="xs">
-            <Badge variant="light" color="gray" styles={{ label: { textTransform: 'none' } }}>
-              {key}
-            </Badge>
-            {existingDef?.decision?.version ? (
-              <Badge variant="light" color="indigo">
-                v{existingDef.decision.version}
-              </Badge>
-            ) : null}
-            {/* Which version this is: the one in force, one waiting, or history. */}
-            {openState !== null && (
-              <Tooltip label={openState.hint}>
-                <Badge variant="light" color={openState.color}>
-                  {openState.label}
-                </Badge>
-              </Tooltip>
-            )}
-          </Group>
-        }
-        actions={
-          <Group gap="sm">
-            <Button
+      {/*
+        One bar, like the process designer's: the name is edited where it is
+        read, and the two actions — versions and save — sit beside it. The name
+        used to be typed into a "Name" card at the top of the rail while the
+        same name, read-only, was the page title.
+      */}
+      <Group justify="space-between" wrap="nowrap" gap="md" className={classes.bar}>
+        <Group gap="sm" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
+          <Tooltip label="Back to decisions">
+            <ActionIcon
               variant="subtle"
               color="gray"
-              leftSection={<ArrowLeft size={16} />}
+              size="lg"
+              aria-label="Back to decisions"
               onClick={() => navigate({ to: '/models', search: { tab: 'decisions' } })}
             >
-              Back
-            </Button>
-            {definitionId && existingDef?.decision && (
-              <Button
-                variant="light"
-                color="orange"
-                leftSection={<History size={16} />}
-                aria-label={`Versions of ${existingDef.decision.name}`}
-                onClick={() => setHistoryOpen(true)}
-              >
-                Versions
-              </Button>
-            )}
+              <ArrowLeft size={18} />
+            </ActionIcon>
+          </Tooltip>
+          <ThemeIcon variant="light" color="cyan" radius="md" size="lg" visibleFrom="sm">
+            <Table2 size={18} />
+          </ThemeIcon>
+          <Box style={{ flex: 1, minWidth: 0, maxWidth: 560 }}>
+            <TextInput
+              variant="unstyled"
+              aria-label="What this decides"
+              placeholder="Name this decision, e.g. Loan approval"
+              value={name}
+              onChange={(event) => setName(event.currentTarget.value)}
+              classNames={{ input: classes.name }}
+            />
+            <Group gap={6} wrap="nowrap">
+              <Tooltip label="How a process refers to this table. Change it under Details.">
+                <Badge variant="light" color="gray" radius="sm" styles={{ label: { textTransform: 'none', fontWeight: 500 } }}>
+                  {key}
+                </Badge>
+              </Tooltip>
+              {existingDef?.decision?.version ? (
+                <Badge variant="light" color="indigo" radius="sm">
+                  v{existingDef.decision.version}
+                </Badge>
+              ) : (
+                <Badge variant="light" color="gray" radius="sm" styles={{ label: { textTransform: 'none' } }}>
+                  Not saved yet
+                </Badge>
+              )}
+              {/* Which version this is: the one in force, one waiting, or history. */}
+              {openState !== null && (
+                <Tooltip label={openState.hint}>
+                  <Badge variant="light" color={openState.color} radius="sm">
+                    {openState.label}
+                  </Badge>
+                </Tooltip>
+              )}
+              {!!definitionId && hasUnsavedChanges && (
+                <Text size="xs" c="orange.7" fw={500} style={{ whiteSpace: 'nowrap' }}>
+                  ● Unsaved changes
+                </Text>
+              )}
+            </Group>
+          </Box>
+        </Group>
+        <Group gap="sm" wrap="nowrap">
+          {definitionId && existingDef?.decision && (
             <Button
+              variant="default"
+              leftSection={<History size={16} />}
+              aria-label={`Versions of ${existingDef.decision.name}`}
+              onClick={() => setHistoryOpen(true)}
+            >
+              Versions
+            </Button>
+          )}
+          <Tooltip
+            label={
+              blocking.length > 0
+                ? `Fix ${blocking.length === 1 ? 'the problem' : `the ${blocking.length} problems`} shown above the table first`
+                : definitionId && !hasUnsavedChanges
+                  ? 'Nothing has changed since the last save'
+                  : 'Every save is a new version'
+            }
+          >
+            <Button
+              color="indigo"
               leftSection={<Save size={16} />}
               onClick={handleSave}
               loading={createDecision.isPending || updateDecision.isPending}
               // Saving an unchanged table would store nothing: every save is
               // a new version, and a copy of this one is not a new policy.
               disabled={blocking.length > 0 || (!!definitionId && !hasUnsavedChanges)}
+              data-disabled={blocking.length > 0 || (!!definitionId && !hasUnsavedChanges) ? true : undefined}
             >
               Save
             </Button>
-          </Group>
-        }
-      />
+          </Tooltip>
+        </Group>
+      </Group>
+
+      {/* What the table does, in words — the sentence a reviewer reads first. */}
+      <Group gap="xs" wrap="nowrap" align="flex-start" className={classes.summary}>
+        <Quote size={14} className={classes.summaryIcon} aria-hidden />
+        <Text size="sm">{summary}</Text>
+      </Group>
 
       {historyOpen && existingDef?.decision && (
         <DecisionVersionsModal
@@ -601,26 +657,64 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
         />
       )}
 
+      {/* One box for everything wrong, not a stack of them pushing the table
+          down: errors first, because they are what stops a save. */}
       {problems.length > 0 && (
-        <Stack gap="xs">
-          {problems.map((problem) => (
-            <Alert
-              key={problem.message}
-              variant="light"
-              color={problem.severity === 'error' ? 'red' : 'yellow'}
-              icon={problem.severity === 'error' ? <AlertCircle size={16} /> : <AlertTriangle size={16} />}
-              py="xs"
-            >
-              <Text size="sm">{problem.message}</Text>
-            </Alert>
-          ))}
-        </Stack>
+        <Alert
+          variant="light"
+          color={blocking.length > 0 ? 'red' : 'yellow'}
+          icon={blocking.length > 0 ? <AlertCircle size={16} /> : <AlertTriangle size={16} />}
+          title={
+            blocking.length > 0
+              ? `${blocking.length} ${blocking.length === 1 ? 'problem stops' : 'problems stop'} this table from saving`
+              : `${problems.length} ${problems.length === 1 ? 'thing' : 'things'} to check`
+          }
+          py="xs"
+        >
+          <Stack gap={4}>
+            {[...problems].sort((a, b) => Number(isError(b)) - Number(isError(a))).map((problem) => (
+              <Group key={problem.message} gap={6} wrap="nowrap" align="flex-start">
+                <Box mt={3} c={isError(problem) ? 'red.6' : 'yellow.7'} style={{ flexShrink: 0 }}>
+                  {isError(problem) ? <AlertCircle size={13} /> : <AlertTriangle size={13} />}
+                </Box>
+                <Text size="sm">{problem.message}</Text>
+              </Group>
+            ))}
+          </Stack>
+        </Alert>
       )}
 
       <Group align="flex-start" gap="lg" wrap="wrap">
         {/* The table is the document; it gets whatever width is left. */}
         <Stack gap="sm" style={{ flex: '1 1 640px', minWidth: 0 }}>
-          <Paper radius="md" withBorder p={0} style={{ overflow: 'hidden' }}>
+          <Paper radius="md" withBorder p={0} shadow="xs" style={{ overflow: 'hidden' }}>
+            <Group justify="space-between" wrap="wrap" gap="xs" px="md" py="sm" className={classes.tableBar}>
+              <Group gap="sm" wrap="nowrap">
+                <Text fw={700} size="sm">
+                  Rules
+                </Text>
+                <Badge variant="light" color="gray" radius="sm" size="sm" styles={{ label: { textTransform: 'none' } }}>
+                  {rules.length} {rules.length === 1 ? 'line' : 'lines'}
+                </Badge>
+                {/* The colours of the headings, said once in words. */}
+                <Group gap={6} wrap="nowrap" visibleFrom="sm">
+                  <Badge variant="dot" color="blue" size="sm" styles={{ label: { textTransform: 'none' } }}>
+                    If — conditions
+                  </Badge>
+                  <Badge variant="dot" color="teal" size="sm" styles={{ label: { textTransform: 'none' } }}>
+                    Then — results
+                  </Badge>
+                </Group>
+              </Group>
+              <Group gap="xs" wrap="nowrap">
+                <Button size="xs" variant="light" leftSection={<Plus size={14} />} onClick={addInput}>
+                  Condition
+                </Button>
+                <Button size="xs" variant="light" color="teal" leftSection={<Plus size={14} />} onClick={addOutput}>
+                  Result
+                </Button>
+              </Group>
+            </Group>
             <ScrollArea scrollbars="x" type="auto" ref={gridRef}>
               <Table withColumnBorders verticalSpacing={2} stickyHeader>
                 <Table.Thead bg="var(--mantine-color-gray-0)">
@@ -798,24 +892,20 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
                 </Text>
               </Center>
             )}
-          </Paper>
 
-          <Group gap="xs">
-            <Button size="xs" leftSection={<Plus size={14} />} onClick={addRule}>
-              Add line
-            </Button>
-            <Button size="xs" variant="light" leftSection={<Plus size={14} />} onClick={addInput}>
-              Add condition
-            </Button>
-            <Button size="xs" variant="light" color="teal" leftSection={<Plus size={14} />} onClick={addOutput}>
-              Add result
-            </Button>
-            {orderMatters && (
-              <Text size="xs" c="dimmed" ml="sm">
-                Order matters here — lines are read top to bottom.
-              </Text>
-            )}
-          </Group>
+            {/* Where the next line goes, so that is where the button is: under
+                the last one, as in a spreadsheet. */}
+            <Group justify="space-between" px="xs" py={6} className={classes.tableFoot}>
+              <Button size="xs" variant="subtle" leftSection={<Plus size={14} />} onClick={addRule}>
+                Add line
+              </Button>
+              {orderMatters && (
+                <Text size="xs" c="dimmed" pr="sm">
+                  Order matters here — lines are read top to bottom.
+                </Text>
+              )}
+            </Group>
+          </Paper>
 
           {/* Shortcuts nobody discovers unless they are written down. */}
           <Group gap="lg" wrap="wrap">
@@ -837,192 +927,241 @@ export function DecisionEditor({ definitionId }: { definitionId?: string }) {
           </Text>
         </Stack>
 
-        {/* Everything about the table, beside the table. */}
-        <Stack gap="md" style={{ flex: `0 0 ${RAIL_WIDTH}px`, maxWidth: '100%' }}>
-          <Paper radius="md" withBorder p="md">
-            <Stack gap="sm">
-              <Title order={6}>Name</Title>
-              <TextInput
-                label="What this decides"
-                placeholder="Loan approval"
-                value={name}
-                onChange={(event) => setName(event.currentTarget.value)}
-                required
-              />
-              <TextInput
-                label="Key"
-                description="How a process refers to this table"
-                placeholder="loan_approval"
-                value={key}
-                onChange={(event) => setKey(event.currentTarget.value)}
-                required
-              />
-            </Stack>
-          </Paper>
+        {/*
+          Everything about the table, beside the table — in three tabs rather
+          than seven cards stacked a screen and a half deep, so what is needed
+          now is on screen without scrolling past what is not. The tabs carry
+          counts, so nothing hides behind one silently.
+        */}
+        <Box className={classes.rail} style={{ flex: `0 0 ${RAIL_WIDTH}px`, maxWidth: '100%' }}>
+          {/* Hidden tabs stay in the page, only hidden: an answer from Try it
+              is still there after a look at Logic, and the highlight it puts
+              on the table does not vanish with the tab. */}
+          <Tabs value={railTab} onChange={(next) => setRailTab(next ?? 'logic')} variant="pills" radius="md" keepMounted keepMountedMode="display-none">
+            <Tabs.List grow className={classes.railTabs}>
+              <Tabs.Tab
+                value="logic"
+                leftSection={<ListChecks size={14} />}
+                rightSection={
+                  coverage.gaps.length > 0 ? (
+                    <Badge size="xs" color="orange" variant="filled" circle>
+                      {coverage.gaps.length}
+                    </Badge>
+                  ) : undefined
+                }
+              >
+                Logic
+              </Tabs.Tab>
+              <Tabs.Tab
+                value="try"
+                leftSection={<FlaskConical size={14} />}
+                rightSection={
+                  tests.length > 0 ? (
+                    <Badge size="xs" color="gray" variant="light" circle>
+                      {tests.length}
+                    </Badge>
+                  ) : undefined
+                }
+              >
+                Try it
+              </Tabs.Tab>
+              <Tabs.Tab
+                value="details"
+                leftSection={<Settings2 size={14} />}
+                rightSection={
+                  usedByCount > 0 ? (
+                    <Badge size="xs" color="gray" variant="light" circle>
+                      {usedByCount}
+                    </Badge>
+                  ) : undefined
+                }
+              >
+                Details
+              </Tabs.Tab>
+            </Tabs.List>
 
-          <Paper radius="md" withBorder p="md">
-            <Stack gap="sm">
-              <Group gap={6}>
-                <Title order={6}>When several lines match</Title>
-                <Tooltip
-                  label="Two lines can both apply to the same input. This is what happens then."
-                  multiline
-                  w={240}
-                  withArrow
-                >
-                  <Info size={13} color="var(--mantine-color-dimmed)" />
-                </Tooltip>
-              </Group>
+            <Tabs.Panel value="logic" pt="md">
+              <Stack gap="md">
+                <Paper radius="md" withBorder p="md">
+                  <Stack gap="sm">
+                    <Group gap={6}>
+                      <Title order={6}>When several lines match</Title>
+                      <Tooltip
+                        label="Two lines can both apply to the same input. This is what happens then."
+                        multiline
+                        w={240}
+                        withArrow
+                      >
+                        <Info size={13} color="var(--mantine-color-dimmed)" />
+                      </Tooltip>
+                    </Group>
 
-              <Radio.Group value={hitPolicy} onChange={setHitPolicy}>
-                <Stack gap={6}>
-                  {HIT_POLICIES.map((option) => (
-                    <Radio.Card key={option.value} value={option.value} p="xs" radius="sm">
-                      <Group align="flex-start" gap="xs" wrap="nowrap">
-                        <Radio.Indicator size="xs" mt={2} />
-                        <Stack gap={2}>
-                          <Text size="sm" fw={500}>
-                            {option.label}
-                          </Text>
-                          {hitPolicy === option.value && (
-                            <>
-                              <Text size="xs" c="dimmed">
-                                {option.description}
-                              </Text>
-                              {expertMode && (
-                                <Text size="xs" c="dimmed" ff="monospace">
-                                  {option.dmn}
+                    <Radio.Group value={hitPolicy} onChange={setHitPolicy}>
+                      <Stack gap={6}>
+                        {HIT_POLICIES.map((option) => (
+                          <Radio.Card key={option.value} value={option.value} p="xs" radius="sm">
+                            <Group align="flex-start" gap="xs" wrap="nowrap">
+                              <Radio.Indicator size="xs" mt={2} />
+                              <Stack gap={2}>
+                                <Text size="sm" fw={500}>
+                                  {option.label}
                                 </Text>
-                              )}
-                            </>
-                          )}
-                        </Stack>
-                      </Group>
-                    </Radio.Card>
-                  ))}
-                </Stack>
-              </Radio.Group>
+                                {hitPolicy === option.value && (
+                                  <>
+                                    <Text size="xs" c="dimmed">
+                                      {option.description}
+                                    </Text>
+                                    {expertMode && (
+                                      <Text size="xs" c="dimmed" ff="monospace">
+                                        {option.dmn}
+                                      </Text>
+                                    )}
+                                  </>
+                                )}
+                              </Stack>
+                            </Group>
+                          </Radio.Card>
+                        ))}
+                      </Stack>
+                    </Radio.Group>
 
-              {hitPolicy === 'COLLECT' && (
-                <Select
-                  label="Then"
-                  value={aggregation}
-                  onChange={(next) => setAggregation(next ?? '')}
-                  data={AGGREGATIONS}
-                  allowDeselect={false}
-                />
-              )}
-
-              {policy?.needsValueList && (
-                <Stack gap={4}>
-                  <TagsInput
-                    label={`Ranking for ${outputs[0]?.label || 'the first result'}`}
-                    description="Most important first. This is what the policy sorts by."
-                    placeholder="Add a value and press Enter"
-                    value={outputs[0]?.values ?? []}
-                    onChange={(values) => setOutputs(outputs.map((c, i) => (i === 0 ? { ...c, values } : c)))}
-                    error={outputs[0]?.values?.length ? undefined : 'Required by this policy'}
-                  />
-                </Stack>
-              )}
-            </Stack>
-          </Paper>
-
-          <CoverageCard report={coverage} ruleCount={rules.length} onAddLine={addRuleForGap} />
-
-          <TrialPanel
-            target={target}
-            inputs={inputs}
-            outputs={outputs}
-            values={testInputs}
-            onValues={setTestInputs}
-            onRun={handleTest}
-            running={isTesting}
-            error={testError}
-            answer={
-              outcome && {
-                outcome,
-                standing: trialStanding(outcome, table, savedTable),
-                staleReason: staleNote(table, savedTable),
-                lines: highlighted,
-              }
-            }
-          />
-
-          {/* The examples were stored with the table and shown nowhere, and
-              every save wiped them. They are saved with the table now, and run
-              against the saved version. */}
-          <Paper radius="md" withBorder p="md">
-            <DecisionTests
-              decisionId={definitionId ?? null}
-              inputs={inputs}
-              outputs={outputs}
-              tests={tests}
-              onChange={setTests}
-              hasUnsavedChanges={hasUnsavedChanges}
-            />
-          </Paper>
-
-          {/* Who else this table decides for. A threshold changed with three
-              hundred instances part-way through the process that reads it is a
-              different act from one changed on a table nothing uses, and the
-              difference belongs on screen before the change, not after. */}
-          {impact && (impact.processes?.length ?? 0) > 0 && (
-            <Paper radius="md" withBorder p="md">
-              <Stack gap="xs">
-                <Title order={6}>Used by</Title>
-                {impact.processes?.map((process) => (
-                  <Group key={process.definition_id} justify="space-between" wrap="nowrap" gap="xs">
-                    <div style={{ minWidth: 0 }}>
-                      <Text size="sm" truncate>
-                        {process.definition_name || process.definition_key}
-                      </Text>
-                      {process.steps?.length ? (
-                        <Text size="xs" c="dimmed" truncate>
-                          at {process.steps.join(', ')}
-                        </Text>
-                      ) : null}
-                    </div>
-                    {process.running_instances > 0 && (
-                      <Badge size="xs" variant="light" color="orange" style={{ flexShrink: 0 }}>
-                        {process.running_instances} running
-                      </Badge>
+                    {hitPolicy === 'COLLECT' && (
+                      <Select
+                        label="Then"
+                        value={aggregation}
+                        onChange={(next) => setAggregation(next ?? '')}
+                        data={AGGREGATIONS}
+                        allowDeselect={false}
+                      />
                     )}
-                  </Group>
-                ))}
-                {impact.running_instances > 0 && (
-                  <Text size="xs" c="dimmed">
-                    {impact.running_instances} process{impact.running_instances === 1 ? '' : 'es'} started under the
-                    current version and not yet finished.
+
+                    {policy?.needsValueList && (
+                      <Stack gap={4}>
+                        <TagsInput
+                          label={`Ranking for ${outputs[0]?.label || 'the first result'}`}
+                          description="Most important first. This is what the policy sorts by."
+                          placeholder="Add a value and press Enter"
+                          value={outputs[0]?.values ?? []}
+                          onChange={(values) => setOutputs(outputs.map((c, i) => (i === 0 ? { ...c, values } : c)))}
+                          error={outputs[0]?.values?.length ? undefined : 'Required by this policy'}
+                        />
+                      </Stack>
+                    )}
+                  </Stack>
+                </Paper>
+                <CoverageCard report={coverage} ruleCount={rules.length} onAddLine={addRuleForGap} />
+              </Stack>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="try" pt="md">
+              <Stack gap="md">
+                <TrialPanel
+                  target={target}
+                  inputs={inputs}
+                  outputs={outputs}
+                  values={testInputs}
+                  onValues={setTestInputs}
+                  onRun={handleTest}
+                  running={isTesting}
+                  error={testError}
+                  answer={
+                    outcome && {
+                      outcome,
+                      standing: trialStanding(outcome, table, savedTable),
+                      staleReason: staleNote(table, savedTable),
+                      lines: highlighted,
+                    }
+                  }
+                />
+                {/* The examples were stored with the table and shown nowhere, and
+                    every save wiped them. They are saved with the table now, and run
+                    against the saved version. */}
+                <Paper radius="md" withBorder p="md">
+                  <DecisionTests
+                    decisionId={definitionId ?? null}
+                    inputs={inputs}
+                    outputs={outputs}
+                    tests={tests}
+                    onChange={setTests}
+                    hasUnsavedChanges={hasUnsavedChanges}
+                  />
+                </Paper>
+              </Stack>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="details" pt="md">
+              <Stack gap="md">
+                <Paper radius="md" withBorder p="md">
+                  <Stack gap="sm">
+                    <TextInput
+                      label="Key"
+                      description="How a process refers to this table"
+                      placeholder="loan_approval"
+                      value={key}
+                      onChange={(event) => setKey(event.currentTarget.value)}
+                      required
+                    />
+                    <TextInput
+                      label="Depends on"
+                      description="Other decision keys this one needs, comma separated"
+                      placeholder="risk_band, region"
+                      value={requiredDecisions}
+                      onChange={(event) => setRequiredDecisions(event.currentTarget.value)}
+                    />
+                    <Divider />
+                    <Switch
+                      size="xs"
+                      label="Expert mode"
+                      checked={expertMode}
+                      onChange={(event) => setExpertMode(event.currentTarget.checked)}
+                    />
+                  </Stack>
+                </Paper>
+                {/* Who else this table decides for. A threshold changed with three
+                    hundred instances part-way through the process that reads it is a
+                    different act from one changed on a table nothing uses, and the
+                    difference belongs on screen before the change, not after. */}
+                {impact && (impact.processes?.length ?? 0) > 0 && (
+                  <Paper radius="md" withBorder p="md">
+                    <Stack gap="xs">
+                      <Title order={6}>Used by</Title>
+                      {impact.processes?.map((process) => (
+                        <Group key={process.definition_id} justify="space-between" wrap="nowrap" gap="xs">
+                          <div style={{ minWidth: 0 }}>
+                            <Text size="sm" truncate>
+                              {process.definition_name || process.definition_key}
+                            </Text>
+                            {process.steps?.length ? (
+                              <Text size="xs" c="dimmed" truncate>
+                                at {process.steps.join(', ')}
+                              </Text>
+                            ) : null}
+                          </div>
+                          {process.running_instances > 0 && (
+                            <Badge size="xs" variant="light" color="orange" style={{ flexShrink: 0 }}>
+                              {process.running_instances} running
+                            </Badge>
+                          )}
+                        </Group>
+                      ))}
+                      {impact.running_instances > 0 && (
+                        <Text size="xs" c="dimmed">
+                          {impact.running_instances} process{impact.running_instances === 1 ? '' : 'es'} started under the
+                          current version and not yet finished.
+                        </Text>
+                      )}
+                    </Stack>
+                  </Paper>
+                )}
+                {impact && usedByCount === 0 && (
+                  <Text size="xs" c="dimmed" px="xs">
+                    No deployed process uses this table yet.
                   </Text>
                 )}
               </Stack>
-            </Paper>
-          )}
-
-          <Paper radius="md" withBorder p="md">
-            <Stack gap="sm">
-              <Group justify="space-between">
-                <Title order={6}>Advanced</Title>
-                <Switch
-                  size="xs"
-                  label="Expert mode"
-                  checked={expertMode}
-                  onChange={(event) => setExpertMode(event.currentTarget.checked)}
-                />
-              </Group>
-              <Divider />
-              <TextInput
-                size="xs"
-                label="Depends on"
-                description="Other decision keys this one needs, comma separated"
-                placeholder="risk_band, region"
-                value={requiredDecisions}
-                onChange={(event) => setRequiredDecisions(event.currentTarget.value)}
-              />
-            </Stack>
-          </Paper>
-        </Stack>
+            </Tabs.Panel>
+          </Tabs>
+        </Box>
       </Group>
     </Stack>
   );
