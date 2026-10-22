@@ -1809,6 +1809,11 @@ Deliveries are kept for 30 days.
 
 ### Trying a receiver, and reading what it was sent
 
+In the UI all of this is on **Connectors → Outgoing webhooks**: an
+administrator adds a webhook there and is shown its secret once, and each
+webhook has **Send test** and **Deliveries** beside it. Anybody else in the
+project sees which webhooks there are, where they send and what.
+
 **Send test** posts a sample of an event to the webhook now, signed exactly as
 a real delivery is, and answers with the request as it went out — the URL,
 every header including the signature, and the body — and what the receiver
