@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
 
@@ -47,5 +48,9 @@ func (a nodeActions) hold(
 	if err != nil {
 		return uuid.Nil, false, fmt.Errorf("raising the incident that holds instance %s: %w", locked.ID, err)
 	}
+	// Audited: whoever held the instance writes the trail entry for the hold,
+	// which says it raised this incident.
+	instance := adapters.InstanceEntityAdapter{Model: locked}.ToEntity()
+	announceIncident(ctx, a.engine, a.repo.UnitOfWork().Attempt, instance, nodeID, uuid.UUID(created.ID), true)
 	return uuid.UUID(created.ID), true, nil
 }

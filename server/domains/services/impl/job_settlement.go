@@ -128,8 +128,8 @@ func (s *jobService) failJob(ctx context.Context, job entities.Job, jobErr error
 	writeCtx, cancel := detach(ctx, statusWriteBudget)
 	defer cancel()
 	err := s.repo.UnitOfWork().Do(writeCtx, func(txCtx context.Context) error {
-		if s.instanceStillRuns(txCtx, job) {
-			if err := s.createIncident(txCtx, &job, jobErr); err != nil {
+		if instance, runs := s.instanceStillRuns(txCtx, job); runs {
+			if err := s.createIncident(txCtx, &job, instance, jobErr); err != nil {
 				return err
 			}
 		}
@@ -142,7 +142,8 @@ func (s *jobService) failJob(ctx context.Context, job entities.Job, jobErr error
 }
 
 // instanceStillRuns reports whether a failed job's instance is one somebody
-// can still do something about: whether to raise the incident.
+// can still do something about: whether to raise the incident. It answers the
+// instance as it read it, which the incident is announced with.
 //
 // An incident is a request for somebody to look at an instance and decide. On
 // an instance that was cancelled, that failed or that ran to its end there is
@@ -171,25 +172,25 @@ func (s *jobService) failJob(ctx context.Context, job entities.Job, jobErr error
 // has ended the transaction, so the incident and the job's status are not
 // written either: failJob logs that, the job stays running, and it is tried
 // again when its lease expires.
-func (s *jobService) instanceStillRuns(ctx context.Context, job entities.Job) bool {
+func (s *jobService) instanceStillRuns(ctx context.Context, job entities.Job) (entities.ProcessInstance, bool) {
 	if job.Instance == nil {
-		return true
+		return entities.ProcessInstance{}, true
 	}
 	instance, err := s.engine.GetInstanceForUpdate(ctx, job.Instance.ID)
 	if err != nil {
 		log.Warn().Err(err).Str("jobId", job.ID.String()).
 			Msg("Could not tell whether the failed job's instance is still running; going on to raise its incident")
-		return true
+		return entities.ProcessInstance{ID: job.Instance.ID}, true
 	}
 	if !instanceEnded(instance.Status) {
-		return true
+		return instance, true
 	}
 	log.Info().
 		Str("jobId", job.ID.String()).
 		Str("instance_id", job.Instance.ID.String()).
 		Str("status", string(instance.Status)).
 		Msg("A job failed for an instance that had ended; it is marked failed and no incident is raised")
-	return false
+	return instance, false
 }
 
 // writeDetached records a job's status in a statement of its own, for the
@@ -260,8 +261,9 @@ func (s *jobService) matchingErrorBoundary(def *entities.ProcessDefinition, node
 	return nil
 }
 
-// createIncident records an open incident for a job that has failed for good.
-func (s *jobService) createIncident(ctx context.Context, job *entities.Job, jobErr error) error {
+// createIncident records an open incident for a job that has failed for good,
+// and announces it.
+func (s *jobService) createIncident(ctx context.Context, job *entities.Job, instance entities.ProcessInstance, jobErr error) error {
 	incID, err := uuid.NewV7()
 	if err != nil {
 		return err
@@ -282,8 +284,15 @@ func (s *jobService) createIncident(ctx context.Context, job *entities.Job, jobE
 		Status:    entities.IncidentOpen,
 		CreatedAt: time.Now(),
 	}
-	_, err = s.repo.Incident().Create(ctx, adapters.IncidentModelAdapter{Incident: incident}.ToModel())
-	return err
+	if _, err := s.repo.Incident().Create(ctx, adapters.IncidentModelAdapter{Incident: incident}.ToModel()); err != nil {
+		return err
+	}
+	nodeID := ""
+	if job.Node != nil {
+		nodeID = job.Node.ID
+	}
+	announceIncident(ctx, s.engine, s.repo.UnitOfWork().Attempt, instance, nodeID, incID, false)
+	return nil
 }
 
 // completedBecauseWithdrawn completes a service-task job whose step was

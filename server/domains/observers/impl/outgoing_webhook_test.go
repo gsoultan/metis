@@ -54,6 +54,7 @@ func TestOnlyTheEventsAReceiverCanAskForAreQueued(t *testing.T) {
 	for _, engineType := range []string{
 		entities.EventNodeReached, entities.EventTaskClaimed, entities.EventTaskUpdated,
 		entities.EventProcessStarted, entities.EventTaskCreated, entities.EventTaskCompleted, entities.EventProcessCompleted,
+		entities.EventIncidentRaised,
 	} {
 		observer.OnEvent(t.Context(), entities.ProcessEvent{Type: engineType, Instance: instance, Timestamp: time.Now().Unix()})
 	}
@@ -61,6 +62,7 @@ func TestOnlyTheEventsAReceiverCanAskForAreQueued(t *testing.T) {
 	want := []entities.OutgoingWebhookEvent{
 		entities.OutgoingProcessStarted, entities.OutgoingTaskCreated,
 		entities.OutgoingTaskCompleted, entities.OutgoingProcessCompleted,
+		entities.OutgoingIncidentRaised,
 	}
 	if len(queue.queued) != len(want) {
 		t.Fatalf("queued %d events, want %d: %+v", len(queue.queued), len(want), queue.queued)

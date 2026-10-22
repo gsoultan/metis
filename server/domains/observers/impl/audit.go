@@ -121,8 +121,15 @@ func (o *AuditLogObserver) OnEvent(ctx context.Context, event entities.ProcessEv
 	case entities.EventProcessCompleted:
 		entry.Message = "Process instance completed"
 		entry.Narrative = "The process has been successfully concluded."
-	case "incident_created":
-		entry.Narrative = "An issue occurred that requires attention: " + fmt.Sprintf("%v", event.Variables["error"])
+	case entities.EventIncidentRaised:
+		nodeName := "a step"
+		if event.Node != nil && event.Node.Name != "" {
+			nodeName = "'" + event.Node.Name + "'"
+		} else if event.Node != nil && event.Node.ID != "" {
+			nodeName = "'" + event.Node.ID + "'"
+		}
+		entry.Message = "Incident raised"
+		entry.Narrative = fmt.Sprintf("An incident was raised at %s; the step waits until somebody resolves it.", nodeName)
 	default:
 		entry.Message = "Event: " + event.Type
 		entry.Narrative = entry.Message

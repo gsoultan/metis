@@ -114,6 +114,9 @@ func sampleDelivery(hook entities.OutgoingWebhook, event entities.OutgoingWebhoo
 		payload.Task = &entities.OutgoingWebhookTask{ID: uuid.New(), Assignee: "test.user"}
 	case entities.OutgoingProcessCompleted:
 		payload.Instance.Status = string(entities.ProcessCompleted)
+	case entities.OutgoingIncidentRaised:
+		payload.Node = &entities.OutgoingWebhookNode{ID: "charge", Name: "Charge the card"}
+		payload.Incident = &entities.OutgoingWebhookIncident{ID: uuid.New()}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
