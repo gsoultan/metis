@@ -1033,6 +1033,14 @@ does not undo a migration.
   binary. Building the handler takes 4 ms and holds 0.5 MB; what browsers
   are sent is unchanged.
 
+- **A service task runs as soon as the step before it commits.** Each one
+  waited for the job worker's next poll, two seconds at the default
+  `METIS_JOB_POLL_INTERVAL`, so three service tasks in a row took six seconds
+  to reach the person after them. The worker is now woken when work that is
+  already due commits on its replica, and the same three take about 30 ms.
+  Timers and retries that are due later still wait for the poll, and another
+  replica's work is still picked up at its own poll.
+
 - **A step repeated over an empty list is skipped.** A step run once per item
   of a list that is empty used to run once anyway, with no item: a service
   call with nothing to send, an approval task nobody was listed for. Now the
@@ -1229,6 +1237,17 @@ does not undo a migration.
   to anybody who is not an operator or an administrator.
 
 ### Fixed
+
+- **A step reached, a process started and a task created reach the browser
+  and the webhooks.** An event about an instance the engine had in hand did
+  not encode: a token it had just added points back at that instance, and the
+  encoder followed the loop a thousand levels down before giving up. The
+  event stream dropped those events without a word, so a new task appeared in
+  an inbox only on the next refresh, and the deprecated installation-wide
+  webhook (`WEBHOOK_ENDPOINTS`) was never sent them and logged an error for
+  each. Following the loop was also most of what a request spent: a full
+  journey through the API now sustains about 70% more per minute and
+  allocates a fifth of what it did.
 
 - **An outgoing webhook's delivery log and test result are readable.** A
   delivery's outcome was drawn as green or yellow text on its own tint, at
