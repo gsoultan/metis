@@ -21,6 +21,10 @@ describe('timelineKind', () => {
     expect(timelineKind('task_edited')).toBe('edited');
   });
 
+  it('shows an incident the engine raised as an incident', () => {
+    expect(timelineKind('IncidentRaised')).toBe('incident');
+  });
+
   it('treats anything it does not know, including object keys, as other', () => {
     expect(timelineKind('TaskUpdated')).toBe('other');
     expect(timelineKind('constructor')).toBe('other');

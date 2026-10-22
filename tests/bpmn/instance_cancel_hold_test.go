@@ -292,8 +292,14 @@ func TestHoldingInPlaceRaisesOneIncidentAndChangesNothingElse(t *testing.T) {
 	if want := []string{"audit_logs", "incidents", "instance_deviations"}; !reflect.DeepEqual(changed, want) {
 		t.Fatalf("a hold changed %v, want only %v: the incident, its ledger row and its trail entry", changed, want)
 	}
-	if now := events.count(); now != raised {
-		t.Fatalf("a hold raised %d event(s); it takes nothing from anybody", now-raised)
+	// The one event is the incident, which receivers that asked for incidents
+	// are told of. Nothing is taken from anybody, so nothing else is raised.
+	announced := events.ofType(entities.EventIncidentRaised)
+	if now := events.count(); now != raised+1 || len(announced) != 1 {
+		t.Fatalf("a hold raised %d event(s), %d of them incidents; want only the incident, since it takes nothing from anybody", now-raised, len(announced))
+	}
+	if got := announced[0]; got.Node == nil || got.Node.ID != "opsApprove" || got.IncidentID == uuid.Nil || !got.Audited {
+		t.Fatalf("the hold's incident event: %+v; want the step, the incident, and the hold's own trail entry standing for it", got)
 	}
 	requireInstanceStatus(ctx, t, h, id, entities.ProcessActive)
 	if still := theOpenTask(t, h, id, "opsApprove"); still.ID != opsTask.ID || still.AssigneeUsername() != "ollie" || still.Status != opsTask.Status {

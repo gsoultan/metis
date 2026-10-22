@@ -453,6 +453,13 @@ does not undo a migration.
   deliveries, newest first and filtered by where they stand, from which a
   pending or failed delivery can be retried at once and a pending one stopped
   ([Trying a receiver](docs/integration.md#trying-a-receiver-and-reading-what-it-was-sent)).
+- **An outgoing webhook can be told of incidents.** `incident.raised` is
+  sent when a call or a worker fails with no retries left, and when somebody
+  holds an instance at a step. It names the incident, the step and the case,
+  and not the incident's text, which can quote what the failed call sent; a
+  receiver reads that from the API. Incidents raised by a failed job or
+  external task now also have an entry in the audit trail
+  ([Sending events](docs/integration.md#sending-events-outgoing-webhooks)).
 - **Simulate the diagram you are editing, without deploying it.** In the
   designer, Simulate now runs the canvas: the version you opened while the
   canvas still does what it does, and a draft once you change a step, a

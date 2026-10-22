@@ -46,6 +46,7 @@ const KINDS = new Map<string, TimelineKind>([
   ['process_ended', 'ended'],
   ['IncidentCreated', 'incident'],
   ['incident_created', 'incident'],
+  ['IncidentRaised', 'incident'],
   ['decision_evaluated', 'decision'],
 ]);
 

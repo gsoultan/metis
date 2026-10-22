@@ -35,6 +35,10 @@ type ProcessEvent struct {
 	// refetch the task list rather than read one task out of an event; an
 	// outgoing webhook names it, so a receiver can say which task it means.
 	TaskID uuid.UUID `json:"-"`
+	// IncidentID is the incident an EventIncidentRaised is about. Not sent to
+	// browsers, which refetch the incident list; an outgoing webhook names it,
+	// so a receiver can read the incident from the API.
+	IncidentID uuid.UUID `json:"-"`
 	// Audited says the code that raised this event wrote its audit entry
 	// itself, so the audit observer must not write a second one.
 	//
@@ -63,6 +67,10 @@ const (
 	// Assignee is the owner, who has it again and completes it.
 	EventTaskResolved     = "TaskResolved"
 	EventProcessCompleted = "ProcessCompleted"
+	// EventIncidentRaised is raised when an incident is opened at a step: its
+	// work failed with no retries left, or somebody held the instance there.
+	// Its IncidentID names the incident and its Node the step.
+	EventIncidentRaised = "IncidentRaised"
 )
 
 // ProjectOf returns the project an event belongs to: its own, or its

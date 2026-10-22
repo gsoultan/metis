@@ -1730,6 +1730,13 @@ settings.
 | `process.completed` | An instance finishes |
 | `task.created` | A task is waiting for somebody |
 | `task.completed` | Somebody completes a task |
+| `incident.raised` | An incident is opened at a step: a call or a worker failed with no retries left, or somebody held the instance there |
+
+An `incident.raised` delivery names the incident (`"incident": {"id": "…"}`)
+and the step it is at, and does not say what went wrong. An incident's text
+is the error of the call or worker that failed, which can quote what that
+call sent and was answered, so a receiver that wants it reads
+`GET /api/v1/incidents/{id}` with credentials of its own.
 
 Routes, all under `/api/v1`:
 

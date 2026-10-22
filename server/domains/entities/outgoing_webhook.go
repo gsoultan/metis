@@ -52,6 +52,7 @@ const (
 	OutgoingProcessCompleted OutgoingWebhookEvent = "process.completed"
 	OutgoingTaskCreated      OutgoingWebhookEvent = "task.created"
 	OutgoingTaskCompleted    OutgoingWebhookEvent = "task.completed"
+	OutgoingIncidentRaised   OutgoingWebhookEvent = "incident.raised"
 )
 
 // outgoingEventOf maps the engine's event types to the names a receiver asks
@@ -62,6 +63,7 @@ var outgoingEventOf = map[string]OutgoingWebhookEvent{
 	EventProcessCompleted: OutgoingProcessCompleted,
 	EventTaskCreated:      OutgoingTaskCreated,
 	EventTaskCompleted:    OutgoingTaskCompleted,
+	EventIncidentRaised:   OutgoingIncidentRaised,
 }
 
 // OutgoingEventFor returns the name a receiver knows an engine event by, and
@@ -77,6 +79,7 @@ func OutgoingWebhookEvents() []OutgoingWebhookEvent {
 	return []OutgoingWebhookEvent{
 		OutgoingProcessStarted, OutgoingProcessCompleted,
 		OutgoingTaskCreated, OutgoingTaskCompleted,
+		OutgoingIncidentRaised,
 	}
 }
 

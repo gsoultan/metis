@@ -262,8 +262,11 @@ func (s *externalTaskService) HandleFailure(ctx context.Context, taskID uuid.UUI
 		if instance.Definition != nil {
 			incident.Definition = &entities.ProcessDefinition{ID: instance.Definition.ID}
 		}
-		_, err = s.repo.Incident().Create(txCtx, adapters.IncidentModelAdapter{Incident: incident}.ToModel())
-		return err
+		if _, err := s.repo.Incident().Create(txCtx, adapters.IncidentModelAdapter{Incident: incident}.ToModel()); err != nil {
+			return err
+		}
+		announceIncident(txCtx, s.engine, s.repo.UnitOfWork().Attempt, instance, m.NodeID, incident.ID, false)
+		return nil
 	})
 	if err != nil {
 		return err

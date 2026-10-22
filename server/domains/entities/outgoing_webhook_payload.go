@@ -25,6 +25,7 @@ type OutgoingWebhookPayload struct {
 	Instance *OutgoingWebhookInstance `json:"instance,omitzero"`
 	Node     *OutgoingWebhookNode     `json:"node,omitzero"`
 	Task     *OutgoingWebhookTask     `json:"task,omitzero"`
+	Incident *OutgoingWebhookIncident `json:"incident,omitzero"`
 
 	// Test is true on a delivery somebody sent by hand to try the receiver.
 	Test bool `json:"test,omitzero"`
@@ -52,6 +53,16 @@ type OutgoingWebhookTask struct {
 	Assignee string    `json:"assignee,omitzero"`
 }
 
+// OutgoingWebhookIncident is the incident an incident event is about.
+//
+// It is named and not described. What an incident says is the error of the
+// call or the worker that failed, which can quote what that call sent and
+// what it was answered: the instance's data, by another route. A receiver
+// reads it from GET /api/v1/incidents/{id}, with credentials of its own.
+type OutgoingWebhookIncident struct {
+	ID uuid.UUID `json:"id"`
+}
+
 // NewOutgoingWebhookPayload describes an engine event to a receiver.
 func NewOutgoingWebhookPayload(eventID uuid.UUID, outgoing OutgoingWebhookEvent, projectID uuid.UUID, event ProcessEvent) OutgoingWebhookPayload {
 	payload := OutgoingWebhookPayload{
@@ -66,6 +77,9 @@ func NewOutgoingWebhookPayload(eventID uuid.UUID, outgoing OutgoingWebhookEvent,
 	}
 	if event.TaskID != uuid.Nil || event.Assignee != "" {
 		payload.Task = &OutgoingWebhookTask{ID: event.TaskID, Assignee: event.Assignee}
+	}
+	if event.IncidentID != uuid.Nil {
+		payload.Incident = &OutgoingWebhookIncident{ID: event.IncidentID}
 	}
 	return payload
 }
