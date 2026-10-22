@@ -1024,6 +1024,14 @@ does not undo a migration.
 
 ### Changed
 
+- **A service task runs as soon as the step before it commits.** Each one
+  waited for the job worker's next poll, two seconds at the default
+  `METIS_JOB_POLL_INTERVAL`, so three service tasks in a row took six seconds
+  to reach the person after them. The worker is now woken when work that is
+  already due commits on its replica, and the same three take about 30 ms.
+  Timers and retries that are due later still wait for the poll, and another
+  replica's work is still picked up at its own poll.
+
 - **A step repeated over an empty list is skipped.** A step run once per item
   of a list that is empty used to run once anyway, with no item: a service
   call with nothing to send, an approval task nobody was listed for. Now the
