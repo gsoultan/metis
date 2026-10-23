@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/gsoultan/storm"
 	"github.com/gsoultan/storm/runtime"
 )
 
@@ -30,13 +31,25 @@ const PruneBatch = 5000
 // outside a transaction, each batch commits on its own. That is the point, so
 // a sweep must not be started inside a unit of work.
 func DeleteInBatches(ctx context.Context, ex runtime.Executor, stmt string, args ...any) (int64, error) {
+	return deleteInBatches(ctx, func(args []any) (int64, error) { return ex.Exec(ctx, stmt, args) }, args)
+}
+
+// DeleteDeclaredInBatches is DeleteInBatches for a statement declared in the
+// model, which the generator PREPAREd against it: the same rules for stmt,
+// and a statement whose columns drifted fails `make generate` rather than the
+// sweep.
+func DeleteDeclaredInBatches(ctx context.Context, ex runtime.Executor, stmt *storm.SQLStmt, args ...any) (int64, error) {
+	return deleteInBatches(ctx, func(args []any) (int64, error) { return stmt.Exec(ctx, ex, args...) }, args)
+}
+
+func deleteInBatches(ctx context.Context, exec func([]any) (int64, error), args []any) (int64, error) {
 	args = append(args, PruneBatch)
 	var total int64
 	for {
 		if err := ctx.Err(); err != nil {
 			return total, err
 		}
-		removed, err := ex.Exec(ctx, stmt, args)
+		removed, err := exec(args)
 		if err != nil {
 			return total, fmt.Errorf("delete in batches: %w", err)
 		}
