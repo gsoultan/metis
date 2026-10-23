@@ -27,14 +27,13 @@ func TestReadinessFailsWhenThePgxPoolCannotReachTheDatabase(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
-	var failed []string
+	// Every one of them: since GORM closes its pool after the migrations,
+	// "database" asks the storm pool too, and passing it while the pool that
+	// serves every request is unreachable is the failure this test exists for.
 	for name, checker := range a.readinessCheckers() {
-		if checker.Check(ctx) != nil {
-			failed = append(failed, name)
+		if checker.Check(ctx) == nil {
+			t.Errorf("the %s readiness check passed while the pgx pool could not reach its database", name)
 		}
-	}
-	if len(failed) == 0 {
-		t.Fatal("every readiness check passed while the pgx pool could not reach its database")
 	}
 }
 

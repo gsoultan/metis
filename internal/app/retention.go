@@ -10,11 +10,11 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/interceptors/security"
 	"github.com/gsoultan/metis/server/repositories/db"
-	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/migrations"
 	"github.com/gsoultan/metis/server/repositories/payloads"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/rs/zerolog/log"
-	"gorm.io/gorm"
 )
 
 // retentionSweepEvery is how often the tables that only ever grow are cut
@@ -101,12 +101,15 @@ func (a *App) sweepRetention(ctx context.Context, now time.Time, keep optInReten
 	// remembered in staging, and each environment needs its own sweep.
 	fill := a.stillFillsLiveKeys(now)
 	a.sweepRuntime(ctx, "main", now, keep)
-	if fill {
-		fillLiveKeys(ctx, "main", a.db)
+	if a.storm == nil {
+		return
 	}
-	for _, id := range gorms.OpenEnvironmentIDs() {
+	if fill {
+		fillLiveKeys(ctx, "main", a.storm.Main())
+	}
+	for id, environment := range a.storm.EnvironmentPools() {
 		a.sweepRuntime(db.Bind(ctx, id), id.String(), now, keep)
-		if environment, open := gorms.EnvironmentDB(id); open && fill {
+		if fill {
 			fillLiveKeys(ctx, id.String(), environment)
 		}
 	}
@@ -303,11 +306,19 @@ func expire(ctx context.Context, database string, run func(context.Context) (ent
 // Nothing in the product leaves that behind; if a pod of the previous release
 // did, it is said as what it is, at the level of an error, and left for a
 // person: no pass can choose which of the two rows is the true one.
-func fillLiveKeys(ctx context.Context, database string, ledger *gorm.DB) {
+func fillLiveKeys(ctx context.Context, database string, pool *pgxpool.Pool) {
 	// A wiring with no database handle (tests only) has no ledger to fill.
-	if ledger == nil || ledger.Name() != "postgres" {
+	if pool == nil {
 		return
 	}
+	// Borrowed from the storm pool rather than opened: the handle owns no
+	// connections, and closing it leaves the pool as it was.
+	ledger := stdlib.OpenDBFromPool(pool)
+	defer func() {
+		if err := ledger.Close(); err != nil {
+			log.Warn().Err(err).Str("database", database).Msg("Could not let go of the handle the ledger fill borrowed")
+		}
+	}()
 	filled, err := migrations.GiveLiveRowsTheirKey(ctx, ledger)
 	if filled > 0 {
 		log.Warn().Str("database", database).Int("filled", filled).

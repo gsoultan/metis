@@ -66,21 +66,17 @@ func (a *App) openEnvironments(ctx context.Context) error {
 	return nil
 }
 
-// openEnvironmentDatabases opens one environment's database through both
-// layers, migrated, and registers it, so that work bound to the environment
-// reaches it.
+// openEnvironmentDatabases migrates one environment's database and registers
+// its storm pool, so that work bound to the environment reaches it.
 //
-// Both layers or neither. Half open, the GORM side would reach the database
-// and the storm side would refuse with ErrEnvironmentUnavailable — the same
-// failure as not opening it at all, but harder to read.
+// GORM connects only to migrate and seed, and lets go before the pool that
+// serves the environment is registered: a second pool held for the life of the
+// process was one more set of server sessions per environment, idle, and read
+// by nothing after boot.
 func (a *App) openEnvironmentDatabases(ctx context.Context, row models.EnvironmentModel) error {
 	id := uuid.UUID(row.ID)
-	gormDB, err := a.openEnvironment(ctx, row)
-	if err != nil {
+	if err := a.migrateEnvironment(ctx, row); err != nil {
 		return err
-	}
-	if previous := gorms.RegisterEnvironmentDB(id, gormDB); previous != nil {
-		closeDB(previous)
 	}
 	if err := a.openEnvironmentStorm(ctx, row, id); err != nil {
 		a.closeEnvironmentConnections(id)
@@ -89,13 +85,10 @@ func (a *App) openEnvironmentDatabases(ctx context.Context, row models.Environme
 	return nil
 }
 
-// closeEnvironmentConnections lets go of one environment's database, both
-// layers. Work bound to the environment is refused from here on, with
+// closeEnvironmentConnections lets go of one environment's database. Work
+// bound to the environment is refused from here on, with
 // ErrEnvironmentUnavailable rather than a fall back to the main database.
 func (a *App) closeEnvironmentConnections(id uuid.UUID) {
-	if gormDB, open := gorms.ForgetEnvironmentDB(id); open {
-		closeDB(gormDB)
-	}
 	if a.storm != nil {
 		if pool, open := a.storm.ForgetEnvironment(id); open {
 			pool.Close()
@@ -103,28 +96,29 @@ func (a *App) closeEnvironmentConnections(id uuid.UUID) {
 	}
 }
 
-// openEnvironment connects to one environment's database and migrates it.
+// migrateEnvironment connects to one environment's database, migrates it,
+// seeds its identity and disconnects.
 //
 // The schema is the same one the main database gets. An environment holds only
 // the runtime — deployed models, instances, tasks — so the identity tables it
 // also creates stay empty; leaving them there costs nothing and means one
 // migration list rather than two lists that would drift.
-func (a *App) openEnvironment(ctx context.Context, row models.EnvironmentModel) (*gorm.DB, error) {
+func (a *App) migrateEnvironment(ctx context.Context, row models.EnvironmentModel) error {
 	dsn, err := environmentDSN(row)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	db, err := gorms.Open(row.Driver, dsn)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	defer closeDB(db)
 	// Opening does not contact the server, so without this a database that is
 	// simply not there would be registered as ready and fail at the first
 	// request, instead of here, where the failure is reported and retried.
 	if err := gorms.Ping(db); err != nil {
-		closeDB(db)
-		return nil, err
+		return err
 	}
 
 	// Migrations rewrite rows across every tenant in this runtime, which is
@@ -132,8 +126,7 @@ func (a *App) openEnvironment(ctx context.Context, row models.EnvironmentModel) 
 	migrateCtx := entities.WithSystemContext(ctx)
 	result, err := migrations.Run(migrateCtx, db, migrations.Schema(models.MigrationModels()))
 	if err != nil {
-		closeDB(db)
-		return nil, fmt.Errorf("could not migrate this environment's database: %w", err)
+		return fmt.Errorf("could not migrate this environment's database: %w", err)
 	}
 	if len(result.Applied) > 0 {
 		log.Info().
@@ -147,19 +140,13 @@ func (a *App) openEnvironment(ctx context.Context, row models.EnvironmentModel) 
 	// SeedEnvironmentIdentity.
 	projectID := uuid.UUID(row.ProjectID)
 	if projectID == uuid.Nil {
-		closeDB(db)
-		return nil, errNoProject
+		return errNoProject
 	}
 	project, organization, err := a.identityFor(ctx, projectID)
 	if err != nil {
-		closeDB(db)
-		return nil, err
+		return err
 	}
-	if err := SeedEnvironmentIdentity(migrateCtx, db, project, organization); err != nil {
-		closeDB(db)
-		return nil, err
-	}
-	return db, nil
+	return SeedEnvironmentIdentity(migrateCtx, db, project, organization)
 }
 
 // environmentDSN builds the connection string for a stored environment.

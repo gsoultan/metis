@@ -11,7 +11,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/db"
-	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
 )
@@ -30,12 +29,10 @@ import (
 func TestAProcessRunsInAnEnvironment(t *testing.T) {
 	mainDB, conn := testutils.SetupTestStore(t)
 	stagingDB := testutils.SetupTestDB(t)
-	t.Cleanup(gorms.ResetEnvironmentDBs)
 
 	environmentID := uuid.New()
 	// Both layers, the way the boot sequence registers them: a half-open
 	// environment reaches one and refuses on the other.
-	gorms.RegisterEnvironmentDB(environmentID, stagingDB)
 	if pool := testutils.StormConn(stagingDB); pool != nil {
 		conn.RegisterEnvironment(environmentID, pool.Main())
 	}

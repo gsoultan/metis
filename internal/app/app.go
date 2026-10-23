@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/internal/pkg/features"
@@ -640,6 +639,14 @@ func (a *App) migrate() error {
 		Msg("Database migrations complete")
 
 	a.reportSchemaDrift()
+
+	// GORM connects only to migrate. Every repository reads and writes through
+	// the storm pool, so keeping this one open served nothing after boot and
+	// held a second set of server sessions for the life of the process.
+	if a.db != nil {
+		closeDB(a.db)
+		a.db = nil
+	}
 	return nil
 }
 
@@ -926,20 +933,14 @@ func (a *App) setupAuth(ctx context.Context) {
 func (a *App) readinessCheckers() map[string]health.Checker {
 	return map[string]health.Checker{
 		"database": health.CheckerFunc(func(ctx context.Context) error {
-			if a.db == nil {
+			if a.storm == nil {
 				return nil
 			}
-			sqlDB, err := a.db.DB()
-			if err != nil {
-				return fmt.Errorf("resolve sql.DB: %w", err)
-			}
-			return sqlDB.PingContext(ctx)
+			return a.storm.Main().Ping(ctx)
 		}),
-		// The pgx pool is checked on its own because it is a pool of its own,
-		// and it is the one carrying most of the traffic. Only the GORM pool
-		// used to be pinged, so a replica whose storm pool could not reach the
-		// database — exhausted, or pointed somewhere that went away — still
-		// reported ready and kept taking requests it could only fail.
+		// Kept beside "database" under its own name because probes and
+		// dashboards read both. Since GORM stopped holding a pool after the
+		// migrations, both ask the same one.
 		"storm": health.CheckerFunc(func(ctx context.Context) error {
 			if a.storm == nil {
 				return nil
@@ -1106,11 +1107,6 @@ func (a *App) runServers(ctx context.Context) error {
 				metrics.NewEngineCollector(a.engineSources),
 				metrics.NewPoolCollector("storm", a.storm.Main().Stat),
 			)
-		}
-		if a.db != nil {
-			if sqlDB, err := a.db.DB(); err == nil {
-				metricsCollector.Registry().MustRegister(collectors.NewDBStatsCollector(sqlDB, "gorm"))
-			}
 		}
 
 		metricsAddress := resolveAddress(envMetricsAddress, defaultMetricsAddress)

@@ -10,7 +10,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/db"
-	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
 	"gorm.io/gorm"
@@ -27,14 +26,10 @@ import (
 func TestARequestOnAnEnvironmentPortReadsThatEnvironmentsDatabase(t *testing.T) {
 	mainDB, mainConn := testutils.SetupTestStore(t)
 	stagingDB := testutils.SetupTestDB(t)
-	t.Cleanup(gorms.ResetEnvironmentDBs)
 
 	environmentID := uuid.New()
 	if pool := testutils.StormConn(stagingDB); pool != nil {
 		mainConn.RegisterEnvironment(environmentID, pool.Main())
-	}
-	if previous := gorms.RegisterEnvironmentDB(environmentID, stagingDB); previous != nil {
-		t.Fatalf("the registry already held a connection for %s", environmentID)
 	}
 
 	repo := repositories.NewRepository(testutils.StormConn(mainDB))
@@ -83,10 +78,8 @@ func TestARequestOnAnEnvironmentPortReadsThatEnvironmentsDatabase(t *testing.T) 
 func TestIdentityStillResolvesAgainstTheMainDatabase(t *testing.T) {
 	mainDB, mainConn := testutils.SetupTestStore(t)
 	stagingDB := testutils.SetupTestDB(t)
-	t.Cleanup(gorms.ResetEnvironmentDBs)
 
 	environmentID := uuid.New()
-	gorms.RegisterEnvironmentDB(environmentID, stagingDB)
 	if pool := testutils.StormConn(stagingDB); pool != nil {
 		mainConn.RegisterEnvironment(environmentID, pool.Main())
 	}
@@ -124,7 +117,6 @@ func TestIdentityStillResolvesAgainstTheMainDatabase(t *testing.T) {
 // into another's store.
 func TestAnEnvironmentWithNoConnectionIsRefusedNotServedFromMain(t *testing.T) {
 	mainDB := testutils.SetupTestDB(t)
-	t.Cleanup(gorms.ResetEnvironmentDBs)
 
 	repo := repositories.NewRepository(testutils.StormConn(mainDB))
 	writeDefinition(t, mainDB, "lives-in-main")

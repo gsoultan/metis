@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
 
@@ -45,9 +44,8 @@ func serveThenRemove(t *testing.T, how string, remove func(h *environmentHarness
 	})
 	id := uuid.UUID(staging.ID)
 	eventually(t, "five seconds after the environment was "+how+", its database connections are still open", func() bool {
-		_, gormOpen := gorms.EnvironmentDB(id)
 		_, stormOpen := h.conn.EnvironmentPools()[id]
-		return !gormOpen && !stormOpen
+		return !stormOpen
 	})
 }
 
