@@ -54,8 +54,10 @@ func (c *client) call(ctx context.Context, method, path string, body, out any) e
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
 	raw, err := io.ReadAll(resp.Body)
+	if closeErr := resp.Body.Close(); err == nil {
+		err = closeErr
+	}
 	if err != nil {
 		return err
 	}
@@ -101,7 +103,10 @@ func truncate(raw []byte) string {
 // a browser or SDK client would. The default of two idle connections per host
 // would have the generator open and close sockets and measure that instead.
 func newTransport(concurrency int) *http.Transport {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport := &http.Transport{}
+	if defaults, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = defaults.Clone()
+	}
 	transport.MaxIdleConns = concurrency
 	transport.MaxIdleConnsPerHost = concurrency
 	transport.MaxConnsPerHost = 0

@@ -2,7 +2,6 @@ package main
 
 import (
 	"cmp"
-	"fmt"
 	"io"
 	"maps"
 	"slices"
@@ -16,67 +15,75 @@ const (
 	millisecondUnit = float64(time.Millisecond)
 )
 
-func (r *result) print(w io.Writer) {
+func (r *result) print(out io.Writer) error {
+	w := &reportWriter{w: out}
 	seconds := r.elapsed.Seconds()
-	fmt.Fprintf(w, "\n%d virtual users for %s: %d requests approved end to end (%.0f/s)\n\n",
+	w.printf("\n%d virtual users for %s: %d requests approved end to end (%.0f/s)\n\n",
 		r.users, r.elapsed.Round(time.Second), r.iterations, float64(r.iterations)/seconds)
 	r.printLatency(w, seconds)
 	r.printFailures(w)
 	r.printServer(w)
 	r.printStorage(w)
+	return w.err
 }
 
-func (r *result) printLatency(w io.Writer, seconds float64) {
-	table := tabwriter.NewWriter(w, 0, 0, 2, ' ', tabwriter.AlignRight)
-	fmt.Fprintln(table, "call\tok\tfailed\tper s\tp50 ms\tp95 ms\tp99 ms\tmax ms\t")
+func (r *result) printLatency(w *reportWriter, seconds float64) {
+	tabs := tabwriter.NewWriter(w.w, 0, 0, 2, ' ', tabwriter.AlignRight)
+	table := &reportWriter{w: tabs}
+	table.println("call\tok\tfailed\tper s\tp50 ms\tp95 ms\tp99 ms\tmax ms\t")
 	for _, s := range r.summaries {
-		fmt.Fprintf(table, "%s\t%d\t%d\t%.0f\t%.1f\t%.1f\t%.1f\t%.1f\t\n",
+		table.printf("%s\t%d\t%d\t%.0f\t%.1f\t%.1f\t%.1f\t%.1f\t\n",
 			s.operation, s.ok, s.failed, float64(s.ok)/seconds,
 			ms(s.p50), ms(s.p95), ms(s.p99), ms(s.max))
 	}
-	_ = table.Flush()
+	if table.err == nil {
+		table.err = tabs.Flush()
+	}
+	if w.err == nil {
+		w.err = table.err
+	}
 }
 
-func (r *result) printFailures(w io.Writer) {
+func (r *result) printFailures(w *reportWriter) {
 	if len(r.failures) == 0 {
-		fmt.Fprintln(w, "\nno call failed")
+		w.println("\nno call failed")
 		return
 	}
-	fmt.Fprintln(w, "\nfailures:")
+	w.println("\nfailures:")
 	for _, class := range slices.Sorted(maps.Keys(r.failures)) {
-		fmt.Fprintf(w, "  %6d  %s\n", r.failures[class], class)
+		w.printf("  %6d  %s\n", r.failures[class], class)
 	}
 }
 
-func (r *result) printServer(w io.Writer) {
+func (r *result) printServer(w *reportWriter) {
 	if !r.hasServer {
-		fmt.Fprintln(w, "\nserver: metrics not read")
+		w.println("\nserver: metrics not read")
 		return
 	}
 	s := r.server
-	fmt.Fprintf(w, "\nserver: RSS %.0f → peak %.0f → %.0f MiB, Go heap peak %.0f MiB, goroutines peak %.0f\n",
+	w.printf("\nserver: RSS %.0f → peak %.0f → %.0f MiB, Go heap peak %.0f MiB, goroutines peak %.0f\n",
 		s.rssStart/mebibyte, s.rssPeak/mebibyte, s.rssEnd/mebibyte, s.heapPeak/mebibyte, s.goroutinesPeak)
-	fmt.Fprintf(w, "        CPU %.1f s = %.2f cores average; %.0f waits for a database connection, %.1f s waiting in all\n",
+	w.printf("        CPU %.1f s = %.2f cores average; %.0f waits for a database connection, %.1f s waiting in all\n",
 		s.cpuSeconds, s.cpuCores, s.poolWaits, s.poolWaitSec)
 	if r.iterations > 0 {
-		fmt.Fprintf(w, "        %.1f ms of server CPU per approved request\n", s.cpuSeconds*1000/float64(r.iterations))
+		w.printf("        %.1f ms of server CPU per approved request\n", s.cpuSeconds*1000/float64(r.iterations))
 	}
 }
 
-func (r *result) printStorage(w io.Writer) {
+func (r *result) printStorage(w *reportWriter) {
 	if !r.hasStorage {
-		fmt.Fprintln(w, "\nstorage: not measured (pass -dsn)")
+		w.println("\nstorage: not measured (pass -dsn)")
 		return
 	}
 	grew := r.after.database - r.before.database
-	fmt.Fprintf(w, "\nstorage: database %.1f → %.1f MiB (+%.1f MiB)",
+	w.printf("\nstorage: database %.1f → %.1f MiB (+%.1f MiB)",
 		float64(r.before.database)/mebibyte, float64(r.after.database)/mebibyte, float64(grew)/mebibyte)
 	if r.iterations > 0 {
-		fmt.Fprintf(w, ", %.1f KiB per approved request", float64(grew)/1024/float64(r.iterations))
+		w.printf(", %.1f KiB per approved request", float64(grew)/1024/float64(r.iterations))
 	}
-	fmt.Fprintln(w)
+	w.println("")
 	for _, growth := range r.tableGrowth() {
-		fmt.Fprintf(w, "  %+8.1f MiB  %s\n", float64(growth.bytes)/mebibyte, growth.table)
+		w.printf("  %+8.1f MiB  %s\n", float64(growth.bytes)/mebibyte, growth.table)
 	}
 }
 

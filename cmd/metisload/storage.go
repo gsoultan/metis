@@ -55,8 +55,9 @@ func (p *storageProbe) snapshot(ctx context.Context) (snapshot, error) {
 	return out, rows.Err()
 }
 
-func (p *storageProbe) close(ctx context.Context) {
-	if p != nil {
-		_ = p.conn.Close(ctx)
+func (p *storageProbe) close(ctx context.Context) error {
+	if p == nil {
+		return nil
 	}
+	return p.conn.Close(ctx)
 }

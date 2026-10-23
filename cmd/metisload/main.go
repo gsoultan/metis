@@ -70,14 +70,17 @@ func run(o options) error {
 	if err != nil {
 		return err
 	}
-	defer probe.close(context.Background())
+	defer func() {
+		if err := probe.close(context.Background()); err != nil {
+			fmt.Fprintln(os.Stderr, "metisload: closing the storage probe:", err)
+		}
+	}()
 
 	result, err := measure(ctx, o, setup.token, transport, probe)
 	if err != nil {
 		return err
 	}
-	result.print(os.Stdout)
-	return nil
+	return result.print(os.Stdout)
 }
 
 // prepare signs in, picks the project and files the load definition.

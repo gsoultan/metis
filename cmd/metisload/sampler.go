@@ -62,7 +62,7 @@ func (s *sampler) take(ctx context.Context) {
 
 // read fetches and parses the exposition text.
 func (s *sampler) read(ctx context.Context) (map[string]float64, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", s.url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,15 @@ func (s *sampler) read(ctx context.Context) (map[string]float64, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	values, err := parseExposition(resp)
+	if closeErr := resp.Body.Close(); err == nil {
+		err = closeErr
+	}
+	return values, err
+}
+
+// parseExposition reads the series this sampler wants from a metrics answer.
+func parseExposition(resp *http.Response) (map[string]float64, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("metrics answered %d", resp.StatusCode)
 	}
