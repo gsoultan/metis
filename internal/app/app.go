@@ -986,7 +986,8 @@ func BuildAPIHandler(
 		"/api/v1/setup",
 		"/api/v1/setup/test-connection",
 	}
-	guarded := sharedRateLimit(f.NewRateLimit(defaultHTTPMaxRequestsPerLimit, time.Minute)).Wrap(
+	limits := resolveHTTPLimits()
+	guarded := sharedRateLimit(f.NewRateLimit(limits.requestsPerMinute, time.Minute)).Wrap(
 		f.NewRequestSize(defaultHTTPMaxBodyBytes).Wrap(
 			f.NewMandatoryHTTPAuth(strategy, publicPaths).Wrap(
 				// Carries X-Organization-ID into the context. It only lets a
@@ -1011,7 +1012,7 @@ func BuildAPIHandler(
 	// slots for its whole life, and 128 open tabs stalled every other call —
 	// and is limited by its own caps where it is served. Everything else it
 	// still meets: rate limit, body limit, authentication.
-	backpressured := f.NewBackpressure(defaultHTTPMaxInFlightRequests, defaultHTTPMaxQueuedRequests).Wrap(guarded)
+	backpressured := f.NewBackpressure(limits.maxInFlight, limits.maxQueued).Wrap(guarded)
 	httpHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == https.EventStreamPath {
 			guarded.ServeHTTP(w, r)
