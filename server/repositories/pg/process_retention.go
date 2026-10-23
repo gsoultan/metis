@@ -10,83 +10,9 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/model"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
-
-// forgetFinishedInstances deletes one batch of finished instances and the
-// rows that exist only to run them, in one statement so a batch goes whole or
-// not at all.
-//
-// An instance qualifies when it completed or was cancelled longer ago than
-// its period, and nothing still needs it: no deviation was recorded or asked
-// for on it (those are compliance records, kept with what they are about), no
-// incident on it is open, its parent has finished too, and so have its
-// children, and no retention hold keeps it.
-//
-// Its period is the one an administrator last gave its process (by key, for
-// every version), and the installation's where the process has none, or was
-// returned to the installation's. An instance whose process has no period
-// while the installation has none either is kept: $6 is then null, and so is
-// the cutoff it would be compared with. $2 is the earliest any period ends,
-// so the scan starts from the instances that could qualify at all.
-//
-// A hold keeps the whole case the instance it names belongs to: the instance
-// that started the chain of calls it is part of, and every instance started
-// from that one, at any depth. Somebody reading a held case finds the
-// instance it was called from and the ones it called. The walk up to the
-// first instance and back down starts from the holds, which are few, and not
-// from the instances.
-//
-// The audit trail is not touched: it is the record of who did what, and is
-// kept for as long as the installation is.
-const forgetFinishedInstances = `WITH RECURSIVE held_up AS (
-	SELECT h.instance_id AS id FROM retention_holds h
-	UNION
-	SELECT p.parent_instance_id FROM process_instances p JOIN held_up u ON p.id = u.id
-	 WHERE p.parent_instance_id IS NOT NULL
-), held AS (
-	SELECT id FROM held_up
-	UNION
-	SELECT c.id FROM process_instances c JOIN held t ON c.parent_instance_id = t.id
-), doomed AS (
-	SELECT pi.id FROM process_instances pi
-	 WHERE pi.status = ANY($1) AND pi.updated_at < $2
-	   AND pi.updated_at < $5::timestamptz - make_interval(days => COALESCE((
-	         SELECT rp.days FROM retention_periods rp
-	           JOIN process_definitions d ON d.id = pi.definition_id
-	          WHERE rp.project_id = pi.project_id AND rp.process_key = d.key
-	          ORDER BY rp.created_at DESC, rp.id DESC
-	          LIMIT 1), $6::int))
-	   AND NOT EXISTS (SELECT 1 FROM held WHERE held.id = pi.id)
-	   AND NOT EXISTS (SELECT 1 FROM instance_deviations d WHERE d.instance_id = pi.id)
-	   AND NOT EXISTS (SELECT 1 FROM deviation_requests r WHERE r.instance_id = pi.id)
-	   AND NOT EXISTS (SELECT 1 FROM incidents i WHERE i.instance_id = pi.id AND i.status <> $3)
-	   AND NOT EXISTS (SELECT 1 FROM process_instances c
-	                    WHERE c.parent_instance_id = pi.id AND NOT (c.status = ANY($1)))
-	   AND NOT EXISTS (SELECT 1 FROM process_instances p
-	                    WHERE p.id = pi.parent_instance_id AND NOT (p.status = ANY($1)))
-	 LIMIT $4
-	 FOR UPDATE SKIP LOCKED
-), tasks_gone AS (
-	DELETE FROM tasks WHERE instance_id IN (SELECT id FROM doomed)
-), jobs_gone AS (
-	DELETE FROM jobs WHERE instance_id IN (SELECT id FROM doomed)
-), external_tasks_gone AS (
-	DELETE FROM external_tasks WHERE instance_id IN (SELECT id FROM doomed)
-), service_calls_gone AS (
-	DELETE FROM service_calls WHERE instance_id IN (SELECT id FROM doomed)
-), incidents_gone AS (
-	DELETE FROM incidents WHERE instance_id IN (SELECT id FROM doomed)
-), subscriptions_gone AS (
-	DELETE FROM event_subscriptions WHERE instance_id IN (SELECT id FROM doomed)
-), compensations_gone AS (
-	DELETE FROM compensatable_activities WHERE instance_id IN (SELECT id FROM doomed)
-), snapshots_gone AS (
-	DELETE FROM variable_snapshots WHERE instance_id IN (SELECT id FROM doomed)
-), notifications_gone AS (
-	DELETE FROM notifications WHERE instance_id IN (SELECT id FROM doomed)
-)
-DELETE FROM process_instances WHERE id IN (SELECT id FROM doomed)`
 
 // lockRetentionHolds waits for every transaction that is placing or
 // releasing a hold, or changing a process's period, and keeps new ones
@@ -101,13 +27,6 @@ DELETE FROM process_instances WHERE id IN (SELECT id FROM doomed)`
 // hold or a period is an administrator's act, and waits for one batch at
 // most.
 const lockRetentionHolds = `LOCK TABLE retention_holds, retention_periods IN SHARE MODE`
-
-// shortestRetentionPeriod is the shortest period any process has now, in
-// days, or null when none has one.
-const shortestRetentionPeriod = `SELECT min(days) FROM (
-	SELECT DISTINCT ON (project_id, process_key) days FROM retention_periods
-	 ORDER BY project_id, process_key, created_at DESC, id DESC
-) newest`
 
 // ForgetFinished deletes, a batch at a time, the instances that finished
 // longer ago than their period and that nothing still needs, with their
@@ -166,27 +85,18 @@ func (r *processRepository) ForgetFinished(ctx context.Context, now time.Time, f
 	}
 }
 
-// shortestPeriod reads shortestRetentionPeriod; zero when no process has one.
+// shortestPeriod reads model.ShortestRetentionPeriod; zero when no process
+// has one.
 func (r *processRepository) shortestPeriod(ctx context.Context) (int64, error) {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return 0, err
 	}
-	rows, err := ex.Query(ctx, shortestRetentionPeriod, nil)
+	period, _, err := model.ShortestRetentionPeriod.One(ctx, ex)
 	if err != nil {
 		return 0, fmt.Errorf("could not read the processes' retention periods: %w", err)
 	}
-	defer rows.Close()
-	var shortest int64
-	if rows.Next() {
-		if err := scanInt(rows.RawValues(), &shortest); err != nil {
-			return 0, err
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("could not read the processes' retention periods: %w", err)
-	}
-	return shortest, nil
+	return int64(period.Days.V), nil
 }
 
 // forgetOneBatch removes one batch, with the holds and the periods held
@@ -201,7 +111,7 @@ func (r *processRepository) forgetOneBatch(ctx context.Context, args []any) (int
 		if _, err := ex.Exec(ctx, lockRetentionHolds, nil); err != nil {
 			return fmt.Errorf("wait for the holds being placed: %w", err)
 		}
-		removed, err = ex.Exec(ctx, forgetFinishedInstances, args)
+		removed, err = model.ForgetFinishedInstances.Exec(ctx, ex, args...)
 		return err
 	})
 	if err != nil {
@@ -209,10 +119,6 @@ func (r *processRepository) forgetOneBatch(ctx context.Context, args []any) (int
 	}
 	return removed, nil
 }
-
-// existingInstancesSQL answers which of a list of ids have a row. Read by the
-// primary key, a batch at a time.
-const existingInstancesSQL = `SELECT id FROM process_instances WHERE id = ANY($1::uuid[])`
 
 func (r *processRepository) Existing(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]bool, error) {
 	if !entities.IsSystemContext(ctx) {
@@ -230,19 +136,12 @@ func (r *processRepository) Existing(ctx context.Context, ids []uuid.UUID) (map[
 	for i, id := range ids {
 		texts[i] = id.String()
 	}
-	rows, err := ex.Query(ctx, existingInstancesSQL, []any{texts})
+	rows, err := model.ExistingInstances.Query(ctx, ex, texts)
 	if err != nil {
 		return nil, fmt.Errorf("could not read which instances exist: %w", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		values := rows.RawValues()
-		var id uuid.UUID
-		if len(values) == 0 || len(values[0]) != len(id) {
-			return nil, errors.New("could not read which instances exist: an id is not a uuid")
-		}
-		copy(id[:], values[0])
-		found[id] = true
+	for _, row := range rows {
+		found[row.ID] = true
 	}
-	return found, rows.Err()
+	return found, nil
 }

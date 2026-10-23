@@ -2254,6 +2254,176 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 	return stmtFor(q.stream(&buf), q.offset > 0, q.lock).SQL, q.bind(b)
 }
 
+// ByStatusRow is the "ByStatus" aggregation over process_instances.
+//
+// One row per group. The grouping columns come first, in declaration
+// order, and the result is ordered by them: PostgreSQL promises no
+// order for a GROUP BY, and an unordered report shuffles between
+// requests for no reason anyone can see.
+type ByStatusRow struct {
+	Status string
+	Total  int64
+}
+
+const byStatusPrefix = `SELECT "status" AS "status", count(*) AS "total" FROM "process_instances"`
+const byStatusSuffix = ` GROUP BY "status" ORDER BY "status"`
+
+var (
+	byStatusCache       = runtime.NewTreeCache()
+	byStatusOffsetCache = runtime.NewTreeCache()
+)
+
+func byStatusStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := byStatusCache, byStatusSuffix+limitSuffix
+	if withOffset {
+		c, suffix = byStatusOffsetCache, byStatusSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(byStatusPrefix, softDeleteWhere, toks, lowering, suffix))
+}
+
+func scanByStatus(rv [][]byte, r *ByStatusRow, sl *runtime.Slab) error {
+	r.Status = sl.Str(rv[0])
+	r.Total = runtime.Int8(rv[1])
+	return nil
+}
+
+// AllByStatus runs the "ByStatus" aggregation. Predicates compose exactly as on All —
+// they filter the rows that go INTO the groups, which is the WHERE clause
+// and not a HAVING. Limit and offset page the groups.
+func (q Query) AllByStatus(ctx context.Context, ex runtime.Executor) ([]ByStatusRow, error) {
+	var sl runtime.Slab
+	return q.AllByStatusInto(ctx, ex, nil, &sl)
+}
+
+// AllByStatusInto lets the caller own the output slice and the arena.
+func (q Query) AllByStatusInto(ctx context.Context, ex runtime.Executor, dst []ByStatusRow, sl *runtime.Slab) ([]ByStatusRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errByStatusOrdered
+	}
+	if q.lock != 0 {
+		return dst, errByStatusLocked
+	}
+	var buf [21]runtime.Tok
+	st := byStatusStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, ByStatusRow{})
+		if err := scanByStatus(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+var errByStatusLocked = errors.New(
+	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
+
+var errByStatusOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and process_instances.ByStatus is already ordered by its grouping columns; sort the returned slice if you need another order")
+
+// ByDefinitionAndStatusRow is the "ByDefinitionAndStatus" aggregation over process_instances.
+//
+// One row per group. The grouping columns come first, in declaration
+// order, and the result is ordered by them: PostgreSQL promises no
+// order for a GROUP BY, and an unordered report shuffles between
+// requests for no reason anyone can see.
+type ByDefinitionAndStatusRow struct {
+	DefinitionID [16]byte
+	Status       string
+	Total        int64
+}
+
+const byDefinitionAndStatusPrefix = `SELECT "definition_id" AS "definition_id", "status" AS "status", count(*) AS "total" FROM "process_instances"`
+const byDefinitionAndStatusSuffix = ` GROUP BY "definition_id", "status" ORDER BY "definition_id", "status"`
+
+var (
+	byDefinitionAndStatusCache       = runtime.NewTreeCache()
+	byDefinitionAndStatusOffsetCache = runtime.NewTreeCache()
+)
+
+func byDefinitionAndStatusStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := byDefinitionAndStatusCache, byDefinitionAndStatusSuffix+limitSuffix
+	if withOffset {
+		c, suffix = byDefinitionAndStatusOffsetCache, byDefinitionAndStatusSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(byDefinitionAndStatusPrefix, softDeleteWhere, toks, lowering, suffix))
+}
+
+func scanByDefinitionAndStatus(rv [][]byte, r *ByDefinitionAndStatusRow, sl *runtime.Slab) error {
+	copy(r.DefinitionID[:], rv[0])
+	r.Status = sl.Str(rv[1])
+	r.Total = runtime.Int8(rv[2])
+	return nil
+}
+
+// AllByDefinitionAndStatus runs the "ByDefinitionAndStatus" aggregation. Predicates compose exactly as on All —
+// they filter the rows that go INTO the groups, which is the WHERE clause
+// and not a HAVING. Limit and offset page the groups.
+func (q Query) AllByDefinitionAndStatus(ctx context.Context, ex runtime.Executor) ([]ByDefinitionAndStatusRow, error) {
+	var sl runtime.Slab
+	return q.AllByDefinitionAndStatusInto(ctx, ex, nil, &sl)
+}
+
+// AllByDefinitionAndStatusInto lets the caller own the output slice and the arena.
+func (q Query) AllByDefinitionAndStatusInto(ctx context.Context, ex runtime.Executor, dst []ByDefinitionAndStatusRow, sl *runtime.Slab) ([]ByDefinitionAndStatusRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errByDefinitionAndStatusOrdered
+	}
+	if q.lock != 0 {
+		return dst, errByDefinitionAndStatusLocked
+	}
+	var buf [21]runtime.Tok
+	st := byDefinitionAndStatusStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, ByDefinitionAndStatusRow{})
+		if err := scanByDefinitionAndStatus(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+var errByDefinitionAndStatusLocked = errors.New(
+	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
+
+var errByDefinitionAndStatusOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and process_instances.ByDefinitionAndStatus is already ordered by its grouping columns; sort the returned slice if you need another order")
+
 // Recursive traversal of process_instances's self-reference through parent_instance_id.
 //
 // ONE query for a whole subtree, with a MANDATORY depth bound and a cycle
