@@ -2,9 +2,11 @@ import {
   Handle,
   Position,
   NodeToolbar,
+  useInternalNode,
+  useNodeId,
   type NodeProps,
 } from '@xyflow/react';
-import { Paper, Text, Stack, Box, Group, Avatar, Badge, ActionIcon, Tooltip } from '@mantine/core';
+import { Paper, Text, Stack, Box, Group, Avatar, Badge, ActionIcon, Tooltip, Menu, ThemeIcon } from '@mantine/core';
 import { 
   User, 
   Settings, 
@@ -21,9 +23,11 @@ import {
   Briefcase,
   X,
   Trash2,
-  ArrowRight
+  GitBranch
 } from 'lucide-react';
 import { vocabularyFor } from '../domain/bpmnVocabulary';
+import { canFollow } from '../domain/canvasPlacement';
+import { useNodeActions } from './designer/NodeActionsContext';
 import { webAddress, workerTopic } from '../domain/serviceImplementation';
 import { useAppStore } from '../store/useAppStore';
 
@@ -58,24 +62,73 @@ const getStatusStyles = (status?: string, heatmapValue?: number) => {
   return styles;
 };
 
+/** What the "+" offers: the steps most processes reach for next. */
+const NEXT_STEPS: Array<{ type: string; icon: typeof User; color: string; data?: Record<string, unknown> }> = [
+  { type: 'userTask', icon: User, color: 'blue' },
+  { type: 'serviceTask', icon: Settings, color: 'teal' },
+  { type: 'businessRuleTask', icon: Briefcase, color: 'indigo' },
+  { type: 'exclusiveGateway', icon: GitBranch, color: 'orange' },
+  { type: 'intermediateCatchEvent', icon: Clock, color: 'blue', data: { icon: 'timer' } },
+  { type: 'endEvent', icon: Square, color: 'gray' },
+];
+
+/**
+ * The pad beside a selected step.
+ *
+ * It used to offer "Next Step" and "Delete Element" buttons that did nothing
+ * when pressed. The "+" now adds the next step, joined on, from the handful
+ * most processes need; the bin deletes the step. Where there is no designer —
+ * the read-only diagram preview — the pad is not drawn.
+ */
 const ContextPad = ({ selected }: { selected?: boolean }) => {
-  if (!selected) return null;
-  
+  const actions = useNodeActions();
+  const nodeId = useNodeId();
+  const node = useInternalNode(nodeId ?? '');
+  const expertMode = useAppStore((state) => state.expertMode);
+  if (!selected || !actions || !nodeId) return null;
+  const type = String(node?.type ?? '');
+
   return (
     <NodeToolbar isVisible={selected} position={Position.Right} offset={12}>
       <Paper shadow="md" withBorder radius="xl" p={4} bg="var(--mantine-color-body)">
-        <Group gap={4}>
-          <Tooltip label="Next Step">
-            <ActionIcon aria-label="Continue" variant="light" color="blue" radius="xl" size="sm">
-              <ArrowRight size={12} />
+        <Stack gap={4}>
+          {canFollow(type) && (
+            <Menu position="right-start" shadow="md" width={230} withinPortal>
+              <Menu.Target>
+                <Tooltip label="Add the next step" position="right">
+                  <ActionIcon aria-label="Add the next step" variant="filled" color="indigo" radius="xl" size="md">
+                    <Plus size={14} />
+                  </ActionIcon>
+                </Tooltip>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Label>Then…</Menu.Label>
+                {NEXT_STEPS.map((step) => {
+                  const vocab = vocabularyFor(step.type);
+                  const label = vocab ? (expertMode ? vocab.bpmnName : vocab.plainName) : step.type;
+                  return (
+                    <Menu.Item
+                      key={step.type}
+                      leftSection={
+                        <ThemeIcon size="sm" variant="light" color={step.color} radius="sm">
+                          <step.icon size={12} />
+                        </ThemeIcon>
+                      }
+                      onClick={() => actions.addAfter(nodeId, step.type, step.data)}
+                    >
+                      {label}
+                    </Menu.Item>
+                  );
+                })}
+              </Menu.Dropdown>
+            </Menu>
+          )}
+          <Tooltip label="Delete this step" position="right">
+            <ActionIcon aria-label="Delete this step" variant="subtle" color="red" radius="xl" size="md" onClick={() => actions.remove(nodeId)}>
+              <Trash2 size={14} />
             </ActionIcon>
           </Tooltip>
-          <Tooltip label="Delete Element">
-            <ActionIcon aria-label="Delete" variant="light" color="red" radius="xl" size="sm">
-              <Trash2 size={12} />
-            </ActionIcon>
-          </Tooltip>
-        </Group>
+        </Stack>
       </Paper>
     </NodeToolbar>
   );

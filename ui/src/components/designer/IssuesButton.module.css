@@ -1,0 +1,17 @@
+.row {
+  display: block;
+  width: 100%;
+  padding: 8px var(--mantine-spacing-md);
+  text-align: left;
+}
+
+button.row:hover,
+button.row:focus-visible {
+  background-color: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
+}
+
+.chevron {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--mantine-color-dimmed);
+}

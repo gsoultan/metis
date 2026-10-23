@@ -1,7 +1,7 @@
 import {
   ReactFlow,
   Background,
-  Controls,
+  BackgroundVariant,
   Panel,
   MiniMap,
   type Node,
@@ -11,50 +11,42 @@ import '@xyflow/react/dist/style.css';
 import {
   Alert,
   Button,
+  CloseButton,
   Group,
-  Stack,
-  TextInput,
   Text,
-  Paper,
-  Divider,
-  ActionIcon,
   Badge,
   Notification,
   Box,
-  SegmentedControl,
-  Tooltip,
-  ScrollArea,
-  Title,
 } from '@mantine/core';
-import {
-  Save,
-  LayoutGrid,
-  Undo2,
-  Redo2,
-  Maximize,
-  ZoomIn,
-  ZoomOut,
-  AlertCircle,
-  MousePointer2,
-  Trash,
-  FileUp,
-  Download,
-} from 'lucide-react';
+import { Save, MousePointer2 } from 'lucide-react';
+import { CanvasToolbar } from '../components/designer/CanvasToolbar';
+import { DesignerHeader } from '../components/designer/DesignerHeader';
+import { EmptyCanvasHint } from '../components/designer/EmptyCanvasHint';
+import { DesignerSidebar } from '../components/DesignerSidebar';
+import { NodeActionsContext } from '../components/designer/NodeActionsContext';
+import classes from './ProcessDesigner.module.css';
 import { PropertyPanel } from '../components/PropertyPanel';
 import { DesignerModals } from '../components/DesignerModals';
 import { DeployVersionModal } from '../components/DeployVersionModal';
 import { nodeTypes } from '../components/bpmnNodeTypes';
 import { SimulationAnswerCard, SimulationRail, SimulationTransport } from '../components/simulation';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { decorateEdges, decorateNodes } from '../domain/simulationCanvas';
 import { answerKindFor } from '../domain/simulationScenario';
+import { canFollow } from '../domain/canvasPlacement';
 import { useProcessDesigner } from '../hooks/useProcessDesigner';
 import { useSimulation } from '../hooks/useSimulation';
 import { useSimulationCases } from '../hooks/useSimulationCases';
 import { useSimulationTarget } from '../hooks/useSimulationTarget';
 import { useAppStore } from '../store/useAppStore';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
+
+/** A fit that keeps the diagram clear of the cards floating over the canvas. */
+const FIT = {
+  padding: { top: '96px', left: '150px', right: '120px', bottom: '48px' },
+  maxZoom: 1.1,
+} as const;
 
 export function ProcessDesigner({
   definitionId,
@@ -80,7 +72,7 @@ export function ProcessDesigner({
     selectedNode, selectedEdge,
     processName, processKey,
     reactFlowInstance, setReactFlowInstance,
-    componentsOpened, openComponents, closeComponents,
+    componentsOpened, openComponents, closeComponents, toggleComponents,
     spotlightOpened, closeSpotlight,
     checklistOpened, closeChecklist,
     rolloutOpened, closeRollout, versions, deploying,
@@ -93,7 +85,7 @@ export function ProcessDesigner({
     fileInputRef,
     onMouseMove, handleProcessNameChange,
     onNodesChange, onNodeDragStop, onEdgesChange, onConnect,
-    onDragOver, onDrop,
+    onDragOver, onDrop, addNodeAt, selectById,
     onNodeClick, onEdgeClick, onPaneClick,
     deleteSelected, clearCanvas, onAutoLayout,
     updateNodeData, updateEdgeData,
@@ -198,157 +190,112 @@ export function ProcessDesigner({
     return typeof found?.data.label === 'string' ? found.data.label : (awaitingNode ?? '');
   }, [nodes, awaitingNode]);
 
+  const deployBlockedBy =
+    nodes.length === 0
+      ? 'Add at least one step before deploying'
+      : blockingIssues > 0
+        ? `Fix ${blockingIssues} ${blockingIssues === 1 ? 'problem' : 'problems'} before deploying`
+        : null;
+
+  const nodeActions = useMemo(
+    () => ({ addAfter: designer.addNodeAfter, remove: designer.removeNode }),
+    [designer.addNodeAfter, designer.removeNode],
+  );
+
+  /** The middle of the visible canvas, on screen: where a clicked step lands. */
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const addAtCentre = useCallback(
+    (type: string, data: Partial<BPMNNodeData> = {}) => {
+      const bounds = canvasRef.current?.getBoundingClientRect();
+      if (!bounds) return;
+      // Offset by roughly half a step, so the step's middle — not its corner —
+      // lands in the middle of the view.
+      addNodeAt(type, data, { x: bounds.left + bounds.width / 2 - 90, y: bounds.top + bounds.height / 2 - 40 });
+    },
+    [addNodeAt],
+  );
+
+  /*
+   * Keeps the selected step in view.
+   *
+   * The settings now open beside the diagram instead of over it, which takes
+   * 440px off the right of the canvas — often exactly where the step just
+   * clicked was. If the step ends up behind the panel, or off any other edge,
+   * the view pans to it, at the zoom the person chose.
+   */
+  const selectedId = selectedNode?.id ?? null;
+  useEffect(() => {
+    if (selectedId === null || reactFlowInstance === null) return;
+    // After layout, so the canvas has already narrowed for the panel.
+    const frame = requestAnimationFrame(() => {
+      const node = reactFlowInstance.getInternalNode(selectedId);
+      const bounds = canvasRef.current?.getBoundingClientRect();
+      if (!node || !bounds) return;
+      const { zoom } = reactFlowInstance.getViewport();
+      const at = node.internals.positionAbsolute;
+      const width = node.measured.width ?? 180;
+      const height = node.measured.height ?? 60;
+      const corner = reactFlowInstance.flowToScreenPosition(at);
+      const margin = 24;
+      // The settings card covers the right of the canvas, the cards at the
+      // top its first 64px, and the tool rail its left edge.
+      const hidden =
+        corner.x < bounds.left + 72 + margin ||
+        corner.y < bounds.top + 64 + margin ||
+        corner.x + width * zoom > bounds.right - 434 - margin ||
+        corner.y + height * zoom > bounds.bottom - margin;
+      if (hidden) {
+        // Centred in the part of the canvas the card leaves showing.
+        const shift = (434 - 72) / 2 / zoom;
+        void reactFlowInstance.setCenter(at.x + width / 2 + shift, at.y + height / 2, { zoom, duration: 300 });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [selectedId, reactFlowInstance]);
+
   return (
     <Box h="calc(100vh - 60px)" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <Box
-        p="md"
-        style={{
-          backgroundColor: 'light-dark(var(--mantine-color-white), var(--mantine-color-dark-7))',
-          borderBottom: '1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))',
-        }}
-      >
-        {offeredDraft && (
-          /*
-            Unsaved work this browser kept after the last deploy. It is offered
-            rather than applied: the draft could be an abandoned experiment, and
-            silently replacing what the server returned would be worse than
-            losing it.
-          */
-          <Alert
-            color="blue"
-            variant="light"
-            mb="sm"
-            title="You have unsaved changes to this process"
-            icon={<Save size={18} />}
-          >
-            <Group justify="space-between" align="center" wrap="nowrap">
-              <Text size="sm">
-                This browser kept changes {offeredDraftAge} that were never deployed.
-              </Text>
-              <Group gap="xs" wrap="nowrap">
-                <Button size="xs" variant="filled" onClick={restoreDraft}>
-                  Restore them
-                </Button>
-                <Button size="xs" variant="subtle" color="gray" onClick={discardDraft}>
-                  Discard
-                </Button>
-              </Group>
-            </Group>
-          </Alert>
-        )}
-        <Group justify="space-between" align="center">
-          <Stack gap={0}>
-            <Title order={3} fw={800}>{processName || 'Process Designer'}</Title>
-            <Group gap="xs">
-              <Text size="xs" c="dimmed">Key: {processKey}</Text>
-              {/*
-                "Last saved" used to sit next to an "Autosaving…" badge that
-                could never paint, and both described a localStorage write the
-                app then never read. It now says plainly where the draft is and
-                that deploying is what publishes it.
-              */}
-              {lastSaved ? (
-                <Text size="xs" c="dimmed">
-                  Draft kept in this browser at {lastSaved.toLocaleTimeString()} • Deploy to publish
-                </Text>
-              ) : (
-                <Text size="xs" c="dimmed">Not deployed yet</Text>
-              )}
-            </Group>
-          </Stack>
-          <Group>
-            {/*
-              Two halves of one screen rather than two screens: you simulate the
-              thing you are editing, on the diagram you are looking at. In the
-              URL so the mode is linkable.
-            */}
-            <SegmentedControl
-              size="xs"
-              value={simulating ? 'simulate' : 'design'}
-              onChange={(value) =>
-                navigate({
-                  to: '/designer',
-                  search: { ...search, mode: value as 'design' | 'simulate' },
-                  replace: true,
-                })
-              }
-              data={[
-                { value: 'design', label: 'Design' },
-                { value: 'simulate', label: 'Simulate' },
-              ]}
-              aria-label="Design or simulate this process"
-            />
-            <Button
-              variant="light"
-              color="indigo"
-              size="xs"
-              leftSection={<LayoutGrid size={14} />}
-              onClick={openComponents}
-              disabled={simulating}
-            >
-              Add step
-            </Button>
-            <Button 
-              variant="subtle" 
-              color="gray" 
-              size="xs"
-              leftSection={<FileUp size={14} />}
-              onClick={onImport}
-              loading={importMutation.isPending}
-            >
-              Import
-            </Button>
-            <Button 
-              variant="subtle" 
-              color="gray" 
-              size="xs"
-              leftSection={<Download size={14} />}
-              onClick={onExport}
-              loading={exportMutation.isPending}
-            >
-              Export
-            </Button>
-            {/*
-              Was the filled primary button on an empty, invalid process — the
-              most prominent control on screen offering the one action that
-              could not succeed. It is now disabled until the process has
-              something to deploy and no blocking errors, and says why.
-            */}
-            <Tooltip
-              label={
-                nodes.length === 0
-                  ? 'Add at least one step before deploying'
-                  : blockingIssues > 0
-                    ? `Fix ${blockingIssues} validation ${blockingIssues === 1 ? 'error' : 'errors'} before deploying`
-                    : 'Deploy this version so new instances can start on it'
-              }
-            >
-              <Button
-                variant="filled"
-                color="indigo"
-                size="xs"
-                leftSection={<Save size={14} />}
-                onClick={onSave}
-                loading={createDefinition.isPending}
-                disabled={nodes.length === 0 || blockingIssues > 0}
-                data-disabled={nodes.length === 0 || blockingIssues > 0 ? true : undefined}
-              >
-                Deploy Model
+      {offeredDraft && (
+        /*
+          Unsaved work this browser kept after the last deploy. It is offered
+          rather than applied: the draft could be an abandoned experiment, and
+          silently replacing what the server returned would be worse than
+          losing it.
+        */
+        <Alert
+          color="blue"
+          variant="light"
+          radius={0}
+          title="You have unsaved changes to this process"
+          icon={<Save size={18} />}
+        >
+          <Group justify="space-between" align="center" wrap="nowrap">
+            <Text size="sm">
+              This browser kept changes {offeredDraftAge} that were never deployed.
+            </Text>
+            <Group gap="xs" wrap="nowrap">
+              <Button size="xs" variant="filled" onClick={restoreDraft}>
+                Restore them
               </Button>
-            </Tooltip>
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              style={{ display: 'none' }} 
-              accept=".bpmn,.xml" 
-              onChange={handleFileChange} 
-            />
+              <Button size="xs" variant="subtle" color="gray" onClick={discardDraft}>
+                Discard
+              </Button>
+            </Group>
           </Group>
-        </Group>
-      </Box>
+        </Alert>
+      )}
+
+      <input
+        type="file"
+        ref={fileInputRef}
+        style={{ display: 'none' }}
+        accept=".bpmn,.xml"
+        onChange={handleFileChange}
+      />
 
       <Box style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
-        <Box style={{ flex: 1, position: 'relative', overflow: 'hidden', minWidth: 0 }}>
+        <Box ref={canvasRef} className={classes.canvas}>
+        <NodeActionsContext.Provider value={simulating ? null : nodeActions}>
         <ReactFlow<Node<BPMNNodeData>, Edge<BPMNEdgeData>>
           proOptions={{ hideAttribution: true }}
           nodes={canvasNodes}
@@ -366,32 +313,43 @@ export function ProcessDesigner({
           onPaneClick={simulating ? sim.stopAnswering : onPaneClick}
           nodeTypes={nodeTypes}
           fitView
+          fitViewOptions={FIT}
           style={{ width: '100%', height: '100%' }}
         >
-          <Background />
-          <Controls showInteractive={false} />
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={22}
+            size={1.4}
+            color="light-dark(var(--mantine-color-gray-4), var(--mantine-color-dark-4))"
+          />
           {/* Only once there is something to navigate. On an empty canvas the
-              minimap is a blank white rectangle with no border, floating over
-              the grid — it reads as a rendering fault rather than as an empty
-              map, which is the first thing a new user sees. */}
+              minimap is a blank rectangle floating over the grid — it reads as
+              a rendering fault rather than as an empty map, which is the first
+              thing a new user sees. */}
           {nodes.length > 0 && (
           <MiniMap
-            // A border, so it reads as a panel sitting above the canvas rather
-            // than as a hole punched in it.
-            style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 4 }}
+            pannable
+            zoomable
+            ariaLabel="Overview of the whole diagram"
+            position="bottom-left"
+            style={{ marginLeft: 76 }}
+            className={classes.minimap}
+            maskColor="light-dark(rgba(241, 243, 245, 0.7), rgba(26, 27, 30, 0.7))"
+            nodeBorderRadius={6}
+            nodeStrokeWidth={2}
             nodeStrokeColor={(n) => {
               if (n.type === 'startEvent') return '#40c057';
               if (n.type === 'endEvent') return '#fa5252';
-              return '#dee2e6';
+              return '#748ffc';
             }}
             nodeColor={(n) => {
               if (n.type === 'startEvent') return '#ebfbee';
               if (n.type === 'endEvent') return '#fff5f5';
-              return '#fff';
+              return '#edf2ff';
             }}
           />
           )}
-          
+
           {/* Remote Cursors Overlay */}
           {Object.entries(remoteCursors).map(([id, cursor]) => (
             <Box
@@ -409,149 +367,15 @@ export function ProcessDesigner({
               <Badge size="xs" variant="filled" color="blue" style={{ marginLeft: 8, transform: 'translateY(-10px)' }}>{cursor.name}</Badge>
             </Box>
           ))}
-          
-          <Panel position="top-left">
-            <Paper p="xs" withBorder radius="md" bg="var(--mantine-color-body)" shadow="xs">
-              <Stack gap="xs" w={200}>
-                <TextInput 
-                  label="Process Name" 
-                  placeholder="e.g. Employee Onboarding"
-                  size="xs" 
-                  value={processName} 
-                  onChange={(e) => handleProcessNameChange(e.target.value)} 
-                />
-              </Stack>
-            </Paper>
-          </Panel>
 
-          <Panel position="bottom-center">
-            <Paper p="4" withBorder radius="xl" bg="var(--mantine-color-body)" shadow="md" mb="md">
-              <Group gap="xs">
-                <Tooltip label="Selection Mode">
-                  <ActionIcon aria-label="Select tool" variant="light" size="lg">
-                    <MousePointer2 size={18} />
-                  </ActionIcon>
-                </Tooltip>
-                
-                <Divider orientation="vertical" />
 
-                <Tooltip label={`Undo (${historyIndex > 0 ? historyIndex : 0} steps)`}>
-                  <ActionIcon aria-label="Undo" 
-                    variant="subtle" 
-                    size="lg" 
-                    disabled={historyIndex <= 0}
-                    onClick={undo}
-                  >
-                    <Undo2 size={18} />
-                  </ActionIcon>
-                </Tooltip>
-
-                <Tooltip label="Redo">
-                  <ActionIcon aria-label="Redo" 
-                    variant="subtle" 
-                    size="lg" 
-                    disabled={historyIndex >= history.length - 1}
-                    onClick={redo}
-                  >
-                    <Redo2 size={18} />
-                  </ActionIcon>
-                </Tooltip>
-
-                <Divider orientation="vertical" />
-
-                <Tooltip label="Zoom In">
-                  <ActionIcon aria-label="Zoom in" variant="subtle" size="lg" onClick={() => reactFlowInstance?.zoomIn()}>
-                    <ZoomIn size={18} />
-                  </ActionIcon>
-                </Tooltip>
-                <Tooltip label="Zoom Out">
-                  <ActionIcon aria-label="Zoom out" variant="subtle" size="lg" onClick={() => reactFlowInstance?.zoomOut()}>
-                    <ZoomOut size={18} />
-                  </ActionIcon>
-                </Tooltip>
-                <Tooltip label="Fit View">
-                  <ActionIcon aria-label="Fit diagram to view" variant="subtle" size="lg" onClick={() => reactFlowInstance?.fitView()}>
-                    <Maximize size={18} />
-                  </ActionIcon>
-                </Tooltip>
-
-                <Tooltip label="Auto-Layout">
-                  <ActionIcon aria-label="Apply automatic layout" variant="subtle" color="indigo" size="lg" onClick={onAutoLayout}>
-                    <LayoutGrid size={18} />
-                  </ActionIcon>
-                </Tooltip>
-
-                <Divider orientation="vertical" />
-
-                {/* The accessible name said "Delete" while the tooltip said
-                    "Clear Canvas" — a screen reader user and a sighted user
-                    were told this button did two different things. */}
-                <Tooltip label="Clear the canvas">
-                  <ActionIcon aria-label="Clear the canvas" variant="subtle" color="red" size="lg" onClick={clearCanvas}>
-                    <Trash size={18} />
-                  </ActionIcon>
-                </Tooltip>
-              </Group>
-            </Paper>
-          </Panel>
-
-          {/*
-            An empty canvas is not a validation failure, it is a person who has
-            just arrived. The designer used to greet them with a blank grid and
-            a 280px panel reading "Validation (1) — This process is empty.",
-            which names the problem and offers no way out: the palette that
-            holds the steps is behind a "Components" button in the top-right
-            toolbar, grouped with Import and Export so it reads as a view
-            toggle. bpmn.io and Camunda Modeler both keep that palette open.
-
-            So: say what to do, and give the control that does it.
-          */}
-          {nodes.length === 0 && (
-            <Panel position="top-center">
-              <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)" shadow="sm" style={{ maxWidth: 320 }}>
-                <Stack gap="xs">
-                  <Text size="sm" fw={700}>Start with a step</Text>
-                  <Text size="xs" c="dimmed">
-                    A process is a sequence of steps. Add the first one, then drag from its
-                    edge to connect the next.
-                  </Text>
-                  <Button size="xs" leftSection={<LayoutGrid size={14} />} onClick={openComponents}>
-                    Add a step
-                  </Button>
-                </Stack>
-              </Paper>
-            </Panel>
-          )}
-
-          {issues.length > 0 && nodes.length > 0 && (
-            <Panel position="bottom-left">
-              <Paper
-                p="xs"
-                withBorder
-                radius="md"
-                bg="var(--mantine-color-body)"
-                shadow="sm"
-                style={{ maxWidth: 280 }}
-              >
-                <Group gap="xs" mb={4}>
-                  <AlertCircle size={14} color="var(--mantine-color-orange-6)" />
-                  <Text size="xs" fw={700}>Validation ({issues.length})</Text>
-                </Group>
-                <ScrollArea.Autosize mah={120} type="hover">
-                  <Stack gap={4}>
-                    {issues.map((issue, idx) => (
-                      <Group key={idx} gap={4} wrap="nowrap">
-                        <Badge 
-                          size="xs" 
-                          color={issue.severity === 'error' ? 'red' : 'orange'} 
-                          variant="dot"
-                        />
-                        <Text size="xs" truncate>{issue.message}</Text>
-                      </Group>
-                    ))}
-                  </Stack>
-                </ScrollArea.Autosize>
-              </Paper>
+          {nodes.length === 0 && !simulating && (
+            <Panel position="top-center" style={{ marginTop: 96 }}>
+              <EmptyCanvasHint
+                paletteOpen={componentsOpened}
+                onAddStart={() => addAtCentre('startEvent', {})}
+                onShowPalette={openComponents}
+              />
             </Panel>
           )}
 
@@ -564,28 +388,103 @@ export function ProcessDesigner({
             <SimulationAnswerCard sim={sim} nodeId={awaitingNode} label={awaitingLabel} />
           )}
         </ReactFlow>
+        </NodeActionsContext.Provider>
 
-        {/*
-          The property panel edits the model, which is not what this mode is
-          for — and a run is a trace of the model as it was when the run
-          started. Editing mid-trace would leave the canvas showing a diagram
-          the steps below it never ran on.
-        */}
-        {!simulating && (
-          <PropertyPanel
-            selectedNode={selectedNode}
-            selectedEdge={selectedEdge}
-            onClose={designer.closeSelection}
-            onDelete={deleteSelected}
-            updateNodeData={updateNodeData}
-            updateEdgeData={updateEdgeData}
-            nodes={nodes}
-            edges={edges}
-            instanceId={instanceId}
-            onViewInstance={onViewInstance}
+          <DesignerHeader
+                floating
+            processName={processName}
+            onNameChange={handleProcessNameChange}
+            processKey={processKey}
+            lastSaved={lastSaved}
+            simulating={simulating}
+            onModeChange={(mode) =>
+              navigate({
+                to: '/designer',
+                search: { ...search, mode },
+                replace: true,
+              })
+            }
+            issues={issues}
+            onSelectIssue={selectById}
+            onBack={() => navigate({ to: '/models', search: { tab: 'processes' } })}
+            onImport={onImport}
+            onExport={onExport}
+            importing={importMutation.isPending}
+            exporting={exportMutation.isPending}
+            onDeploy={onSave}
+            deploying={createDefinition.isPending}
+            deployBlockedBy={deployBlockedBy}
           />
-        )}
+
+          {/*
+            Canvas first: the diagram runs edge to edge, and everything else
+            floats over it — the name and actions in two cards at the top, the
+            tools in a rail down the left, the building blocks in a flyout from
+            its "+", and a step's settings in a card on the right.
+          */}
+          {!simulating && (
+            <Box className={classes.rail}>
+              <CanvasToolbar
+                vertical
+                paletteOpen={componentsOpened}
+                onTogglePalette={toggleComponents}
+                canUndo={historyIndex > 0}
+                canRedo={historyIndex < history.length - 1}
+                undoSteps={Math.max(historyIndex, 0)}
+                onUndo={undo}
+                onRedo={redo}
+                onZoomIn={() => reactFlowInstance?.zoomIn()}
+                onZoomOut={() => reactFlowInstance?.zoomOut()}
+                onFit={() => reactFlowInstance?.fitView(FIT)}
+                onAutoLayout={onAutoLayout}
+                onClear={clearCanvas}
+              />
+            </Box>
+          )}
+
+          {!simulating && componentsOpened && (
+            <Box component="aside" aria-label="Building blocks" className={classes.flyout}>
+              <Group justify="space-between" wrap="nowrap" mb={2}>
+                <Text fw={700} size="sm">
+                  Add a step
+                </Text>
+                <CloseButton size="sm" aria-label="Hide building blocks" onClick={closeComponents} />
+              </Group>
+              {/* Says what a click will do, because with a step selected it
+                  does more than add: it joins the new step on after it. */}
+              <Text size="xs" c="dimmed" mb="sm" lineClamp={2}>
+                {selectedNode && canFollow(String(selectedNode.type))
+                  ? `Click to add after “${labelOf(selectedNode.id)}”, or drag onto the canvas`
+                  : 'Click to add, or drag onto the canvas'}
+              </Text>
+              <Box style={{ flex: 1, minHeight: 0 }}>
+                <DesignerSidebar embedded onAdd={addAtCentre} />
+              </Box>
+            </Box>
+          )}
+
+          {/*
+            Not in simulate mode: a run is a trace of the model as it was when
+            the run started, and editing mid-trace would leave the canvas
+            showing a diagram the steps below it never ran on.
+          */}
+          {!simulating && (
+            <PropertyPanel
+              floating
+              selectedNode={selectedNode}
+              selectedEdge={selectedEdge}
+              onClose={designer.closeSelection}
+              onDelete={deleteSelected}
+              updateNodeData={updateNodeData}
+              updateEdgeData={updateEdgeData}
+              nodes={nodes}
+              edges={edges}
+              instanceId={instanceId}
+              onViewInstance={onViewInstance}
+            />
+          )}
         </Box>
+
 
         {simulating && (
           <Box
@@ -618,8 +517,6 @@ export function ProcessDesigner({
         onDeployAnyway={deployAnyway}
         spotlightOpened={spotlightOpened}
         closeSpotlight={closeSpotlight}
-        componentsOpened={componentsOpened}
-        closeComponents={closeComponents}
         clearCanvasOpened={clearCanvasOpened}
         closeClearCanvas={closeClearCanvas}
         confirmClearCanvas={confirmClearCanvas}

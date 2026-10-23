@@ -1,0 +1,52 @@
+/* Docked beside the canvas: the diagram stays in view while a step is edited. */
+.panel {
+  width: 440px;
+  max-width: 100%;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+  background-color: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8));
+  box-shadow: -8px 0 24px -16px rgba(15, 23, 42, 0.25);
+}
+
+.header {
+  background-color: var(--mantine-color-body);
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.body {
+  min-height: 0;
+}
+
+.footer {
+  background-color: var(--mantine-color-body);
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+/* Over the canvas, inset from its edges: the diagram shows around it. */
+.floating {
+  position: absolute;
+  top: 72px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 6;
+  width: 410px;
+  max-width: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--mantine-radius-lg);
+  border: 1px solid var(--mantine-color-default-border);
+  background-color: var(--mantine-color-body);
+  box-shadow: 0 18px 48px -18px rgba(15, 23, 42, 0.35);
+}
+
+.tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8));
+}

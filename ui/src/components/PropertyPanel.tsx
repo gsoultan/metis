@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Stack,
   Group,
@@ -12,22 +12,26 @@ import {
   Divider,
   Modal,
   Grid,
-  Title,
   Code as MantineCode,
   Card,
   ThemeIcon,
   Container,
   Tabs,
   Switch,
+  ActionIcon,
+  CloseButton,
+  Tooltip,
 } from '@mantine/core';
 import {
   Settings,
-  LayoutGrid,
   Trash2,
-  Info,
   Play,
   History,
+  Maximize2,
+  Minimize2,
+  GitCommitHorizontal,
 } from 'lucide-react';
+import classes from './PropertyPanel.module.css';
 import { type Node, type Edge } from '@xyflow/react';
 import { SmartTroubleshooter } from './SmartTroubleshooter';
 import { BusinessTimeline } from './BusinessTimeline';
@@ -79,6 +83,8 @@ interface PropertyPanelProps {
   nodes?: Node<BPMNNodeData>[];
   instanceId?: string | null;
   onViewInstance?: (id: string, defId: string) => void;
+  /** A card floating over the canvas, its sections in tabs, rather than a docked column. */
+  floating?: boolean;
 }
 
 
@@ -93,9 +99,13 @@ export function PropertyPanel({
   nodes = [],
   instanceId = null,
   onViewInstance,
+  floating = false,
 }: PropertyPanelProps) {
   const expertMode = useAppStore((state) => state.expertMode);
   const setExpertMode = useAppStore((state) => state.setExpertMode);
+  // Docked beside the canvas by default; full screen only when asked for, for
+  // the steps whose settings want the room (a connector's mapping, a script).
+  const [expanded, setExpanded] = useState(false);
 
   // Recomputed as the diagram changes: what reaches each step depends on every
   // step before it, so editing one changes the answer for the rest.
@@ -113,267 +123,367 @@ export function PropertyPanel({
   const title = selectedNode
     ? String(selectedNode.data.label || selectedNode.id)
     : String(selectedEdge?.label || selectedEdge?.id || 'Connection');
-  const subtitle = selectedNode
+  const kindName = selectedNode
     ? nodeVocab
-      ? `${expertMode ? nodeVocab.bpmnName : nodeVocab.plainName} — ${nodeVocab.whatItDoes}`
+      ? expertMode ? nodeVocab.bpmnName : nodeVocab.plainName
       : String(selectedNode.type)
+    : 'Path';
+  const subtitle = selectedNode
+    ? nodeVocab?.whatItDoes ?? ''
     : 'The path between two steps. Add a condition to control when it is taken.';
+  const elementWord = selectedNode ? 'step' : 'path';
 
-  return (
-    <Modal
-      opened={!!selectedNode || !!selectedEdge}
-      onClose={onClose}
-      title={
-        <Group gap="xs">
-          <ThemeIcon variant="light" color="indigo" radius="md" size="xl">
-            <Settings size={24} />
-          </ThemeIcon>
-          <Box style={{ flex: 1 }}>
-            <Title order={4}>{title}</Title>
-            <Text size="xs" c="dimmed">{subtitle}</Text>
-          </Box>
-          <Group gap="xs" mr="xl">
-             {/* The same flag as the switch in the account menu, under the
-                 same name. This panel covers the whole screen, header and all,
-                 so it carries its own. It was labelled "BPMN names", which is
-                 only one of the things the flag changes: it also shows the raw
-                 schema and the API example, and makes advanced settings
-                 editable. */}
-             <Switch
-                label="Expert mode"
-                checked={expertMode}
-                onChange={(event) => setExpertMode(event.currentTarget.checked)}
-                size="xs"
-                color="indigo"
-             />
-          </Group>
+  const header = (
+    <Group gap="sm" wrap="nowrap" align="flex-start" style={{ flex: 1, minWidth: 0 }}>
+      <ThemeIcon variant="light" color={selectedNode ? 'indigo' : 'orange'} radius="md" size="lg">
+        {selectedNode ? <Settings size={18} /> : <GitCommitHorizontal size={18} />}
+      </ThemeIcon>
+      <Box style={{ flex: 1, minWidth: 0 }}>
+        <Group gap={6} wrap="nowrap">
+          <Badge size="xs" variant="light" color="gray" radius="sm" style={{ flexShrink: 0 }}>
+            {kindName}
+          </Badge>
         </Group>
-      }
-      fullScreen
-      padding={0}
-      radius={0}
-      transitionProps={{ transition: 'fade', duration: 200 }}
-      styles={{
-        header: {
-          borderBottom: '1px solid var(--mantine-color-default-border)',
-          padding: 'var(--mantine-spacing-xl)',
-          margin: 0,
-        },
-        content: {
-          display: 'flex',
-          flexDirection: 'column',
-          backgroundColor: 'var(--mantine-color-gray-0)',
-        },
-        body: {
-          flex: 1,
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: 0,
-        }
-      }}
-    >
-      <ScrollArea style={{ flex: 1 }} scrollbarSize={6}>
-        <Container fluid px="xl" py="xl">
-          <Grid gap="xl">
-            {/* Column 1: Configuration & General */}
-            <Grid.Col span={{ base: 12, md: 8 }}>
-              <Stack gap="lg">
-                <Card withBorder radius="md" p="xl" shadow="sm">
-                  <Grid gap="xl">
-                    <Grid.Col span={{ base: 12, md: 5 }}>
-                      <Stack gap="md">
-                        <Group gap="xs" mb="xs">
-                          <ThemeIcon variant="light" color="indigo">
-                            <Info size={18} />
-                          </ThemeIcon>
-                          <Text fw={700} size="lg">General Info</Text>
-                        </Group>
-                        
+        <Text fw={700} size={expanded ? 'lg' : 'md'} truncate mt={2}>
+          {title}
+        </Text>
+        <Text size="xs" c="dimmed" lineClamp={expanded ? 1 : 2}>
+          {subtitle}
+        </Text>
+      </Box>
+    </Group>
+  );
 
-                        {selectedNode && (
-                          <Stack gap="md">
-                            <TextInput
-                              label="Name"
-                              placeholder="e.g. Approve the expense"
-                              description="What this step is called, wherever it appears — on the diagram, in someone's task list, in the history."
-                              size="md"
-                              value={selectedNode.data.label as string || ''}
-                              onChange={(e) => updateNodeData(selectedNode.id, { label: e.target.value })}
-                            />
-                            <Textarea
-                              label="Notes"
-                              placeholder="Anything the next person needs to know about this step"
-                              description="Shown to whoever opens this step later. Optional."
-                              size="md"
-                              minRows={3}
-                              value={selectedNode.data.documentation as string || ''}
-                              onChange={(e) => updateNodeData(selectedNode.id, { documentation: e.target.value })}
-                            />
+  const headerControls = (
+    <Group gap={4} wrap="nowrap">
+      <Tooltip label={expanded ? 'Back beside the diagram' : 'Open in full screen'}>
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          aria-label={expanded ? 'Dock the settings beside the diagram' : 'Open the settings in full screen'}
+          onClick={() => setExpanded((open) => !open)}
+        >
+          {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+        </ActionIcon>
+      </Tooltip>
+      <CloseButton aria-label={`Close the ${elementWord} settings`} onClick={onClose} />
+    </Group>
+  );
 
-                            {/* The id identifies the step to the engine and to
-                                anything integrating over the API. It is not
-                                something to fill in, so it sits at the end
-                                rather than being the first thing read. */}
-                            <Group gap={6} align="baseline">
-                              <Text size="xs" c="dimmed">Reference</Text>
-                              <MantineCode>{selectedNode.id}</MantineCode>
-                              <Badge size="xs" variant="light" color="gray" radius="sm">
-                                {selectedNode.type}
-                              </Badge>
-                            </Group>
+  // The same flag as the switch in the account menu, under the same name. It
+  // shows the BPMN names, the raw schema and the API example, and makes
+  // advanced settings editable.
+  const expertSwitch = (
+    <Switch
+      label="Expert mode"
+      checked={expertMode}
+      onChange={(event) => setExpertMode(event.currentTarget.checked)}
+      size="xs"
+      color="indigo"
+    />
+  );
 
-                            <Divider variant="dashed" />
+  const about = (
+    <Card withBorder radius="md" p="md">
+      <PropertySection title={selectedNode ? 'About this step' : 'About this path'}>
+        {selectedNode && (
+          <>
+            <TextInput
+              label="Name"
+              placeholder="e.g. Approve the expense"
+              description="What this step is called, wherever it appears — on the diagram, in someone's task list, in the history."
+              value={selectedNode.data.label as string || ''}
+              onChange={(e) => updateNodeData(selectedNode.id, { label: e.target.value })}
+              data-autofocus
+            />
+            <Textarea
+              label="Notes"
+              placeholder="Anything the next person needs to know about this step"
+              description="Shown to whoever opens this step later. Optional."
+              autosize
+              minRows={2}
+              maxRows={6}
+              value={selectedNode.data.documentation as string || ''}
+              onChange={(e) => updateNodeData(selectedNode.id, { documentation: e.target.value })}
+            />
 
-                            <PropertySection
-                              title="Data"
-                              hint="What this step receives, and what it leaves for the steps after it."
-                            >
-                              <DataFlowPanel
-                                flow={dataFlow.get(selectedNode.id)}
-                                hasSample={hasSample}
-                                readsOnly={String(selectedNode.type).toLowerCase().includes('gateway')}
-                              />
-                            </PropertySection>
-                          </Stack>
-                        )}
+            {/* The id identifies the step to the engine and to anything
+                integrating over the API. It is not something to fill in, so it
+                sits at the end rather than being the first thing read. */}
+            <Group gap={6} align="baseline">
+              <Text size="xs" c="dimmed">Reference</Text>
+              <MantineCode>{selectedNode.id}</MantineCode>
+              <Badge size="xs" variant="light" color="gray" radius="sm">
+                {selectedNode.type}
+              </Badge>
+            </Group>
+          </>
+        )}
 
-                        {selectedEdge && (
-                          <Stack gap="md">
-                            {/*
-                              There is no separate "label" field here any more.
-                              A sequence flow has no name on the server, so a
-                              typed caption could never be saved — and the save
-                              mapper used to fall back to it as the *condition*,
-                              which deployed a path captioned "Yes" with the
-                              unbound condition `Yes`: never true, never taken,
-                              no warning. The arrow is captioned with its
-                              condition instead.
-                            */}
-                            <TextInput
-                              label="Take this path when"
-                              placeholder="e.g. approvalLevel = director"
-                              size="md"
-                              description={
-                                'One "=" and no quotes: approvalLevel = director. ' +
-                                'Writing == looks more like code and never matches, ' +
-                                'so the path is silently never taken. Leave empty to always take it. ' +
-                                'This text is what the arrow shows on the canvas.'
-                              }
-                              value={selectedEdge.data?.condition as string || ''}
-                              onChange={(e) => updateEdgeData(selectedEdge.id, { ...selectedEdge.data, condition: e.target.value })}
-                            />
-                            <Textarea
-                              label="Documentation"
-                              placeholder="Why is this flow here?"
-                              description="Explain the purpose of this sequence flow"
-                              size="md"
-                              minRows={4}
-                              value={selectedEdge.data?.documentation as string || ''}
-                              onChange={(e) => updateEdgeData(selectedEdge.id, { ...selectedEdge.data, documentation: e.target.value })}
-                            />
-                          </Stack>
-                        )}
-                      </Stack>
-                    </Grid.Col>
+        {selectedEdge && (
+          <>
+            {/*
+              There is no separate "label" field here any more.
+              A sequence flow has no name on the server, so a
+              typed caption could never be saved — and the save
+              mapper used to fall back to it as the *condition*,
+              which deployed a path captioned "Yes" with the
+              unbound condition `Yes`: never true, never taken,
+              no warning. The arrow is captioned with its
+              condition instead.
+            */}
+            <TextInput
+              label="Take this path when"
+              placeholder="e.g. approvalLevel = director"
+              description={
+                'One "=" and no quotes: approvalLevel = director. ' +
+                'Writing == looks more like code and never matches, ' +
+                'so the path is silently never taken. Leave empty to always take it. ' +
+                'This text is what the arrow shows on the canvas.'
+              }
+              value={selectedEdge.data?.condition as string || ''}
+              onChange={(e) => updateEdgeData(selectedEdge.id, { ...selectedEdge.data, condition: e.target.value })}
+              data-autofocus
+            />
+            <Textarea
+              label="Documentation"
+              placeholder="Why is this flow here?"
+              description="Explain the purpose of this sequence flow"
+              autosize
+              minRows={2}
+              maxRows={6}
+              value={selectedEdge.data?.documentation as string || ''}
+              onChange={(e) => updateEdgeData(selectedEdge.id, { ...selectedEdge.data, documentation: e.target.value })}
+            />
+          </>
+        )}
+      </PropertySection>
+    </Card>
+  );
 
-                    <Grid.Col span={{ base: 12, md: 7 }}>
-                      <Stack gap="md">
-                        <Group gap="xs" mb="xs">
-                          <ThemeIcon variant="light" color="teal">
-                            <LayoutGrid size={18} />
-                          </ThemeIcon>
-                          <Text fw={700} size="lg">Configuration</Text>
-                        </Group>
-                        
-                        <Divider variant="dashed" mb="sm" />
-                        
-                        {selectedNode ? (
-                          <NodeConfigSection 
-                            selectedNode={selectedNode} 
-                            updateNodeData={updateNodeData} 
-                            edges={edges}
-                            nodes={nodes}
-                            instanceId={instanceId}
-                            onViewInstance={onViewInstance}
-                          />
-                        ) : selectedEdge ? (
-                          <EdgeConfigSection
-                            selectedEdge={selectedEdge}
-                            updateEdgeData={updateEdgeData}
-                          />
-                        ) : (
-                          <Box py="xl" style={{ textAlign: 'center' }}>
-                            <Text size="sm" c="dimmed">No advanced configuration for connection flows.</Text>
-                          </Box>
-                        )}
-                      </Stack>
-                    </Grid.Col>
-                  </Grid>
-                </Card>
-              </Stack>
-            </Grid.Col>
+  const configuration = (
+    <Card withBorder radius="md" p="md">
+      {/* No heading of its own: each step's settings bring their own sections. */}
+      <Stack gap="sm">
+        {selectedNode ? (
+          <NodeConfigSection
+            selectedNode={selectedNode}
+            updateNodeData={updateNodeData}
+            edges={edges}
+            nodes={nodes}
+            instanceId={instanceId}
+            onViewInstance={onViewInstance}
+          />
+        ) : selectedEdge ? (
+          <EdgeConfigSection
+            selectedEdge={selectedEdge}
+            updateEdgeData={updateEdgeData}
+          />
+        ) : null}
+      </Stack>
+    </Card>
+  );
 
-            {/* Column 2: API & Advanced */}
-            <Grid.Col span={{ base: 12, md: 4 }}>
-              <Stack gap="lg">
-                <SmartTroubleshooter 
-                  node={selectedNode ?? undefined} 
-                  edge={selectedEdge ?? undefined} 
-                  updateNodeData={updateNodeData}
-                  updateEdgeData={updateEdgeData}
-                />
+  const data = selectedNode && (
+    <Card withBorder radius="md" p="md">
+      <PropertySection
+        title="Data"
+        hint="What this step receives, and what it leaves for the steps after it."
+      >
+        <DataFlowPanel
+          flow={dataFlow.get(selectedNode.id)}
+          hasSample={hasSample}
+          readsOnly={String(selectedNode.type).toLowerCase().includes('gateway')}
+        />
+      </PropertySection>
+    </Card>
+  );
 
-                {expertMode && selectedNode && (
-                  <ApiExample 
-                    type={selectedNode.type as string} 
-                    id={selectedNode.id} 
-                    data={selectedNode.data} 
-                  />
-                )}
+  const checks = (
+    <Stack gap="md">
+      <SmartTroubleshooter
+        node={selectedNode ?? undefined}
+        edge={selectedEdge ?? undefined}
+        updateNodeData={updateNodeData}
+        updateEdgeData={updateEdgeData}
+      />
 
-                <RawSchemaCard
-                  key={selectedNode?.id ?? selectedEdge?.id}
-                  settings={selectedNode ? selectedNode.data : selectedEdge?.data ?? {}}
-                  onApply={(patch) => {
-                    if (selectedNode) {
-                      updateNodeData(selectedNode.id, patch as Partial<BPMNNodeData>);
-                    } else if (selectedEdge) {
-                      updateEdgeData(selectedEdge.id, patch as Partial<BPMNEdgeData>);
-                    }
-                  }}
-                />
-              </Stack>
-            </Grid.Col>
-          </Grid>
-        </Container>
-      </ScrollArea>
+      {expertMode && selectedNode && (
+        <ApiExample
+          type={selectedNode.type as string}
+          id={selectedNode.id}
+          data={selectedNode.data}
+        />
+      )}
 
-      <Box p="xl" bg="white" style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
-        <Container fluid px="xl">
-          <Group justify="space-between">
-            <Button 
-              variant="light" 
-              color="red" 
-              size="md"
-              leftSection={<Trash2 size={18} />}
-              onClick={() => {
-                  onDelete();
-                  onClose();
-              }}
-            >
-              Delete Element
-            </Button>
-            <Group>
-              <Button variant="default" size="md" onClick={onClose}>Discard</Button>
-              <Button color="indigo" size="md" onClick={onClose}>Apply Changes</Button>
+      <RawSchemaCard
+        key={selectedNode?.id ?? selectedEdge?.id}
+        settings={selectedNode ? selectedNode.data : selectedEdge?.data ?? {}}
+        onApply={(patch) => {
+          if (selectedNode) {
+            updateNodeData(selectedNode.id, patch as Partial<BPMNNodeData>);
+          } else if (selectedEdge) {
+            updateEdgeData(selectedEdge.id, patch as Partial<BPMNEdgeData>);
+          }
+        }}
+      />
+    </Stack>
+  );
+
+  /*
+    One layout for both places the settings appear. The grid answers to its own
+    width, not the window's: beside the diagram it is one column, in full
+    screen it is the form with the checks beside it.
+  */
+  const body = (
+    <Grid type="container" breakpoints={CONTAINER_BREAKPOINTS} gap="md">
+      <Grid.Col span={{ base: 12, md: 8 }}>
+        <Stack gap="md">
+          {about}
+          {configuration}
+          {data}
+        </Stack>
+      </Grid.Col>
+      <Grid.Col span={{ base: 12, md: 4 }}>{checks}</Grid.Col>
+    </Grid>
+  );
+
+  /*
+    The edits are live: every keystroke changes the diagram, and Undo takes it
+    back. The footer used to offer "Discard" and "Apply Changes", and both only
+    closed the panel — a Discard that kept everything it was asked to throw
+    away. It now says what actually happens.
+  */
+  const footer = (
+    <Group justify="space-between" wrap="nowrap" gap="sm">
+      <Button
+        variant="subtle"
+        color="red"
+        size="sm"
+        leftSection={<Trash2 size={16} />}
+        style={{ flexShrink: 0 }}
+        onClick={() => {
+          onDelete();
+          onClose();
+        }}
+      >
+        Delete {elementWord}
+      </Button>
+      <Group gap="sm" wrap="nowrap">
+        <Text size="xs" c="dimmed" visibleFrom="xs" style={{ whiteSpace: 'nowrap' }}>
+          Changes apply as you type
+        </Text>
+        <Button color="indigo" size="sm" onClick={onClose}>
+          Done
+        </Button>
+      </Group>
+    </Group>
+  );
+
+  if (expanded) {
+    return (
+      <Modal
+        opened
+        onClose={onClose}
+        withCloseButton={false}
+        fullScreen
+        padding={0}
+        radius={0}
+        transitionProps={{ transition: 'fade', duration: 150 }}
+        aria-label={`Settings for ${title}`}
+        styles={{
+          content: { display: 'flex', flexDirection: 'column', backgroundColor: 'var(--mantine-color-gray-0)' },
+          body: { flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 0 },
+        }}
+      >
+        <Box px="xl" py="md" className={classes.header}>
+          <Group justify="space-between" wrap="nowrap" align="flex-start">
+            {header}
+            <Group gap="md" wrap="nowrap">
+              {expertSwitch}
+              {headerControls}
             </Group>
           </Group>
-        </Container>
+        </Box>
+        <ScrollArea style={{ flex: 1 }} scrollbarSize={6}>
+          <Container size="xl" py="xl">{body}</Container>
+        </ScrollArea>
+        <Box px="xl" py="md" className={classes.footer}>
+          <Container size="xl">{footer}</Container>
+        </Box>
+      </Modal>
+    );
+  }
+
+  if (floating) {
+    /*
+      The floating card shows one part at a time. A step's settings run to
+      four sections, and as one scroll the checks — the part that says what is
+      wrong — were the last thing reached. Here each is one click away.
+    */
+    return (
+      <Box component="aside" aria-label={`Settings for ${title}`} className={classes.floating}>
+        <Box px="md" pt="md" pb="xs" className={classes.header}>
+          <Group justify="space-between" wrap="nowrap" align="flex-start" gap="xs">
+            {header}
+            {headerControls}
+          </Group>
+        </Box>
+        <Tabs defaultValue="about" keepMounted={false} className={classes.tabs}>
+          <Tabs.List grow px="xs">
+            <Tabs.Tab value="about">About</Tabs.Tab>
+            <Tabs.Tab value="setup">{selectedNode ? 'Setup' : 'Condition'}</Tabs.Tab>
+            {selectedNode && <Tabs.Tab value="data">Data</Tabs.Tab>}
+            <Tabs.Tab value="checks">Checks</Tabs.Tab>
+          </Tabs.List>
+          <ScrollArea style={{ flex: 1 }} scrollbarSize={6}>
+            <Box p="md">
+              <Tabs.Panel value="about">{about}</Tabs.Panel>
+              <Tabs.Panel value="setup">{configuration}</Tabs.Panel>
+              {selectedNode && <Tabs.Panel value="data">{data}</Tabs.Panel>}
+              <Tabs.Panel value="checks">
+                <Stack gap="md">
+                  <Group justify="space-between">
+                    <Text size="xs" c="dimmed">Expert settings</Text>
+                    {expertSwitch}
+                  </Group>
+                  {checks}
+                </Stack>
+              </Tabs.Panel>
+            </Box>
+          </ScrollArea>
+        </Tabs>
+        <Box px="md" py="sm" className={classes.footer}>
+          {footer}
+        </Box>
       </Box>
-    </Modal>
+    );
+  }
+
+  return (
+    <Box component="aside" aria-label={`Settings for ${title}`} className={classes.panel}>
+      <Box p="md" className={classes.header}>
+        <Group justify="space-between" wrap="nowrap" align="flex-start" gap="xs">
+          {header}
+          {headerControls}
+        </Group>
+        <Group mt="sm">{expertSwitch}</Group>
+      </Box>
+      <ScrollArea style={{ flex: 1 }} scrollbarSize={6} className={classes.body}>
+        <Box p="md">{body}</Box>
+      </ScrollArea>
+      <Box px="md" py="sm" className={classes.footer}>
+        {footer}
+      </Box>
+    </Box>
   );
 }
+
+/**
+ * Container widths for the settings grid. Two columns only once there is room
+ * for a form and the checks beside it — never in the docked panel.
+ */
+const CONTAINER_BREAKPOINTS = { xs: '320px', sm: '480px', md: '820px', lg: '1100px', xl: '1400px' };
 
 function NodeConfigSection({ 
   selectedNode, 

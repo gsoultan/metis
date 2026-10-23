@@ -31,6 +31,8 @@ import { useAppStore } from '../store/useAppStore';
 import { buildDefinitionPayload, mapLoadedEdges, mapLoadedNodes, restoredNodes } from '../mappers/definitionMapper';
 import { stepSchemasOf } from '../domain/connectorStep';
 import { validateProcess } from '../domain/processValidation';
+import { vocabularyFor } from '../domain/bpmnVocabulary';
+import { DEFAULT_STEP_HEIGHT, DEFAULT_STEP_WIDTH, STEP_GAP, clearSpot, followsOn } from '../domain/canvasPlacement';
 import {
   buildDraft,
   describeDraftAge,
@@ -169,7 +171,9 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
   const [selectedEdge, setSelectedEdge] = useState<Edge<BPMNEdgeData> | null>(null);
   const [processName, setProcessName] = useState(initialName || 'New Process');
   const [processKey, setProcessKey] = useState(initialKey || 'new_process');
-  const [componentsOpened, { open: openComponents, close: closeComponents }] = useDisclosure(false);
+  // The palette is open from the start: it is how a step gets onto the canvas,
+  // and a newcomer should not have to find it first.
+  const [componentsOpened, { open: openComponents, close: closeComponents, toggle: toggleComponents }] = useDisclosure(false);
   const [spotlightOpened, { toggle: toggleSpotlight, close: closeSpotlight }] = useDisclosure(false);
   const [checklistOpened, { open: openChecklist, close: closeChecklist }] = useDisclosure(false);
   const [clearCanvasOpened, { open: openClearCanvas, close: closeClearCanvas }] = useDisclosure(false);
@@ -355,7 +359,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     const updatedNodes = autoLayoutNodes(nodes, edges);
     setNodes(updatedNodes);
     pushToHistory(updatedNodes, edges);
-    reactFlowInstance?.fitView({ duration: 800 });
+    reactFlowInstance?.fitView({ duration: 800, padding: { top: '96px', left: '150px', right: '120px', bottom: '48px' } });
   }, [edges, nodes, pushToHistory, reactFlowInstance]);
 
   const handleProcessNameChange = useCallback(
@@ -430,27 +434,21 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
-  const onDrop = useCallback(
-    (event: DragEvent) => {
-      event.preventDefault();
-
-      const type = event.dataTransfer.getData('application/reactflow');
-      if (!type) {
-        return;
-      }
-
-      const initialDataString = event.dataTransfer.getData('application/initialData');
-      const initialData = initialDataString ? JSON.parse(initialDataString) : {};
-
-      if (!reactFlowInstance) {
-        return;
-      }
-
-      const position = reactFlowInstance.screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
-      });
-
+  /**
+   * Puts one palette entry on the canvas at a point on the diagram.
+   *
+   * Dropping and clicking share it, so a step added from the keyboard is the
+   * same step a drag would have made. `select` opens the new step's settings,
+   * which is what a click is for: the person chose a step and wants to name it.
+   * `after` draws the arrow from an existing step to the new one.
+   */
+  const placeNode = useCallback(
+    (
+      type: string,
+      initialData: Partial<BPMNNodeData>,
+      position: { x: number; y: number },
+      options: { select: boolean; after?: Node<BPMNNodeData> | null },
+    ) => {
       // One palette item that lands two steps already wired — the recommended
       // way to route a process, made no harder than the unrecommended one.
       // See domain/decideGroup.ts.
@@ -471,6 +469,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
         // The table is what the author has to choose; select it so the property
         // panel opens on the one decision they still have to make.
         setSelectedNode(groupNodes.find((node) => node.id === group.focusId) ?? null);
+        setSelectedEdge(null);
         return;
       }
 
@@ -479,26 +478,115 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
         type,
         position,
         data: {
-          label: `${type} node`,
+          // Named for what it does — "Ask a person" — rather than "userTask
+          // node", which is the first thing a newcomer would have to rename.
+          label: vocabularyFor(type)?.plainName ?? `${type} node`,
           nodeType: type as BPMNNodeData['nodeType'],
           documentation: '',
           ...initialData,
         },
       };
+      const after = options.after ?? null;
+      const link: Edge<BPMNEdgeData> | null = after
+        ? {
+            id: `e-${after.id}-${newNode.id}-${uuidv7().slice(0, 8)}`,
+            source: after.id,
+            target: newNode.id,
+            animated: true,
+            style: { strokeWidth: 2 },
+            label: '',
+          }
+        : null;
 
       setNodes((currentNodes) => {
         const nextNodes = currentNodes.concat(newNode);
-        pushToHistory(nextNodes, edges);
+        const nextEdges = link ? edges.concat(link) : edges;
+        if (link) setEdges(nextEdges);
+        pushToHistory(nextNodes, nextEdges);
         return nextNodes;
       });
+      if (options.select) {
+        setSelectedNode(newNode);
+        setSelectedEdge(null);
+      }
     },
-    [edges, pushToHistory, reactFlowInstance, setEdges, setSelectedNode],
+    [edges, pushToHistory, setEdges, setSelectedNode],
+  );
+
+  const onDrop = useCallback(
+    (event: DragEvent) => {
+      event.preventDefault();
+
+      const type = event.dataTransfer.getData('application/reactflow');
+      if (!type) {
+        return;
+      }
+
+      const initialDataString = event.dataTransfer.getData('application/initialData');
+      const initialData = initialDataString ? JSON.parse(initialDataString) : {};
+
+      if (!reactFlowInstance) {
+        return;
+      }
+
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      placeNode(type, initialData, position, { select: false });
+    },
+    [placeNode, reactFlowInstance],
+  );
+
+  /**
+   * Adds a step without dragging: the palette's click and Enter.
+   *
+   * Dragging was the only way onto the canvas, which shut out anyone on a
+   * keyboard or a trackpad that drags badly. With a step selected, the new one
+   * goes after it, joined by an arrow — so clicking Start, then "Ask a person",
+   * then Finish draws a whole process, each step selected in turn. With
+   * nothing selected it lands in the middle of the view (`screen`). Either
+   * way it moves right until it is clear of the steps already there.
+   */
+  const addNodeAt = useCallback(
+    (type: string, initialData: Partial<BPMNNodeData>, screen: { x: number; y: number }) => {
+      if (!reactFlowInstance) {
+        return;
+      }
+      const after = selectedNode && followsOn(String(selectedNode.type), type) ? selectedNode : null;
+      const position = after
+        ? {
+            x: after.position.x + (after.measured?.width ?? DEFAULT_STEP_WIDTH) + STEP_GAP,
+            y: after.position.y + (after.measured?.height ?? DEFAULT_STEP_HEIGHT) / 2 - DEFAULT_STEP_HEIGHT / 2,
+          }
+        : reactFlowInstance.screenToFlowPosition(screen);
+      placeNode(type, initialData, clearSpot(position, nodes), { select: true, after });
+    },
+    [nodes, placeNode, reactFlowInstance, selectedNode],
   );
 
   const onNodeClick = useCallback((_: MouseEvent, node: Node<BPMNNodeData>) => {
     setSelectedNode(node);
     setSelectedEdge(null);
   }, []);
+
+  /** Selects a step by its id: how a validation issue takes you to its step. */
+  const selectById = useCallback(
+    (id: string) => {
+      const node = nodes.find((candidate) => candidate.id === id);
+      if (node) {
+        setSelectedNode(node);
+        setSelectedEdge(null);
+        return;
+      }
+      const edge = edges.find((candidate) => candidate.id === id);
+      if (edge) {
+        setSelectedEdge(edge);
+        setSelectedNode(null);
+      }
+    },
+    [nodes, edges],
+  );
 
   const onEdgeClick = useCallback((_: MouseEvent, edge: Edge<BPMNEdgeData>) => {
     setSelectedEdge(edge);
@@ -530,6 +618,37 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     pushToHistory(nodes, nextEdges);
     setSelectedEdge(null);
   }, [edges, nodes, pushToHistory, selectedEdge, selectedNode]);
+
+  /** Deletes one step by id, with its arrows: the delete on the step's own pad. */
+  const removeNode = useCallback(
+    (id: string) => {
+      const nextNodes = nodes.filter((node) => node.id !== id);
+      const nextEdges = edges.filter((edge) => edge.source !== id && edge.target !== id);
+      setNodes(nextNodes);
+      setEdges(nextEdges);
+      pushToHistory(nextNodes, nextEdges);
+      setSelectedNode((current) => (current?.id === id ? null : current));
+    },
+    [edges, nodes, pushToHistory],
+  );
+
+  /**
+   * Adds a step after the one named, joined by an arrow: the "+" on a step's
+   * pad. The same placement a palette click uses with that step selected.
+   */
+  const addNodeAfter = useCallback(
+    (id: string, type: string, initialData: Partial<BPMNNodeData> = {}) => {
+      const after = nodes.find((node) => node.id === id);
+      if (!after) return;
+      const joined = followsOn(String(after.type), type);
+      const position = {
+        x: after.position.x + (after.measured?.width ?? DEFAULT_STEP_WIDTH) + STEP_GAP,
+        y: after.position.y + (after.measured?.height ?? DEFAULT_STEP_HEIGHT) / 2 - DEFAULT_STEP_HEIGHT / 2,
+      };
+      placeNode(type, initialData, clearSpot(position, nodes), { select: true, after: joined ? after : null });
+    },
+    [nodes, placeNode],
+  );
 
   const updateNodeData = useCallback((id: string, newData: Partial<BPMNNodeData>) => {
     setNodes((currentNodes) =>
@@ -706,7 +825,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     }
 
     setTimeout(() => {
-      reactFlowInstance.fitView();
+      reactFlowInstance.fitView({ padding: { top: '96px', left: '150px', right: '120px', bottom: '48px' } });
     }, 100);
   }, [loadedData, reactFlowInstance]);
 
@@ -813,6 +932,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     componentsOpened,
     openComponents,
     closeComponents,
+    toggleComponents,
     spotlightOpened,
     closeSpotlight,
     checklistOpened,
@@ -843,6 +963,9 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     onConnect,
     onDragOver,
     onDrop,
+    addNodeAt,
+    addNodeAfter,
+    removeNode,
     onNodeClick,
     onEdgeClick,
     onPaneClick,
@@ -865,5 +988,6 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     undo,
     redo,
     closeSelection,
+    selectById,
   };
 }

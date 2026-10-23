@@ -54,7 +54,8 @@ export function Models() {
             leftSection={<Plus size={16} />}
             onClick={() => setWizardOpened(true)}
           >
-            Create New
+            {/* Says what it makes: the wizard opens on the tab's kind. */}
+            {tab === 'decisions' ? 'New decision' : 'New process'}
           </Button>
         }
       />

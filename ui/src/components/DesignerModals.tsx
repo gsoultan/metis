@@ -11,10 +11,8 @@ import {
   Box,
   TextInput,
   Kbd,
-  Drawer,
 } from '@mantine/core';
 import { AlertCircle, Save, Search, FileUp, Download, LayoutGrid, Undo2, Trash } from 'lucide-react';
-import { DesignerSidebar } from './DesignerSidebar';
 import type { ValidationIssue } from '../hooks/useProcessDesigner';
 
 interface DesignerModalsProps {
@@ -25,8 +23,6 @@ interface DesignerModalsProps {
   onDeployAnyway: () => void;
   spotlightOpened: boolean;
   closeSpotlight: () => void;
-  componentsOpened: boolean;
-  closeComponents: () => void;
   /** clearCanvasOpened controls the Mantine confirm modal (replaces window.confirm). */
   clearCanvasOpened: boolean;
   closeClearCanvas: () => void;
@@ -46,8 +42,6 @@ export function DesignerModals({
   onDeployAnyway,
   spotlightOpened,
   closeSpotlight,
-  componentsOpened,
-  closeComponents,
   clearCanvasOpened,
   closeClearCanvas,
   confirmClearCanvas,
@@ -168,22 +162,6 @@ export function DesignerModals({
         </Stack>
       </Modal>
 
-      <Drawer
-        opened={componentsOpened}
-        onClose={closeComponents}
-        position="right"
-        size="320px"
-        title="Components"
-        withOverlay={false}
-        trapFocus={false}
-        lockScroll={false}
-        styles={{
-          header: { fontWeight: 800 },
-          body: { height: 'calc(100% - 60px)', padding: 16 }
-        }}
-      >
-        <DesignerSidebar embedded />
-      </Drawer>
     </>
   );
 }

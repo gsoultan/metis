@@ -9,8 +9,8 @@
  *
  * Both are visible here before anything runs.
  */
-import { Alert, Card, Group, Loader, Stack, Text, Title } from '@mantine/core';
-import { AlertTriangle } from 'lucide-react';
+import { Alert, Card, Group, Loader, Paper, Stack, Text, ThemeIcon, Title } from '@mantine/core';
+import { AlertTriangle, Workflow } from 'lucide-react';
 import { useMemo } from 'react';
 
 import { buildDecisionGraph, type DecisionGraph, type GraphDecision, type GraphNode } from '../domain/decisionGraph';
@@ -127,6 +127,31 @@ export function DecisionGraphSection({
   /** How many decisions the project has, when that is more than were loaded. */
   total?: number;
 }) {
+  const chained = useMemo(() => {
+    const graph = buildDecisionGraph(decisions);
+    return graph.edges.length > 0 || graph.cycles.length > 0;
+  }, [decisions]);
+
+  // Nothing to draw: one line, not a card the height of three rows of the
+  // list it sits above. The sentence is the same one the graph would show.
+  if (!loading && !failed && total === undefined && !chained) {
+    return (
+      <Paper withBorder radius="lg" px="lg" py="sm">
+        <Group gap="sm" wrap="nowrap">
+          <ThemeIcon variant="light" color="gray" radius="md">
+            <Workflow size={16} />
+          </ThemeIcon>
+          <Text size="sm" c="dimmed">
+            <Text span inherit fw={600} c="var(--mantine-color-text)">
+              How these decisions fit together:{' '}
+            </Text>
+            No decision depends on another. When one does — a risk band feeding a price, say — the chain appears here.
+          </Text>
+        </Group>
+      </Paper>
+    );
+  }
+
   return (
     <Card withBorder radius="lg" p="xl">
       <Stack gap="md">

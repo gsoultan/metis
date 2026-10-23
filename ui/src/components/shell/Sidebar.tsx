@@ -1,5 +1,5 @@
 import { Tooltip } from '@mantine/core';
-import { Link } from '@tanstack/react-router';
+import { Link, useRouterState } from '@tanstack/react-router';
 import {
   Building2,
   Contact,
@@ -55,6 +55,13 @@ interface NavItem {
   /** Shown in the collapsed tooltip to explain a non-obvious destination. */
   hint?: string;
   /**
+   * Which pages count as this entry, when that is not simply its own path.
+   * Processes and Decisions both land on /models — on different tabs — and
+   * the router's own matching lit Processes for both, and neither while a
+   * process or a decision was open for editing.
+   */
+  activeOn?: (location: { pathname: string; tab: unknown }) => boolean;
+  /**
    * Offered only to administrators. This decides what is shown, never what is
    * allowed: the server refuses the page's reads to anybody else regardless.
    */
@@ -84,8 +91,20 @@ const sections: NavSection[] = [
   {
     label: 'nav.sectionBuild',
     items: [
-      { icon: Network, label: 'nav.processes', to: '/models', hint: 'Design and deploy process models' },
-      { icon: Table2, label: 'nav.decisions', to: '/decisions', hint: 'Business rules as decision tables' },
+      {
+        icon: Network,
+        label: 'nav.processes',
+        to: '/models',
+        hint: 'Design and deploy process models',
+        activeOn: ({ pathname, tab }) => pathname === '/designer' || (pathname === '/models' && tab !== 'decisions'),
+      },
+      {
+        icon: Table2,
+        label: 'nav.decisions',
+        to: '/decisions',
+        hint: 'Business rules as decision tables',
+        activeOn: ({ pathname, tab }) => pathname === '/decision-editor' || (pathname === '/models' && tab === 'decisions'),
+      },
       { icon: Zap, label: 'nav.connectors', to: '/connectors', hint: 'Connect to other systems' },
       // Under Build rather than a developer section of its own: writing the
       // worker for a topic is part of building the process, and separating the
@@ -125,11 +144,20 @@ const sections: NavSection[] = [
 function NavLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   const { t } = useTranslation();
   const label = t(item.label);
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const tab = useRouterState({ select: (state) => (state.location.search as { tab?: unknown }).tab });
+  const active = item.activeOn?.({ pathname, tab });
   const link = (
     <Link
       to={item.to}
       className={classes.link}
-      activeProps={{ 'data-active': true, 'aria-current': 'page' }}
+      {...(active === undefined
+        ? { activeProps: { 'data-active': true, 'aria-current': 'page' as const } }
+        : {
+            activeProps: {},
+            'data-active': active || undefined,
+            'aria-current': active ? ('page' as const) : undefined,
+          })}
       // Collapsed, the label is not rendered, so the icon alone would announce
       // as an unlabelled link. The accessible name comes from aria-label.
       aria-label={collapsed ? label : undefined}

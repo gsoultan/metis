@@ -1,0 +1,51 @@
+.palette {
+  width: 288px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-md) 0;
+  background-color: var(--mantine-color-body);
+  border-right: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4));
+}
+
+.canvas {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  background-color: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8));
+}
+
+.minimap {
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  overflow: hidden;
+  box-shadow: var(--mantine-shadow-sm);
+}
+
+/* The tools, down the left of the canvas. */
+.rail {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
+}
+
+/* The building blocks, out from the rail's "+". */
+.flyout {
+  position: absolute;
+  left: 72px;
+  top: 72px;
+  bottom: 12px;
+  z-index: 6;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-md) 0;
+  border-radius: var(--mantine-radius-lg);
+  border: 1px solid var(--mantine-color-default-border);
+  background-color: var(--mantine-color-body);
+  box-shadow: 0 18px 48px -18px rgba(15, 23, 42, 0.35);
+}
