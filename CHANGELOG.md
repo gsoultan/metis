@@ -1031,6 +1031,30 @@ does not undo a migration.
   twice against `max_connections`. The `database` readiness check now pings the
   storm pool, and the `go_sql_*{db_name="gorm"}` metric series are gone.
 
+- **The server starts without compressing the whole UI, and holds less of
+  it.** Every asset was read, copied and gzipped at the best level when the
+  server started: about 0.3 s of CPU and 170 MB allocated at each boot, and
+  5 MB of heap held for the life of the process, mostly for fonts and pages
+  a session never opens. An asset is now gzipped the first time a browser
+  asks for it and kept, and the uncompressed bytes are streamed from the
+  binary. Building the handler takes 4 ms and holds 0.5 MB; what browsers
+  are sent is unchanged.
+
+- **The live event stream encodes an event only for somebody who can
+  receive it.** Every step of every instance raised an event that was encoded
+  twice, even on a replica with no browser open for that organization and no
+  bus to other replicas. Now an event nobody could receive costs about 0.1 µs
+  instead of 11 µs, and one that is delivered is encoded once. An event that
+  cannot be encoded is logged rather than dropped without a word.
+
+- **A service task runs as soon as the step before it commits.** Each one
+  waited for the job worker's next poll, two seconds at the default
+  `METIS_JOB_POLL_INTERVAL`, so three service tasks in a row took six seconds
+  to reach the person after them. The worker is now woken when work that is
+  already due commits on its replica, and the same three take about 30 ms.
+  Timers and retries that are due later still wait for the poll, and another
+  replica's work is still picked up at its own poll.
+
 - **A step repeated over an empty list is skipped.** A step run once per item
   of a list that is empty used to run once anyway, with no item: a service
   call with nothing to send, an approval task nobody was listed for. Now the
@@ -1227,6 +1251,17 @@ does not undo a migration.
   to anybody who is not an operator or an administrator.
 
 ### Fixed
+
+- **A step reached, a process started and a task created reach the browser
+  and the webhooks.** An event about an instance the engine had in hand did
+  not encode: a token it had just added points back at that instance, and the
+  encoder followed the loop a thousand levels down before giving up. The
+  event stream dropped those events without a word, so a new task appeared in
+  an inbox only on the next refresh, and the deprecated installation-wide
+  webhook (`WEBHOOK_ENDPOINTS`) was never sent them and logged an error for
+  each. Following the loop was also most of what a request spent: a full
+  journey through the API now sustains about 70% more per minute and
+  allocates a fifth of what it did.
 
 - **An outgoing webhook's delivery log and test result are readable.** A
   delivery's outcome was drawn as green or yellow text on its own tint, at

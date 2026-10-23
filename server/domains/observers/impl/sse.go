@@ -3,7 +3,6 @@ package impl
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"sync"
 
 	"github.com/google/uuid"
@@ -97,28 +96,74 @@ func (o *SSEObserver) DeliverAfterCommitWith(afterCommit func(ctx context.Contex
 //
 // Scoped and encoded now, from the event as it stands and the context that
 // produced it; only the delivery waits for the commit.
+//
+// An event nobody can receive is not encoded at all. Every step of every
+// instance raises one, and on a replica with no browser open for that
+// organization and no bus to hand it to, encoding it was the whole cost of the
+// event for an answer that went nowhere. A browser that connects between the
+// step and its commit misses that one hint, as it would have missed every
+// hint before it connected: the page it opens reads the current state anyway.
 func (o *SSEObserver) OnEvent(ctx context.Context, event entities.ProcessEvent) {
 	scope := o.scopeOf(ctx, event)
-	payload, err := json.Marshal(event)
-	if err != nil {
+	if !o.anyoneReceives(scope) {
 		return
 	}
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		// Not delivered, and said so: an event that cannot be encoded is a
+		// defect in whatever built it, and a browser left without it shows a
+		// stale list with nothing to say why.
+		log.Error().Err(err).Str("event", event.Type).Msg("A process event could not be encoded for the browsers it was for")
+		return
+	}
+	payload := string(encoded)
+
 	o.mu.RLock()
 	afterCommit := o.afterCommit
 	o.mu.RUnlock()
 	if afterCommit == nil {
-		o.BroadcastTo(scope, json.RawMessage(payload))
+		o.deliver(scope, payload)
 		return
 	}
-	afterCommit(ctx, func() { o.BroadcastTo(scope, json.RawMessage(payload)) })
+	afterCommit(ctx, func() { o.deliver(scope, payload) })
 }
 
-// BroadcastTo encodes one event and delivers it within a scope.
+// anyoneReceives reports whether an event in scope could reach anybody: a
+// browser connected here that the scope delivers to, or the bus, which reaches
+// the browsers connected to every other replica.
+func (o *SSEObserver) anyoneReceives(scope entities.SSEScope) bool {
+	if !scope.Resolved() {
+		// Left to deliver, which says so out loud.
+		return true
+	}
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.publish != nil {
+		return true
+	}
+	for _, clientScope := range o.clients {
+		if scope.Delivers(clientScope) {
+			return true
+		}
+	}
+	return false
+}
+
+// BroadcastTo encodes one event and delivers it within a scope; see deliver.
+func (o *SSEObserver) BroadcastTo(scope entities.SSEScope, data any) {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	o.deliver(scope, string(jsonData))
+}
+
+// deliver hands an encoded payload to this replica's browsers and to the bus.
 //
-// There is no unscoped broadcast. Making the scope an argument rather than an
+// There is no unscoped delivery. Making the scope an argument rather than an
 // option is what stops a future caller from delivering to everybody by
 // forgetting something.
-func (o *SSEObserver) BroadcastTo(scope entities.SSEScope, data any) {
+func (o *SSEObserver) deliver(scope entities.SSEScope, payload string) {
 	if !scope.Resolved() {
 		// Not delivered, and said out loud. An event nobody can be shown is a
 		// bug in whoever produced it — a dispatch that lost its tenant — and
@@ -126,12 +171,6 @@ func (o *SSEObserver) BroadcastTo(scope entities.SSEScope, data any) {
 		log.Debug().Msg("An event was produced with no organization, so it was not delivered to any browser.")
 		return
 	}
-
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return
-	}
-	payload := string(jsonData)
 
 	o.deliverLocally(scope, payload)
 
@@ -168,7 +207,7 @@ func (o *SSEObserver) deliverLocally(scope entities.SSEScope, payload string) {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 
-	msg := fmt.Sprintf("data: %s\n\n", payload)
+	msg := "data: " + payload + "\n\n"
 	for clientChan, clientScope := range o.clients {
 		if !scope.Delivers(clientScope) {
 			continue

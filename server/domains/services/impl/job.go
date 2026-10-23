@@ -51,6 +51,9 @@ type jobService struct {
 	lifecycle *workerLifecycle
 	// settings is the resolved worker sizing — see job_config.go.
 	settings JobWorkerSettings
+	// wake asks the poll loop to look now rather than at its next tick — see
+	// job_wake.go.
+	wake chan struct{}
 }
 
 func NewJobService(
@@ -81,6 +84,7 @@ func NewJobService(
 		sem:          semaphore.NewWeighted(int64(settings.Workers)),
 		lifecycle:    &workerLifecycle{},
 		settings:     settings,
+		wake:         make(chan struct{}, 1),
 	}
 }
 
@@ -96,8 +100,11 @@ func (s *jobService) EnqueueServiceTask(ctx context.Context, instance entities.P
 		MaxRetries:  3,
 		NextRunAt:   time.Now(),
 	}
-	_, err := s.repo.Job().Create(ctx, adapters.JobModelAdapter{Job: job}.ToModel())
-	return err
+	if _, err := s.repo.Job().Create(ctx, adapters.JobModelAdapter{Job: job}.ToModel()); err != nil {
+		return err
+	}
+	s.wakeWhenDue(ctx, job.NextRunAt)
+	return nil
 }
 
 func (s *jobService) EnqueueTimer(ctx context.Context, instance entities.ProcessInstance, node entities.Node, duration string) error {
@@ -116,8 +123,11 @@ func (s *jobService) EnqueueTimer(ctx context.Context, instance entities.Process
 		NextRunAt:        schedule.FireAt,
 		RepeatsRemaining: schedule.Repeats,
 	}
-	_, err = s.repo.Job().Create(ctx, adapters.JobModelAdapter{Job: job}.ToModel())
-	return err
+	if _, err := s.repo.Job().Create(ctx, adapters.JobModelAdapter{Job: job}.ToModel()); err != nil {
+		return err
+	}
+	s.wakeWhenDue(ctx, job.NextRunAt)
+	return nil
 }
 
 // ShareLimitsVia pools this replica's outbound rate limiting with the others.
@@ -157,14 +167,16 @@ func (s *jobService) StartWorkers(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				// A panic here would end the ticker, and with it every job.
-				if err := runRecovered("job poll", func() error {
-					s.processPendingJobs(ctx)
-					return nil
-				}); err != nil {
-					// Logged with its stack by runRecovered; the next tick polls again.
-					continue
-				}
+			case <-s.wake:
+				// Work committed on this replica is due now; see job_wake.go.
+			}
+			// A panic here would end the ticker, and with it every job.
+			if err := runRecovered("job poll", func() error {
+				s.processPendingJobs(ctx)
+				return nil
+			}); err != nil {
+				// Logged with its stack by runRecovered; the next tick polls again.
+				continue
 			}
 		}
 	}()
