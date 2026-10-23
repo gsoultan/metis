@@ -191,6 +191,10 @@ graph: ## Refresh the graphify knowledge graph
 # Storm builds SQL at compile time, so the query surface is generated code that
 # is checked in — and stale the moment a model changes. Running this is part of
 # changing a model, not a separate chore.
+#
+# It needs a PostgreSQL server in STORM_DSN, though no schema: every statement
+# in server/repositories/model/queries.go is PREPAREd against the model applied
+# to a scratch schema, and only a statement that prepared is let run.
 .PHONY: generate
 generate:
 	go run ./cmd/stormgen

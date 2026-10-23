@@ -3,7 +3,6 @@ package pg
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/model"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/store/job"
 	"github.com/gsoultan/storm/runtime"
@@ -258,21 +258,13 @@ func (r *jobRepository) ForgetFinishedBefore(ctx context.Context, cutoff time.Ti
 		return 0, err
 	}
 	cutoff = cutoff.UTC()
-	completed, err := db.DeleteInBatches(ctx, ex,
-		`DELETE FROM jobs WHERE ctid = ANY(ARRAY(
-		     SELECT ctid FROM jobs
-		      WHERE status = $1 AND next_run_at < $2 AND updated_at < $2
-		      LIMIT $3))`, string(models.JobCompleted), cutoff)
+	completed, err := db.DeleteDeclaredInBatches(ctx, ex, model.ForgetCompletedJobs,
+		string(models.JobCompleted), cutoff)
 	if err != nil {
 		return completed, fmt.Errorf("could not forget completed jobs: %w", err)
 	}
-	failed, err := db.DeleteInBatches(ctx, ex,
-		`DELETE FROM jobs WHERE ctid = ANY(ARRAY(
-		     SELECT j.ctid FROM jobs j
-		      WHERE j.status = $1 AND j.next_run_at < $2 AND j.updated_at < $2
-		        AND NOT EXISTS (
-		            SELECT 1 FROM incidents i WHERE i.job_id = j.id AND i.status <> $3)
-		      LIMIT $4))`, string(models.JobFailed), cutoff, string(models.IncidentResolved))
+	failed, err := db.DeleteDeclaredInBatches(ctx, ex, model.ForgetFailedJobs,
+		string(models.JobFailed), cutoff, string(models.IncidentResolved))
 	if err != nil {
 		return completed + failed, fmt.Errorf("could not forget failed jobs: %w", err)
 	}
@@ -330,91 +322,19 @@ type turnOf struct {
 // each round is filled oldest first.
 const claimOwnersPerRound = 1000
 
-// fairClaimable lists the due jobs in one status whose lease is free, at most
-// $3 of each organization's, numbered in each by age, and the first $3 of
-// them by turn and then age.
-//
-// The organizations are those with any job in the status, found by skipping
-// along ix_jobs_claim_by_organization a seek at a time, not read from the
-// organizations table: a job whose organization has no row there is still
-// owed. At most $5 of them, from the first at or after $4, wrapping round to
-// the start. Each one's jobs are then one range of the same index. Jobs with no
-// organization, made before migration 44, are one more queue.
-//
-// Raw SQL because storm has no lateral join or window. The soft-delete
-// predicate the store adds to every read is written out.
-const fairClaimable = `WITH RECURSIVE onward(id, n) AS (
-  (SELECT organization_id, 1 FROM jobs
-    WHERE status = $1 AND organization_id >= $4
-    ORDER BY organization_id LIMIT 1)
-  UNION ALL
-  SELECT (SELECT j.organization_id FROM jobs AS j
-           WHERE j.status = $1 AND j.organization_id > onward.id
-           ORDER BY j.organization_id LIMIT 1), onward.n + 1
-    FROM onward WHERE onward.id IS NOT NULL AND onward.n < $5
-), wrapped(id, n) AS (
-  (SELECT organization_id, 1 FROM jobs
-    WHERE status = $1 AND organization_id < $4
-    ORDER BY organization_id LIMIT 1)
-  UNION ALL
-  SELECT (SELECT j.organization_id FROM jobs AS j
-           WHERE j.status = $1 AND j.organization_id > wrapped.id AND j.organization_id < $4
-           ORDER BY j.organization_id LIMIT 1), wrapped.n + 1
-    FROM wrapped WHERE wrapped.id IS NOT NULL AND wrapped.n < $5
-), owners AS (
-  SELECT id FROM (
-    SELECT id FROM onward WHERE id IS NOT NULL
-    UNION ALL
-    SELECT id FROM wrapped WHERE id IS NOT NULL
-  ) AS found LIMIT $5
-), queued AS (
-  SELECT q.id, q.next_run_at, q.turn FROM owners
-  CROSS JOIN LATERAL (
-    SELECT id, next_run_at, row_number() OVER (ORDER BY next_run_at, id) AS turn
-      FROM jobs
-     WHERE status = $1 AND organization_id = owners.id AND next_run_at <= $2
-       AND (lock_expires IS NULL OR lock_expires < $2) AND deleted_at IS NULL
-     ORDER BY next_run_at, id
-     LIMIT $3) AS q
-  UNION ALL
-  SELECT id, next_run_at, row_number() OVER (ORDER BY next_run_at, id) FROM (
-    SELECT id, next_run_at FROM jobs
-     WHERE status = $1 AND organization_id IS NULL AND next_run_at <= $2
-       AND (lock_expires IS NULL OR lock_expires < $2) AND deleted_at IS NULL
-     ORDER BY next_run_at, id
-     LIMIT $3) AS unowned
-)
-SELECT id, turn FROM queued ORDER BY turn, next_run_at, id LIMIT $3`
-
 // claimable reads the due jobs in one status whose lease is free, never taken
-// or expired, in the turns fairClaimable gives them, looking at the
+// or expired, in the turns model.FairClaimableJobs gives them, looking at the
 // organizations from the first at or after from.
 func claimable(ctx context.Context, ex runtime.Executor, status models.JobStatus, now time.Time, limit int, from uuid.UUID) ([]turnOf, error) {
-	rows, err := ex.Query(ctx, fairClaimable, []any{string(status), now, int64(limit), from, int64(claimOwnersPerRound)})
-	if err != nil {
+	due, err := model.FairClaimableJobs.Query(ctx, ex, string(status), now, int64(limit), from, int64(claimOwnersPerRound))
+	if err != nil || len(due) == 0 {
 		return nil, err
 	}
-	defer rows.Close()
-	var ids [][16]byte
-	turns := map[[16]byte]int64{}
-	for rows.Next() {
-		values := rows.RawValues()
-		if len(values) < 2 || len(values[0]) != len(uuid.UUID{}) {
-			return nil, errors.New("a claimable job's id is not 16 bytes")
-		}
-		var turn int64
-		if err := scanInt(values[1:2], &turn); err != nil {
-			return nil, err
-		}
-		id := [16]byte(values[0])
-		ids = append(ids, id)
-		turns[id] = turn
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if len(ids) == 0 {
-		return nil, nil
+	ids := make([][16]byte, len(due))
+	turns := make(map[[16]byte]int64, len(due))
+	for i, d := range due {
+		ids[i] = d.ID
+		turns[d.ID] = d.Turn
 	}
 	found, err := job.New().Where(job.ID.In(ids...)).All(ctx, ex, nil)
 	if err != nil {
@@ -437,27 +357,12 @@ func (r *jobRepository) organizationOf(ctx context.Context, ex runtime.Executor,
 	if uuid.UUID(j.InstanceID) == uuid.Nil {
 		return uuid.Nil, nil
 	}
-	rows, err := ex.Query(ctx, instanceOrganization, []any{uuid.UUID(j.InstanceID)})
+	found, _, err := model.InstanceOrganization.One(ctx, ex, uuid.UUID(j.InstanceID))
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("could not read whose work the job is: %w", err)
 	}
-	defer rows.Close()
-	organization := uuid.Nil
-	if rows.Next() {
-		if values := rows.RawValues(); len(values) > 0 && len(values[0]) == len(uuid.UUID{}) {
-			organization = uuid.UUID(values[0])
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return uuid.Nil, fmt.Errorf("could not read whose work the job is: %w", err)
-	}
-	return organization, nil
+	return uuid.UUID(found.OrganizationID), nil
 }
-
-// instanceOrganization is an instance's organization, through its project.
-// Both are in every database: an environment's has its own project's row.
-const instanceOrganization = `SELECT p.organization_id FROM process_instances AS i
-JOIN projects AS p ON p.id = i.project_id WHERE i.id = $1`
 
 // ListByInstance returns every job an instance has, soonest first.
 //
@@ -502,14 +407,9 @@ func (r *jobRepository) Lock(ctx context.Context, id uuid.UUID, lockDuration tim
 		return false, err
 	}
 	now := time.Now().UTC()
-	claimed, err := ex.Exec(ctx,
-		`UPDATE jobs SET status = $1, locked_by = $2, lock_expires = $3, updated_at = now(),
-		        retries = retries + CASE WHEN status = $1 THEN 1 ELSE 0 END
-		  WHERE id = $4 AND (status = $5 OR (status = $1 AND lock_expires < $6))`,
-		[]any{
-			string(models.JobRunning), workerID, now.Add(lockDuration),
-			id, string(models.JobPending), now,
-		})
+	claimed, err := model.LockJob.Exec(ctx, ex,
+		string(models.JobRunning), workerID, now.Add(lockDuration),
+		id, string(models.JobPending), now)
 	if err != nil {
 		return false, fmt.Errorf("could not lock the job: %w", err)
 	}

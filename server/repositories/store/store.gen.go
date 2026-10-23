@@ -56,6 +56,9 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/workflowgroupmembership"
 	"github.com/gsoultan/metis/server/repositories/store/workflowuser"
 	"github.com/gsoultan/storm/runtime"
+
+	"github.com/gsoultan/metis/server/repositories/model"
+	"github.com/gsoultan/storm"
 )
 
 // FlushOrder ranks tables so that every table's foreign-key targets rank
@@ -10116,4 +10119,85 @@ func (h WorkflowUserGroupsProbeQuery) Count(ctx context.Context, ex runtime.Exec
 		return 0, rows.Err()
 	}
 	return runtime.Int8(rows.RawValues()[0]), rows.Err()
+}
+
+// Raw-query scanners, registered by row type. The statements were
+// PREPAREd against the model at generate time; these decode their
+// results with no reflect and no `any`, exactly like a table scanner.
+//
+// RegisterStatement is the other half, and it is a security boundary:
+// a scanner is keyed by row type, so it would answer for ANY query
+// returning that type — including one assembled at run time. Only the
+// statements listed here run; see storm.RegisterStatement.
+func init() {
+	storm.RegisterScanner(scanClaimTurn)
+	storm.RegisterScanner(scanOrganizationOf)
+	storm.RegisterStatement(`DELETE FROM jobs WHERE ctid = ANY(ARRAY(
+     SELECT ctid FROM jobs
+      WHERE status = $1 AND next_run_at < $2 AND updated_at < $2
+      LIMIT $3))`)
+	storm.RegisterStatement(`DELETE FROM jobs WHERE ctid = ANY(ARRAY(
+     SELECT j.ctid FROM jobs j
+      WHERE j.status = $1 AND j.next_run_at < $2 AND j.updated_at < $2
+        AND NOT EXISTS (
+            SELECT 1 FROM incidents i WHERE i.job_id = j.id AND i.status <> $3)
+      LIMIT $4))`)
+	storm.RegisterStatement(`SELECT p.organization_id FROM process_instances AS i
+JOIN projects AS p ON p.id = i.project_id WHERE i.id = $1`)
+	storm.RegisterStatement(`UPDATE jobs SET status = $1, locked_by = $2, lock_expires = $3, updated_at = now(),
+        retries = retries + CASE WHEN status = $1 THEN 1 ELSE 0 END
+  WHERE id = $4 AND (status = $5 OR (status = $1 AND lock_expires < $6))`)
+	storm.RegisterStatement(`WITH RECURSIVE onward(id, n) AS (
+  (SELECT organization_id, 1 FROM jobs
+    WHERE status = $1 AND organization_id >= $4
+    ORDER BY organization_id LIMIT 1)
+  UNION ALL
+  SELECT (SELECT j.organization_id FROM jobs AS j
+           WHERE j.status = $1 AND j.organization_id > onward.id
+           ORDER BY j.organization_id LIMIT 1), onward.n + 1
+    FROM onward WHERE onward.id IS NOT NULL AND onward.n < $5
+), wrapped(id, n) AS (
+  (SELECT organization_id, 1 FROM jobs
+    WHERE status = $1 AND organization_id < $4
+    ORDER BY organization_id LIMIT 1)
+  UNION ALL
+  SELECT (SELECT j.organization_id FROM jobs AS j
+           WHERE j.status = $1 AND j.organization_id > wrapped.id AND j.organization_id < $4
+           ORDER BY j.organization_id LIMIT 1), wrapped.n + 1
+    FROM wrapped WHERE wrapped.id IS NOT NULL AND wrapped.n < $5
+), owners AS (
+  SELECT id FROM (
+    SELECT id FROM onward WHERE id IS NOT NULL
+    UNION ALL
+    SELECT id FROM wrapped WHERE id IS NOT NULL
+  ) AS found LIMIT $5
+), queued AS (
+  SELECT q.id, q.next_run_at, q.turn FROM owners
+  CROSS JOIN LATERAL (
+    SELECT id, next_run_at, row_number() OVER (ORDER BY next_run_at, id) AS turn
+      FROM jobs
+     WHERE status = $1 AND organization_id = owners.id AND next_run_at <= $2
+       AND (lock_expires IS NULL OR lock_expires < $2) AND deleted_at IS NULL
+     ORDER BY next_run_at, id
+     LIMIT $3) AS q
+  UNION ALL
+  SELECT id, next_run_at, row_number() OVER (ORDER BY next_run_at, id) FROM (
+    SELECT id, next_run_at FROM jobs
+     WHERE status = $1 AND organization_id IS NULL AND next_run_at <= $2
+       AND (lock_expires IS NULL OR lock_expires < $2) AND deleted_at IS NULL
+     ORDER BY next_run_at, id
+     LIMIT $3) AS unowned
+)
+SELECT id, turn FROM queued ORDER BY turn, next_run_at, id LIMIT $3`)
+}
+
+func scanClaimTurn(rv [][]byte, r *model.ClaimTurn, sl *runtime.Slab) error {
+	copy(r.ID[:], rv[0])
+	r.Turn = runtime.Int8(rv[1])
+	return nil
+}
+
+func scanOrganizationOf(rv [][]byte, r *model.OrganizationOf, sl *runtime.Slab) error {
+	copy(r.OrganizationID[:], rv[0])
+	return nil
 }
