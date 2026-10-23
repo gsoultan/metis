@@ -1024,6 +1024,13 @@ does not undo a migration.
 
 ### Changed
 
+- **The live event stream encodes an event only for somebody who can
+  receive it.** Every step of every instance raised an event that was encoded
+  twice, even on a replica with no browser open for that organization and no
+  bus to other replicas. Now an event nobody could receive costs about 0.1 µs
+  instead of 11 µs, and one that is delivered is encoded once. An event that
+  cannot be encoded is logged rather than dropped without a word.
+
 - **A service task runs as soon as the step before it commits.** Each one
   waited for the job worker's next poll, two seconds at the default
   `METIS_JOB_POLL_INTERVAL`, so three service tasks in a row took six seconds
