@@ -13,6 +13,7 @@ grows: a read p95 under **150ms**, a workflow action p95 under **500ms**, under
 | `tests/loadtest` | The same targets hold with production-shaped volume across tenants. It catches a plan that flips at scale, which ten rows cannot show. | On request: `METIS_LOADTEST=1 go test ./tests/loadtest/ -v -timeout 30m`, sized with `METIS_LOADTEST_INSTANCES` and `METIS_LOADTEST_TENANTS` |
 | `tests/loadtest`, concurrent writes | Many people completing work at once, on a process that splits into two approvals, joins, and calls a partner. Every instance finishes once, every task is completed once, nothing is left at the join, and the partner is called once per instance under its own key. A second submission of a completion is refused with a 400, and nothing else may fail. The action target is asserted; throughput is reported. | On request: `METIS_LOADTEST=1 go test ./tests/loadtest/ -run ConcurrentApprovals -v`, sized with `METIS_LOADTEST_WRITE_INSTANCES` (200) and `METIS_LOADTEST_WRITE_WORKERS` (16). `METIS_LOADTEST_SEED` replays an order of submissions |
 | `tests/loadtest`, tenant scope | One organization with 10,000 projects against one with 4, the same instances and tasks in each: the p95 of the reads a person opens the product with, how often each request reads its organization's project list, and what each request allocates. See *Tenant scope at ten thousand projects* below. | On request: `METIS_LOADTEST=1 go test ./tests/loadtest/ -run TenantScope -v`, sized with `METIS_LOADTEST_SCOPE_PROJECTS` (10,000) and `METIS_LOADTEST_SCOPE_INSTANCES` (5,000 per busy project) |
+| `cmd/metisload` | A running server, out of process, under 1,000 concurrent clients: each starts a request, finds its task, claims it, completes it and reads the instance list, then does it again. It reports throughput, the p50/p95/p99 of each call, what was shed, the server's resident memory, Go heap, CPU and connection-pool waits from its own metrics, and how much the database grew. See *A thousand concurrent clients* below. | On request, against a server that has been set up: `make load LOAD_ARGS="-password ... -dsn ..."` |
 | The metrics endpoint | Production: `metis_http_request_duration_seconds` has buckets on the 150ms and 500ms lines, plus the engine's backlog — the main database's and each environment's, labelled `environment` — and the connection pools. `metis_tenant_scope_reads_total` counts the reads of an organization's project list; against the request rate it is what each request pays for scoping. | Always, on its own port |
 | `deploy/grafana/metis-slo.json` | Availability and budget left over 30 days, burn rate, latency against the objectives, backlog, pools. | Import once |
 | `deploy/kubernetes/alerts.yaml` | Pages on the error budget's burn rate and on a backlog nobody is claiming. | With the rules loaded |
@@ -149,6 +150,69 @@ which changes how every query on the pool is planned; or give the tables a
 project owns an organization column, so the scope is one indexed equality with
 no list at all — a schema change and a backfill, in the main database and in
 every environment's.
+
+## A thousand concurrent clients
+
+`cmd/metisload` drives a real server over HTTP, so what it measures is what a
+client sees: the interceptor chain, JSON, the connection pool and the job
+worker running alongside. Each virtual user signs in as the same account, sends
+its own `X-Forwarded-For` (the rate limit is per address, and a load generator
+on one host is otherwise one very busy client), and retries a call the server
+shed after its `Retry-After`, as the UI and the SDK do. Every user starts at
+once; there is no ramp.
+
+```bash
+go run ./cmd/metisload -users 1000 -duration 60s -user admin -password admin \
+    -dsn 'postgres://metis:metis@localhost:5432/metis?sslmode=disable'
+```
+
+`-think 2s` puts a pause between a user's calls, which is closer to people; the
+default of none keeps every user's next call in flight at once, which is closer
+to an integration. `-metrics` is where the server's metrics are read from
+(`127.0.0.1:9464` by default), and `-dsn` is optional: without it storage is not
+measured.
+
+Measured 2026-10-23 on a 4 vCPU, 16 GB Linux VM, with PostgreSQL 16 and the
+generator on the same machine, default settings throughout:
+
+| Measured | 1,000 users | 100 users |
+| :--- | :--- | :--- |
+| Requests approved end to end | 128/s (640 API calls/s) | 135–157/s |
+| Start, p50 / p95 | 390ms / 532ms | 79–86ms / 135–152ms |
+| Complete, p50 / p95 | 371ms / 524ms | 85–91ms / 135–155ms |
+| Instance list, p50 / p95 | 608ms / 859ms | 283–337ms / 360–441ms |
+| Calls shed with 503 | 36,822, all retried | none |
+| Server resident memory, peak | 170 MiB (Go heap 91 MiB, 1,500 goroutines) | 120–130 MiB |
+| Server CPU | 1.2 cores; 9.6ms per approved request | 0.9 cores; 6.4–6.9ms |
+| Database growth | 12.8 KiB per approved request | |
+
+What that shows:
+
+- **The Go server is not the limit.** It used about one core of four and under
+  200 MiB at 1,000 concurrent clients. Under the same load PostgreSQL used
+  about 2.4 cores, and the machine was at 100%.
+- **More connections made it slower, not faster.** With the rate limit lifted
+  and 100 users, a pool of 25, 50 and 100 gave 140, 129 and 121 approvals a
+  second: the database was busy, and more connections only added contention.
+  Keep `METIS_DB_MAX_OPEN_CONNS` near the in-flight limit.
+- **The backpressure limit is the 1,000-client experience.** 128 running and
+  256 waiting is 384 admitted, so the rest are refused with a 503 and retry a
+  second later. `METIS_HTTP_MAX_QUEUED=1024` refused nothing in the same run
+  and served the same throughput (106/s against 101/s), with a start p95 of
+  4.8s instead of 0.8s. A deeper queue turns refusals into waiting; it does not
+  make more room. The defaults stay where they are.
+- **The instance list is the most expensive call, and it grows with the
+  project.** It was about 90% of the database's time: the page was read as
+  `project_id = ANY($1)`, which cannot use `ix_process_instances_project_created`
+  in order, and every page also counts the project's instances twice, once in
+  total and once by status. Both counts read every instance in the project, so
+  the list slows as the project fills, and with the page fixed the two counts
+  were still 100s of 116s of database time in a 30-second run at about 25,000
+  instances. That store is being reworked, and this is the number to rerun.
+- **Storage is about 10 KiB per finished three-step instance**, most of it the
+  audit trail (eight rows, about 2.7 KiB), then variable snapshots (three rows),
+  the task, the instance and two notifications. `broadcast_events` adds about
+  1.5 KiB per live update while it is kept, and is pruned.
 
 ## Decisions that were measured
 

@@ -182,6 +182,19 @@ alerts-test: ## Unit-test the Prometheus alerting rules (needs promtool on PATH)
 	@sed 's|/tmp/rules.yaml|/tmp/metis-rules.yaml|' deploy/kubernetes/alerts_test.yaml > /tmp/metis-alerts-test.yaml
 	promtool test rules /tmp/metis-alerts-test.yaml
 
+# Put a running server under concurrent load and report what it cost. Not part
+# of the gate: it needs a server that has been set up, and what it measures is
+# the machine as much as the code. docs/performance.md has the last run.
+#
+#   make load LOAD_ARGS="-password admin -dsn postgres://..."
+LOAD_USERS ?= 1000
+LOAD_DURATION ?= 60s
+LOAD_ARGS ?=
+
+.PHONY: load
+load: ## Load-test a running server with 1,000 concurrent clients (see docs/performance.md)
+	go run ./cmd/metisload -users $(LOAD_USERS) -duration $(LOAD_DURATION) $(LOAD_ARGS)
+
 .PHONY: graph
 graph: ## Refresh the graphify knowledge graph
 	rtk graphify update .
