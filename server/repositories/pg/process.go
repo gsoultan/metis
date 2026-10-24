@@ -199,6 +199,25 @@ func (r *processRepository) ScanByStatus(ctx context.Context, status models.Proc
 	return nil
 }
 
+func (r *processRepository) ListPageOfTotal(ctx context.Context, projectID uuid.UUID, f contracts.InstanceFilter, p contracts.Pagination, total int64) (contracts.Page[models.ProcessInstanceModel], error) {
+	if f.NeedsAttention {
+		if projectID == uuid.Nil {
+			return r.ListPaged(ctx, f, p)
+		}
+		return r.ListByProjectPaged(ctx, projectID, f, p)
+	}
+	var scoped []uuid.UUID
+	if projectID != uuid.Nil {
+		var visible bool
+		var err error
+		scoped, visible, err = r.scopedProjects(ctx, projectID)
+		if err != nil || !visible {
+			return contracts.NewPage([]models.ProcessInstanceModel{}, 0, p), err
+		}
+	}
+	return r.paged(ctx, scoped, f, nil, p, &total)
+}
+
 func (r *processRepository) ListPaged(ctx context.Context, f contracts.InstanceFilter, p contracts.Pagination) (contracts.Page[models.ProcessInstanceModel], error) {
 	return r.pagedWithAttention(ctx, uuid.Nil, nil, f, p)
 }
@@ -225,7 +244,7 @@ func (r *processRepository) pagedWithAttention(
 	p contracts.Pagination,
 ) (contracts.Page[models.ProcessInstanceModel], error) {
 	if !f.NeedsAttention {
-		return r.paged(ctx, scoped, f, nil, p)
+		return r.paged(ctx, scoped, f, nil, p, nil)
 	}
 	ids, _, err := r.InstancesNeedingAttention(ctx, projectID, f, contracts.AttentionLimit)
 	if err != nil {
@@ -237,7 +256,7 @@ func (r *processRepository) pagedWithAttention(
 	if len(ids) == 0 {
 		return contracts.NewPage([]models.ProcessInstanceModel{}, 0, p), nil
 	}
-	return r.paged(ctx, scoped, f, ids, p)
+	return r.paged(ctx, scoped, f, ids, p, nil)
 }
 
 // filterPreds turns a caller's filter into predicates.
@@ -639,7 +658,10 @@ func (r *processRepository) list(ctx context.Context, scoped []uuid.UUID, preds 
 	return instancesFrom(ctx, rows)
 }
 
-func (r *processRepository) paged(ctx context.Context, scoped []uuid.UUID, f contracts.InstanceFilter, only []uuid.UUID, p contracts.Pagination) (contracts.Page[models.ProcessInstanceModel], error) {
+// paged reads one page. known is the total when the caller counted it already;
+// nil counts it here. A known total of nothing, or a page past it, reads no
+// rows: there are none to read.
+func (r *processRepository) paged(ctx context.Context, scoped []uuid.UUID, f contracts.InstanceFilter, only []uuid.UUID, p contracts.Pagination, known *int64) (contracts.Page[models.ProcessInstanceModel], error) {
 	empty := contracts.NewPage([]models.ProcessInstanceModel{}, 0, p)
 	preds := filterPreds(f)
 	if only != nil {
@@ -653,8 +675,13 @@ func (r *processRepository) paged(ctx context.Context, scoped []uuid.UUID, f con
 	if err != nil {
 		return empty, err
 	}
-	total, err := q.Count(ctx, ex)
-	if err != nil {
+	var total int64
+	if known != nil {
+		total = *known
+		if int64(p.Offset()) >= total {
+			return contracts.NewPage([]models.ProcessInstanceModel{}, total, p), nil
+		}
+	} else if total, err = q.Count(ctx, ex); err != nil {
 		return empty, fmt.Errorf("could not count process instances: %w", err)
 	}
 	n := p.Normalize()

@@ -1169,6 +1169,64 @@ func (e *Engine) ListInstancesPaged(ctx context.Context, projectID uuid.UUID, fi
 	return repocontracts.NewPage(instances, result.Total, page), nil
 }
 
+// ListInstancesCounted reads the status counts first, and then the page.
+//
+// The list asks for both on every request, and both read every instance the
+// filter matches: under load they were most of the database's time. When the
+// counts are over the same instances as the page, the page's total is one of
+// them, or their sum, and is not counted a second time. That holds when the
+// counts drop only the page's status, and the page asks for nothing the
+// counts cannot see: neither a business key nor "needs attention".
+func (e *Engine) ListInstancesCounted(
+	ctx context.Context,
+	projectID uuid.UUID,
+	filter, countFilter repocontracts.InstanceFilter,
+	page repocontracts.Pagination,
+) (repocontracts.Page[entities.ProcessInstance], map[models.ProcessStatus]int64, error) {
+	counts, err := e.repo.Process().CountByStatuses(ctx, projectID, countFilter)
+	if err != nil {
+		return repocontracts.Page[entities.ProcessInstance]{}, nil, err
+	}
+	var result repocontracts.Page[models.ProcessInstanceModel]
+	if total, ok := totalFromCounts(filter, countFilter, counts); ok {
+		result, err = e.repo.Process().ListPageOfTotal(ctx, projectID, filter, page, total)
+	} else if projectID != uuid.Nil {
+		result, err = e.repo.Process().ListByProjectPaged(ctx, projectID, filter, page)
+	} else {
+		result, err = e.repo.Process().ListPaged(ctx, filter, page)
+	}
+	if err != nil {
+		return repocontracts.Page[entities.ProcessInstance]{}, nil, err
+	}
+	instances := make([]entities.ProcessInstance, len(result.Items))
+	for i, m := range result.Items {
+		instances[i] = adapters.InstanceEntityAdapter{Model: m}.ToEntity()
+	}
+	return repocontracts.NewPage(instances, result.Total, page), counts, nil
+}
+
+// totalFromCounts is how many instances filter matches, read off the status
+// counts of the instances countFilter matches, when they say.
+//
+// CountByStatuses applies the definition and the status and nothing else, so
+// the two filters have to agree on the definition, the counts must not have
+// been narrowed to a status, and the page must ask for no business key and not
+// for "needs attention".
+func totalFromCounts(filter, countFilter repocontracts.InstanceFilter, counts map[models.ProcessStatus]int64) (int64, bool) {
+	if filter.NeedsAttention || filter.BusinessKey != "" ||
+		countFilter.Status != "" || countFilter.DefinitionID != filter.DefinitionID {
+		return 0, false
+	}
+	if filter.Status != "" {
+		return counts[filter.Status], true
+	}
+	var total int64
+	for _, n := range counts {
+		total += n
+	}
+	return total, true
+}
+
 // CountInstancesByStatus reports the project's instances per lifecycle state.
 func (e *Engine) CountInstancesByStatus(ctx context.Context, projectID uuid.UUID, filter repocontracts.InstanceFilter) (map[models.ProcessStatus]int64, error) {
 	return e.repo.Process().CountByStatuses(ctx, projectID, filter)

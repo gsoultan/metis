@@ -95,14 +95,6 @@ func MakeListInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			return ListInstancesResponse{Err: filterErr}, nil
 		}
 
-		page, pageErr := s.ListInstancesPaged(ctx, projectID, filter, repocontracts.Pagination{
-			Page:     req.Page,
-			PageSize: req.PageSize,
-		})
-		if pageErr != nil {
-			return ListInstancesResponse{Err: pageErr}, nil
-		}
-
 		// Counted on every page rather than only the first. A caller that jumps
 		// to page nine still needs to know what it is nine pages into, and the
 		// grouped count runs off the same index the page itself walks.
@@ -117,9 +109,12 @@ func MakeListInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		countFilter := filter
 		countFilter.Status = ""
 		countFilter.NeedsAttention = false
-		counts, countErr := s.CountInstancesByStatus(ctx, projectID, countFilter)
-		if countErr != nil {
-			return ListInstancesResponse{Err: countErr}, nil
+		page, counts, pageErr := s.ListInstancesCounted(ctx, projectID, filter, countFilter, repocontracts.Pagination{
+			Page:     req.Page,
+			PageSize: req.PageSize,
+		})
+		if pageErr != nil {
+			return ListInstancesResponse{Err: pageErr}, nil
 		}
 
 		// Which of these are waiting on a person, and how many are project-wide.
