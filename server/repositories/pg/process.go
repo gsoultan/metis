@@ -3,7 +3,9 @@ package pg
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -83,17 +85,22 @@ func (r *processRepository) GetForUpdate(ctx context.Context, id uuid.UUID) (mod
 	return instanceFrom(ctx, row)
 }
 
+// Update writes an instance's state over the row it names.
+//
+// The caller's scope is checked by asking whether the row is there for it to
+// see, not by reading the row: the update writes every column it needs from m
+// and addresses the row by id alone, so the variables and tokens a read would
+// fetch, often the largest values in the table, were read only to be dropped.
 func (r *processRepository) Update(ctx context.Context, m models.ProcessInstanceModel) error {
 	id := uuid.UUID(m.ID)
-	row, err := r.one(ctx, id, false)
-	if err != nil {
+	if err := r.inScope(ctx, id); err != nil {
 		return err
 	}
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return err
 	}
-	mut := processinstance.Mutate(row)
+	mut := processinstance.MutateKey(id)
 	mut.SetStatus(string(m.Status))
 	mut.SetDefinitionID(uuid.UUID(m.DefinitionID))
 	if m.ParentInstanceID != nil {
@@ -107,6 +114,11 @@ func (r *processRepository) Update(ctx context.Context, m models.ProcessInstance
 		return err
 	}
 	if err := mut.Update(ctx, ex); err != nil {
+		// Gone between the check and the write, or never there for a caller
+		// whose scope the check did not need to narrow.
+		if errors.Is(err, runtime.ErrNoRow) {
+			return fmt.Errorf("%w: no such process instance", apierr.ErrNotFound)
+		}
 		return fmt.Errorf("could not update the process instance: %w", err)
 	}
 	return nil
@@ -268,7 +280,7 @@ func (r *processRepository) CountByStatus(ctx context.Context, projectID uuid.UU
 		q = q.Where(processinstance.Status.Eq(string(status)))
 	}
 	if scoped != nil {
-		q = q.Where(processinstance.ProjectID.In(uuidsToRaw(scoped)...))
+		q = q.Where(instanceInProjects(scoped))
 	}
 	total, err := q.Count(ctx, ex)
 	if err != nil {
@@ -306,8 +318,7 @@ func (r *processRepository) OpenIncidentsByInstance(ctx context.Context, instanc
 	             AND i.instance_id = ANY($2)`
 	args := []any{string(models.IncidentOpen), uuidsToRaw(instanceIDs)}
 	if scoped != nil {
-		args = append(args, uuidsToRaw(scoped))
-		query += fmt.Sprintf(" AND p.project_id = ANY($%d)", len(args))
+		query, args = rawInProjects(query, args, "p.project_id", scoped)
 	}
 	query += " GROUP BY i.instance_id"
 
@@ -413,8 +424,7 @@ func needsAttentionQuery(selectList string, scoped []uuid.UUID, f contracts.Inst
 	             AND p.deleted_at IS NULL`
 	args := []any{string(models.IncidentOpen)}
 	if scoped != nil {
-		args = append(args, uuidsToRaw(scoped))
-		query += fmt.Sprintf(" AND p.project_id = ANY($%d)", len(args))
+		query, args = rawInProjects(query, args, "p.project_id", scoped)
 	}
 	if f.DefinitionID != uuid.Nil {
 		args = append(args, f.DefinitionID[:])
@@ -431,9 +441,8 @@ func needsAttentionQuery(selectList string, scoped []uuid.UUID, f contracts.Inst
 //
 // One grouped query rather than one Count per state: the list offers a filter
 // chip for every state a project has, and four round trips to draw four numbers
-// is three more than the page needs. Raw SQL for the same reason as
-// CountInstancesByDefinitions — a GROUP BY reaches the generated store only
-// through a declared aggregate, and this is a report, not part of the schema.
+// is three more than the page needs. The grouping is the model's ByStatus
+// aggregate; the scope and the filter are predicates on it.
 //
 // The whole filter is applied, Status included. A caller drawing one chip per
 // state clears it first; see the note on the contract.
@@ -448,44 +457,27 @@ func (r *processRepository) CountByStatuses(ctx context.Context, projectID uuid.
 		return nil, err
 	}
 
-	query := `SELECT status, COUNT(*) AS total FROM process_instances WHERE deleted_at IS NULL`
-	args := []any{}
+	preds := []processinstance.Pred{}
 	// nil means "do not filter at all" — only system work asking about every
-	// project reaches that. Passing an empty list to `= ANY($1)` instead would
-	// match no row and report a working counter with nothing in it, which is the
-	// opposite answer.
+	// project reaches that. An empty list instead would match no row and report
+	// a working counter with nothing in it, which is the opposite answer.
 	if scoped != nil {
-		args = append(args, uuidsToRaw(scoped))
-		query += fmt.Sprintf(" AND project_id = ANY($%d)", len(args))
+		preds = append(preds, instanceInProjects(scoped))
 	}
 	if f.DefinitionID != uuid.Nil {
-		args = append(args, f.DefinitionID[:])
-		query += fmt.Sprintf(" AND definition_id = $%d", len(args))
+		preds = append(preds, processinstance.DefinitionID.Eq(f.DefinitionID))
 	}
 	if f.Status != "" {
-		args = append(args, string(f.Status))
-		query += fmt.Sprintf(" AND status = $%d", len(args))
+		preds = append(preds, processinstance.Status.Eq(string(f.Status)))
 	}
-	query += " GROUP BY status"
-
-	rows, err := ex.Query(ctx, query, args)
+	// Every group: there is one per state, and the store's default bound is
+	// for rows, not for these.
+	groups, err := processinstance.New().Where(preds...).Limit(math.MaxInt64).AllByStatus(ctx, ex)
 	if err != nil {
 		return nil, fmt.Errorf("could not count process instances by status: %w", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		values := rows.RawValues()
-		if len(values) < 2 {
-			continue
-		}
-		var total int64
-		if err := scanInt(values[1:], &total); err != nil {
-			return nil, err
-		}
-		counts[models.ProcessStatus(values[0])] += total
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("could not count process instances by status: %w", err)
+	for _, g := range groups {
+		counts[models.ProcessStatus(g.Status)] += g.Total
 	}
 	return counts, nil
 }
@@ -494,10 +486,8 @@ func (r *processRepository) CountByStatuses(ctx context.Context, projectID uuid.
 //
 // One grouped query rather than one per definition: the version history page
 // asks about every version of a key at once, and a query per row is how a list
-// of twenty becomes twenty-one round trips. Raw SQL because it is a GROUP BY,
-// which the generated store reaches only through a declared aggregate — and
-// declaring one in the model layer to serve a single page would put a report in
-// the schema.
+// of twenty becomes twenty-one round trips. The grouping is the model's
+// ByDefinitionAndStatus aggregate.
 func (r *processRepository) CountInstancesByDefinitions(ctx context.Context, definitionIDs []uuid.UUID) (map[uuid.UUID]contracts.DefinitionInstanceCount, error) {
 	counts := make(map[uuid.UUID]contracts.DefinitionInstanceCount, len(definitionIDs))
 	if len(definitionIDs) == 0 {
@@ -515,44 +505,26 @@ func (r *processRepository) CountInstancesByDefinitions(ctx context.Context, def
 		return nil, err
 	}
 
-	query := `SELECT definition_id, status, COUNT(*) AS total
-	            FROM process_instances
-	           WHERE deleted_at IS NULL AND definition_id = ANY($1)`
-	args := []any{uuidsToRaw(definitionIDs)}
+	q := processinstance.New().Where(processinstance.DefinitionID.In(uuidsToRaw(definitionIDs)...))
 	if !scope.unrestricted() {
-		query += " AND project_id = ANY($2)"
-		args = append(args, uuidsToRaw(scope.projects))
+		q = q.Where(instanceInProjects(scope.projects))
 	}
-	query += " GROUP BY definition_id, status"
-
-	rows, err := ex.Query(ctx, query, args)
+	// Every group: at most one per version and state, and the store's default
+	// bound is for rows, not for these.
+	groups, err := q.Limit(math.MaxInt64).AllByDefinitionAndStatus(ctx, ex)
 	if err != nil {
 		return nil, fmt.Errorf("could not count instances by definition: %w", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		values := rows.RawValues()
-		if len(values) < 3 {
-			continue
-		}
-		var definitionID uuid.UUID
-		copy(definitionID[:], values[0])
-		var total int64
-		if err := scanInt(values[2:], &total); err != nil {
-			return nil, err
-		}
-		count := counts[definitionID]
-		count.Total += total
-		switch models.ProcessStatus(values[1]) {
+	for _, g := range groups {
+		count := counts[g.DefinitionID]
+		count.Total += g.Total
+		switch models.ProcessStatus(g.Status) {
 		case models.ProcessActive:
-			count.Running += total
+			count.Running += g.Total
 		case models.ProcessSuspended:
-			count.Suspended += total
+			count.Suspended += g.Total
 		}
-		counts[definitionID] = count
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("could not count instances by definition: %w", err)
+		counts[g.DefinitionID] = count
 	}
 	return counts, nil
 }
@@ -572,7 +544,7 @@ func (r *processRepository) one(ctx context.Context, id uuid.UUID, forUpdate boo
 		if len(scope.projects) == 0 {
 			return processinstance.Row{}, fmt.Errorf("%w: no such process instance", apierr.ErrNotFound)
 		}
-		q = q.Where(processinstance.ProjectID.In(uuidsToRaw(scope.projects)...))
+		q = q.Where(instanceInProjects(scope.projects))
 	}
 	if forUpdate {
 		q = q.ForUpdate()
@@ -585,6 +557,63 @@ func (r *processRepository) one(ctx context.Context, id uuid.UUID, forUpdate boo
 		return processinstance.Row{}, fmt.Errorf("%w: no such process instance", apierr.ErrNotFound)
 	}
 	return row, nil
+}
+
+// inScope reports whether the caller may see the instance, reading nothing of
+// it. A caller who may see every project is not asked: the write that follows
+// finds no row for an id that is not there, and says so.
+func (r *processRepository) inScope(ctx context.Context, id uuid.UUID) error {
+	scope, err := r.scopeOf(ctx)
+	if err != nil {
+		return err
+	}
+	if scope.unrestricted() {
+		return nil
+	}
+	if len(scope.projects) == 0 {
+		return fmt.Errorf("%w: no such process instance", apierr.ErrNotFound)
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return err
+	}
+	found, err := processinstance.New().
+		Where(processinstance.ID.Eq(id), instanceInProjects(scope.projects)).
+		Exists(ctx, ex)
+	if err != nil {
+		return fmt.Errorf("could not read the process instance: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("%w: no such process instance", apierr.ErrNotFound)
+	}
+	return nil
+}
+
+// instanceInProjects is the tenant predicate: the instance belongs to one of
+// these projects.
+//
+// One project is said as an equality rather than as a list of one. The page
+// of a project's instances is read from ix_process_instances_project_created,
+// already in the order it asks for, and only an equality lets the planner use
+// that order: `project_id = ANY($1)` is a list of any length to a prepared
+// statement, so it reads every instance and sorts them. The counts beside the
+// page gain the same way. See inProjects for tasks.
+func instanceInProjects(ids []uuid.UUID) processinstance.Pred {
+	if len(ids) == 1 {
+		return processinstance.ProjectID.Eq(ids[0])
+	}
+	return processinstance.ProjectID.In(uuidsToRaw(ids)...)
+}
+
+// rawInProjects is instanceInProjects for the statements still written as
+// SQL here: column is in ids, as an equality when there is one.
+func rawInProjects(query string, args []any, column string, ids []uuid.UUID) (string, []any) {
+	if len(ids) == 1 {
+		args = append(args, ids[0][:])
+		return query + fmt.Sprintf(" AND %s = $%d", column, len(args)), args
+	}
+	args = append(args, uuidsToRaw(ids))
+	return query + fmt.Sprintf(" AND %s = ANY($%d)", column, len(args)), args
 }
 
 // list returns every instance matching, newest first.
@@ -656,12 +685,12 @@ func (r *processRepository) scopedQuery(ctx context.Context, scoped []uuid.UUID,
 	q := processinstance.New().Where(preds...)
 	switch {
 	case scoped != nil:
-		q = q.Where(processinstance.ProjectID.In(uuidsToRaw(scoped)...))
+		q = q.Where(instanceInProjects(scoped))
 	case !scope.unrestricted():
 		if len(scope.projects) == 0 {
 			return processinstance.Query{}, false, nil
 		}
-		q = q.Where(processinstance.ProjectID.In(uuidsToRaw(scope.projects)...))
+		q = q.Where(instanceInProjects(scope.projects))
 	}
 	return q, true, nil
 }
@@ -794,8 +823,7 @@ func (r *processRepository) WaitingByStep(ctx context.Context, projectID uuid.UU
 	             AND COALESCE(t->>'status', '') <> $3`
 	args := []any{string(models.ProcessActive), string(models.ProcessSuspended), string(models.TokenCompleted)}
 	if scoped != nil {
-		args = append(args, uuidsToRaw(scoped))
-		query += fmt.Sprintf(" AND p.project_id = ANY($%d)", len(args))
+		query, args = rawInProjects(query, args, "p.project_id", scoped)
 	}
 	query += ` GROUP BY GROUPING SETS ((d.key, t->>'node_id'), (d.key))`
 

@@ -70,3 +70,18 @@ func (i *ProcessInstance) Schema(t *storm.Table) {
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&i.DeletedAt)
 }
+
+// Aggregates are the counts the instance list and the version history show.
+// The grouping is fixed here; the scope and filters are still the caller's
+// predicates.
+func (i *ProcessInstance) Aggregates(a *storm.Aggregates) {
+	// How many instances are in each state: one filter chip per state.
+	byStatus := a.Named("ByStatus")
+	byStatus.By(&i.Status)
+	byStatus.Count("Total")
+
+	// How much work each version carries, split by state.
+	byDefinition := a.Named("ByDefinitionAndStatus")
+	byDefinition.By(&i.Definition, &i.Status)
+	byDefinition.Count("Total")
+}

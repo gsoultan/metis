@@ -10132,6 +10132,8 @@ func (h WorkflowUserGroupsProbeQuery) Count(ctx context.Context, ex runtime.Exec
 func init() {
 	storm.RegisterScanner(scanClaimTurn)
 	storm.RegisterScanner(scanOrganizationOf)
+	storm.RegisterScanner(scanPeriodDays)
+	storm.RegisterScanner(scanInstanceID)
 	storm.RegisterStatement(`DELETE FROM jobs WHERE ctid = ANY(ARRAY(
      SELECT ctid FROM jobs
       WHERE status = $1 AND next_run_at < $2 AND updated_at < $2
@@ -10142,11 +10144,64 @@ func init() {
         AND NOT EXISTS (
             SELECT 1 FROM incidents i WHERE i.job_id = j.id AND i.status <> $3)
       LIMIT $4))`)
+	storm.RegisterStatement(`SELECT id FROM process_instances WHERE id = ANY($1::uuid[])`)
+	storm.RegisterStatement(`SELECT min(days) AS days FROM (
+	SELECT DISTINCT ON (project_id, process_key) days FROM retention_periods
+	 ORDER BY project_id, process_key, created_at DESC, id DESC
+) newest`)
 	storm.RegisterStatement(`SELECT p.organization_id FROM process_instances AS i
 JOIN projects AS p ON p.id = i.project_id WHERE i.id = $1`)
 	storm.RegisterStatement(`UPDATE jobs SET status = $1, locked_by = $2, lock_expires = $3, updated_at = now(),
         retries = retries + CASE WHEN status = $1 THEN 1 ELSE 0 END
   WHERE id = $4 AND (status = $5 OR (status = $1 AND lock_expires < $6))`)
+	storm.RegisterStatement(`WITH RECURSIVE held_up AS (
+	SELECT h.instance_id AS id FROM retention_holds h
+	UNION
+	SELECT p.parent_instance_id FROM process_instances p JOIN held_up u ON p.id = u.id
+	 WHERE p.parent_instance_id IS NOT NULL
+), held AS (
+	SELECT id FROM held_up
+	UNION
+	SELECT c.id FROM process_instances c JOIN held t ON c.parent_instance_id = t.id
+), doomed AS (
+	SELECT pi.id FROM process_instances pi
+	 WHERE pi.status = ANY($1) AND pi.updated_at < $2
+	   AND pi.updated_at < $5::timestamptz - make_interval(days => COALESCE((
+	         SELECT rp.days FROM retention_periods rp
+	           JOIN process_definitions d ON d.id = pi.definition_id
+	          WHERE rp.project_id = pi.project_id AND rp.process_key = d.key
+	          ORDER BY rp.created_at DESC, rp.id DESC
+	          LIMIT 1), $6::int))
+	   AND NOT EXISTS (SELECT 1 FROM held WHERE held.id = pi.id)
+	   AND NOT EXISTS (SELECT 1 FROM instance_deviations d WHERE d.instance_id = pi.id)
+	   AND NOT EXISTS (SELECT 1 FROM deviation_requests r WHERE r.instance_id = pi.id)
+	   AND NOT EXISTS (SELECT 1 FROM incidents i WHERE i.instance_id = pi.id AND i.status <> $3)
+	   AND NOT EXISTS (SELECT 1 FROM process_instances c
+	                    WHERE c.parent_instance_id = pi.id AND NOT (c.status = ANY($1)))
+	   AND NOT EXISTS (SELECT 1 FROM process_instances p
+	                    WHERE p.id = pi.parent_instance_id AND NOT (p.status = ANY($1)))
+	 LIMIT $4
+	 FOR UPDATE SKIP LOCKED
+), tasks_gone AS (
+	DELETE FROM tasks WHERE instance_id IN (SELECT id FROM doomed)
+), jobs_gone AS (
+	DELETE FROM jobs WHERE instance_id IN (SELECT id FROM doomed)
+), external_tasks_gone AS (
+	DELETE FROM external_tasks WHERE instance_id IN (SELECT id FROM doomed)
+), service_calls_gone AS (
+	DELETE FROM service_calls WHERE instance_id IN (SELECT id FROM doomed)
+), incidents_gone AS (
+	DELETE FROM incidents WHERE instance_id IN (SELECT id FROM doomed)
+), subscriptions_gone AS (
+	DELETE FROM event_subscriptions WHERE instance_id IN (SELECT id FROM doomed)
+), compensations_gone AS (
+	DELETE FROM compensatable_activities WHERE instance_id IN (SELECT id FROM doomed)
+), snapshots_gone AS (
+	DELETE FROM variable_snapshots WHERE instance_id IN (SELECT id FROM doomed)
+), notifications_gone AS (
+	DELETE FROM notifications WHERE instance_id IN (SELECT id FROM doomed)
+)
+DELETE FROM process_instances WHERE id IN (SELECT id FROM doomed)`)
 	storm.RegisterStatement(`WITH RECURSIVE onward(id, n) AS (
   (SELECT organization_id, 1 FROM jobs
     WHERE status = $1 AND organization_id >= $4
@@ -10199,5 +10254,15 @@ func scanClaimTurn(rv [][]byte, r *model.ClaimTurn, sl *runtime.Slab) error {
 
 func scanOrganizationOf(rv [][]byte, r *model.OrganizationOf, sl *runtime.Slab) error {
 	copy(r.OrganizationID[:], rv[0])
+	return nil
+}
+
+func scanPeriodDays(rv [][]byte, r *model.PeriodDays, sl *runtime.Slab) error {
+	r.Days = runtime.Nullable(rv[0], runtime.Int4)
+	return nil
+}
+
+func scanInstanceID(rv [][]byte, r *model.InstanceID, sl *runtime.Slab) error {
+	copy(r.ID[:], rv[0])
 	return nil
 }
