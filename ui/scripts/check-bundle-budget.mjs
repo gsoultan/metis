@@ -31,8 +31,12 @@ const DIST = new URL('../dist/', import.meta.url).pathname;
 
 const BUDGETS = {
   /** Everything index.html pulls in before the app can paint. Linux measures
-   *  330.9; macOS 328.5. */
-  initialTotal: 336,
+   *  330.9; macOS 328.5. Raised from 336 when zod went from 4.3.6 to 4.6.6
+   *  for GHSA-mrhx-c7xc-m3w5 (memory exhaustion validating oversized
+   *  collections): the form validation in the first paint grew by 7.1 kB, to
+   *  339.4 here, and a security fix is not something to defer behind a
+   *  lazy route. */
+  initialTotal: 344,
   /** The single largest eager chunk, to catch one dependency swallowing the
    *  app. Linux measures 108.8; macOS 108.0. */
   largestChunk: 112,

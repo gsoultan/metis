@@ -203,21 +203,13 @@ func TestListInstancesReportsStatusCountsInAStableOrder(t *testing.T) {
 // value that looks like a pass.
 type stubFacade struct{ services.ServiceFacade }
 
-func (stubFacade) ListInstancesPaged(
+func (stubFacade) ListInstancesCounted(
 	_ context.Context,
 	_ uuid.UUID,
-	_ repocontracts.InstanceFilter,
+	_, _ repocontracts.InstanceFilter,
 	page repocontracts.Pagination,
-) (repocontracts.Page[entities.ProcessInstance], error) {
-	return repocontracts.NewPage([]entities.ProcessInstance{}, 0, page), nil
-}
-
-func (stubFacade) CountInstancesByStatus(
-	_ context.Context,
-	_ uuid.UUID,
-	_ repocontracts.InstanceFilter,
-) (map[models.ProcessStatus]int64, error) {
-	return map[models.ProcessStatus]int64{}, nil
+) (repocontracts.Page[entities.ProcessInstance], map[models.ProcessStatus]int64, error) {
+	return repocontracts.NewPage([]entities.ProcessInstance{}, 0, page), map[models.ProcessStatus]int64{}, nil
 }
 
 func (stubFacade) InstanceAttention(
@@ -238,23 +230,14 @@ type recordingFacade struct {
 	counts          map[models.ProcessStatus]int64
 }
 
-func (f *recordingFacade) ListInstancesPaged(
+func (f *recordingFacade) ListInstancesCounted(
 	_ context.Context,
 	_ uuid.UUID,
-	filter repocontracts.InstanceFilter,
+	filter, countFilter repocontracts.InstanceFilter,
 	page repocontracts.Pagination,
-) (repocontracts.Page[entities.ProcessInstance], error) {
-	f.listed = filter
-	return repocontracts.NewPage([]entities.ProcessInstance{}, 0, page), nil
-}
-
-func (f *recordingFacade) CountInstancesByStatus(
-	_ context.Context,
-	_ uuid.UUID,
-	filter repocontracts.InstanceFilter,
-) (map[models.ProcessStatus]int64, error) {
-	f.counted = filter
-	return f.counts, nil
+) (repocontracts.Page[entities.ProcessInstance], map[models.ProcessStatus]int64, error) {
+	f.listed, f.counted = filter, countFilter
+	return repocontracts.NewPage([]entities.ProcessInstance{}, 0, page), f.counts, nil
 }
 
 func (f *recordingFacade) InstanceAttention(
