@@ -207,22 +207,17 @@ func (r *notificationRepository) MarkAllAsRead(ctx context.Context, userID strin
 	if err != nil {
 		return err
 	}
-	if scope.unrestricted() {
-		if _, err := ex.Exec(ctx,
-			"UPDATE notifications SET is_read = true, updated_at = now() WHERE user_id = $1 AND is_read = false",
-			[]any{userID}); err != nil {
-			return fmt.Errorf("could not mark the notifications read: %w", err)
-		}
-		return nil
+	q := notification.New().Where(notification.UserID.Eq(userID), notification.IsRead.Eq(false))
+	if !scope.unrestricted() {
+		// Scoped, because one person can hold the same user id in two
+		// organizations: clearing their inbox here must not clear the other
+		// one. A notification with no project is theirs wherever they are.
+		q = q.Any(notification.ProjectID.IsNull(), notification.ProjectID.In(uuidsToRaw(scope.projects)...))
 	}
-	// Scoped, because one person can hold the same user id in two
-	// organizations: clearing their inbox here must not clear the other one.
-	// A notification with no project is theirs wherever they are.
-	if _, err := ex.Exec(ctx,
-		`UPDATE notifications SET is_read = true, updated_at = now()
-		  WHERE user_id = $1 AND is_read = false
-		    AND (project_id IS NULL OR project_id = ANY($2))`,
-		[]any{userID, uuidsToRaw(scope.projects)}); err != nil {
+	var read notification.Mut
+	read.SetIsRead(true)
+	read.SetUpdatedAtNow()
+	if _, err := q.UpdateAll(ctx, ex, read); err != nil {
 		return fmt.Errorf("could not mark the notifications read: %w", err)
 	}
 	return nil

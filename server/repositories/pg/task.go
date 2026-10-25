@@ -399,9 +399,12 @@ func (r *taskRepository) RenameFinishedStep(ctx context.Context, id uuid.UUID, n
 	if err != nil {
 		return false, err
 	}
-	renamed, err := ex.Exec(ctx,
-		`UPDATE tasks SET node_id = $1 WHERE id = $2 AND status IN ($3, $4) AND deleted_at IS NULL`,
-		[]any{nodeID, id, string(models.TaskCompleted), string(models.TaskCanceled)})
+	var step task.Mut
+	step.SetNodeID(nodeID)
+	renamed, err := task.New().Where(
+		task.ID.Eq(id),
+		task.Status.In(string(models.TaskCompleted), string(models.TaskCanceled)),
+	).UpdateAll(ctx, ex, step)
 	if err != nil {
 		return false, fmt.Errorf("could not rename the finished task's step: %w", err)
 	}
