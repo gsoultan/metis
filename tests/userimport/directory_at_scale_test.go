@@ -41,7 +41,7 @@ func TestASyncDeactivatesEverybodyTheSourceStopsNaming(t *testing.T) {
 	defer source.Close()
 
 	sync, people, projectID := syncFixture(t)
-	ctx := t.Context()
+	ctx := system(t)
 	seedPeople(t, ctx, projectID, peopleAhead, "zz-leaver")
 
 	id, err := sync.SaveSource(ctx, entities.ParticipantSource{

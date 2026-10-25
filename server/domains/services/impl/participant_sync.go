@@ -280,7 +280,9 @@ func (s *participantSyncService) StartScheduledSyncs(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				s.runDue(ctx)
+				// System work: a schedule is nobody's request, and the
+				// directory refuses a project to a caller with no organization.
+				s.runDue(entities.WithSystemContext(ctx))
 			}
 		}
 	}()

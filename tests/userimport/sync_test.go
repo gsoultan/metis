@@ -1,6 +1,7 @@
 package userimport_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -40,7 +41,7 @@ func TestSyncingFromASavedSource(t *testing.T) {
 
 	sync, people, projectID := syncFixture(t)
 
-	id, err := sync.SaveSource(t.Context(), entities.ParticipantSource{
+	id, err := sync.SaveSource(system(t), entities.ParticipantSource{
 		Project: &entities.Project{ID: projectID},
 		Name:    "HR",
 		Kind:    "http",
@@ -51,7 +52,7 @@ func TestSyncingFromASavedSource(t *testing.T) {
 		t.Fatalf("save source: %v", err)
 	}
 
-	summary, err := sync.SyncSource(t.Context(), id)
+	summary, err := sync.SyncSource(system(t), id)
 	if err != nil {
 		t.Fatalf("sync: %v", err)
 	}
@@ -61,7 +62,7 @@ func TestSyncingFromASavedSource(t *testing.T) {
 
 	// The outcome is on the source, so a directory that has been failing is
 	// visible without reading logs.
-	sources, err := sync.ListSources(t.Context(), projectID)
+	sources, err := sync.ListSources(system(t), projectID)
 	if err != nil {
 		t.Fatalf("list sources: %v", err)
 	}
@@ -72,7 +73,7 @@ func TestSyncingFromASavedSource(t *testing.T) {
 		t.Fatalf("the recorded run should say what happened, got %+v", sources[0].LastRun)
 	}
 
-	listed, err := people.ListWorkflowUsers(t.Context(), projectID, 0)
+	listed, err := people.ListWorkflowUsers(system(t), projectID, 0)
 	if err != nil {
 		t.Fatalf("list participants: %v", err)
 	}
@@ -113,7 +114,7 @@ func TestWhatHappensToSomebodyTheSourceStopsNaming(t *testing.T) {
 			defer directory.Close()
 
 			sync, people, projectID := syncFixture(t)
-			id, err := sync.SaveSource(t.Context(), entities.ParticipantSource{
+			id, err := sync.SaveSource(system(t), entities.ParticipantSource{
 				Project:   &entities.Project{ID: projectID},
 				Name:      "HR",
 				Kind:      "http",
@@ -125,10 +126,10 @@ func TestWhatHappensToSomebodyTheSourceStopsNaming(t *testing.T) {
 				t.Fatalf("save source: %v", err)
 			}
 
-			if _, err := sync.SyncSource(t.Context(), id); err != nil {
+			if _, err := sync.SyncSource(system(t), id); err != nil {
 				t.Fatalf("first sync: %v", err)
 			}
-			summary, err := sync.SyncSource(t.Context(), id)
+			summary, err := sync.SyncSource(system(t), id)
 			if err != nil {
 				t.Fatalf("second sync: %v", err)
 			}
@@ -136,7 +137,7 @@ func TestWhatHappensToSomebodyTheSourceStopsNaming(t *testing.T) {
 				t.Errorf("expected %d deactivated, got %d", tc.wantDeactived, summary.Deactivated)
 			}
 
-			listed, err := people.ListWorkflowUsers(t.Context(), projectID, 0)
+			listed, err := people.ListWorkflowUsers(system(t), projectID, 0)
 			if err != nil {
 				t.Fatalf("list: %v", err)
 			}
@@ -184,7 +185,7 @@ func TestASourceThatNamesNobodyDeactivatesNobody(t *testing.T) {
 			defer directory.Close()
 
 			sync, people, projectID := syncFixture(t)
-			id, err := sync.SaveSource(t.Context(), entities.ParticipantSource{
+			id, err := sync.SaveSource(system(t), entities.ParticipantSource{
 				Project:   &entities.Project{ID: projectID},
 				Name:      "HR",
 				Kind:      "http",
@@ -195,11 +196,11 @@ func TestASourceThatNamesNobodyDeactivatesNobody(t *testing.T) {
 			if err != nil {
 				t.Fatalf("save source: %v", err)
 			}
-			if _, err := sync.SyncSource(t.Context(), id); err != nil {
+			if _, err := sync.SyncSource(system(t), id); err != nil {
 				t.Fatalf("first sync: %v", err)
 			}
 
-			summary, err := sync.SyncSource(t.Context(), id)
+			summary, err := sync.SyncSource(system(t), id)
 			if err == nil {
 				t.Fatal("a source that named nobody was synced as if everybody had left")
 			}
@@ -207,7 +208,7 @@ func TestASourceThatNamesNobodyDeactivatesNobody(t *testing.T) {
 				t.Errorf("deactivated %d", summary.Deactivated)
 			}
 
-			listed, err := people.ListWorkflowUsers(t.Context(), projectID, 0)
+			listed, err := people.ListWorkflowUsers(system(t), projectID, 0)
 			if err != nil {
 				t.Fatalf("list: %v", err)
 			}
@@ -217,7 +218,7 @@ func TestASourceThatNamesNobodyDeactivatesNobody(t *testing.T) {
 				}
 			}
 
-			sources, err := sync.ListSources(t.Context(), projectID)
+			sources, err := sync.ListSources(system(t), projectID)
 			if err != nil {
 				t.Fatalf("list sources: %v", err)
 			}
@@ -243,9 +244,15 @@ func TestAnUnrunnableSourceIsRefusedOnSave(t *testing.T) {
 		{"unknown missing rule", entities.ParticipantSource{Project: &entities.Project{ID: projectID}, Name: "x", Kind: "http", OnMissing: "delete-everything"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := sync.SaveSource(t.Context(), tc.source); err == nil {
+			if _, err := sync.SaveSource(system(t), tc.source); err == nil {
 				t.Fatalf("%s should be refused", tc.name)
 			}
 		})
 	}
+}
+
+// system is the context a sync runs in when the server runs it for itself.
+func system(t *testing.T) context.Context {
+	t.Helper()
+	return entities.WithSystemContext(t.Context())
 }
