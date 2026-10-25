@@ -32,8 +32,8 @@ type Endpoints struct {
 	// organization the request is for.
 	SetOrganizationRoles endpoint.Endpoint
 
-	// ResetPassword sets the password of an account the caller administers.
-	ResetPassword endpoint.Endpoint
+	// ResetUserPassword sets the password of an account the caller administers.
+	ResetUserPassword endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -52,7 +52,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 
 		SetOrganizationRoles: MakeSetOrganizationRolesEndpoint(s),
 
-		ResetPassword: MakeResetPasswordEndpoint(s),
+		ResetUserPassword: MakeResetPasswordEndpoint(s),
 	}
 }
 

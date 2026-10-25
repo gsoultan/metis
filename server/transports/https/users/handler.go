@@ -88,7 +88,7 @@ func RegisterHandlers(m *http.ServeMux, eps user.Endpoints, options []httptransp
 	// An administrator setting somebody else's password. The caller's own is
 	// POST /users/me/password, which asks for the current one.
 	m.Handle("PUT /api/v1/users/{id}/password", httptransport.NewServer(
-		eps.ResetPassword,
+		eps.ResetUserPassword,
 		decodeResetPasswordRequest,
 		common.EncodeResponse,
 		options...,
