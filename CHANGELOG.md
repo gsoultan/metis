@@ -1035,6 +1035,15 @@ does not undo a migration.
 
 ### Changed
 
+- **The instance list's counts are reused for a second.** Every page of the
+  list counted every instance in the project by state, which under load was
+  most of what the database did for it. One count now serves every request
+  for the same organization, environment, project and filter for a second,
+  and requests that arrive while it is being taken wait for it instead of
+  starting their own. The counts, and the page total read off them, can trail
+  the page by up to that long; the page itself is read fresh.
+  `METIS_INSTANCE_COUNT_CACHE_TTL` sets the window (`0` turns it off).
+
 - **"Platform access" is now called Users.** The page and its entry in the
   navigation are renamed, and the page says what Users are for: running Metis
   by role (organizations, projects, People, process and decision models), never
