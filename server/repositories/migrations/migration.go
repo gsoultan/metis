@@ -852,6 +852,7 @@ func Schema(models []any) []Migration {
 		jobOrganization(),
 		batchOperations(),
 		auditActor(),
+		instanceCountIndex(),
 	}
 }
 
