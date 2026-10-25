@@ -20,10 +20,14 @@
 #
 # Metis runs on PostgreSQL and nothing else, so this needs one. If DATABASE_URL
 # is set it is used as-is; otherwise the script looks for PostgreSQL on
-# localhost:5432 and, failing that, starts a container called metis-dev-pg with
-# whatever runtime is installed. Nothing is installed on your machine and the
-# container is left running between sessions — stopping it is `<runtime> stop
-# metis-dev-pg`.
+# 127.0.0.1:5473 and, failing that, starts a container called metis-dev-pg with
+# Apple's `container` CLI (https://github.com/apple/container, macOS on Apple
+# silicon). Nothing is installed on your machine and the container is left
+# running between sessions:
+#
+#   container stop metis-dev-pg      stop it
+#   container rm metis-dev-pg        forget it, and the data in it
+#   container system stop            stop the container services as well
 
 set -Eeuo pipefail
 
@@ -62,7 +66,9 @@ readonly DB_HOST="${DB_HOST:-127.0.0.1}"
 # reports an authentication failure it cannot explain.
 readonly DB_PORT="${DB_PORT:-5473}"
 readonly DB_CONTAINER="${DB_CONTAINER:-metis-dev-pg}"
-readonly DB_IMAGE="${DB_IMAGE:-postgres:17-alpine}"
+# Fully qualified: Apple's container resolves a bare name against its own default
+# registry, which is a setting, and this should not depend on it.
+readonly DB_IMAGE="${DB_IMAGE:-docker.io/library/postgres:17-alpine}"
 
 # --- output ----------------------------------------------------------------
 
@@ -129,20 +135,36 @@ check_ports() {
 
 # --- database --------------------------------------------------------------
 
-# container_runtime names whatever can start PostgreSQL, or nothing.
+# container_ready makes sure Apple's container CLI can run something now.
 #
-# Ordered by how likely it is to already be running: docker on most machines,
-# then podman, then Apple's container. All three take -d, --name and -p, which
-# is all this needs.
-container_runtime() {
-  local runtime
-  for runtime in docker podman container; do
-    if command -v "$runtime" >/dev/null 2>&1; then
-      printf '%s' "$runtime"
-      return 0
-    fi
-  done
-  return 1
+# Unlike a Docker daemon, its services are not started at login: until
+# `container system start` has run, every other command fails with an
+# API-server error that does not say why. So check, and start them if they are
+# down. The first start also wants a Linux kernel; --enable-kernel-install
+# answers the question it would otherwise ask, which a script cannot.
+container_ready() {
+  container system status >/dev/null 2>&1 && return 0
+  info "Starting the container services (container system start)"
+  container system start --enable-kernel-install >/dev/null \
+    || die "container system start failed — run it yourself to see why, then re-run"
+}
+
+# container_state reports what we know about DB_CONTAINER: running, stopped or
+# absent.
+#
+# Asked rather than inferred from whether `container start` succeeds: starting
+# a container that is already running is not reliably a no-op, and a failure
+# there would send the script on to `container run`, which then refuses because
+# the name is taken. --name is the container's ID, so the quiet listing, which
+# prints IDs, can be matched exactly.
+container_state() {
+  if container list --quiet 2>/dev/null | grep -qxF "$DB_CONTAINER"; then
+    printf 'running'
+  elif container list --all --quiet 2>/dev/null | grep -qxF "$DB_CONTAINER"; then
+    printf 'stopped'
+  else
+    printf 'absent'
+  fi
 }
 
 # postgres_answers reports whether *our* database server is up.
@@ -180,14 +202,13 @@ run_psql() {
     PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -qtAc "$1"
     return
   fi
-  local runtime
-  runtime="$(container_runtime)" || die "no psql and no container runtime: install one, or set DATABASE_URL to a database you already have"
-  "$runtime" exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -qtAc "$1"
+  command -v container >/dev/null 2>&1 \
+    || die "no psql and no Apple container CLI: install one, or set DATABASE_URL to a database you already have"
+  container exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -qtAc "$1"
 }
 
 # start_postgres brings up a development database and waits for it.
 start_postgres() {
-  local runtime
   if occupied_by_someone_else; then
     die "something is already listening on ${DB_HOST}:${DB_PORT} and it is not this project's database
        ($(port_holder "$DB_PORT")).
@@ -196,41 +217,55 @@ start_postgres() {
        or point this at the database that is there:
          DATABASE_URL=postgres://user:pass@${DB_HOST}:${DB_PORT}/db?sslmode=disable ./scripts/dev.sh"
   fi
-  if ! runtime="$(container_runtime)"; then
-    die "PostgreSQL is not reachable at ${DB_HOST}:${DB_PORT} and no container runtime is installed.
-       Start one yourself and re-run:
-         createdb ${DB_NAME}
-       or point this at a database you already have:
+  if ! command -v container >/dev/null 2>&1; then
+    die "PostgreSQL is not reachable at ${DB_HOST}:${DB_PORT} and Apple's container CLI is not installed.
+       Install it (macOS on Apple silicon) and re-run:
+         brew install container        or a release from https://github.com/apple/container/releases
+       or start PostgreSQL on ${DB_HOST}:${DB_PORT} yourself, or point this at a database you already have:
          DATABASE_URL=postgres://user:pass@host:5432/db?sslmode=disable ./scripts/dev.sh"
   fi
+  container_ready
 
-  # Already there but stopped — the usual case on the second day.
-  if "$runtime" start "$DB_CONTAINER" >/dev/null 2>&1; then
-    info "Started the existing ${DB_CONTAINER} container"
-  else
-    info "Starting PostgreSQL in ${DB_CONTAINER} (${DB_IMAGE}) via ${runtime}"
-    "$runtime" run -d --name "$DB_CONTAINER" \
-      -e POSTGRES_USER="$DB_USER" \
-      -e POSTGRES_PASSWORD="$DB_PASSWORD" \
-      -e POSTGRES_DB="$DB_NAME" \
-      -p "${DB_PORT}:5432" \
-      "$DB_IMAGE" >/dev/null \
-      || die "could not start ${DB_CONTAINER} — start PostgreSQL yourself, or set DATABASE_URL"
-  fi
+  case "$(container_state)" in
+    running)
+      info "${DB_CONTAINER} is already running" ;;
+    stopped)
+      # The usual case on the second day.
+      container start "$DB_CONTAINER" >/dev/null \
+        || die "could not start the existing ${DB_CONTAINER}: container logs ${DB_CONTAINER}
+       or start again from nothing: container rm ${DB_CONTAINER}"
+      info "Started the existing ${DB_CONTAINER} container" ;;
+    absent)
+      # Published on loopback only. Each container gets its own address on a
+      # private network that only this Mac can reach, but a published port binds
+      # wherever it is told to, and a database whose password is in this file
+      # has no business answering the rest of the LAN. DB_HOST is still where the
+      # script connects, so moving it off 127.0.0.1 means a database of your own.
+      #
+      # No volume, as before: the data lives in the container and goes with
+      # `container rm`.
+      info "Starting PostgreSQL in ${DB_CONTAINER} (${DB_IMAGE}) via Apple container"
+      container run -d --name "$DB_CONTAINER" \
+        -e POSTGRES_USER="$DB_USER" \
+        -e POSTGRES_PASSWORD="$DB_PASSWORD" \
+        -e POSTGRES_DB="$DB_NAME" \
+        -p "127.0.0.1:${DB_PORT}:5432" \
+        "$DB_IMAGE" >/dev/null \
+        || die "could not start ${DB_CONTAINER} — start PostgreSQL yourself, or set DATABASE_URL" ;;
+  esac
 
   # Waited on from inside the container as well as from outside: a machine with
   # no psql cannot ask from here, and "never answered" would be the script
   # reporting its own missing client as the database being down.
-  local waited=0 runtime_ready=""
-  until postgres_answers || [[ -n "$runtime_ready" ]]; do
-    if "$runtime" exec -i "$DB_CONTAINER" pg_isready -U "$DB_USER" >/dev/null 2>&1; then
-      runtime_ready=1
+  local waited=0
+  until postgres_answers; do
+    if container exec -i "$DB_CONTAINER" pg_isready -U "$DB_USER" >/dev/null 2>&1; then
       break
     fi
     (( waited++ ))
     if (( waited > 60 )); then
       die "${DB_CONTAINER} started but never answered on ${DB_HOST}:${DB_PORT}
-       its log: ${runtime} logs ${DB_CONTAINER}"
+       its log: container logs ${DB_CONTAINER}"
     fi
     sleep 1
   done

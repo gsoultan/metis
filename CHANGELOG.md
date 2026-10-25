@@ -1024,6 +1024,16 @@ does not undo a migration.
 
 ### Changed
 
+- **`scripts/dev.sh` starts its PostgreSQL with Apple's `container`, and only
+  with it.** It used to take whichever of docker, podman or `container` it
+  found first. It now starts the container services when they are down
+  (`container system start`), tells a stopped `metis-dev-pg` from a missing
+  one instead of guessing from a failed start, and publishes the database on
+  127.0.0.1 only. Without the CLI it says how to install it; `DATABASE_URL`
+  and a PostgreSQL already listening on `DB_PORT` work as before. A
+  `metis-dev-pg` left in Docker is not touched: stop it there and the next run
+  creates a fresh one, which the setup wizard then configures.
+
 - **The server holds one connection pool per database, not two.** GORM's pool,
   opened at boot to run the migrations, closes once they finish, for the main
   database and for each environment, instead of staying open beside the storm
