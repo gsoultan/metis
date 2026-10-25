@@ -15,7 +15,8 @@ type ParticipantsResult = Awaited<ReturnType<typeof processService.listParticipa
  * project's, so an import or a removal refreshes it with the whole list.
  */
 export const useParticipants = (options: { limit?: number } = {}) => {
-  const { currentProjectId, token } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const token = useAppStore((state) => state.token);
   const { limit } = options;
   return useQuery({
     queryKey: limit ? ['participants', currentProjectId, { limit }] : ['participants', currentProjectId],
@@ -23,6 +24,23 @@ export const useParticipants = (options: { limit?: number } = {}) => {
       currentProjectId && token
         ? processService.listParticipants(currentProjectId, signal, { limit })
         : Promise.resolve({ participants: [], err: '' } as ParticipantsResult),
+    enabled: !!currentProjectId && !!token,
+  });
+};
+
+/**
+ * The People groups of this project: the teams a step's task can be offered
+ * to. Refreshed with the directory, since an import is what makes them.
+ */
+export const useParticipantGroups = () => {
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const token = useAppStore((state) => state.token);
+  return useQuery({
+    queryKey: ['participants', currentProjectId, 'groups'],
+    queryFn: ({ signal }) =>
+      currentProjectId && token
+        ? processService.listParticipantGroups(currentProjectId, signal)
+        : Promise.resolve({ groups: [], err: '' }),
     enabled: !!currentProjectId && !!token,
   });
 };
@@ -36,7 +54,7 @@ export const useParticipants = (options: { limit?: number } = {}) => {
  */
 export const useImportParticipants = () => {
   const queryClient = useQueryClient();
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useMutation<ImportSummary, Error, Record<string, unknown>>({
     mutationFn: (source) =>
       currentProjectId
@@ -66,7 +84,7 @@ export const useImportParticipants = () => {
  */
 export const useRemoveParticipant = () => {
   const queryClient = useQueryClient();
-  const { currentProjectId } = useAppStore();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
   return useMutation<void, Error, string>({
     mutationFn: async (id) => {
       if (!currentProjectId) throw new Error('No project selected');

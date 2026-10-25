@@ -23,6 +23,9 @@ type WorkflowUserRepository interface {
 	// sessions. A participant outside the project is not found.
 	SetPassword(ctx context.Context, projectID, id uuid.UUID, passwordHash string) error
 
+	// ListGroups returns a project's People groups, by name.
+	ListGroups(ctx context.Context, projectID uuid.UUID) ([]entities.WorkflowGroup, error)
+
 	// Upsert writes one participant, replacing the row with the same username
 	// in the same project if there is one.
 	//

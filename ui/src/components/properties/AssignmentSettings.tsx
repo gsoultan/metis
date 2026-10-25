@@ -1,8 +1,8 @@
 import { MultiSelect, SegmentedControl, Select, Stack, type ComboboxItem } from '@mantine/core';
 import type { ReactNode } from 'react';
 
-import { useGroups, useUsers } from '../../hooks/useProcess';
-import { useAppStore } from '../../store/useAppStore';
+import { groupOptions, peopleOptions } from '../../domain/assignmentDirectory';
+import { useParticipantGroups, useParticipants } from '../../hooks/useParticipants';
 import { asText, asTextList, type BPMNNodeData } from '../../types/bpmn';
 import type { NodeConfigProps } from '../PropertyPanel';
 import { PropertySection } from './PropertySection';
@@ -16,16 +16,22 @@ import { PropertySection } from './PropertySection';
  * operator's to take — so both need the same way to name somebody. The manual
  * step had a line of free text instead, which the engine never read.
  *
- * Split in two: this part reads the organization's people and teams, and
+ * Split in two: this part reads the project's People and People groups, and
  * AssignmentFields draws the fields from what it is given.
+ *
+ * People, not the organization's Users: Users run the platform, and People
+ * are who a process gives work to. A name the step already carries that is
+ * not in the directory stays listed, marked as such, so it is not lost.
  */
 export function AssignmentSettings({ data, onUpdate, children }: Pick<NodeConfigProps, 'data' | 'onUpdate'> & { children?: ReactNode }) {
-  const currentOrganizationId = useAppStore((state) => state.currentOrganizationId);
-  const { data: usersData } = useUsers(currentOrganizationId);
-  const { data: groupsData } = useGroups(currentOrganizationId);
+  const { data: participantsData } = useParticipants();
+  const { data: groupsData } = useParticipantGroups();
 
-  const people = (usersData?.users || []).map((u) => ({ value: u.username, label: u.full_name || u.username }));
-  const teams = (groupsData?.groups || []).map((g) => ({ value: g.name, label: g.name }));
+  const people = peopleOptions(participantsData?.participants ?? [], [
+    asText(data.assignee),
+    ...asTextList(data.candidateUsers),
+  ]);
+  const teams = groupOptions(groupsData?.groups ?? [], asTextList(data.candidateGroups));
 
   return (
     <PropertySection
@@ -90,7 +96,7 @@ export function AssignmentFields({ data, onUpdate, people, teams }: AssignmentFi
       {mode === 'direct' ? (
         <Select
           label="Assign to"
-          placeholder="Choose a person"
+          placeholder="Choose a person from this project's People"
           description="It appears in their list and nobody else's."
           data={people}
           value={asText(data.assignee)}

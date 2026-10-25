@@ -18,6 +18,18 @@ type ListParticipantsResponse struct {
 
 func (r ListParticipantsResponse) Failed() error { return r.Err }
 
+// ListParticipantGroupsRequest asks for a project's People groups.
+type ListParticipantGroupsRequest struct {
+	ProjectID string `json:"project_id"`
+}
+
+type ListParticipantGroupsResponse struct {
+	Groups []entities.WorkflowGroup `json:"groups"`
+	Err    error                    `json:"err,omitzero"`
+}
+
+func (r ListParticipantGroupsResponse) Failed() error { return r.Err }
+
 // ImportParticipantsRequest names where a directory should be read from.
 //
 // One request for all three sources, because the caller is answering one

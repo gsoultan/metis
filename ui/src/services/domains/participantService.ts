@@ -9,6 +9,18 @@ interface ListParticipantsResponse {
   err?: string;
 }
 
+/** A project's People group, as the server lists it. */
+export interface ParticipantGroup {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+interface ListParticipantGroupsResponse {
+  groups?: ParticipantGroup[];
+  err?: string;
+}
+
 interface ImportParticipantsResponse extends ImportSummary {
   err?: string;
 }
@@ -30,6 +42,15 @@ export const participantService = {
       { method: "GET", signal },
     );
     return { participants: response.participants ?? [], err: response.err };
+  },
+
+  /** A project's People groups, by name: the teams a step can offer its task to. */
+  async listParticipantGroups(projectId: string, signal?: AbortSignal) {
+    const response = await requestJSON<ListParticipantGroupsResponse>(
+      `/participant-groups?project_id=${encodeURIComponent(projectId)}`,
+      { method: "GET", signal },
+    );
+    return { groups: response.groups ?? [], err: response.err };
   },
 
   /**

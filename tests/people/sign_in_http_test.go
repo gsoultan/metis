@@ -37,6 +37,7 @@ const (
 type world struct {
 	handler   http.Handler
 	svc       services.ServiceFacade
+	repo      repositories.Repository
 	conn      *db.Conn
 	org       uuid.UUID
 	project   uuid.UUID
@@ -96,7 +97,7 @@ func newWorld(t *testing.T) world {
 		"UPDATE workflow_users SET password_hash = $1 WHERE username = 'ada'", string(hash)); err != nil {
 		t.Fatalf("set ada's password: %v", err)
 	}
-	return world{handler: handler, svc: svc, conn: conn, org: orgID, project: project.ID, userToken: userToken}
+	return world{handler: handler, svc: svc, repo: repo, conn: conn, org: orgID, project: project.ID, userToken: userToken}
 }
 
 func (w world) do(t *testing.T, method, path, token string, body any) (int, string) {
