@@ -193,25 +193,29 @@ func TestAnUnusableSourceIsRefusedOverHTTP(t *testing.T) {
 // is not about participants would panic, which is a louder and more useful
 // failure than a stub that quietly returns zero values for a method the test
 // did not mean to exercise.
+// facadeStub reaches the directory as system work: these tests are about what
+// crosses the wire, and the mux they serve has no sign-in to name an
+// organization. Whose directory a caller may reach is
+// TestAnotherOrganizationNeitherReadsNorWritesAProjectsDirectory's.
 type facadeStub struct {
 	services.ServiceFacade
 	participants servicecontracts.WorkflowUserService
 }
 
 func (f *facadeStub) ListWorkflowUsers(ctx context.Context, projectID uuid.UUID, limit int) ([]entities.WorkflowUser, error) {
-	return f.participants.ListWorkflowUsers(ctx, projectID, limit)
+	return f.participants.ListWorkflowUsers(entities.WithSystemContext(ctx), projectID, limit)
 }
 
 func (f *facadeStub) ImportWorkflowUsers(ctx context.Context, projectID uuid.UUID, csv io.Reader) (entities.ImportSummary, error) {
-	return f.participants.ImportWorkflowUsers(ctx, projectID, csv)
+	return f.participants.ImportWorkflowUsers(entities.WithSystemContext(ctx), projectID, csv)
 }
 
 func (f *facadeStub) SyncWorkflowUsersFromHTTP(ctx context.Context, projectID uuid.UUID, url, method string) (entities.ImportSummary, error) {
-	return f.participants.SyncWorkflowUsersFromHTTP(ctx, projectID, url, method)
+	return f.participants.SyncWorkflowUsersFromHTTP(entities.WithSystemContext(ctx), projectID, url, method)
 }
 
 func (f *facadeStub) SyncWorkflowUsersFromPostgres(ctx context.Context, projectID uuid.UUID, dsn, query string) (entities.ImportSummary, error) {
-	return f.participants.SyncWorkflowUsersFromPostgres(ctx, projectID, dsn, query)
+	return f.participants.SyncWorkflowUsersFromPostgres(entities.WithSystemContext(ctx), projectID, dsn, query)
 }
 
 func upload(t *testing.T, server *httptest.Server, projectID uuid.UUID, csv string) {

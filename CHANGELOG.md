@@ -136,6 +136,14 @@ does not undo a migration.
 
 ### Security
 
+- **A project's People directory is its organization's alone.** Listing a
+  project's participants, importing or syncing people into it and removing
+  them checked only that the caller was signed in, not that the project was
+  theirs: anybody signed in to any organization could read another
+  organization's directory, names and addresses included, and add people to
+  it, given the project's id. The directory now answers a project outside the
+  caller's organization as not found, as every other per-project read does.
+
 - **An inbound webhook's secret is encrypted at rest.** The secret a partner
   signs deliveries with was stored as it was, though it was documented as
   encrypted, so a backup, a read replica or a `SELECT` on `webhooks` was enough

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/model"
@@ -28,7 +29,10 @@ func fixture(t *testing.T) (context.Context, *impl.WorkflowUserServiceForTest, u
 	if dsn == "" {
 		t.Skip("STORM_DSN unset")
 	}
-	ctx := context.Background()
+	// System work, as an import the server runs for itself is: the directory
+	// refuses a project to a caller with no organization once the strict
+	// tenant scope is on. A test that means a caller says whose.
+	ctx := entities.WithSystemContext(context.Background())
 
 	namespace := fmt.Sprintf("imp_%s", strings.ReplaceAll(uuid.NewString()[:8], "-", ""))
 	admin, err := pgxpool.New(ctx, dsn)

@@ -23,11 +23,15 @@ import (
 
 type workflowUserRepository struct {
 	conn *db.Conn
+	// scope answers whether a project is the caller's. Every read and write
+	// that names a project asks it first: a directory holds people's names
+	// and addresses, and a project id is no secret.
+	scope *conn
 }
 
 // NewWorkflowUserRepository returns the storm-backed participant directory.
-func NewWorkflowUserRepository(conn *db.Conn) contracts.WorkflowUserRepository {
-	return &workflowUserRepository{conn: conn}
+func NewWorkflowUserRepository(c *db.Conn) contracts.WorkflowUserRepository {
+	return &workflowUserRepository{conn: c, scope: &conn{conn: c}}
 }
 
 // ListByProject returns a project's participants, excluding those removed.
@@ -45,6 +49,9 @@ func NewWorkflowUserRepository(conn *db.Conn) contracts.WorkflowUserRepository {
 // removal checking that somebody is in this project, both act on what this
 // returns, and past a thousand people they missed everyone after the window.
 func (r *workflowUserRepository) ListByProject(ctx context.Context, projectID uuid.UUID, limit int) ([]entities.WorkflowUser, error) {
+	if err := r.scope.requireProjectInTenant(ctx, projectID); err != nil {
+		return nil, err
+	}
 	ex, err := r.conn.Executor(ctx)
 	if err != nil {
 		return nil, err
@@ -73,6 +80,9 @@ func (r *workflowUserRepository) ListByProject(ctx context.Context, projectID uu
 
 // GetByUsername finds one participant by the name a process would refer to.
 func (r *workflowUserRepository) GetByUsername(ctx context.Context, projectID uuid.UUID, username string) (entities.WorkflowUser, error) {
+	if err := r.scope.requireProjectInTenant(ctx, projectID); err != nil {
+		return entities.WorkflowUser{}, err
+	}
 	ex, err := r.conn.Executor(ctx)
 	if err != nil {
 		return entities.WorkflowUser{}, err
@@ -102,6 +112,9 @@ func (r *workflowUserRepository) GetByUsername(ctx context.Context, projectID uu
 func (r *workflowUserRepository) Upsert(ctx context.Context, participant entities.WorkflowUser) (bool, error) {
 	if participant.Project == nil || participant.Project.ID == uuid.Nil {
 		return false, apierr.Invalidf("a participant belongs to a project")
+	}
+	if err := r.scope.requireProjectInTenant(ctx, participant.Project.ID); err != nil {
+		return false, err
 	}
 	ex, err := r.conn.Executor(ctx)
 	if err != nil {
@@ -156,6 +169,9 @@ func (r *workflowUserRepository) Upsert(ctx context.Context, participant entitie
 
 // EnsureGroup returns a project's group of that name, creating it if absent.
 func (r *workflowUserRepository) EnsureGroup(ctx context.Context, projectID uuid.UUID, name string) (entities.WorkflowGroup, bool, error) {
+	if err := r.scope.requireProjectInTenant(ctx, projectID); err != nil {
+		return entities.WorkflowGroup{}, false, err
+	}
 	ex, err := r.conn.Executor(ctx)
 	if err != nil {
 		return entities.WorkflowGroup{}, false, err
