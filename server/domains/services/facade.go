@@ -35,6 +35,9 @@ type ServiceFacade interface {
 
 	// PeopleTaskService is the work a signed-in person does, in their project.
 	serviceContracts.PeopleTaskService
+
+	// TaskLinkService lets a person act on one task, once, through a link.
+	serviceContracts.TaskLinkService
 	serviceContracts.ExecutionEngine
 	serviceContracts.JobService
 	serviceContracts.ExternalTaskService

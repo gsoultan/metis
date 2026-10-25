@@ -803,6 +803,21 @@ It was not run against an installation that 0.4.0 itself had migrated.
 **Rolling back** needs nothing: no schema changed. 0.4.0 applies a mapping as
 it did.
 
+## Migration 47: task links
+
+Migration 47 creates `task_links`, one row per link a task mails to a person
+in the People directory, with a foreign key to `projects`. It is new and
+empty, but adding that key needs `projects` for a moment, so the migration
+waits at most two seconds for it and then stops, saying that `projects` was
+held by a long query or transaction. Start the server again once that ends.
+
+The table keeps only the SHA-256 of each link's token, never the token. No
+link is sent until `METIS_PUBLIC_URL` and the `NOTIFICATION_SMTP_*` settings
+are set.
+
+**Rolling back** leaves the table in place. The previous release neither
+reads nor writes it, and the links it holds stop working with it.
+
 ## Migration 46: an audit entry names who acted
 
 Migration 46 adds `audit_logs.actor`, a nullable column with no default, so

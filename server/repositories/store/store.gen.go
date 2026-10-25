@@ -46,6 +46,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/simulationcase"
 	"github.com/gsoultan/metis/server/repositories/store/subscription"
 	"github.com/gsoultan/metis/server/repositories/store/task"
+	"github.com/gsoultan/metis/server/repositories/store/tasklink"
 	"github.com/gsoultan/metis/server/repositories/store/user"
 	"github.com/gsoultan/metis/server/repositories/store/userorganization"
 	"github.com/gsoultan/metis/server/repositories/store/userproject"
@@ -77,46 +78,47 @@ var FlushOrder = map[string]int{
 	"retention_periods":           8,
 	"shared_counters":             9,
 	"simulation_cases":            10,
-	"users":                       11,
-	"webhooks":                    12,
-	"workflow_groups":             13,
-	"workflow_users":              14,
-	"batch_operations":            15,
-	"connector_instances":         16,
-	"decision_definitions":        17,
-	"decision_releases":           18,
-	"deployments":                 19,
-	"environments":                20,
-	"external_task_workers":       21,
-	"forms":                       22,
-	"groups":                      23,
-	"memberships":                 24,
-	"outgoing_webhooks":           25,
-	"participant_sources":         26,
-	"platform_role_assignments":   27,
-	"process_definition_releases": 28,
-	"process_definitions":         29,
-	"process_instances":           30,
-	"tasks":                       31,
-	"user_organizations":          32,
-	"user_projects":               33,
-	"variable_snapshots":          34,
-	"webhook_deliveries":          35,
-	"workflow_group_memberships":  36,
-	"audit_logs":                  37,
-	"batch_operation_items":       38,
-	"broadcast_events":            39,
-	"compensatable_activities":    40,
-	"deployment_resources":        41,
-	"deviation_requests":          42,
-	"event_subscriptions":         43,
-	"external_tasks":              44,
-	"instance_deviations":         45,
-	"jobs":                        46,
-	"notifications":               47,
-	"outgoing_webhook_deliveries": 48,
-	"service_calls":               49,
-	"incidents":                   50,
+	"task_links":                  11,
+	"users":                       12,
+	"webhooks":                    13,
+	"workflow_groups":             14,
+	"workflow_users":              15,
+	"batch_operations":            16,
+	"connector_instances":         17,
+	"decision_definitions":        18,
+	"decision_releases":           19,
+	"deployments":                 20,
+	"environments":                21,
+	"external_task_workers":       22,
+	"forms":                       23,
+	"groups":                      24,
+	"memberships":                 25,
+	"outgoing_webhooks":           26,
+	"participant_sources":         27,
+	"platform_role_assignments":   28,
+	"process_definition_releases": 29,
+	"process_definitions":         30,
+	"process_instances":           31,
+	"tasks":                       32,
+	"user_organizations":          33,
+	"user_projects":               34,
+	"variable_snapshots":          35,
+	"webhook_deliveries":          36,
+	"workflow_group_memberships":  37,
+	"audit_logs":                  38,
+	"batch_operation_items":       39,
+	"broadcast_events":            40,
+	"compensatable_activities":    41,
+	"deployment_resources":        42,
+	"deviation_requests":          43,
+	"event_subscriptions":         44,
+	"external_tasks":              45,
+	"instance_deviations":         46,
+	"jobs":                        47,
+	"notifications":               48,
+	"outgoing_webhook_deliveries": 49,
+	"service_calls":               50,
+	"incidents":                   51,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -7204,6 +7206,123 @@ func (p SubscriptionWithProjectQuery) All(ctx context.Context, ex runtime.Execut
 			// A foreign key pointing at a row that is not there. The database
 			// forbids it, so reaching this means the constraint was dropped.
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "event_subscriptions", "projects")
+		}
+		out[i].Project = targets[j]
+	}
+	return out, nil
+}
+
+// TaskLinkWithProjectRow is task_links with its Project loaded.
+type TaskLinkWithProjectRow struct {
+	tasklink.Row
+	Project project.Row
+}
+
+type TaskLinkWithProjectQuery struct {
+	q tasklink.Query
+}
+
+// TaskLinkWithProject starts the plan.
+func TaskLinkWithProject() TaskLinkWithProjectQuery {
+	return TaskLinkWithProjectQuery{q: tasklink.New()}
+}
+
+func (p TaskLinkWithProjectQuery) Where(ps ...tasklink.Pred) TaskLinkWithProjectQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p TaskLinkWithProjectQuery) WhereIf(cond bool, pr tasklink.Pred) TaskLinkWithProjectQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p TaskLinkWithProjectQuery) Any(ps ...tasklink.Pred) TaskLinkWithProjectQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p TaskLinkWithProjectQuery) Not(pr tasklink.Pred) TaskLinkWithProjectQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p TaskLinkWithProjectQuery) NotAny(ps ...tasklink.Pred) TaskLinkWithProjectQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p TaskLinkWithProjectQuery) Order(ts ...tasklink.Sort) TaskLinkWithProjectQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p TaskLinkWithProjectQuery) Limit(n int64) TaskLinkWithProjectQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p TaskLinkWithProjectQuery) Offset(n int64) TaskLinkWithProjectQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p TaskLinkWithProjectQuery) After(r TaskLinkWithProjectRow) TaskLinkWithProjectQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p TaskLinkWithProjectQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p TaskLinkWithProjectQuery) All(ctx context.Context, ex runtime.Executor) ([]TaskLinkWithProjectRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]TaskLinkWithProjectRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = TaskLinkWithProjectRow{Row: r}
+		key := r.ProjectID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := project.New().Unordered().
+		Where(project.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.ProjectID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "task_links", "projects")
 		}
 		out[i].Project = targets[j]
 	}

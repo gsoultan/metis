@@ -54,6 +54,31 @@ func RegisterHandlers(m *http.ServeMux, eps people.Endpoints, options []httptran
 	m.Handle("POST /api/v1/people/tasks/{id}/complete", httptransport.NewServer(
 		eps.CompletePersonTask, decodeCompletePersonTaskRequest, common.EncodeResponse, options...,
 	))
+	// POST, both of them. Mail scanners open every link in a message, and
+	// opening a link must never act on a task; the read changes nothing, and
+	// the token travels in the body, out of every access log.
+	m.Handle("POST /api/v1/people/links/read", httptransport.NewServer(
+		eps.ReadTaskLink, decodeTaskLinkRequest, common.EncodeResponse, options...,
+	))
+	m.Handle("POST /api/v1/people/links/complete", httptransport.NewServer(
+		eps.CompleteByTaskLink, decodeCompleteByTaskLinkRequest, common.EncodeResponse, options...,
+	))
+}
+
+func decodeTaskLinkRequest(_ context.Context, r *http.Request) (any, error) {
+	var req people.TaskLinkRequest
+	if err := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxSignInBytes)).Decode(&req); err != nil {
+		return nil, apierr.Invalidf("the link is not valid JSON")
+	}
+	return req, nil
+}
+
+func decodeCompleteByTaskLinkRequest(_ context.Context, r *http.Request) (any, error) {
+	var req people.CompleteByTaskLinkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, apierr.Invalidf("the form is not valid JSON")
+	}
+	return req, nil
 }
 
 func decodePersonTaskRequest(_ context.Context, r *http.Request) (any, error) {

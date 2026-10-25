@@ -25,6 +25,8 @@ type Endpoints struct {
 	ClaimPersonTask    endpoint.Endpoint
 	ReleasePersonTask  endpoint.Endpoint
 	CompletePersonTask endpoint.Endpoint
+	ReadTaskLink       endpoint.Endpoint
+	CompleteByTaskLink endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -36,6 +38,38 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		ClaimPersonTask:    MakeClaimPersonTaskEndpoint(s),
 		ReleasePersonTask:  MakeReleasePersonTaskEndpoint(s),
 		CompletePersonTask: MakeCompletePersonTaskEndpoint(s),
+		ReadTaskLink:       MakeReadTaskLinkEndpoint(s),
+		CompleteByTaskLink: MakeCompleteByTaskLinkEndpoint(s),
+	}
+}
+
+// MakeReadTaskLinkEndpoint shows the task a link is for and changes nothing.
+func MakeReadTaskLinkEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(TaskLinkRequest)
+		if !ok {
+			return nil, fmt.Errorf("people: expected a TaskLinkRequest, got %T", request)
+		}
+		view, err := s.ReadTaskLink(ctx, req.Token)
+		if err != nil {
+			return TaskLinkResponse{Err: err}, nil
+		}
+		return TaskLinkResponse{Task: &view.Task, Person: &view.Person, ExpiresAt: view.ExpiresAt}, nil
+	}
+}
+
+// MakeCompleteByTaskLinkEndpoint completes the task as the link's person and
+// uses the link up.
+func MakeCompleteByTaskLinkEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(CompleteByTaskLinkRequest)
+		if !ok {
+			return nil, fmt.Errorf("people: expected a CompleteByTaskLinkRequest, got %T", request)
+		}
+		if err := s.CompleteByTaskLink(ctx, req.Token, req.Variables); err != nil {
+			return PersonTaskActionResponse{Err: err}, nil
+		}
+		return PersonTaskActionResponse{}, nil
 	}
 }
 

@@ -177,7 +177,7 @@ var globalAdminGated = []string{
 }
 
 // publicEndpoints are the only ones reachable before a caller can hold a token.
-var publicEndpoints = []string{"GetSetupStatus", "Login", "Setup", "SignInPerson", "TestConnection"}
+var publicEndpoints = []string{"CompleteByTaskLink", "GetSetupStatus", "Login", "ReadTaskLink", "Setup", "SignInPerson", "TestConnection"}
 
 // The assertion above checks that these four are public. It never checked that
 // nothing else is, and CreateOrganization sat on the public chain beside them —

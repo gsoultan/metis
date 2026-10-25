@@ -85,6 +85,21 @@ const PeoplePathPrefix = "/api/v1/people/"
 // hands it out.
 const PeopleSignInPath = PeoplePathPrefix + "login"
 
+// PeopleLinkReadPath and PeopleLinkCompletePath take no token either: the
+// task link in the body is the credential, good for one task, once.
+const (
+	PeopleLinkReadPath     = PeoplePathPrefix + "links/read"
+	PeopleLinkCompletePath = PeoplePathPrefix + "links/complete"
+)
+
+// peopleOpenPaths are the People routes that need no People token, matched
+// exactly.
+var peopleOpenPaths = map[string]bool{
+	PeopleSignInPath:       true,
+	PeopleLinkReadPath:     true,
+	PeopleLinkCompletePath: true,
+}
+
 // publicPathPrefixes are the API paths that are public along with everything
 // beneath them.
 //
@@ -171,12 +186,12 @@ func (i *mandatoryHTTPAuthInterceptor) Wrap(next http.Handler) http.Handler {
 	})
 }
 
-// servePerson admits a request to a People route: the sign-in as it is, and
-// anything else only with a People token. A User's token is refused here as a
+// servePerson admits a request to a People route: the sign-in and the task
+// link routes as they are, and anything else only with a People token. A User's token is refused here as a
 // People token is refused everywhere else, so neither population can act on
 // the other's routes.
 func (i *mandatoryHTTPAuthInterceptor) servePerson(w http.ResponseWriter, r *http.Request, next http.Handler) {
-	if r.URL.Path == PeopleSignInPath {
+	if peopleOpenPaths[r.URL.Path] {
 		next.ServeHTTP(w, r)
 		return
 	}

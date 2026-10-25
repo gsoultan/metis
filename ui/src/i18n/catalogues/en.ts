@@ -552,6 +552,16 @@ const en: Catalogue = {
   'glossary.hitPolicy.definition':
     'What a decision table does when more than one line matches: take the first, allow only one, collect every match, and so on.',
   'glossary.hitPolicy.example': 'Two discount lines match the same order, and the first line that matches wins.',
+  'taskLink.loading': 'Opening your task',
+  'taskLink.noToken': 'This address has no task link in it. Open the link from your mail again.',
+  'taskLink.gone': 'This link is no longer good. Ask for the task to be sent again, or sign in to see it.',
+  'taskLink.goneTitle': 'This link cannot be used',
+  'taskLink.for': 'For {name}',
+  'taskLink.complete': 'Complete the task',
+  'taskLink.submitFailed': 'The task could not be completed. Try again.',
+  'taskLink.once': 'This link works once and only for you. Once you complete the task it stops working.',
+  'taskLink.doneTitle': 'Done, thank you',
+  'taskLink.doneBody': 'The task is complete. You can close this page.',
 };
 
 export default en;

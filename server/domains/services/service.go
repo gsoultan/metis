@@ -1,6 +1,8 @@
 package services
 
 import (
+	"time"
+
 	"github.com/google/uuid"
 
 	"github.com/gsoultan/metis/server/domains/handlers/impl"
@@ -22,6 +24,7 @@ type service struct {
 	contracts.PeopleSignInService
 	contracts.TaskService
 	contracts.PeopleTaskService
+	contracts.TaskLinkService
 	contracts.ExecutionEngine
 	contracts.JobService
 	contracts.ExternalTaskService
@@ -58,6 +61,7 @@ type ServiceParams struct {
 	PeopleSignInService    contracts.PeopleSignInService
 	TaskService            contracts.TaskService
 	PeopleTaskService      contracts.PeopleTaskService
+	TaskLinkService        contracts.TaskLinkService
 	ExecutionEngine        contracts.ExecutionEngine
 	JobService             contracts.JobService
 	ExternalTaskService    contracts.ExternalTaskService
@@ -106,6 +110,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	if p.PeopleTaskService == nil {
 		p.PeopleTaskService = serviceimpl.NewUnavailablePeopleTaskService()
 	}
+	if p.TaskLinkService == nil {
+		p.TaskLinkService = serviceimpl.NewUnavailableTaskLinkService()
+	}
 	if p.PeopleSignInService == nil {
 		p.PeopleSignInService = serviceimpl.NewUnavailablePeopleSignInService(
 			"people cannot sign in: this server was wired without the People sign-in")
@@ -124,6 +131,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		PeopleSignInService:      p.PeopleSignInService,
 		TaskService:              p.TaskService,
 		PeopleTaskService:        p.PeopleTaskService,
+		TaskLinkService:          p.TaskLinkService,
 		ExecutionEngine:          p.ExecutionEngine,
 		JobService:               p.JobService,
 		ExternalTaskService:      p.ExternalTaskService,
@@ -162,6 +170,10 @@ type facadeSettings struct {
 	// peopleSignIn signs People in. Nil leaves them unable to: see
 	// WithPeopleSignIn.
 	peopleSignIn contracts.PeopleSignInService
+
+	// taskLinkLifetime is how long a task link is good for. Zero is
+	// serviceimpl.DefaultTaskLinkLifetime: see WithTaskLinkLifetime.
+	taskLinkLifetime time.Duration
 }
 
 // FacadeOption changes what the services are built with.
@@ -182,6 +194,12 @@ func WithSoleAdministratorOrganizations(organizations []uuid.UUID) FacadeOption 
 // directory to check them against, and refuses rather than guessing.
 func WithPeopleSignIn(signIn contracts.PeopleSignInService) FacadeOption {
 	return func(settings *facadeSettings) { settings.peopleSignIn = signIn }
+}
+
+// WithTaskLinkLifetime is how long a task link is good for once issued. Built
+// without it, a link lasts serviceimpl.DefaultTaskLinkLifetime.
+func WithTaskLinkLifetime(lifetime time.Duration) FacadeOption {
+	return func(settings *facadeSettings) { settings.taskLinkLifetime = lifetime }
 }
 
 // NewServiceFacade creates and wires all sub-service implementations.
@@ -305,6 +323,7 @@ func NewServiceFacade(
 		PeopleSignInService:    settings.peopleSignIn,
 		TaskService:            taskSvc,
 		PeopleTaskService:      serviceimpl.PeopleTasksOf(taskSvc),
+		TaskLinkService:        serviceimpl.TaskLinksOf(taskSvc, settings.taskLinkLifetime),
 		ExecutionEngine:        engine,
 		JobService:             jobSvc,
 		ExternalTaskService:    externalTaskSvc,

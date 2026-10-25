@@ -27,9 +27,24 @@ type PersonSignInRepository interface {
 	GetSession(ctx context.Context, id uuid.UUID) (entities.WorkflowUser, time.Time, error)
 }
 
-// PersonGroupsRepository reads which People groups a person is in, which is
-// what decides the pool tasks they may take.
-type PersonGroupsRepository interface {
+// PeopleDirectoryRepository reads the People directory as task work needs
+// it: which groups a person is in, which decides the pool tasks they may take,
+// and who a task names, which decides who is sent a link to it.
+//
+// Never a password hash: that is PersonSignInRepository's alone.
+type PeopleDirectoryRepository interface {
 	// GroupsOf returns the live groups a participant belongs to.
 	GroupsOf(ctx context.Context, participantID uuid.UUID) ([]entities.WorkflowGroup, error)
+
+	// Named returns the live participant of the project a task names by
+	// username. apierr.ErrNotFound when the project has nobody of that name.
+	Named(ctx context.Context, projectID uuid.UUID, username string) (entities.WorkflowUser, error)
+
+	// Participant returns a live participant by id. apierr.ErrNotFound when
+	// there is nobody live with that id.
+	Participant(ctx context.Context, id uuid.UUID) (entities.WorkflowUser, error)
+
+	// MembersOf returns the live members of the project's group a task names,
+	// by its name or its id. None when the project has no such group.
+	MembersOf(ctx context.Context, projectID uuid.UUID, group string) ([]entities.WorkflowUser, error)
 }

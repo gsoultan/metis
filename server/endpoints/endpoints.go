@@ -468,6 +468,8 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	peopleEndpoints.ClaimPersonTask = person("ClaimPersonTask")(peopleEndpoints.ClaimPersonTask)
 	peopleEndpoints.ReleasePersonTask = person("ReleasePersonTask")(peopleEndpoints.ReleasePersonTask)
 	peopleEndpoints.CompletePersonTask = person("CompletePersonTask")(peopleEndpoints.CompletePersonTask)
+	peopleEndpoints.ReadTaskLink = public("ReadTaskLink")(peopleEndpoints.ReadTaskLink)
+	peopleEndpoints.CompleteByTaskLink = public("CompleteByTaskLink")(peopleEndpoints.CompleteByTaskLink)
 	userEndpoints.ListUsers = protected("ListUsers")(userEndpoints.ListUsers)
 	// Self-service, so protected rather than adminOnly: changing your own
 	// password is the one thing here every account must be able to do. It was

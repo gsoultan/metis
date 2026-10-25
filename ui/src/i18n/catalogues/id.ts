@@ -506,6 +506,16 @@ const id: Catalogue = {
     'Apa yang dilakukan tabel keputusan bila lebih dari satu baris cocok: ambil yang pertama, izinkan hanya satu, kumpulkan semua yang cocok, dan seterusnya.',
   'glossary.hitPolicy.example':
     'Dua baris diskon cocok dengan pesanan yang sama, dan baris pertama yang cocok yang dipakai.',
+  'taskLink.loading': 'Membuka tugas Anda',
+  'taskLink.noToken': 'Alamat ini tidak berisi tautan tugas. Buka lagi tautan dari email Anda.',
+  'taskLink.gone': 'Tautan ini sudah tidak berlaku. Minta tugas dikirim lagi, atau masuk untuk melihatnya.',
+  'taskLink.goneTitle': 'Tautan ini tidak dapat dipakai',
+  'taskLink.for': 'Untuk {name}',
+  'taskLink.complete': 'Selesaikan tugas',
+  'taskLink.submitFailed': 'Tugas tidak dapat diselesaikan. Coba lagi.',
+  'taskLink.once': 'Tautan ini hanya berlaku sekali dan hanya untuk Anda. Setelah tugas selesai, tautan tidak berlaku lagi.',
+  'taskLink.doneTitle': 'Selesai, terima kasih',
+  'taskLink.doneBody': 'Tugas sudah selesai. Anda dapat menutup halaman ini.',
 };
 
 export default id;

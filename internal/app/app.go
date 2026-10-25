@@ -95,11 +95,17 @@ type App struct {
 	// peopleKeys seal People tokens. Nil when METIS_PEOPLE_TOKEN_KEY is unset,
 	// and then nobody can sign in as a person.
 	peopleKeys *peopletoken.Keys
-	repo       repositories.Repository
-	svc        services.ServiceFacade
-	sse        *impl.SSEObserver
-	validator  *auth.TokenValidator
-	initDBOnce func()
+	// publicURL is where people reach this server, which task links are
+	// written against. Empty when METIS_PUBLIC_URL is unset, and then no
+	// links are sent.
+	publicURL string
+	// taskLinkLifetime is how long a task link is good for.
+	taskLinkLifetime time.Duration
+	repo             repositories.Repository
+	svc              services.ServiceFacade
+	sse              *impl.SSEObserver
+	validator        *auth.TokenValidator
+	initDBOnce       func()
 	// schemaDrift is how many model changes are missing a migration, published
 	// as a metric so a shipped-but-broken feature pages somebody. Read at scrape
 	// time, written once at startup, so it is atomic.
@@ -772,9 +778,15 @@ func (a *App) setupService(ctx context.Context) error {
 	if a.peopleKeys, err = resolvePeopleKeys(); err != nil {
 		return err
 	}
+	if a.publicURL, a.taskLinkLifetime, err = resolveTaskLinks(); err != nil {
+		return err
+	}
 	a.svc = a.newServices(dispatcher, jwtSecret)
 
 	dispatcher.Register(impl.NewNotificationObserver(a.notificationDelivery(ctx)))
+	if send := a.taskLinkSender(ctx); send != nil {
+		dispatcher.Register(impl.NewTaskLinkObserver(a.svc, send))
+	}
 
 	// How the event stream works out who a background event is for. The job
 	// worker and the timer sweep run under a system context with no tenant on
@@ -1333,6 +1345,49 @@ func resolvePeopleKeys() (*peopletoken.Keys, error) {
 	return keys, nil
 }
 
+// resolveTaskLinks reads where people reach this server and how long a task
+// link lasts. A setting that is there and wrong stops the server, as a weak
+// key does: a link written against a mistyped address reaches nobody, and
+// nobody would know until somebody asked where their task went.
+func resolveTaskLinks() (string, time.Duration, error) {
+	var lifetime time.Duration
+	if raw := envvar.Get(serviceimpl.EnvTaskLinkLifetime); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil || parsed < time.Hour || parsed > 90*24*time.Hour {
+			return "", 0, fmt.Errorf("%s must be a duration from 1h to 2160h (90 days), such as 168h; it is %q",
+				serviceimpl.EnvTaskLinkLifetime, raw)
+		}
+		lifetime = parsed
+	}
+	raw := envvar.Get(serviceimpl.EnvPublicURL)
+	if raw == "" {
+		log.Info().Msgf("Task links are not sent: %s is not set", serviceimpl.EnvPublicURL)
+		return "", lifetime, nil
+	}
+	publicURL, err := serviceimpl.ParsePublicURL(raw)
+	if err != nil {
+		return "", 0, err
+	}
+	return publicURL, lifetime, nil
+}
+
+// taskLinkSender mails task links, or nil when there is nowhere to write them
+// against or no mail to send them by.
+func (a *App) taskLinkSender(ctx context.Context) func(context.Context, servicecontracts.IssuedTaskLink, entities.ProcessEvent) {
+	if a.publicURL == "" {
+		return nil
+	}
+	mail := notificationMailSettings()
+	if !mail.Configured() {
+		log.Info().Msg("Task links are not sent: no NOTIFICATION_SMTP_HOST and NOTIFICATION_SMTP_FROM to send them by")
+		return nil
+	}
+	schedule := serviceimpl.DeliverAfterCommit(ctx, a.repo.UnitOfWork().AfterCommit,
+		notificationDeliveryWorkers, notificationDeliveryQueue)
+	log.Info().Str("public_url", a.publicURL).Msg("Task links will be mailed to the People a task names")
+	return serviceimpl.NewTaskLinkMailer(mail, a.publicURL, schedule)
+}
+
 // resolveDialector determines the GORM dialector based on config.yaml or environment variables.
 func (a *App) resolveDialector() (gorm.Dialector, error) {
 	// Priority 1: the config file, when there is one.
@@ -1444,13 +1499,7 @@ func (a *App) notificationDelivery(ctx context.Context) servicecontracts.Notific
 		log.Info().Msg("Notifications will also be posted to a webhook")
 	}
 
-	mail := serviceimpl.EmailSettings{
-		Host:     envvar.Get("NOTIFICATION_SMTP_HOST"),
-		Port:     envvar.Get("NOTIFICATION_SMTP_PORT"),
-		Username: envvar.Get("NOTIFICATION_SMTP_USERNAME"),
-		Password: envvar.Get("NOTIFICATION_SMTP_PASSWORD"),
-		From:     envvar.Get("NOTIFICATION_SMTP_FROM"),
-	}
+	mail := notificationMailSettings()
 	if mail.Configured() {
 		// The address comes from the account, looked up when the notification
 		// is sent rather than carried on it: a notification names a username,
@@ -1473,6 +1522,18 @@ func (a *App) notificationDelivery(ctx context.Context) servicecontracts.Notific
 	schedule := serviceimpl.DeliverAfterCommit(ctx, a.repo.UnitOfWork().AfterCommit,
 		notificationDeliveryWorkers, notificationDeliveryQueue)
 	return serviceimpl.NewDeliveringNotificationService(a.svc, schedule, channels...)
+}
+
+// notificationMailSettings is the mail server notifications and task links
+// are sent through.
+func notificationMailSettings() serviceimpl.EmailSettings {
+	return serviceimpl.EmailSettings{
+		Host:     envvar.Get("NOTIFICATION_SMTP_HOST"),
+		Port:     envvar.Get("NOTIFICATION_SMTP_PORT"),
+		Username: envvar.Get("NOTIFICATION_SMTP_USERNAME"),
+		Password: envvar.Get("NOTIFICATION_SMTP_PASSWORD"),
+		From:     envvar.Get("NOTIFICATION_SMTP_FROM"),
+	}
 }
 
 // A few workers are plenty for notifications, which are small and not urgent to

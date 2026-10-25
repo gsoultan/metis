@@ -70,6 +70,8 @@ func All() []any {
 		&RetentionPeriod{},
 		// Saved simulation test cases, per process.
 		&SimulationCase{},
+		// One-use links that let a person act on a task without signing in.
+		&TaskLink{},
 		// Acts asked for on many instances at once, and what came of each.
 		&BatchOperation{},
 		&BatchOperationItem{},

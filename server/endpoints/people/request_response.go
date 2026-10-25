@@ -74,3 +74,26 @@ type PersonTaskActionResponse struct {
 }
 
 func (r PersonTaskActionResponse) Failed() error { return r.Err }
+
+// TaskLinkRequest carries a task link's token in the body, never the address:
+// an address is written to access logs, a body is not.
+type TaskLinkRequest struct {
+	Token string `json:"token"`
+}
+
+// TaskLinkResponse is what opening a link shows.
+type TaskLinkResponse struct {
+	Task      *entities.Task   `json:"task,omitzero"`
+	Person    *entities.Person `json:"person,omitzero"`
+	ExpiresAt time.Time        `json:"expires_at,omitzero"`
+	Err       error            `json:"err,omitzero"`
+}
+
+func (r TaskLinkResponse) Failed() error { return r.Err }
+
+// CompleteByTaskLinkRequest is the form submitted through a link. Who submits
+// it is the link's person, never anything in the body.
+type CompleteByTaskLinkRequest struct {
+	Token     string         `json:"token"`
+	Variables map[string]any `json:"variables,omitzero"`
+}

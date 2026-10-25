@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 46 run at the first boot; eleven of them stop
+administrator. Migrations 31 to 47 run at the first boot; twelve of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -74,7 +74,7 @@ action, in the order it bites:
   release reads neither ([Migrations 37 and
   38](docs/upgrading.md#migrations-37-and-38-retention-holds-and-periods)).
 
-Migrations 31 to 46 run at the first boot. Take a backup first: a rollback
+Migrations 31 to 47 run at the first boot. Take a backup first: a rollback
 does not undo a migration.
 
 - **31** gives a task the run of its step it was created for, and **stops the
@@ -133,6 +133,9 @@ does not undo a migration.
   the audit log's two indexes concurrently. Entries written before it keep
   their actor only on the instance's history ([Migration
   46](docs/upgrading.md#migration-46-an-audit-entry-names-who-acted)).
+- **47** creates the task links People are mailed, and stops if `projects` is
+  held for more than two seconds; it finishes on the next start ([Migration
+  47](docs/upgrading.md#migration-47-task-links)).
 
 ### Security
 
@@ -469,6 +472,20 @@ does not undo a migration.
   answers 404, so a person learns neither that it exists nor whose it is. A
   person may give back a task they took from a pool, not one given to them by
   name, and never takes a task that names nobody.
+
+- **A task link lets a person do a task without signing in.** With
+  `METIS_PUBLIC_URL` and the notification mail settings set, a task created
+  for, handed to, delegated to or handed back to somebody in the People
+  directory mails each person it names a link to it, `<address>/p/t#<token>`.
+  The page shows the task and its form and completes it as that person, under
+  the same rules their own sign-in would. A link is good for one task and one
+  person, once, for `METIS_TASK_LINK_LIFETIME` (7 days unless set). It stops
+  working when its task is completed, withdrawn or given to somebody else, or
+  its person is removed or deactivated; on a task offered to several people
+  the first to submit wins. Opening a link changes nothing, so a mail scanner
+  that opens it does not act on the task. The token is never stored, only its
+  SHA-256, and travels after the `#`, which a browser does not send. Migration
+  47 adds the `task_links` table.
 
 - **An audit log of what people did, across the organization.** Who waived,
   cancelled, held, migrated, reassigned, activated, approved or rejected
