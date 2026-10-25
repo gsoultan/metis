@@ -84,3 +84,29 @@ export const useRemoveParticipant = () => {
     },
   });
 };
+
+/**
+ * Gives a person a password for the People login. It ends every session they
+ * had, so the person signs in again with the new one.
+ */
+export const useSetParticipantPassword = () => {
+  const queryClient = useQueryClient();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  return useMutation<void, Error, { id: string; password: string }>({
+    mutationFn: async ({ id, password }) => {
+      if (!currentProjectId) throw new Error('No project selected');
+      await processService.setParticipantPassword(currentProjectId, id, password);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['participants', currentProjectId] });
+      notifications.show({ title: 'Password set', message: 'They can sign in to their tasks with it now.', color: 'teal' });
+    },
+    onError: (error: unknown) => {
+      notifications.show({
+        title: 'The password was not set',
+        message: errorMessage(error, 'Their sign-in is unchanged.'),
+        color: 'red',
+      });
+    },
+  });
+};

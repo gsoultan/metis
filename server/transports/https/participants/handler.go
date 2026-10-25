@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
 	httptransport "github.com/go-kit/kit/transport/http"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/endpoints/participant"
 	"github.com/gsoultan/metis/server/transports/https/common"
 	"github.com/rs/zerolog/log"
@@ -42,6 +44,12 @@ func RegisterHandlers(m *http.ServeMux, eps participant.Endpoints, options []htt
 		common.EncodeResponse,
 		options...,
 	))
+	m.Handle("PUT /api/v1/participants/{id}/password", httptransport.NewServer(
+		eps.SetParticipantPassword,
+		decodeSetParticipantPasswordRequest,
+		common.EncodeResponse,
+		options...,
+	))
 }
 
 // decodeRemoveParticipantRequest takes the person from the path and the project
@@ -51,6 +59,19 @@ func decodeRemoveParticipantRequest(_ context.Context, r *http.Request) (any, er
 		ProjectID: r.URL.Query().Get("project_id"),
 		ID:        r.PathValue("id"),
 	}, nil
+}
+
+// decodeSetParticipantPasswordRequest takes the person from the path, the
+// project from the query and the password from the body.
+func decodeSetParticipantPasswordRequest(_ context.Context, r *http.Request) (any, error) {
+	req := participant.SetParticipantPasswordRequest{
+		ProjectID: r.URL.Query().Get("project_id"),
+		ID:        r.PathValue("id"),
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
+		return nil, apierr.Invalidf("the body must be JSON with a password: %v", err)
+	}
+	return req, nil
 }
 
 func decodeListParticipantsRequest(_ context.Context, r *http.Request) (any, error) {

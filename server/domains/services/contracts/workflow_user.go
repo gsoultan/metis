@@ -45,4 +45,8 @@ type WorkflowUserService interface {
 	// person left — it stays for whoever picks it up, which is what an operator
 	// needs when somebody leaves mid-approval.
 	RemoveWorkflowUser(ctx context.Context, projectID, id uuid.UUID) error
+
+	// SetWorkflowUserPassword gives a person in the project's directory a new
+	// password for the People login, ending the sessions they had.
+	SetWorkflowUserPassword(ctx context.Context, projectID, id uuid.UUID, password string) error
 }

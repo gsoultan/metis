@@ -68,3 +68,17 @@ type RemoveParticipantResponse struct {
 }
 
 func (r RemoveParticipantResponse) Failed() error { return r.Err }
+
+// SetParticipantPasswordRequest names the person by path and project, and
+// carries the password in the body, never the address.
+type SetParticipantPasswordRequest struct {
+	ProjectID string `json:"-"`
+	ID        string `json:"-"`
+	Password  string `json:"password"`
+}
+
+type SetParticipantPasswordResponse struct {
+	Err error `json:"err,omitzero"`
+}
+
+func (r SetParticipantPasswordResponse) Failed() error { return r.Err }

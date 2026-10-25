@@ -236,6 +236,9 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	participantEndpoints := participant.MakeEndpoints(s)
 	participantEndpoints.ListParticipants = protected("ListParticipants")(participantEndpoints.ListParticipants)
 	participantEndpoints.ImportParticipants = designer("ImportParticipants")(participantEndpoints.ImportParticipants)
+	// Setting somebody's password takes their sign-in, as much as removing
+	// them does, so it takes the same role.
+	participantEndpoints.SetParticipantPassword = designer("SetParticipantPassword")(participantEndpoints.SetParticipantPassword)
 	// Removing somebody takes the same role importing does — they are the same
 	// act in opposite directions, and the removal is reversible by an import.
 	participantEndpoints.RemoveParticipant = designer("RemoveParticipant")(participantEndpoints.RemoveParticipant)

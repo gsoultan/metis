@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Modal,
+  PasswordInput,
   Group,
   Stack,
   Table,
@@ -33,6 +34,7 @@ import {
   useImportParticipants,
   useParticipants,
   useRemoveParticipant,
+  useSetParticipantPassword,
 } from '../hooks/useParticipants';
 import { useTranslation } from '../i18n/context';
 
@@ -61,6 +63,10 @@ export function ParticipantList() {
   const isAdmin = useAppStore((state) => hasRole(state.user, PRIVILEGED_ROLE));
   const { data, isLoading, error, refetch } = useParticipants();
   const removeParticipant = useRemoveParticipant();
+  const setPassword = useSetParticipantPassword();
+  // The person whose password is being set, and what has been typed so far.
+  const [passwordFor, setPasswordFor] = useState<string | null>(null);
+  const [newPassword, setNewPassword] = useState('');
   // The person being removed, held while the confirmation is open. Removal is
   // reversible, so this asks rather than warns — but it still asks, because the
   // row it hides is somebody a running process may be about to assign work to.
@@ -75,6 +81,7 @@ export function ParticipantList() {
   // Held for the confirmation's wording: it names the person rather than saying
   // "this participant", because the row it is about has already scrolled.
   const removedPerson = everyone.find((person) => person.id === removing) ?? null;
+  const passwordPerson = everyone.find((person) => person.id === passwordFor) ?? null;
   const people = query
     ? everyone.filter((p) => matchesQuery(query, p.username, p.display_name ?? '', p.email ?? ''))
     : everyone;
@@ -191,17 +198,28 @@ export function ParticipantList() {
                         </Tooltip>
                       </Table.Td>
                       <Table.Td ta="right">
-                        <Tooltip label="Take them out of this project's directory">
-                          <ActionIcon
-                            variant="subtle"
-                            color="red"
-                            aria-label={`Remove ${person.display_name || person.username}`}
-                            loading={removeParticipant.isPending && removing === person.id}
-                            onClick={() => setRemoving(person.id)}
-                          >
-                            <Trash2 size={16} />
-                          </ActionIcon>
-                        </Tooltip>
+                        <Group gap={4} justify="flex-end" wrap="nowrap">
+                          <Tooltip label="Set the password they sign in to their tasks with">
+                            <ActionIcon
+                              variant="subtle"
+                              aria-label={`Set a password for ${person.display_name || person.username}`}
+                              onClick={() => { setNewPassword(''); setPasswordFor(person.id); }}
+                            >
+                              <KeyRound size={16} />
+                            </ActionIcon>
+                          </Tooltip>
+                          <Tooltip label="Take them out of this project's directory">
+                            <ActionIcon
+                              variant="subtle"
+                              color="red"
+                              aria-label={`Remove ${person.display_name || person.username}`}
+                              loading={removeParticipant.isPending && removing === person.id}
+                              onClick={() => setRemoving(person.id)}
+                            >
+                              <Trash2 size={16} />
+                            </ActionIcon>
+                          </Tooltip>
+                        </Group>
                       </Table.Td>
                     </Table.Tr>
                   );
@@ -251,6 +269,43 @@ export function ParticipantList() {
             </Button>
           </Group>
         </Stack>
+      </Modal>
+
+      <Modal
+        opened={passwordFor !== null}
+        onClose={() => setPasswordFor(null)}
+        radius="md"
+        title={<Text fw={700}>Set a password</Text>}
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!passwordFor) return;
+            setPassword.mutate({ id: passwordFor, password: newPassword }, { onSuccess: () => setPasswordFor(null) });
+          }}
+        >
+          <Stack gap="md">
+            <Text size="sm">
+              {passwordPerson
+                ? `${passwordPerson.display_name || passwordPerson.username} signs in to their tasks with this password.`
+                : 'They sign in to their tasks with this password.'}
+            </Text>
+            <PasswordInput
+              label="New password"
+              description="At least 8 characters. Any session they had ends."
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.currentTarget.value)}
+              autoComplete="new-password"
+              data-autofocus
+            />
+            <Group justify="flex-end">
+              <Button variant="subtle" color="gray" onClick={() => setPasswordFor(null)}>Cancel</Button>
+              <Button type="submit" loading={setPassword.isPending} disabled={newPassword.trim().length === 0}>
+                Set password
+              </Button>
+            </Group>
+          </Stack>
+        </form>
       </Modal>
 
       <ParticipantImportModal

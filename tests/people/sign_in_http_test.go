@@ -22,6 +22,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/pg"
 	"github.com/gsoultan/metis/tests/testutils"
@@ -35,6 +36,7 @@ const (
 
 type world struct {
 	handler   http.Handler
+	conn      *db.Conn
 	project   uuid.UUID
 	userToken string
 }
@@ -49,7 +51,7 @@ func newWorld(t *testing.T) world {
 		t.Fatal(err)
 	}
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "people-sign-in-test-secret",
-		nil, nil, nil,
+		impl.NewWorkflowUserService(pg.NewWorkflowUserRepository(conn)), nil, nil,
 		services.WithPeopleSignIn(impl.NewPeopleSignInService(pg.NewPersonSignInRepository(conn), keys)))
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, conn)
 
@@ -92,7 +94,7 @@ func newWorld(t *testing.T) world {
 		"UPDATE workflow_users SET password_hash = $1 WHERE username = 'ada'", string(hash)); err != nil {
 		t.Fatalf("set ada's password: %v", err)
 	}
-	return world{handler: handler, project: project.ID, userToken: userToken}
+	return world{handler: handler, conn: conn, project: project.ID, userToken: userToken}
 }
 
 func (w world) do(t *testing.T, method, path, token string, body any) (int, string) {

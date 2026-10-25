@@ -13,16 +13,18 @@ import (
 )
 
 type Endpoints struct {
-	ListParticipants   endpoint.Endpoint
-	ImportParticipants endpoint.Endpoint
-	RemoveParticipant  endpoint.Endpoint
+	ListParticipants       endpoint.Endpoint
+	ImportParticipants     endpoint.Endpoint
+	RemoveParticipant      endpoint.Endpoint
+	SetParticipantPassword endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	return Endpoints{
-		ListParticipants:   MakeListParticipantsEndpoint(s),
-		ImportParticipants: MakeImportParticipantsEndpoint(s),
-		RemoveParticipant:  MakeRemoveParticipantEndpoint(s),
+		ListParticipants:       MakeListParticipantsEndpoint(s),
+		ImportParticipants:     MakeImportParticipantsEndpoint(s),
+		RemoveParticipant:      MakeRemoveParticipantEndpoint(s),
+		SetParticipantPassword: MakeSetParticipantPasswordEndpoint(s),
 	}
 }
 
@@ -104,5 +106,26 @@ func MakeRemoveParticipantEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			return RemoveParticipantResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		return RemoveParticipantResponse{Err: s.RemoveWorkflowUser(ctx, projectID, id)}, nil
+	}
+}
+
+// MakeSetParticipantPasswordEndpoint gives a person a password for the People
+// login. The project comes with the request and is checked against the
+// person, as a removal's is.
+func MakeSetParticipantPasswordEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(SetParticipantPasswordRequest)
+		if !ok {
+			return nil, fmt.Errorf("participant: expected a SetParticipantPasswordRequest, got %T", request)
+		}
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return SetParticipantPasswordResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
+		}
+		id, err := uuid.Parse(req.ID)
+		if err != nil {
+			return SetParticipantPasswordResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
+		}
+		return SetParticipantPasswordResponse{Err: s.SetWorkflowUserPassword(ctx, projectID, id, req.Password)}, nil
 	}
 }

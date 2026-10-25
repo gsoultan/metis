@@ -438,6 +438,14 @@ does not undo a migration.
   signs in. Each one is logged with who set it, never the password
   (`PUT /api/v1/users/{id}/password`).
 
+- **An administrator sets a person's password for the People login.** The
+  People page has a key button on each row: the password set there is the one
+  the person signs in to their tasks with, and it ends every People session
+  they had. It takes the role an import takes, reaches only a person in the
+  named project of the caller's own organization, and is logged with who set
+  it, never the password (`PUT /api/v1/participants/{id}/password`). Until
+  now a person imported without a password had no way to get one.
+
 - **People can sign in, separately from Users.** `POST /api/v1/people/login`
   takes a project, the username a process names the person by, and the
   password an administrator set, and answers with a People token: PASETO
