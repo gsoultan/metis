@@ -36,3 +36,16 @@ func NewOIDCStrategy(validateToken func(ctx context.Context, token string) (any,
 func (s *OIDCStrategy) Authenticate(ctx context.Context, token string) (any, error) {
 	return s.validateToken(ctx, token)
 }
+
+// PeopleStrategy authenticates a People token as the person it signs in.
+type PeopleStrategy struct {
+	validateToken func(ctx context.Context, token string) (entities.Person, error)
+}
+
+func NewPeopleStrategy(validateToken func(ctx context.Context, token string) (entities.Person, error)) *PeopleStrategy {
+	return &PeopleStrategy{validateToken: validateToken}
+}
+
+func (s *PeopleStrategy) Authenticate(ctx context.Context, token string) (any, error) {
+	return s.validateToken(ctx, token)
+}

@@ -153,3 +153,28 @@ func TestIdempotencyStillWorksForUnauthenticatedCallers(t *testing.T) {
 		t.Fatalf("handler ran %d times for one anonymous retry, want 1", calls.Load())
 	}
 }
+
+// Two People choosing the same key on the same People route are two callers.
+// A person carries no User and no tenant, so without their own id in the key
+// every person would share one bucket.
+func TestIdempotencyIsScopedToThePerson(t *testing.T) {
+	var calls atomic.Int32
+	handler := NewIdempotencyInterceptor(time.Minute).Wrap(echoingHandler(&calls))
+	as := func(person uuid.UUID) *http.Request {
+		ctx := context.WithValue(t.Context(), pkgauth.PersonContextKey, entities.Person{ID: person})
+		r := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/people/tasks/x/complete", bytes.NewReader([]byte(`{}`)))
+		r.Header.Set(idempotencyKeyHeader, "1")
+		r.Header.Set("Content-Type", "application/json")
+		return r
+	}
+	for _, person := range []uuid.UUID{uuid.New(), uuid.New()} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, as(person))
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("status %d", rec.Code)
+		}
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("the second person's write ran %d times in all; it was answered from the first person's", calls.Load())
+	}
+}

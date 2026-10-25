@@ -19,6 +19,7 @@ type service struct {
 	contracts.WorkflowUserService
 	contracts.ParticipantSyncService
 	contracts.PlatformUserService
+	contracts.PeopleSignInService
 	contracts.TaskService
 	contracts.ExecutionEngine
 	contracts.JobService
@@ -53,6 +54,7 @@ type ServiceParams struct {
 	WorkflowUserService    contracts.WorkflowUserService
 	ParticipantSyncService contracts.ParticipantSyncService
 	PlatformUserService    contracts.PlatformUserService
+	PeopleSignInService    contracts.PeopleSignInService
 	TaskService            contracts.TaskService
 	ExecutionEngine        contracts.ExecutionEngine
 	JobService             contracts.JobService
@@ -99,6 +101,10 @@ func NewService(p ServiceParams) ServiceFacade {
 	if p.OperationLogService == nil {
 		p.OperationLogService = serviceimpl.NewUnavailableOperationLogService()
 	}
+	if p.PeopleSignInService == nil {
+		p.PeopleSignInService = serviceimpl.NewUnavailablePeopleSignInService(
+			"people cannot sign in: this server was wired without the People sign-in")
+	}
 	if p.SimulationCaseService == nil {
 		p.SimulationCaseService = serviceimpl.NewUnavailableSimulationCaseService()
 	}
@@ -110,6 +116,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		WorkflowUserService:      p.WorkflowUserService,
 		ParticipantSyncService:   p.ParticipantSyncService,
 		PlatformUserService:      p.PlatformUserService,
+		PeopleSignInService:      p.PeopleSignInService,
 		TaskService:              p.TaskService,
 		ExecutionEngine:          p.ExecutionEngine,
 		JobService:               p.JobService,
@@ -145,6 +152,10 @@ type facadeSettings struct {
 	// soleAdministratorOrganizations are the organizations whose only
 	// administrator may approve a request they asked for themselves.
 	soleAdministratorOrganizations []uuid.UUID
+
+	// peopleSignIn signs People in. Nil leaves them unable to: see
+	// WithPeopleSignIn.
+	peopleSignIn contracts.PeopleSignInService
 }
 
 // FacadeOption changes what the services are built with.
@@ -158,6 +169,13 @@ type FacadeOption func(*facadeSettings)
 // that same reading here.
 func WithSoleAdministratorOrganizations(organizations []uuid.UUID) FacadeOption {
 	return func(settings *facadeSettings) { settings.soleAdministratorOrganizations = organizations }
+}
+
+// WithPeopleSignIn is how People sign in. Built without it, nobody can sign in
+// as a person: the server has no key to seal their tokens with, or no People
+// directory to check them against, and refuses rather than guessing.
+func WithPeopleSignIn(signIn contracts.PeopleSignInService) FacadeOption {
+	return func(settings *facadeSettings) { settings.peopleSignIn = signIn }
 }
 
 // NewServiceFacade creates and wires all sub-service implementations.
@@ -278,6 +296,7 @@ func NewServiceFacade(
 		WorkflowUserService:    participants,
 		ParticipantSyncService: sync,
 		PlatformUserService:    accounts,
+		PeopleSignInService:    settings.peopleSignIn,
 		TaskService:            taskSvc,
 		ExecutionEngine:        engine,
 		JobService:             jobSvc,

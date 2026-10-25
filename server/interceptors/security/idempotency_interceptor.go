@@ -238,6 +238,12 @@ func callerIdentity(ctx context.Context) (tenant, principal string) {
 			principal = principalOf(*u)
 		}
 	}
+	// A person signed in on a People route. Prefixed, so a person's id can
+	// never be read as an account's: the two are different tables, and an id
+	// is unique within one of them, not across both.
+	if person, ok := ctx.Value(pkgauth.PersonContextKey).(entities.Person); ok {
+		principal = "person:" + person.ID.String()
+	}
 	return tenant, principal
 }
 
