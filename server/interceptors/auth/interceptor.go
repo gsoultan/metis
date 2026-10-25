@@ -103,6 +103,12 @@ var publicPathPrefixes = []string{
 }
 
 func NewMandatoryHTTPAuthInterceptor(strategy SecurityStrategy, publicPaths []string) contracts.TransportInterceptor {
+	return NewMandatoryHTTPAuthInterceptorWithPeople(strategy, nil, publicPaths)
+}
+
+// NewMandatoryHTTPAuthInterceptorWithPeople is NewMandatoryHTTPAuthInterceptor
+// that also admits People on People routes, through people.
+func NewMandatoryHTTPAuthInterceptorWithPeople(strategy, people SecurityStrategy, publicPaths []string) contracts.TransportInterceptor {
 	publicPathSet := make(map[string]struct{}, len(publicPaths))
 	for _, publicPath := range publicPaths {
 		publicPathSet[publicPath] = struct{}{}
@@ -111,15 +117,8 @@ func NewMandatoryHTTPAuthInterceptor(strategy SecurityStrategy, publicPaths []st
 	return &mandatoryHTTPAuthInterceptor{
 		strategy:      strategy,
 		publicPathSet: publicPathSet,
+		people:        people,
 	}
-}
-
-// NewMandatoryHTTPAuthInterceptorWithPeople is NewMandatoryHTTPAuthInterceptor
-// that also admits People on People routes, through people.
-func NewMandatoryHTTPAuthInterceptorWithPeople(strategy, people SecurityStrategy, publicPaths []string) contracts.TransportInterceptor {
-	i := NewMandatoryHTTPAuthInterceptor(strategy, publicPaths).(*mandatoryHTTPAuthInterceptor)
-	i.people = people
-	return i
 }
 
 func (i *mandatoryHTTPAuthInterceptor) Wrap(next http.Handler) http.Handler {

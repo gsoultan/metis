@@ -48,7 +48,7 @@ func peopleRoutes(t *testing.T) (http.Handler, *bool, *bool, *context.Context) {
 }
 
 func call(handler http.Handler, method, path, token string) int {
-	req := httptest.NewRequest(method, path, nil)
+	req := httptest.NewRequestWithContext(context.Background(), method, path, nil)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
