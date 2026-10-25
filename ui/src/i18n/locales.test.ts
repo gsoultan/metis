@@ -108,10 +108,10 @@ describe('the getting-started card, Help and the glossary', () => {
 });
 
 /*
- * The role view on the Platform access page was written with its words in the
+ * The role view on the Users page was written with its words in the
  * catalogues from the start, so a translation has every one of them.
  */
-describe('the Platform access role view', () => {
+describe('the Users role view', () => {
   it('is translated into Indonesian, every word of it, and not copied', async () => {
     const english = (await import('./catalogues/en')).default;
     const indonesian = (await import('./catalogues/id')).default;

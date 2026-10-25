@@ -43,7 +43,7 @@ ugly, which is the point.
 The one exception is a catalogue that fails to *load* — a network error leaves
 English in place, because the wrong language beats a page of identifiers.
 
-The other is an action in the role legend on the Platform access page. The
+The other is an action in the role legend on the Users page. The
 server lists them, worded in English from the method name of each gate, and the
 catalogues word them by the same name (`access.action.<Method>`). A gate added
 on the server is listed before any catalogue has words for it, so the legend
@@ -63,7 +63,7 @@ The shell: navigation, the language menu itself, and the offline and update
 messages. The page headings, the Dashboard's figures, the getting-started card
 and Help's checklist and glossary. The glossary's steps keep the palette's
 names, which are still English, so a step can be looked up by the name seen on
-it. The Roles view on the Platform access page and the actions each role is
+it. The Roles view on the Users page and the actions each role is
 required for, except the role names and their sentences, which come from
 `domain/roles.ts` and are still English. In the dialog that migrates running
 instances: what it says of an apply that was sent to a second administrator,

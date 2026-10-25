@@ -67,6 +67,11 @@ export const useSetOrganizationRoles = () => {
   });
 };
 
+export const useResetPassword = () =>
+  useMutation({
+    mutationFn: ({ id, password }: { id: string; password: string }) => processService.resetPassword(id, password),
+  });
+
 export const useUpdateOwnProfile = () => {
   const queryClient = useQueryClient();
   return useMutation({

@@ -418,6 +418,17 @@ does not undo a migration.
 
 ### Added
 
+- **An administrator can set a colleague's password.** Editing an account
+  on Platform access now has a *New password* field: left empty, the
+  password stays as it is; filled in, it replaces it and signs the account
+  out everywhere. Before, a forgotten password on a running installation had
+  one answer, `--reset-password` on the server. It asks what deleting the
+  account asks: an administrator of every organization the account belongs
+  to, and a platform administrator for an account holding a role in every
+  organization. It is refused for your own account, which the Profile page
+  changes with the current password, and for an account an identity provider
+  signs in. Each one is logged with who set it, never the password
+  (`PUT /api/v1/users/{id}/password`).
 - **An audit log of what people did, across the organization.** Who waived,
   cancelled, held, migrated, reassigned, activated, approved or rejected
   what was written down on each instance's own history and nowhere it could
@@ -1032,6 +1043,13 @@ does not undo a migration.
   starting their own. The counts, and the page total read off them, can trail
   the page by up to that long; the page itself is read fresh.
   `METIS_INSTANCE_COUNT_CACHE_TTL` sets the window (`0` turns it off).
+
+- **"Platform access" is now called Users.** The page and its entry in the
+  navigation are renamed, and the page says what Users are for: running Metis
+  by role (organizations, projects, People, process and decision models), never
+  being given tasks. On the People page, a person without a password reads
+  "No password yet" instead of "No sign-in yet", and an active person no
+  longer claims they can sign in, because People have no sign-in yet.
 
 - **`scripts/dev.sh` starts its PostgreSQL with Apple's `container`, and only
   with it.** It used to take whichever of docker, podman or `container` it

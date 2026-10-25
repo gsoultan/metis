@@ -1,5 +1,5 @@
 /**
- * The account dialog on Platform access holds both kinds of role: the ones held
+ * The account dialog on Users holds both kinds of role: the ones held
  * in the organization being worked in, which its administrators grant, and the
  * ones held in every organization, which only a platform administrator may
  * change. Everybody else is shown the second kind and cannot change it.
@@ -91,5 +91,27 @@ describe('the roles an account holds', () => {
 
     expect(visibleText(html)).toContain('New people join the organization you are working in');
     expect(labelledControl(html, 'Roles in every organization')).toHaveProperty('disabled');
+  });
+});
+
+describe('the password of an account being edited', () => {
+  it('can be set by an administrator, and starts empty so that saving keeps it', () => {
+    const control = labelledControl(render(kim, administratorHere), 'New password');
+
+    expect(control).toBeDefined();
+    expect(control).toHaveProperty('value', '');
+    expect(control).toHaveProperty('autoComplete', 'new-password');
+  });
+
+  it('is not offered for the administrator’s own account, which the Profile page changes', () => {
+    const own: ApiOrganizationUser = { ...kim, id: 'user-1', username: 'ana' };
+
+    expect(labelledControl(render(own, administratorHere), 'New password')).toBeUndefined();
+  });
+
+  it('is not offered for an account an identity provider signs in', () => {
+    const linked: ApiOrganizationUser = { ...kim, identity_provider: 'https://id.example.com' };
+
+    expect(labelledControl(render(linked, administratorHere), 'New password')).toBeUndefined();
   });
 });

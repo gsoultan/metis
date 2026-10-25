@@ -25,7 +25,7 @@ const id: Catalogue = {
   'nav.organizations': 'Organisasi',
   'nav.groups': 'Grup',
   'nav.people': 'Orang',
-  'nav.platformAccess': 'Akses platform',
+  'nav.platformAccess': 'Pengguna',
   'nav.audit': 'Log audit',
   'nav.sectionWork': 'Pekerjaan',
   'nav.sectionBuild': 'Bangun',
@@ -225,8 +225,8 @@ const id: Catalogue = {
   'page.projects.subtitle': 'Atur proses dan tugas Anda ke dalam proyek.',
   'page.organizations.title': 'Organisasi',
   'page.organizations.subtitle': 'Kelola organisasi Anda beserta proyeknya.',
-  'page.platformAccess.title': 'Akses platform',
-  'page.platformAccess.subtitle': 'Akun yang mengelola Metis: mereka masuk, mengonfigurasi instalasi, dan menyusun model. Orang yang diberi pekerjaan oleh proses ada di halaman Orang.',
+  'page.platformAccess.title': 'Pengguna',
+  'page.platformAccess.subtitle': 'Akun yang menjalankan Metis sesuai perannya: mereka mengelola organisasi, proyek, dan Orang, serta menyusun model proses dan keputusan. Mereka tidak pernah diberi tugas; orang yang diberi pekerjaan oleh proses ada di halaman Orang.',
   'page.audit.title': 'Log audit',
   'page.audit.subtitle': 'Siapa melakukan apa di organisasi ini, yang terbaru lebih dulu.',
   'page.profile.title': 'Profil Pengguna',
@@ -280,7 +280,7 @@ const id: Catalogue = {
   'audit.type.retention_hold_placed': 'Penahanan retensi dipasang',
   'audit.type.retention_hold_released': 'Penahanan retensi dilepas',
 
-  // Akses platform: siapa memegang peran apa. See the English catalogue.
+  // Pengguna: siapa memegang peran apa. See the English catalogue.
   'access.tabAccounts': 'Akun',
   'access.tabRoles': 'Peran',
   'access.search': 'Cari orang',

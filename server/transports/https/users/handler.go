@@ -85,6 +85,14 @@ func RegisterHandlers(m *http.ServeMux, eps user.Endpoints, options []httptransp
 		common.EncodeResponse,
 		options...,
 	))
+	// An administrator setting somebody else's password. The caller's own is
+	// POST /users/me/password, which asks for the current one.
+	m.Handle("PUT /api/v1/users/{id}/password", httptransport.NewServer(
+		eps.ResetUserPassword,
+		decodeResetPasswordRequest,
+		common.EncodeResponse,
+		options...,
+	))
 }
 
 func decodeLoginRequest(_ context.Context, r *http.Request) (any, error) {
@@ -140,6 +148,19 @@ func decodeSetOrganizationRolesRequest(_ context.Context, r *http.Request) (any,
 	var req user.SetOrganizationRolesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return nil, apierr.Invalidf("could not read the request body: %v", err)
+	}
+	req.ID = id
+	return req, nil
+}
+
+func decodeResetPasswordRequest(_ context.Context, r *http.Request) (any, error) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		return nil, apierr.Invalidf("the account id %q is not an id", r.PathValue("id"))
+	}
+	var req user.ResetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, apierr.Invalidf("could not read the request body")
 	}
 	req.ID = id
 	return req, nil

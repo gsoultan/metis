@@ -851,7 +851,7 @@ With the setting unset or empty the server says nothing about it.
 ### Who changed who administers
 
 The second approver rests on two administrators being two people, and an
-administrator can change who the administrators are. These five lines in the
+administrator can change who the administrators are. These six lines in the
 server's log, at info level, are the only record of that, so keep the log:
 
 | Line | Written when |
@@ -861,6 +861,7 @@ server's log, at info level, are the only record of that, so keep the log:
 | *An account's roles in an organization were changed.* | the roles it holds in one organization change |
 | *An account was deleted.* | an account is deleted |
 | *An account's password was set from the server's command line.* | `--reset-password` sets a local account's password. It changes no role: it is here because it is the one way into an account that needs no session |
+| *An account's password was set by an administrator.* | an administrator sets another local account's password from the account dialog (`PUT /api/v1/users/{id}/password`). It changes no role: it is here because it takes that account's sign-in |
 
 Each carries `actor` and `actor_id` (who did it; both empty where nobody was
 signed in), `target` and `target_id` (whose account), `organization` (the
