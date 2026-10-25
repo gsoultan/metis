@@ -1,5 +1,5 @@
 /**
- * Granting or revoking one role, from the matrix on the Platform access page.
+ * Granting or revoking one role, from the matrix on the Users page.
  *
  * A tick grants or revokes a role in the organization being worked in, through
  * PUT /users/{id}/organization-roles, which replaces the roles the account holds

@@ -1,5 +1,5 @@
 /**
- * What saving the account dialog on the Platform access page sends.
+ * What saving the account dialog on the Users page sends.
  *
  * An account has two kinds of role. The ones held in every organization it
  * belongs to are part of the account, go with the account update, and are a

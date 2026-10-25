@@ -1,5 +1,5 @@
 /**
- * The account dialog on Platform access holds both kinds of role: the ones held
+ * The account dialog on Users holds both kinds of role: the ones held
  * in the organization being worked in, which its administrators grant, and the
  * ones held in every organization, which only a platform administrator may
  * change. Everybody else is shown the second kind and cannot change it.

@@ -129,7 +129,7 @@ const sections: NavSection[] = [
       { icon: FolderGit2, label: 'nav.projects', to: '/projects' },
       { icon: Building2, label: 'nav.organizations', to: '/organizations' },
       { icon: ShieldCheck, label: 'nav.groups', to: '/groups' },
-      { icon: Users, label: 'nav.platformAccess', to: '/users', hint: 'Accounts that administer Metis' },
+      { icon: Users, label: 'nav.platformAccess', to: '/users', hint: 'Accounts that run Metis, by role' },
       {
         icon: ScrollText,
         label: 'nav.audit',
