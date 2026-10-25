@@ -67,7 +67,7 @@ otherwise); they are stored as the server spells them, each once. Nothing else
 about the account changes, so an account another organization shares needs no
 say from there. `POST /api/v1/users` takes the same list as
 `organization_roles`, for an account created in the organization the request is
-for. The Roles tab on Platform access and the account dialog do the same.
+for. The Roles tab on Users and the account dialog do the same.
 
 **Granting one in every organization.** `roles` on `PUT /api/v1/users/{id}` or
 `POST /api/v1/users` — and deleting an account that holds one — takes a
@@ -2013,7 +2013,7 @@ hold.
 
 A lookup carries SQL its author wrote, so deploying a process with one in it
 needs the **Query author** role, held beside Designer — an administrator has it
-already. Grant it on the **Platform access** page. A designer without it can
+already. Grant it on the **Users** page. A designer without it can
 still design the step; the deploy is refused, and says why.
 
 ### What is checked, and what that is worth

@@ -1035,6 +1035,13 @@ does not undo a migration.
 
 ### Changed
 
+- **"Platform access" is now called Users.** The page and its entry in the
+  navigation are renamed, and the page says what Users are for: running Metis
+  by role (organizations, projects, People, process and decision models), never
+  being given tasks. On the People page, a person without a password reads
+  "No password yet" instead of "No sign-in yet", and an active person no
+  longer claims they can sign in, because People have no sign-in yet.
+
 - **`scripts/dev.sh` starts its PostgreSQL with Apple's `container`, and only
   with it.** It used to take whichever of docker, podman or `container` it
   found first. It now starts the container services when they are down

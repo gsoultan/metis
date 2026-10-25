@@ -26,7 +26,7 @@ const en: Catalogue = {
   'nav.organizations': 'Organizations',
   'nav.groups': 'Groups',
   'nav.people': 'People',
-  'nav.platformAccess': 'Platform access',
+  'nav.platformAccess': 'Users',
   'nav.audit': 'Audit log',
   'nav.sectionWork': 'Work',
   'nav.sectionBuild': 'Build',
@@ -267,8 +267,8 @@ const en: Catalogue = {
   'page.projects.subtitle': 'Organize your processes and tasks into projects.',
   'page.organizations.title': 'Organizations',
   'page.organizations.subtitle': 'Manage your organizations and their projects.',
-  'page.platformAccess.title': 'Platform access',
-  'page.platformAccess.subtitle': 'Accounts that administer Metis: they sign in, configure the installation and author models. The people processes assign work to are Participants, on the People page.',
+  'page.platformAccess.title': 'Users',
+  'page.platformAccess.subtitle': 'Accounts that run Metis, each by its roles: they manage organizations, projects and People, and author process and decision models. They are never given tasks; the people processes assign work to are on the People page.',
   'page.audit.title': 'Audit log',
   'page.audit.subtitle': 'Who did what across this organization, newest first.',
   'page.profile.title': 'User Profile',
@@ -323,7 +323,7 @@ const en: Catalogue = {
   'audit.type.retention_hold_placed': 'Retention hold placed',
   'audit.type.retention_hold_released': 'Retention hold released',
 
-  // Platform access: who holds which role, and what each role is required
+  // Users: who holds which role, and what each role is required
   // for. The role names and their one-line sentences come from domain/roles.ts
   // and are still English; the actions under each are worded below, by the
   // method name of the gate the server reads them from.
