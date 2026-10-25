@@ -497,6 +497,14 @@ does not undo a migration.
   expressions such as `${initiator}` are left alone. Both reads answer only
   for a project in the caller's own organization.
 
+- **People have a page of their own.** `<address>/p/?project=<id>` signs a
+  person in with their username and password and lists the tasks given or
+  offered to them. From there they take a task offered to several people,
+  give back one they took, and complete one with its form. The People page
+  shows the address to hand them. The People session lives in that browser
+  tab only, apart from any User session, and signing out of one leaves the
+  other alone.
+
 - **An audit log of what people did, across the organization.** Who waived,
   cancelled, held, migrated, reassigned, activated, approved or rejected
   what was written down on each instance's own history and nowhere it could

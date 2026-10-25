@@ -31,6 +31,7 @@ import { Route as AuthenticatedSdkRouteImport } from './routes/_authenticated.sd
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated.settings'
 import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated.tasks'
 import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated.users'
+import { Route as PIndexRouteImport } from './routes/p.index'
 import { Route as PTRouteImport } from './routes/p.t'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
@@ -171,6 +172,11 @@ const AuthenticatedUsersRoute = AuthenticatedUsersRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_authenticated.users.lazy').then((d) => d.Route),
 )
+const PIndexRoute = PIndexRouteImport.update({
+  id: '/p/',
+  path: '/p/',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import('./routes/p.index.lazy').then((d) => d.Route))
 const PTRoute = PTRouteImport.update({
   id: '/p/t',
   path: '/p/t',
@@ -200,6 +206,7 @@ export interface FileRoutesByFullPath {
   '/tasks': typeof AuthenticatedTasksRoute
   '/users': typeof AuthenticatedUsersRoute
   '/p/t': typeof PTRoute
+  '/p/': typeof PIndexRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -224,6 +231,7 @@ export interface FileRoutesByTo {
   '/users': typeof AuthenticatedUsersRoute
   '/p/t': typeof PTRoute
   '/': typeof AuthenticatedIndexRoute
+  '/p': typeof PIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -250,6 +258,7 @@ export interface FileRoutesById {
   '/_authenticated/users': typeof AuthenticatedUsersRoute
   '/p/t': typeof PTRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/p/': typeof PIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -276,6 +285,7 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/users'
     | '/p/t'
+    | '/p/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -300,6 +310,7 @@ export interface FileRouteTypes {
     | '/users'
     | '/p/t'
     | '/'
+    | '/p'
   id:
     | '__root__'
     | '/_authenticated'
@@ -325,6 +336,7 @@ export interface FileRouteTypes {
     | '/_authenticated/users'
     | '/p/t'
     | '/_authenticated/'
+    | '/p/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -332,6 +344,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   SetupRoute: typeof SetupRoute
   PTRoute: typeof PTRoute
+  PIndexRoute: typeof PIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -490,6 +503,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUsersRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/p/': {
+      id: '/p/'
+      path: '/p'
+      fullPath: '/p/'
+      preLoaderRoute: typeof PIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/p/t': {
       id: '/p/t'
       path: '/p/t'
@@ -553,6 +573,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   SetupRoute: SetupRoute,
   PTRoute: PTRoute,
+  PIndexRoute: PIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

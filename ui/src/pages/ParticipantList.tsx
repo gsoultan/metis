@@ -3,6 +3,7 @@ import {
   Badge,
   Button,
   Card,
+  CopyButton,
   Modal,
   PasswordInput,
   Group,
@@ -61,6 +62,8 @@ const STANDING_COLOURS: Record<string, string> = {
 export function ParticipantList() {
   const { t } = useTranslation();
   const isAdmin = useAppStore((state) => hasRole(state.user, PRIVILEGED_ROLE));
+  const projectId = useAppStore((state) => state.currentProjectId);
+  const signInAddress = projectId ? `${window.location.origin}/p/?project=${encodeURIComponent(projectId)}` : '';
   const { data, isLoading, error, refetch } = useParticipants();
   const removeParticipant = useRemoveParticipant();
   const setPassword = useSetParticipantPassword();
@@ -115,6 +118,24 @@ export function ParticipantList() {
           </Button>
         }
       />
+
+      {signInAddress && (
+        <Card withBorder radius="lg" p="md">
+          <Group justify="space-between" wrap="nowrap">
+            <Stack gap={2}>
+              <Text fw={600} size="sm">{t('page.people.signInAddress')}</Text>
+              <Text size="sm" c="dimmed" style={{ wordBreak: 'break-all' }}>{signInAddress}</Text>
+            </Stack>
+            <CopyButton value={signInAddress}>
+              {({ copied, copy }) => (
+                <Button variant="light" size="xs" onClick={copy}>
+                  {copied ? t('page.people.copied') : t('page.people.copy')}
+                </Button>
+              )}
+            </CopyButton>
+          </Group>
+        </Card>
+      )}
 
       <Card withBorder radius="lg" p={0}>
         <Group p="md" justify="space-between">
