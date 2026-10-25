@@ -31,3 +31,46 @@ type MeResponse struct {
 }
 
 func (r MeResponse) Failed() error { return r.Err }
+
+// PersonTasksRequest asks for a page of the signed-in person's work.
+type PersonTasksRequest struct {
+	Page     int `json:"page,omitzero"`
+	PageSize int `json:"page_size,omitzero"`
+}
+
+type PersonTasksResponse struct {
+	Tasks    []entities.Task `json:"tasks"`
+	Total    int64           `json:"total"`
+	Page     int             `json:"page"`
+	PageSize int             `json:"page_size"`
+	HasMore  bool            `json:"has_more"`
+	Err      error           `json:"err,omitzero"`
+}
+
+func (r PersonTasksResponse) Failed() error { return r.Err }
+
+// PersonTaskRequest names one task, from the path.
+type PersonTaskRequest struct {
+	ID string `json:"-"`
+}
+
+type PersonTaskResponse struct {
+	Task *entities.Task `json:"task,omitzero"`
+	Err  error          `json:"err,omitzero"`
+}
+
+func (r PersonTaskResponse) Failed() error { return r.Err }
+
+// CompletePersonTaskRequest is the form a person submits. Who submits it is
+// the token's, never the body's.
+type CompletePersonTaskRequest struct {
+	ID        string         `json:"-"`
+	Variables map[string]any `json:"variables,omitzero"`
+}
+
+// PersonTaskActionResponse answers a claim, a release or a completion.
+type PersonTaskActionResponse struct {
+	Err error `json:"err,omitzero"`
+}
+
+func (r PersonTaskActionResponse) Failed() error { return r.Err }

@@ -26,3 +26,10 @@ type PersonSignInRepository interface {
 	// that id.
 	GetSession(ctx context.Context, id uuid.UUID) (entities.WorkflowUser, time.Time, error)
 }
+
+// PersonGroupsRepository reads which People groups a person is in, which is
+// what decides the pool tasks they may take.
+type PersonGroupsRepository interface {
+	// GroupsOf returns the live groups a participant belongs to.
+	GroupsOf(ctx context.Context, participantID uuid.UUID) ([]entities.WorkflowGroup, error)
+}

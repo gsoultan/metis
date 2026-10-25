@@ -153,6 +153,9 @@ func (m *MockRepository) Subscription() contracts.SubscriptionRepository { retur
 func (m *MockRepository) Task() contracts.TaskRepository                 { return nil }
 func (m *MockRepository) User() contracts.UserRepository                 { return nil }
 func (m *MockRepository) Group() contracts.GroupRepository               { return nil }
+func (m *MockRepository) PersonGroups() contracts.PersonGroupsRepository {
+	return nil
+}
 func (m *MockRepository) Notification() contracts.NotificationRepository { return nil }
 func (m *MockRepository) CompensatableActivity() contracts.CompensatableActivityRepository {
 	return nil

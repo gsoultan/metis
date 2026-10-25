@@ -72,6 +72,12 @@ func (s *taskService) ListTasks(ctx context.Context, projectID uuid.UUID) ([]ent
 }
 
 func (s *taskService) ClaimTask(ctx context.Context, id uuid.UUID, userID string) error {
+	return s.claimAs(ctx, id, s.accountActor(userID))
+}
+
+// claimAs claims a task for actor, whichever population they are from.
+func (s *taskService) claimAs(ctx context.Context, id uuid.UUID, actor taskActor) error {
+	userID := actor.name
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		// Holding the task's row. A claim read the task, saw it unclaimed and
 		// wrote it claimed with nothing held in between, so claims made at the
@@ -81,6 +87,9 @@ func (s *taskService) ClaimTask(ctx context.Context, id uuid.UUID, userID string
 			return err
 		}
 		task := adapters.TaskEntityAdapter{Model: m}.ToEntity()
+		if err := actor.reaches(task); err != nil {
+			return err
+		}
 		if task.Status == entities.TaskClaimed || task.Status == entities.TaskDelegated {
 			return apierr.Invalidf("somebody else has already claimed this task")
 		}
@@ -88,7 +97,7 @@ func (s *taskService) ClaimTask(ctx context.Context, id uuid.UUID, userID string
 			return apierr.Invalidf("this task is %s; there is nothing to claim", task.Status)
 		}
 
-		if err := s.authorizeCandidate(txCtx, task, userID); err != nil {
+		if err := s.authorizeCandidateAs(txCtx, task, actor); err != nil {
 			return err
 		}
 		// Refused at the point somebody picks the work up, not only when they
@@ -147,39 +156,47 @@ var ErrTaskForbidden = fmt.Errorf("%w: task: caller is not permitted to act on t
 // Group membership is resolved from the database rather than taken from the
 // request, so a caller cannot grant themselves a group by asserting it.
 func (s *taskService) authorizeCandidate(ctx context.Context, task entities.Task, userID string) error {
+	return s.authorizeCandidateAs(ctx, task, s.accountActor(userID))
+}
+
+// authorizeCandidateAs is authorizeCandidate for either population: the
+// actor says who they are named as, which groups they are in and whether
+// they may take a task nobody was named for.
+func (s *taskService) authorizeCandidateAs(ctx context.Context, task entities.Task, actor taskActor) error {
 	if task.FallsToOperators() {
-		if mayTakeUnnamedTask(ctx, userID) {
+		if actor.takesUnnamed(ctx) {
 			return nil
 		}
 		return servicecontracts.ErrNobodyNamed
 	}
 
 	for _, u := range task.CandidateUsers {
-		if u != nil && u.Username == userID {
+		if u != nil && u.Username == actor.name {
 			return nil
 		}
 	}
 
 	if len(task.CandidateGroups) == 0 {
-		return fmt.Errorf("%w: user %s is not a candidate for task %s", ErrTaskForbidden, userID, task.ID)
+		return fmt.Errorf("%w: user %s is not a candidate for task %s", ErrTaskForbidden, actor.name, task.ID)
 	}
 
-	userModel, err := s.repo.User().GetByUsername(ctx, userID)
+	keys, err := actor.groupKeys(ctx)
 	if err != nil {
-		return fmt.Errorf("%w: cannot resolve caller %s: %w", ErrTaskForbidden, userID, err)
+		return err
 	}
-	groups, err := s.repo.Group().ListUserGroups(ctx, uuid.UUID(userModel.ID))
-	if err != nil {
-		return fmt.Errorf("resolve group membership for %s: %w", userID, err)
-	}
-
-	if inCandidateGroups(task, groups) {
+	if inCandidateGroupKeys(task, keys) {
 		return nil
 	}
-	return fmt.Errorf("%w: user %s is not a candidate for task %s", ErrTaskForbidden, userID, task.ID)
+	return fmt.Errorf("%w: user %s is not a candidate for task %s", ErrTaskForbidden, actor.name, task.ID)
 }
 
 func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID string, vars map[string]any) error {
+	return s.completeAs(ctx, id, s.accountActor(userID), vars)
+}
+
+// completeAs completes a task as actor, whichever population they are from.
+func (s *taskService) completeAs(ctx context.Context, id uuid.UUID, actor taskActor, vars map[string]any) error {
+	userID := actor.name
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		m, err := s.repo.Task().Get(txCtx, id)
 		if err != nil {
@@ -197,6 +214,11 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 		// Any authenticated user could therefore complete any unclaimed task in
 		// any project and inject arbitrary variables into the instance.
 		authorize := func(task entities.Task) error {
+			// Outside what the actor may touch at all, before anything about
+			// the task is said.
+			if err := actor.reaches(task); err != nil {
+				return err
+			}
 			// Closed first, before who is asking: see refuseClosedTask.
 			if err := refuseClosedTask(task.Status); err != nil {
 				return err
@@ -210,7 +232,7 @@ func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID str
 				}
 				return nil
 			}
-			return s.authorizeCandidate(txCtx, task, userID)
+			return s.authorizeCandidateAs(txCtx, task, actor)
 		}
 
 		// Decided before the instance is touched, so a caller with no business
