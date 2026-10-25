@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 46 run at the first boot; eleven of them stop
+administrator. Migrations 31 to 47 run at the first boot; eleven of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -74,7 +74,7 @@ action, in the order it bites:
   release reads neither ([Migrations 37 and
   38](docs/upgrading.md#migrations-37-and-38-retention-holds-and-periods)).
 
-Migrations 31 to 46 run at the first boot. Take a backup first: a rollback
+Migrations 31 to 47 run at the first boot. Take a backup first: a rollback
 does not undo a migration.
 
 - **31** gives a task the run of its step it was created for, and **stops the
@@ -133,6 +133,8 @@ does not undo a migration.
   the audit log's two indexes concurrently. Entries written before it keep
   their actor only on the instance's history ([Migration
   46](docs/upgrading.md#migration-46-an-audit-entry-names-who-acted)).
+- **47** adds the index the instance counts are read from, built
+  concurrently, so it holds nothing up.
 
 ### Security
 
@@ -1023,6 +1025,15 @@ does not undo a migration.
   lock* in `docs/integration.md`. The Go SDK does not call it yet.
 
 ### Changed
+
+- **The instance list's counts are read from an index.** How many of a
+  project's instances are in each state, and how many each version carries,
+  used to visit every one of the project's instances, variables and all; on
+  200,000 instances the count read the whole table, about 120 ms for every
+  page of the list. Migration 47 adds an index over the instances that are
+  not deleted which holds everything those counts look at, and they take
+  about 4 ms. The index is about a fourteenth of the size of the one the
+  counts used before.
 
 - **`scripts/dev.sh` starts its PostgreSQL with Apple's `container`, and only
   with it.** It used to take whichever of docker, podman or `container` it
