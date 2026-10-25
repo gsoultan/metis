@@ -14,7 +14,7 @@ import (
 
 const (
 	aPeopleToken   = "v4.local.c2VhbGVkLWZvci1hLXBlcnNvbg"
-	aPlatformToken = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln"
+	aPlatformToken = "a-platform-token"
 )
 
 // peopleRoutes is the interceptor as the server builds it: platform tokens
