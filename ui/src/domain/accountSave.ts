@@ -33,6 +33,8 @@ export interface AccountFormValues {
 export interface AccountEdit {
   update?: UserUpdate;
   rolesHere?: string[];
+  /** A new password an administrator typed; absent keeps the current one. */
+  password?: string;
 }
 
 const folded = (roles: readonly string[] | undefined) =>
@@ -68,6 +70,9 @@ export function accountForm(account: ApiOrganizationUser | null): AccountFormVal
  * reads as "as they are". Sending it for nothing would also be refused for an
  * account another organization shares, which this organization's
  * administrators may still grant roles here.
+ *
+ * A password goes only when one was typed, on its own request; an empty field
+ * keeps the one the account has.
  */
 export function accountEdit(account: ApiOrganizationUser, form: AccountFormValues, mayChangeGlobalRoles: boolean): AccountEdit {
   const edit: AccountEdit = {};
@@ -85,6 +90,9 @@ export function accountEdit(account: ApiOrganizationUser, form: AccountFormValue
   }
   if (!sameRoles(account.organization_roles, form.rolesHere)) {
     edit.rolesHere = form.rolesHere;
+  }
+  if (form.password !== '') {
+    edit.password = form.password;
   }
   return edit;
 }

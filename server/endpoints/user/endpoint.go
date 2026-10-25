@@ -31,6 +31,9 @@ type Endpoints struct {
 	// SetOrganizationRoles replaces the roles an account holds in the
 	// organization the request is for.
 	SetOrganizationRoles endpoint.Endpoint
+
+	// ResetPassword sets the password of an account the caller administers.
+	ResetPassword endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -48,6 +51,8 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		UpdateOwnProfile: MakeUpdateOwnProfileEndpoint(s),
 
 		SetOrganizationRoles: MakeSetOrganizationRolesEndpoint(s),
+
+		ResetPassword: MakeResetPasswordEndpoint(s),
 	}
 }
 
@@ -180,6 +185,19 @@ func MakeSetOrganizationRolesEndpoint(s services.ServiceFacade) endpoint.Endpoin
 			return nil, fmt.Errorf("user: expected a SetOrganizationRolesRequest, got %T", request)
 		}
 		return SetOrganizationRolesResponse{Err: s.SetOrganizationRoles(ctx, req.ID, req.Roles)}, nil
+	}
+}
+
+// MakeResetPasswordEndpoint sets the password of the account the path names.
+// Who may is the gate's question and the service's: an administrator of every
+// organization the account belongs to, never for their own account.
+func MakeResetPasswordEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ResetPasswordRequest)
+		if !ok {
+			return nil, fmt.Errorf("user: expected a ResetPasswordRequest, got %T", request)
+		}
+		return ResetPasswordResponse{Err: s.ResetPassword(ctx, req.ID, req.NewPassword)}, nil
 	}
 }
 

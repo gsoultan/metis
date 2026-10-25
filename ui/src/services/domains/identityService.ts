@@ -177,6 +177,21 @@ export const identityService = {
     return { err: raiseIfRefused(data).err };
   },
 
+  /**
+   * Sets another account's password, as an administrator. The server refuses
+   * the caller's own account: that goes through changePassword, which asks for
+   * the current one.
+   */
+  async resetPassword(id: string, newPassword: string, signal?: AbortSignal) {
+    const data = await requestJSON<{ err?: string }>(`/users/${id}/password`, {
+      method: "PUT",
+      body: { new_password: newPassword },
+      signal,
+    });
+
+    return { err: raiseIfRefused(data).err };
+  },
+
   async deleteUser(id: string, signal?: AbortSignal) {
     const data = await requestJSON<{ err?: string }>(`/users/${id}`, {
       method: "DELETE",

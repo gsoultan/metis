@@ -81,6 +81,11 @@ describe('saving an edited account', () => {
     expect(accountEdit(kim, changed, false).update).toBeUndefined();
     expect(accountEdit(kim, accountForm(kim), true)).toEqual({});
   });
+
+  it('sends a new password only when one was typed, and nothing else for it', () => {
+    expect(accountEdit(kim, accountForm(kim), false)).not.toHaveProperty('password');
+    expect(accountEdit(kim, { ...accountForm(kim), password: 'a-new-password' }, false)).toEqual({ password: 'a-new-password' });
+  });
 });
 
 describe('creating an account', () => {

@@ -574,6 +574,8 @@ export interface ApiOrganizationUser {
    */
   organization_roles?: string[];
   organizations?: Array<{ id: string; name?: string }>;
+  /** The identity provider it signs in through; absent for a local account. */
+  identity_provider?: string;
 }
 
 /**

@@ -126,3 +126,16 @@ type SetOrganizationRolesResponse struct {
 }
 
 func (r SetOrganizationRolesResponse) Failed() error { return r.Err }
+
+// ResetPasswordRequest names the account, from the path, and its new password.
+// The password is never written back in any response.
+type ResetPasswordRequest struct {
+	ID          uuid.UUID `json:"-"`
+	NewPassword string    `json:"new_password"`
+}
+
+type ResetPasswordResponse struct {
+	Err error `json:"err,omitempty"`
+}
+
+func (r ResetPasswordResponse) Failed() error { return r.Err }
