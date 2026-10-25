@@ -107,6 +107,13 @@ type ProcessRepository interface {
 	// Paged variants for the instance list a user browses.
 	ListPaged(ctx context.Context, f InstanceFilter, p Pagination) (Page[models.ProcessInstanceModel], error)
 	ListByProjectPaged(ctx context.Context, projectID uuid.UUID, f InstanceFilter, p Pagination) (Page[models.ProcessInstanceModel], error)
+
+	// ListPageOfTotal is ListByProjectPaged for a caller that has counted the
+	// instances f matches already, from CountByStatuses: total is taken as the
+	// page's Total and not counted again. uuid.Nil lists across the tenant, as
+	// ListPaged does. A filter asking for NeedsAttention is counted, since the
+	// status counts do not describe it.
+	ListPageOfTotal(ctx context.Context, projectID uuid.UUID, f InstanceFilter, p Pagination, total int64) (Page[models.ProcessInstanceModel], error)
 	ListByDefinition(ctx context.Context, definitionID uuid.UUID) ([]models.ProcessInstanceModel, error)
 	ListByParent(ctx context.Context, parentInstanceID uuid.UUID) ([]models.ProcessInstanceModel, error)
 

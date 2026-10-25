@@ -51,6 +51,12 @@ type EngineReader interface {
 	// like and offer the filter that reaches it.
 	CountInstancesByStatus(ctx context.Context, projectID uuid.UUID, filter repocontracts.InstanceFilter) (map[models.ProcessStatus]int64, error)
 
+	// ListInstancesCounted is ListInstancesPaged and CountInstancesByStatus
+	// together: one page of the instances filter matches, and how many of the
+	// instances countFilter matches are in each state. The page's total is
+	// read off the counts where they describe it, rather than counted again.
+	ListInstancesCounted(ctx context.Context, projectID uuid.UUID, filter, countFilter repocontracts.InstanceFilter, page repocontracts.Pagination) (repocontracts.Page[entities.ProcessInstance], map[models.ProcessStatus]int64, error)
+
 	// InstanceAttention reports which instances are waiting on a person.
 	//
 	// Separate from status because status does not say it: a job that exhausts
