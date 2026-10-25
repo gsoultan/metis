@@ -66,7 +66,7 @@ func (s *userService) ResetPassword(ctx context.Context, userID uuid.UUID, newPa
 	}
 	s.principals.forget(userID)
 	held := rolesOf(stored)
-	traceAccountChange(ctx, accountPasswordSetByAdministrator, userID, stored.Username, held, held)
+	traceAccountChange(ctx, accountResetByAdministrator, userID, stored.Username, held, held)
 	return nil
 }
 
