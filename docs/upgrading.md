@@ -803,6 +803,35 @@ It was not run against an installation that 0.4.0 itself had migrated.
 **Rolling back** needs nothing: no schema changed. 0.4.0 applies a mapping as
 it did.
 
+## Tasks move from Users to People
+
+Tasks are now done by People: a person signs in at
+`<address>/p/?project=<id>` with a People login, or completes a task from the
+link it mails them. Users run the platform and are not given work.
+
+Nothing changes on upgrade. `METIS_TASKS_ALLOW_PLATFORM_ACTORS` is on by
+default for this release, so a User a task names can still claim and complete
+it. Each time one does, the server logs a line naming them and the task:
+
+```
+{"level":"info","setting":"METIS_TASKS_ALLOW_PLATFORM_ACTORS","action":"complete","user":"dana","task_id":"…","message":"A User acted on a task through the platform's routes. …"}
+```
+
+To move an installation over:
+
+1. For each User the log names, add a person with the same username to the
+   project's People, by import or sync, and set their password on the People
+   page. Give each candidate group a People group of the same name.
+2. Open each process in the designer. Checking it warns about every name its
+   tasks use that is not in the project's People.
+3. Set `METIS_TASKS_ALLOW_PLATFORM_ACTORS=false`. A User's claim and
+   completion now answer 403. People keep working through their own page and
+   their task links.
+
+**Rolling back** is setting it to `true` again, or unsetting it. No task or
+instance is changed by either, because a task keeps its names and only who
+may act on them changes.
+
 ## Migration 47: task links
 
 Migration 47 creates `task_links`, one row per link a task mails to a person

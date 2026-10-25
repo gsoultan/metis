@@ -505,6 +505,14 @@ does not undo a migration.
   tab only, apart from any User session, and signing out of one leaves the
   other alone.
 
+- **A switch-over window for moving tasks from Users to People.**
+  `METIS_TASKS_ALLOW_PLATFORM_ACTORS`, on by default, keeps today's
+  behaviour: a User a task names can claim and complete it. Each time one
+  does, the log names the User and the task, so whoever moves the
+  installation over can see who still relies on it. Set to `false`, a User's
+  claim and completion answer 403 and only People do tasks; setting it back
+  is the rollback. The default becomes off in a later release.
+
 - **An audit log of what people did, across the organization.** Who waived,
   cancelled, held, migrated, reassigned, activated, approved or rejected
   what was written down on each instance's own history and nowhere it could
