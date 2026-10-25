@@ -20,12 +20,16 @@ type personSignInRepository struct {
 // NewPersonSignInRepository returns the storm-backed reads the People sign-in
 // makes. Removed people are not found: the table's soft delete is compiled into
 // every read of it.
+//
+// Always the main database. The directory is the project's, installation-wide
+// like accounts; a request arriving on an environment's port would otherwise
+// read that environment's empty copy of the table and sign nobody in.
 func NewPersonSignInRepository(conn *db.Conn) contracts.PersonSignInRepository {
 	return &personSignInRepository{conn: conn}
 }
 
 func (r *personSignInRepository) GetForSignIn(ctx context.Context, projectID uuid.UUID, username string) (entities.WorkflowUser, string, error) {
-	ex, err := r.conn.Executor(ctx)
+	ex, err := r.conn.MainExecutor(ctx)
 	if err != nil {
 		return entities.WorkflowUser{}, "", err
 	}
@@ -42,7 +46,7 @@ func (r *personSignInRepository) GetForSignIn(ctx context.Context, projectID uui
 }
 
 func (r *personSignInRepository) GetSession(ctx context.Context, id uuid.UUID) (entities.WorkflowUser, time.Time, error) {
-	ex, err := r.conn.Executor(ctx)
+	ex, err := r.conn.MainExecutor(ctx)
 	if err != nil {
 		return entities.WorkflowUser{}, time.Time{}, err
 	}
