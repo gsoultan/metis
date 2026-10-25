@@ -167,10 +167,10 @@ func (i *mandatoryHTTPAuthInterceptor) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
-		// A People token is refused here before any rule reads it. The
+		// A People token or API key is refused here before any rule reads it. The
 		// platform's rules would refuse it too, but by not recognising it;
 		// saying so by its shape keeps that from resting on how they parse.
-		if strings.HasPrefix(token, peopletoken.Prefix) {
+		if peopletoken.IsPeopleCredential(token) {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -187,7 +187,8 @@ func (i *mandatoryHTTPAuthInterceptor) Wrap(next http.Handler) http.Handler {
 }
 
 // servePerson admits a request to a People route: the sign-in and the task
-// link routes as they are, and anything else only with a People token. A User's token is refused here as a
+// link routes as they are, and anything else only with a People token or one
+// of the person's API keys. A User's token is refused here as a
 // People token is refused everywhere else, so neither population can act on
 // the other's routes.
 func (i *mandatoryHTTPAuthInterceptor) servePerson(w http.ResponseWriter, r *http.Request, next http.Handler) {
@@ -196,7 +197,7 @@ func (i *mandatoryHTTPAuthInterceptor) servePerson(w http.ResponseWriter, r *htt
 		return
 	}
 	token, ok := bearerTokenFromHeader(r.Header.Get("Authorization"))
-	if !ok || i.people == nil || !strings.HasPrefix(token, peopletoken.Prefix) {
+	if !ok || i.people == nil || !peopletoken.IsPeopleCredential(token) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}

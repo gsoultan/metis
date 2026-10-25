@@ -14,6 +14,10 @@ type Person struct {
 	Username    string    `json:"username"`
 	DisplayName string    `json:"display_name,omitzero"`
 	Email       string    `json:"email,omitzero"`
+	// ViaAPIKey says the request was made with one of the person's API keys
+	// rather than their sign-in. A key works their tasks; it does not make or
+	// revoke keys.
+	ViaAPIKey bool `json:"-"`
 }
 
 // PersonFrom is the signed-in view of a directory entry.

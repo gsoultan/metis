@@ -72,6 +72,7 @@ func All() []any {
 		&SimulationCase{},
 		// One-use links that let a person act on a task without signing in.
 		&TaskLink{},
+		&PersonAPIKey{},
 		// Acts asked for on many instances at once, and what came of each.
 		&BatchOperation{},
 		&BatchOperationItem{},

@@ -27,6 +27,9 @@ type Endpoints struct {
 	CompletePersonTask endpoint.Endpoint
 	ReadTaskLink       endpoint.Endpoint
 	CompleteByTaskLink endpoint.Endpoint
+	ListAPIKeys        endpoint.Endpoint
+	CreateAPIKey       endpoint.Endpoint
+	RevokeAPIKey       endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -40,6 +43,9 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		CompletePersonTask: MakeCompletePersonTaskEndpoint(s),
 		ReadTaskLink:       MakeReadTaskLinkEndpoint(s),
 		CompleteByTaskLink: MakeCompleteByTaskLinkEndpoint(s),
+		ListAPIKeys:        MakeListAPIKeysEndpoint(s),
+		CreateAPIKey:       MakeCreateAPIKeyEndpoint(s),
+		RevokeAPIKey:       MakeRevokeAPIKeyEndpoint(s),
 	}
 }
 
@@ -214,5 +220,59 @@ func personTaskAction(act func(ctx context.Context, person entities.Person, id u
 			return PersonTaskActionResponse{Err: err}, nil
 		}
 		return PersonTaskActionResponse{Err: act(ctx, person, id, request)}, nil
+	}
+}
+
+// MakeListAPIKeysEndpoint lists the signed-in person's keys.
+func MakeListAPIKeysEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, _ any) (any, error) {
+		person, err := signedInPerson(ctx)
+		if err != nil {
+			return APIKeysResponse{Err: err}, nil
+		}
+		keys, err := s.ListPersonAPIKeys(ctx, person)
+		if keys == nil {
+			keys = []entities.PersonAPIKey{}
+		}
+		return APIKeysResponse{Keys: keys, Err: err}, nil
+	}
+}
+
+// MakeCreateAPIKeyEndpoint makes a key for the signed-in person and returns
+// it, once.
+func MakeCreateAPIKeyEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(CreateAPIKeyRequest)
+		if !ok {
+			return nil, fmt.Errorf("people: expected a CreateAPIKeyRequest, got %T", request)
+		}
+		person, err := signedInPerson(ctx)
+		if err != nil {
+			return CreateAPIKeyResponse{Err: err}, nil
+		}
+		key, token, err := s.CreatePersonAPIKey(ctx, person, req.Name)
+		if err != nil {
+			return CreateAPIKeyResponse{Err: err}, nil
+		}
+		return CreateAPIKeyResponse{Key: &key, Token: token}, nil
+	}
+}
+
+// MakeRevokeAPIKeyEndpoint stops one of the signed-in person's keys.
+func MakeRevokeAPIKeyEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(RevokeAPIKeyRequest)
+		if !ok {
+			return nil, fmt.Errorf("people: expected a RevokeAPIKeyRequest, got %T", request)
+		}
+		person, err := signedInPerson(ctx)
+		if err != nil {
+			return PersonTaskActionResponse{Err: err}, nil
+		}
+		id, err := uuid.Parse(req.ID)
+		if err != nil {
+			return PersonTaskActionResponse{Err: apierr.Invalidf("key id %q is not a valid identifier", req.ID)}, nil
+		}
+		return PersonTaskActionResponse{Err: s.RevokePersonAPIKey(ctx, person, id)}, nil
 	}
 }

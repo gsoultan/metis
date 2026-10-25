@@ -54,6 +54,32 @@ func RegisterHandlers(m *http.ServeMux, eps people.Endpoints, options []httptran
 	m.Handle("POST /api/v1/people/tasks/{id}/complete", httptransport.NewServer(
 		eps.CompletePersonTask, decodeCompletePersonTaskRequest, common.EncodeResponse, options...,
 	))
+	m.Handle("GET /api/v1/people/keys", httptransport.NewServer(
+		eps.ListAPIKeys,
+		func(context.Context, *http.Request) (any, error) { return people.APIKeysRequest{}, nil },
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("POST /api/v1/people/keys", httptransport.NewServer(
+		eps.CreateAPIKey,
+		func(_ context.Context, r *http.Request) (any, error) {
+			var req people.CreateAPIKeyRequest
+			if err := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxSignInBytes)).Decode(&req); err != nil {
+				return nil, apierr.Invalidf("the body must be JSON naming the key: %v", err)
+			}
+			return req, nil
+		},
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("DELETE /api/v1/people/keys/{id}", httptransport.NewServer(
+		eps.RevokeAPIKey,
+		func(_ context.Context, r *http.Request) (any, error) {
+			return people.RevokeAPIKeyRequest{ID: r.PathValue("id")}, nil
+		},
+		common.EncodeResponse,
+		options...,
+	))
 	// POST, both of them. Mail scanners open every link in a message, and
 	// opening a link must never act on a task; the read changes nothing, and
 	// the token travels in the body, out of every access log.

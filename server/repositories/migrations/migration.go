@@ -853,6 +853,7 @@ func Schema(models []any) []Migration {
 		batchOperations(),
 		auditActor(),
 		taskLinks(),
+		personAPIKeys(),
 	}
 }
 
