@@ -40,6 +40,9 @@ type Engine struct {
 	varHistory     serviceContracts.VariableHistoryWriter
 	// Decoded definitions, bounded and keyed by tenant. See definition_cache.go.
 	definitions *definitionCache
+	// The instance list's status counts, reused for a moment. See
+	// instance_count_cache.go.
+	instanceCounts *instanceCountCache
 }
 
 // EngineOption is a functional option for configuring an Engine after construction.
@@ -73,7 +76,10 @@ func NewExecutionEngine(
 	dispatcher observerContracts.EventDispatcher,
 	opts ...EngineOption,
 ) *Engine {
-	e := &Engine{repo: repo, dispatcher: dispatcher, definitions: newDefinitionCache()}
+	e := &Engine{
+		repo: repo, dispatcher: dispatcher,
+		definitions: newDefinitionCache(), instanceCounts: newInstanceCountCache(),
+	}
 	for _, opt := range opts {
 		opt(e)
 	}
@@ -1177,13 +1183,20 @@ func (e *Engine) ListInstancesPaged(ctx context.Context, projectID uuid.UUID, fi
 // them, or their sum, and is not counted a second time. That holds when the
 // counts drop only the page's status, and the page asks for nothing the
 // counts cannot see: neither a business key nor "needs attention".
+//
+// The counts are reused for up to a second (instance_count_cache.go), so they
+// and the total read off them can trail the page by that much; the page itself
+// is always read fresh.
 func (e *Engine) ListInstancesCounted(
 	ctx context.Context,
 	projectID uuid.UUID,
 	filter, countFilter repocontracts.InstanceFilter,
 	page repocontracts.Pagination,
 ) (repocontracts.Page[entities.ProcessInstance], map[models.ProcessStatus]int64, error) {
-	counts, err := e.repo.Process().CountByStatuses(ctx, projectID, countFilter)
+	counts, err := e.instanceCounts.get(ctx, countKey(ctx, projectID, countFilter),
+		func(ctx context.Context) (map[models.ProcessStatus]int64, error) {
+			return e.repo.Process().CountByStatuses(ctx, projectID, countFilter)
+		})
 	if err != nil {
 		return repocontracts.Page[entities.ProcessInstance]{}, nil, err
 	}

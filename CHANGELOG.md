@@ -1024,6 +1024,15 @@ does not undo a migration.
 
 ### Changed
 
+- **The instance list's counts are reused for a second.** Every page of the
+  list counted every instance in the project by state, which under load was
+  most of what the database did for it. One count now serves every request
+  for the same organization, environment, project and filter for a second,
+  and requests that arrive while it is being taken wait for it instead of
+  starting their own. The counts, and the page total read off them, can trail
+  the page by up to that long; the page itself is read fresh.
+  `METIS_INSTANCE_COUNT_CACHE_TTL` sets the window (`0` turns it off).
+
 - **`scripts/dev.sh` starts its PostgreSQL with Apple's `container`, and only
   with it.** It used to take whichever of docker, podman or `container` it
   found first. It now starts the container services when they are down
