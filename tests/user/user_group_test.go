@@ -288,7 +288,7 @@ func TestGroupMembership(t *testing.T) {
 			FullName:      u.fullName,
 			Email:         u.email,
 			Roles:         []string{"user"},
-		}, "pass123")
+		}, "pass12345")
 		if err != nil {
 			t.Fatalf("failed to create user %s: %v", u.username, err)
 		}

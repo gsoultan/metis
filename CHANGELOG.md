@@ -142,6 +142,14 @@ does not undo a migration.
 
 ### Security
 
+- **A new account needs a password it can sign in with.** Creating an account
+  through the API, Connect or the SDK took any password, an empty one
+  included, and the account then signed in with it; only the UI's form
+  refused one shorter than 8 characters. Creating an account, and the first
+  administrator at setup, now take the floor a reset or a change does: at
+  least 8 characters, at most 72 bytes, refused with a 400. A password over 72
+  bytes was a 500. Accounts that already exist are not touched.
+
 - **A project's People directory is its organization's alone.** Listing a
   project's participants, importing or syncing people into it and removing
   them checked only that the caller was signed in, not that the project was
