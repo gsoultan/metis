@@ -444,6 +444,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// there. The account, and any role it holds in every organization, are
 	// UpdateUser's — and the service asks a platform administrator for those.
 	userEndpoints.SetOrganizationRoles = adminOnly("SetOrganizationRoles")(userEndpoints.SetOrganizationRoles)
+	// Setting somebody else's password takes their sign-in, so it asks what
+	// deleting them asks; the service narrows it to accounts the caller
+	// administers everywhere they belong.
+	userEndpoints.ResetUserPassword = adminOnly("ResetUserPassword")(userEndpoints.ResetUserPassword)
 	userEndpoints.Login = public("Login")(userEndpoints.Login)
 	userEndpoints.ListUsers = protected("ListUsers")(userEndpoints.ListUsers)
 	// Self-service, so protected rather than adminOnly: changing your own

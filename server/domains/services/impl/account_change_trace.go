@@ -22,6 +22,9 @@ const (
 	// --reset-password. It changes no role; it is here because it is the one
 	// way into an account that needs no session.
 	accountResetOnServer = "An account's password was set from the server's command line."
+	// accountResetByAdministrator is said of a password an administrator
+	// set from the account form (ResetPassword). It changes no role either.
+	accountResetByAdministrator = "An account's password was set by an administrator."
 )
 
 // What made a change that nobody signed in made, for the line's made_through

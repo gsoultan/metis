@@ -21,6 +21,10 @@ type UserService interface {
 	// roles in their own organization.
 	OrganizationRoleGrants
 
+	// AccountPasswordReset is an administrator setting the password of an
+	// account they administer.
+	AccountPasswordReset
+
 	GetUser(ctx context.Context, id uuid.UUID) (entities.User, error)
 	GetUserByUsername(ctx context.Context, username string) (entities.User, error)
 	ListUsers(ctx context.Context, organizationID uuid.UUID) ([]entities.User, error)

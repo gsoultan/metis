@@ -5,8 +5,9 @@ import { useState } from 'react';
 import { accountCreation, accountEdit, accountForm, type AccountFormValues } from '../../domain/accountSave';
 import { MIN_PASSWORD_LENGTH } from '../../domain/password';
 import { ROLE_OPTIONS } from '../../domain/roles';
-import { useCreateUser, useSetOrganizationRoles, useUpdateUser } from '../../hooks/useUser';
+import { useCreateUser, useResetPassword, useSetOrganizationRoles, useUpdateUser } from '../../hooks/useUser';
 import { useViewerAccess } from '../../hooks/useViewerAccess';
+import { useAppStore } from '../../store/useAppStore';
 import { useTranslation } from '../../i18n/context';
 import { errorMessage } from '../../services/shared/errors';
 import type { ApiOrganizationUser } from '../../services/types';
@@ -31,6 +32,12 @@ interface AccountDialogProps {
  * everybody else, and not editable. Each is saved only when it changed; see
  * domain/accountSave.ts.
  *
+ * Editing somebody else's local account, an administrator can also type a new
+ * password for them. Not their own — the Profile page changes that, asking for
+ * the current one — and not an account an identity provider signs in, whose
+ * password is the provider's. The field starts empty, and empty keeps the
+ * password the account has.
+ *
  * Its fields start from the account it was opened for: the page mounts it for
  * each opening rather than copying the account into it with an effect.
  */
@@ -40,15 +47,18 @@ export function AccountDialog({ opened, onClose, account, organization }: Accoun
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const setOrganizationRoles = useSetOrganizationRoles();
+  const resetPassword = useResetPassword();
+  const ownId = useAppStore((state) => state.user?.id);
   const [form, setForm] = useState<AccountFormValues>(() => accountForm(account));
   const set = <K extends keyof AccountFormValues>(field: K, value: AccountFormValues[K]) =>
     setForm((current) => ({ ...current, [field]: value }));
 
   const passwordTooShort = form.password.length > 0 && form.password.length < MIN_PASSWORD_LENGTH;
+  const showsPassword = !account || (account.id !== ownId && !account.identity_provider);
   const canSubmit = account
-    ? form.fullName.trim().length > 0
+    ? form.fullName.trim().length > 0 && !passwordTooShort
     : form.username.trim().length > 0 && form.fullName.trim().length > 0 && form.password.length >= MIN_PASSWORD_LENGTH;
-  const saving = createUser.isPending || updateUser.isPending || setOrganizationRoles.isPending;
+  const saving = createUser.isPending || updateUser.isPending || setOrganizationRoles.isPending || resetPassword.isPending;
 
   const save = async () => {
     if (account) {
@@ -58,6 +68,10 @@ export function AccountDialog({ opened, onClose, account, organization }: Accoun
       }
       if (edit.rolesHere) {
         await setOrganizationRoles.mutateAsync({ id: account.id, roles: edit.rolesHere });
+      }
+      if (edit.password && showsPassword) {
+        await resetPassword.mutateAsync({ id: account.id, password: edit.password });
+        return `${form.fullName} was updated. Give them the new password: they were signed out everywhere.`;
       }
       return `${form.fullName} was updated.`;
     }
@@ -87,12 +101,17 @@ export function AccountDialog({ opened, onClose, account, organization }: Accoun
           onChange={(e) => set('username', e.currentTarget.value)}
           disabled={!!account}
         />
-        {!account && (
+        {showsPassword && (
           <PasswordInput
-            label="Password"
-            description={`At least ${MIN_PASSWORD_LENGTH} characters`}
-            placeholder="Enter password"
-            required
+            label={account ? 'New password' : 'Password'}
+            description={
+              account
+                ? `Leave empty to keep their password. A new one (at least ${MIN_PASSWORD_LENGTH} characters) signs them out everywhere.`
+                : `At least ${MIN_PASSWORD_LENGTH} characters`
+            }
+            placeholder={account ? 'Type a new password' : 'Enter password'}
+            required={!account}
+            autoComplete="new-password"
             value={form.password}
             onChange={(e) => set('password', e.currentTarget.value)}
             error={passwordTooShort ? `Needs at least ${MIN_PASSWORD_LENGTH} characters` : undefined}
