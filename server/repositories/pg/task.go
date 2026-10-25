@@ -77,6 +77,16 @@ func (r *taskRepository) ListByProject(ctx context.Context, projectID uuid.UUID)
 	return r.list(ctx, scoped, nil)
 }
 
+// ListOpenByProject returns a project's tasks that are still to be done:
+// unclaimed, taken, delegated or raised.
+func (r *taskRepository) ListOpenByProject(ctx context.Context, projectID uuid.UUID) ([]models.TaskModel, error) {
+	scoped, visible, err := r.scopedProjects(ctx, projectID)
+	if err != nil || !visible {
+		return nil, err
+	}
+	return r.list(ctx, scoped, []task.Pred{task.Status.In(append([]string{string(models.TaskUnclaimed)}, heldStatuses...)...)})
+}
+
 func (r *taskRepository) ListByAssignee(ctx context.Context, assignee string) ([]models.TaskModel, error) {
 	return r.list(ctx, nil, []task.Pred{task.Assignee.Eq(assignee)})
 }

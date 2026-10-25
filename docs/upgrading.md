@@ -819,9 +819,11 @@ it. Each time one does, the server logs a line naming them and the task:
 
 To move an installation over:
 
-1. For each User the log names, add a person with the same username to the
-   project's People, by import or sync, and set their password on the People
-   page. Give each candidate group a People group of the same name.
+1. On each project's People page, press *Check* under "Moving tasks from
+   Users to People". It lists every name the project's open tasks and live
+   models use that its People lack, and adds the ones a User or a group of
+   the organization has. Import the rest, then set passwords with the key
+   button. The log names the Users who still do tasks meanwhile.
 2. Open each process in the designer. Checking it warns about every name its
    tasks use that is not in the project's People.
 3. Set `METIS_TASKS_ALLOW_PLATFORM_ACTORS=false`. A User's claim and

@@ -25,6 +25,7 @@ type service struct {
 	contracts.TaskService
 	contracts.PeopleTaskService
 	contracts.TaskLinkService
+	contracts.PeopleSwitchOverService
 	contracts.ExecutionEngine
 	contracts.JobService
 	contracts.ExternalTaskService
@@ -62,6 +63,7 @@ type ServiceParams struct {
 	TaskService            contracts.TaskService
 	PeopleTaskService      contracts.PeopleTaskService
 	TaskLinkService        contracts.TaskLinkService
+	PeopleSwitchOver       contracts.PeopleSwitchOverService
 	ExecutionEngine        contracts.ExecutionEngine
 	JobService             contracts.JobService
 	ExternalTaskService    contracts.ExternalTaskService
@@ -113,6 +115,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	if p.TaskLinkService == nil {
 		p.TaskLinkService = serviceimpl.NewUnavailableTaskLinkService()
 	}
+	if p.PeopleSwitchOver == nil {
+		p.PeopleSwitchOver = serviceimpl.NewUnavailablePeopleSwitchOverService()
+	}
 	if p.PeopleSignInService == nil {
 		p.PeopleSignInService = serviceimpl.NewUnavailablePeopleSignInService(
 			"people cannot sign in: this server was wired without the People sign-in")
@@ -132,6 +137,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		TaskService:              p.TaskService,
 		PeopleTaskService:        p.PeopleTaskService,
 		TaskLinkService:          p.TaskLinkService,
+		PeopleSwitchOverService:  p.PeopleSwitchOver,
 		ExecutionEngine:          p.ExecutionEngine,
 		JobService:               p.JobService,
 		ExternalTaskService:      p.ExternalTaskService,
@@ -324,6 +330,7 @@ func NewServiceFacade(
 		TaskService:            taskSvc,
 		PeopleTaskService:      serviceimpl.PeopleTasksOf(taskSvc),
 		TaskLinkService:        serviceimpl.TaskLinksOf(taskSvc, settings.taskLinkLifetime),
+		PeopleSwitchOver:       serviceimpl.PeopleSwitchOverOf(repo, participants),
 		ExecutionEngine:        engine,
 		JobService:             jobSvc,
 		ExternalTaskService:    externalTaskSvc,

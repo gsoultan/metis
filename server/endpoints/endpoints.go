@@ -240,6 +240,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// Setting somebody's password takes their sign-in, as much as removing
 	// them does, so it takes the same role.
 	participantEndpoints.SetParticipantPassword = designer("SetParticipantPassword")(participantEndpoints.SetParticipantPassword)
+	// The report reads out the organization's Users' names and addresses, and
+	// filling it writes the directory, so both take the role an import takes.
+	participantEndpoints.ListDirectoryGaps = designer("ListDirectoryGaps")(participantEndpoints.ListDirectoryGaps)
+	participantEndpoints.FillDirectoryGaps = designer("FillDirectoryGaps")(participantEndpoints.FillDirectoryGaps)
 	// Removing somebody takes the same role importing does — they are the same
 	// act in opposite directions, and the removal is reversible by an import.
 	participantEndpoints.RemoveParticipant = designer("RemoveParticipant")(participantEndpoints.RemoveParticipant)

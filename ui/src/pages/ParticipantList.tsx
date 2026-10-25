@@ -20,6 +20,7 @@ import { useState, useTransition } from 'react';
 import { PageHeader } from '../components/PageHeader';
 import { ParticipantImportModal } from '../components/ParticipantImportModal';
 import { ParticipantSources } from '../components/ParticipantSources';
+import { PeopleSwitchOver } from '../components/PeopleSwitchOver';
 import { EmptyState, ErrorState, TableLoadingState } from '../components/state';
 import {
   STANDING_LABELS,
@@ -62,6 +63,7 @@ const STANDING_COLOURS: Record<string, string> = {
 export function ParticipantList() {
   const { t } = useTranslation();
   const isAdmin = useAppStore((state) => hasRole(state.user, PRIVILEGED_ROLE));
+  const isDesigner = useAppStore((state) => hasRole(state.user, PRIVILEGED_ROLE) || hasRole(state.user, 'DESIGNER'));
   const projectId = useAppStore((state) => state.currentProjectId);
   const signInAddress = projectId ? `${window.location.origin}/p/?project=${encodeURIComponent(projectId)}` : '';
   const { data, isLoading, error, refetch } = useParticipants();
@@ -257,6 +259,8 @@ export function ParticipantList() {
         refuses a non-admin either way; hiding it is so nobody is shown a
         control that will only ever say no.
       */}
+      {isDesigner && <PeopleSwitchOver />}
+
       {isAdmin && <ParticipantSources />}
 
       <Modal

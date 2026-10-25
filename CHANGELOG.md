@@ -513,6 +513,16 @@ does not undo a migration.
   claim and completion answer 403 and only People do tasks; setting it back
   is the rollback. The default becomes off in a later release.
 
+- **The People page says what People lack before the switch-over.** *Check*
+  lists every name the project's open tasks and live models use, as
+  assignee, candidate user or candidate group, that is not a person or a
+  People group of the project, with where it is used. A name a User of the
+  organization has is added from their account, with no password; a group
+  the organization has is made a People group with its members. One button
+  adds all that can be added (`GET /api/v1/participants/gaps`,
+  `POST /api/v1/participants/gaps/fill`). Expressions such as `${initiator}`
+  are left out, and another organization's Users are never read.
+
 - **An audit log of what people did, across the organization.** Who waived,
   cancelled, held, migrated, reassigned, activated, approved or rejected
   what was written down on each instance's own history and nowhere it could

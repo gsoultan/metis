@@ -34,6 +34,8 @@ type TaskRepository interface {
 	GetForUpdate(ctx context.Context, id uuid.UUID) (models.TaskModel, error)
 	List(ctx context.Context) ([]models.TaskModel, error)
 	ListByProject(ctx context.Context, projectID uuid.UUID) ([]models.TaskModel, error)
+	// ListOpenByProject is ListByProject without the finished tasks.
+	ListOpenByProject(ctx context.Context, projectID uuid.UUID) ([]models.TaskModel, error)
 	ListByAssignee(ctx context.Context, assignee string) ([]models.TaskModel, error)
 	ListByCandidates(ctx context.Context, c Candidacy) ([]models.TaskModel, error)
 	ListByInstance(ctx context.Context, instanceID uuid.UUID) ([]models.TaskModel, error)

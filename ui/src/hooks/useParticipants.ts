@@ -128,3 +128,46 @@ export const useSetParticipantPassword = () => {
     },
   });
 };
+
+/**
+ * What the project's People lack before Users stop doing tasks. Read only when
+ * asked for: it reads every open task and live model of the project.
+ */
+export const useDirectoryGaps = (enabled: boolean) => {
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const token = useAppStore((state) => state.token);
+  return useQuery({
+    queryKey: ['participants', currentProjectId, 'gaps'],
+    queryFn: ({ signal }) =>
+      currentProjectId ? processService.listDirectoryGaps(currentProjectId, signal) : Promise.resolve([]),
+    enabled: enabled && !!currentProjectId && !!token,
+  });
+};
+
+/** Adds gaps the report listed to the project's People. */
+export const useFillDirectoryGaps = () => {
+  const queryClient = useQueryClient();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  return useMutation({
+    mutationFn: ({ people, groups }: { people: string[]; groups: string[] }) => {
+      if (!currentProjectId) throw new Error('No project selected');
+      return processService.fillDirectoryGaps(currentProjectId, people, groups);
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['participants', currentProjectId] });
+      const skipped = result.skipped?.length ?? 0;
+      notifications.show({
+        title: 'Added to People',
+        message: `${result.people} ${result.people === 1 ? 'person' : 'people'} and ${result.groups} ${result.groups === 1 ? 'group' : 'groups'} added${skipped ? `; ${skipped} skipped` : ''}.`,
+        color: 'teal',
+      });
+    },
+    onError: (error: unknown) => {
+      notifications.show({
+        title: 'Nothing was added',
+        message: errorMessage(error, 'The directory is unchanged.'),
+        color: 'red',
+      });
+    },
+  });
+};

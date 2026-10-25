@@ -52,6 +52,26 @@ func RegisterHandlers(m *http.ServeMux, eps participant.Endpoints, options []htt
 		common.EncodeResponse,
 		options...,
 	))
+	m.Handle("GET /api/v1/participants/gaps", httptransport.NewServer(
+		eps.ListDirectoryGaps,
+		func(_ context.Context, r *http.Request) (any, error) {
+			return participant.ListDirectoryGapsRequest{ProjectID: r.URL.Query().Get("project_id")}, nil
+		},
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("POST /api/v1/participants/gaps/fill", httptransport.NewServer(
+		eps.FillDirectoryGaps,
+		func(_ context.Context, r *http.Request) (any, error) {
+			var req participant.FillDirectoryGapsRequest
+			if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+				return nil, apierr.Invalidf("the body must be JSON naming the people and groups to add: %v", err)
+			}
+			return req, nil
+		},
+		common.EncodeResponse,
+		options...,
+	))
 	m.Handle("PUT /api/v1/participants/{id}/password", httptransport.NewServer(
 		eps.SetParticipantPassword,
 		decodeSetParticipantPasswordRequest,

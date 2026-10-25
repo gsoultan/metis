@@ -112,4 +112,43 @@ export const participantService = {
     );
     raiseIfRefused(response);
   },
+
+  /** The names this project's work uses that its People lack. */
+  async listDirectoryGaps(projectId: string, signal?: AbortSignal): Promise<DirectoryGap[]> {
+    const response = await requestJSON<{ gaps?: DirectoryGap[]; err?: string }>(
+      `/participants/gaps?project_id=${encodeURIComponent(projectId)}`,
+      { signal },
+    );
+    return raiseIfRefused(response).gaps ?? [];
+  },
+
+  /** Adds the named gaps to the project's People, from the organization's Users and groups. */
+  async fillDirectoryGaps(projectId: string, people: string[], groups: string[], signal?: AbortSignal): Promise<DirectoryGapImport> {
+    const response = await requestJSON<{ result?: DirectoryGapImport; err?: string }>("/participants/gaps/fill", {
+      method: "POST",
+      body: { project_id: projectId, people, groups },
+      signal,
+    });
+    return raiseIfRefused(response).result ?? { people: 0, groups: 0 };
+  },
 };
+
+/** A name a project's work uses that its People directory does not have. */
+export interface DirectoryGap {
+  name: string;
+  kind: "person" | "group";
+  open_tasks: number;
+  models?: string[];
+  has_account?: boolean;
+  display_name?: string;
+  email?: string;
+  has_platform_group?: boolean;
+  members?: string[];
+}
+
+/** What filling the gaps did. */
+export interface DirectoryGapImport {
+  people: number;
+  groups: number;
+  skipped?: { username?: string; reason: string }[];
+}
