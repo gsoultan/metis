@@ -16,21 +16,22 @@ type BatchOperation struct {
 	storm.Model
 
 	Project Project
-	// OrganizationID is the organization the request was for: the one whose
+	// Organization is the organization the request was for: the one whose
 	// roles the requester is checked against at every step.
-	OrganizationID storm.UUID
+	Organization Organization
 
 	Kind   string
 	Reason string
 
 	// The filter the instances were chosen by, as it was asked for.
 	FilterStatus         string
-	FilterDefinitionID   *storm.UUID
+	FilterDefinition     *ProcessDefinition
 	FilterBusinessKey    string
 	FilterNeedsAttention bool
 
-	RequestedBy   string
-	RequestedByID storm.UUID
+	RequestedBy string
+	// RequestedByUser is the account that asked, kept as requested_by_id.
+	RequestedByUser User
 
 	Status    string
 	Total     int64
@@ -48,6 +49,10 @@ type BatchOperation struct {
 
 func (b *BatchOperation) Schema(t *storm.Table) {
 	t.Name("batch_operations")
+	// The record of what was asked outlives everything it names.
+	t.Col(&b.Organization).NoIndex().AcknowledgeNoFK("the record outlives the organization it was asked for")
+	t.Col(&b.FilterDefinition).NoIndex().AcknowledgeNoFK("the filter as asked outlives the definition it named")
+	t.Col(&b.RequestedByUser).Named("requested_by_id").NoIndex().AcknowledgeNoFK("the record outlives the account that asked")
 	t.Col(&b.Kind).Size(16)
 	t.Col(&b.FilterStatus).Size(32)
 	t.Col(&b.FilterBusinessKey).Size(255)
@@ -68,9 +73,9 @@ type BatchOperationItem struct {
 	storm.Model
 
 	BatchOperation BatchOperation
-	// InstanceID is a plain column, by the ledger's rule: the worker must not
+	// Instance has no foreign key, by the ledger's rule: the worker must not
 	// wait on a row the engine holds to record what it did.
-	InstanceID storm.UUID
+	Instance ProcessInstance
 
 	Status string
 	// Detail is why an instance failed or was skipped, in words somebody can
@@ -83,8 +88,9 @@ func (i *BatchOperationItem) Schema(t *storm.Table) {
 	t.Name("batch_operation_items")
 	t.Col(&i.Status).Size(16)
 	t.Col(&i.Detail).Size(1024)
+	t.Col(&i.Instance).NoIndex().AcknowledgeNoFK("the worker must not wait on an instance row the engine holds")
 	// One row per instance of an operation, read in that order by the worker
 	// and by the list of results, which narrows by status.
-	t.Index(&i.BatchOperation, &i.InstanceID).Unique().Named("ux_batch_operation_items_instance")
-	t.Index(&i.BatchOperation, &i.Status, &i.InstanceID).Named("ix_batch_operation_items_status")
+	t.Index(&i.BatchOperation, &i.Instance).Unique().Named("ux_batch_operation_items_instance")
+	t.Index(&i.BatchOperation, &i.Status, &i.Instance).Named("ix_batch_operation_items_status")
 }

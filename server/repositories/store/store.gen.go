@@ -483,6 +483,365 @@ func (p BatchOperationItemWithBatchOperationQuery) All(ctx context.Context, ex r
 	return out, nil
 }
 
+// BatchOperationItemWithInstanceRow is batch_operation_items with its Instance loaded.
+type BatchOperationItemWithInstanceRow struct {
+	batchoperationitem.Row
+	Instance processinstance.Row
+}
+
+type BatchOperationItemWithInstanceQuery struct {
+	q batchoperationitem.Query
+}
+
+// BatchOperationItemWithInstance starts the plan.
+func BatchOperationItemWithInstance() BatchOperationItemWithInstanceQuery {
+	return BatchOperationItemWithInstanceQuery{q: batchoperationitem.New()}
+}
+
+func (p BatchOperationItemWithInstanceQuery) Where(ps ...batchoperationitem.Pred) BatchOperationItemWithInstanceQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p BatchOperationItemWithInstanceQuery) WhereIf(cond bool, pr batchoperationitem.Pred) BatchOperationItemWithInstanceQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p BatchOperationItemWithInstanceQuery) Any(ps ...batchoperationitem.Pred) BatchOperationItemWithInstanceQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p BatchOperationItemWithInstanceQuery) Not(pr batchoperationitem.Pred) BatchOperationItemWithInstanceQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p BatchOperationItemWithInstanceQuery) NotAny(ps ...batchoperationitem.Pred) BatchOperationItemWithInstanceQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p BatchOperationItemWithInstanceQuery) Order(ts ...batchoperationitem.Sort) BatchOperationItemWithInstanceQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p BatchOperationItemWithInstanceQuery) Limit(n int64) BatchOperationItemWithInstanceQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p BatchOperationItemWithInstanceQuery) Offset(n int64) BatchOperationItemWithInstanceQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p BatchOperationItemWithInstanceQuery) After(r BatchOperationItemWithInstanceRow) BatchOperationItemWithInstanceQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p BatchOperationItemWithInstanceQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p BatchOperationItemWithInstanceQuery) All(ctx context.Context, ex runtime.Executor) ([]BatchOperationItemWithInstanceRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]BatchOperationItemWithInstanceRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = BatchOperationItemWithInstanceRow{Row: r}
+		key := r.InstanceID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := processinstance.New().Unordered().
+		Where(processinstance.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.InstanceID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "batch_operation_items", "process_instances")
+		}
+		out[i].Instance = targets[j]
+	}
+	return out, nil
+}
+
+// BatchOperationWithFilterDefinitionRow is batch_operations with its FilterDefinition loaded.
+type BatchOperationWithFilterDefinitionRow struct {
+	batchoperation.Row
+	// A pointer because the link is optional. nil means the row has no
+	// FilterDefinition, which is different from having one that failed to load.
+	FilterDefinition *processdefinition.Row
+}
+
+type BatchOperationWithFilterDefinitionQuery struct {
+	q batchoperation.Query
+}
+
+// BatchOperationWithFilterDefinition starts the plan.
+func BatchOperationWithFilterDefinition() BatchOperationWithFilterDefinitionQuery {
+	return BatchOperationWithFilterDefinitionQuery{q: batchoperation.New()}
+}
+
+func (p BatchOperationWithFilterDefinitionQuery) Where(ps ...batchoperation.Pred) BatchOperationWithFilterDefinitionQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p BatchOperationWithFilterDefinitionQuery) WhereIf(cond bool, pr batchoperation.Pred) BatchOperationWithFilterDefinitionQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p BatchOperationWithFilterDefinitionQuery) Any(ps ...batchoperation.Pred) BatchOperationWithFilterDefinitionQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p BatchOperationWithFilterDefinitionQuery) Not(pr batchoperation.Pred) BatchOperationWithFilterDefinitionQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p BatchOperationWithFilterDefinitionQuery) NotAny(ps ...batchoperation.Pred) BatchOperationWithFilterDefinitionQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p BatchOperationWithFilterDefinitionQuery) Order(ts ...batchoperation.Sort) BatchOperationWithFilterDefinitionQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p BatchOperationWithFilterDefinitionQuery) Limit(n int64) BatchOperationWithFilterDefinitionQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p BatchOperationWithFilterDefinitionQuery) Offset(n int64) BatchOperationWithFilterDefinitionQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p BatchOperationWithFilterDefinitionQuery) After(r BatchOperationWithFilterDefinitionRow) BatchOperationWithFilterDefinitionQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p BatchOperationWithFilterDefinitionQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p BatchOperationWithFilterDefinitionQuery) All(ctx context.Context, ex runtime.Executor) ([]BatchOperationWithFilterDefinitionRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]BatchOperationWithFilterDefinitionRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = BatchOperationWithFilterDefinitionRow{Row: r}
+		key, ok := r.FilterDefinitionID.Get()
+		if !ok {
+			continue
+		}
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := processdefinition.New().Unordered().
+		Where(processdefinition.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key, ok := out[i].Row.FilterDefinitionID.Get()
+		if !ok {
+			continue
+		}
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "batch_operations", "process_definitions")
+		}
+		out[i].FilterDefinition = &targets[j]
+	}
+	return out, nil
+}
+
+// BatchOperationWithOrganizationRow is batch_operations with its Organization loaded.
+type BatchOperationWithOrganizationRow struct {
+	batchoperation.Row
+	Organization organization.Row
+}
+
+type BatchOperationWithOrganizationQuery struct {
+	q batchoperation.Query
+}
+
+// BatchOperationWithOrganization starts the plan.
+func BatchOperationWithOrganization() BatchOperationWithOrganizationQuery {
+	return BatchOperationWithOrganizationQuery{q: batchoperation.New()}
+}
+
+func (p BatchOperationWithOrganizationQuery) Where(ps ...batchoperation.Pred) BatchOperationWithOrganizationQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p BatchOperationWithOrganizationQuery) WhereIf(cond bool, pr batchoperation.Pred) BatchOperationWithOrganizationQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p BatchOperationWithOrganizationQuery) Any(ps ...batchoperation.Pred) BatchOperationWithOrganizationQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p BatchOperationWithOrganizationQuery) Not(pr batchoperation.Pred) BatchOperationWithOrganizationQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p BatchOperationWithOrganizationQuery) NotAny(ps ...batchoperation.Pred) BatchOperationWithOrganizationQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p BatchOperationWithOrganizationQuery) Order(ts ...batchoperation.Sort) BatchOperationWithOrganizationQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p BatchOperationWithOrganizationQuery) Limit(n int64) BatchOperationWithOrganizationQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p BatchOperationWithOrganizationQuery) Offset(n int64) BatchOperationWithOrganizationQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p BatchOperationWithOrganizationQuery) After(r BatchOperationWithOrganizationRow) BatchOperationWithOrganizationQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p BatchOperationWithOrganizationQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p BatchOperationWithOrganizationQuery) All(ctx context.Context, ex runtime.Executor) ([]BatchOperationWithOrganizationRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]BatchOperationWithOrganizationRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = BatchOperationWithOrganizationRow{Row: r}
+		key := r.OrganizationID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := organization.New().Unordered().
+		Where(organization.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.OrganizationID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "batch_operations", "organizations")
+		}
+		out[i].Organization = targets[j]
+	}
+	return out, nil
+}
+
 // BatchOperationWithProjectRow is batch_operations with its Project loaded.
 type BatchOperationWithProjectRow struct {
 	batchoperation.Row
@@ -596,6 +955,123 @@ func (p BatchOperationWithProjectQuery) All(ctx context.Context, ex runtime.Exec
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "batch_operations", "projects")
 		}
 		out[i].Project = targets[j]
+	}
+	return out, nil
+}
+
+// BatchOperationWithRequestedByUserRow is batch_operations with its RequestedByUser loaded.
+type BatchOperationWithRequestedByUserRow struct {
+	batchoperation.Row
+	RequestedByUser user.Row
+}
+
+type BatchOperationWithRequestedByUserQuery struct {
+	q batchoperation.Query
+}
+
+// BatchOperationWithRequestedByUser starts the plan.
+func BatchOperationWithRequestedByUser() BatchOperationWithRequestedByUserQuery {
+	return BatchOperationWithRequestedByUserQuery{q: batchoperation.New()}
+}
+
+func (p BatchOperationWithRequestedByUserQuery) Where(ps ...batchoperation.Pred) BatchOperationWithRequestedByUserQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p BatchOperationWithRequestedByUserQuery) WhereIf(cond bool, pr batchoperation.Pred) BatchOperationWithRequestedByUserQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p BatchOperationWithRequestedByUserQuery) Any(ps ...batchoperation.Pred) BatchOperationWithRequestedByUserQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p BatchOperationWithRequestedByUserQuery) Not(pr batchoperation.Pred) BatchOperationWithRequestedByUserQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p BatchOperationWithRequestedByUserQuery) NotAny(ps ...batchoperation.Pred) BatchOperationWithRequestedByUserQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p BatchOperationWithRequestedByUserQuery) Order(ts ...batchoperation.Sort) BatchOperationWithRequestedByUserQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p BatchOperationWithRequestedByUserQuery) Limit(n int64) BatchOperationWithRequestedByUserQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p BatchOperationWithRequestedByUserQuery) Offset(n int64) BatchOperationWithRequestedByUserQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p BatchOperationWithRequestedByUserQuery) After(r BatchOperationWithRequestedByUserRow) BatchOperationWithRequestedByUserQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p BatchOperationWithRequestedByUserQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p BatchOperationWithRequestedByUserQuery) All(ctx context.Context, ex runtime.Executor) ([]BatchOperationWithRequestedByUserRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]BatchOperationWithRequestedByUserRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = BatchOperationWithRequestedByUserRow{Row: r}
+		key := r.RequestedByID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := user.New().Unordered().
+		Where(user.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.RequestedByID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "batch_operations", "users")
+		}
+		out[i].RequestedByUser = targets[j]
 	}
 	return out, nil
 }
@@ -1735,6 +2211,256 @@ func (p DeploymentWithResourcesQuery) All(ctx context.Context, ex runtime.Execut
 	return out, nil
 }
 
+// DeviationRequestWithDecidedByUserRow is deviation_requests with its DecidedByUser loaded.
+type DeviationRequestWithDecidedByUserRow struct {
+	deviationrequest.Row
+	// A pointer because the link is optional. nil means the row has no
+	// DecidedByUser, which is different from having one that failed to load.
+	DecidedByUser *user.Row
+}
+
+type DeviationRequestWithDecidedByUserQuery struct {
+	q deviationrequest.Query
+}
+
+// DeviationRequestWithDecidedByUser starts the plan.
+func DeviationRequestWithDecidedByUser() DeviationRequestWithDecidedByUserQuery {
+	return DeviationRequestWithDecidedByUserQuery{q: deviationrequest.New()}
+}
+
+func (p DeviationRequestWithDecidedByUserQuery) Where(ps ...deviationrequest.Pred) DeviationRequestWithDecidedByUserQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p DeviationRequestWithDecidedByUserQuery) WhereIf(cond bool, pr deviationrequest.Pred) DeviationRequestWithDecidedByUserQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p DeviationRequestWithDecidedByUserQuery) Any(ps ...deviationrequest.Pred) DeviationRequestWithDecidedByUserQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p DeviationRequestWithDecidedByUserQuery) Not(pr deviationrequest.Pred) DeviationRequestWithDecidedByUserQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p DeviationRequestWithDecidedByUserQuery) NotAny(ps ...deviationrequest.Pred) DeviationRequestWithDecidedByUserQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p DeviationRequestWithDecidedByUserQuery) Order(ts ...deviationrequest.Sort) DeviationRequestWithDecidedByUserQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p DeviationRequestWithDecidedByUserQuery) Limit(n int64) DeviationRequestWithDecidedByUserQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p DeviationRequestWithDecidedByUserQuery) Offset(n int64) DeviationRequestWithDecidedByUserQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p DeviationRequestWithDecidedByUserQuery) After(r DeviationRequestWithDecidedByUserRow) DeviationRequestWithDecidedByUserQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p DeviationRequestWithDecidedByUserQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p DeviationRequestWithDecidedByUserQuery) All(ctx context.Context, ex runtime.Executor) ([]DeviationRequestWithDecidedByUserRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]DeviationRequestWithDecidedByUserRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = DeviationRequestWithDecidedByUserRow{Row: r}
+		key, ok := r.DecidedByID.Get()
+		if !ok {
+			continue
+		}
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := user.New().Unordered().
+		Where(user.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key, ok := out[i].Row.DecidedByID.Get()
+		if !ok {
+			continue
+		}
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "deviation_requests", "users")
+		}
+		out[i].DecidedByUser = &targets[j]
+	}
+	return out, nil
+}
+
+// DeviationRequestWithInstanceRow is deviation_requests with its Instance loaded.
+type DeviationRequestWithInstanceRow struct {
+	deviationrequest.Row
+	// A pointer because the link is optional. nil means the row has no
+	// Instance, which is different from having one that failed to load.
+	Instance *processinstance.Row
+}
+
+type DeviationRequestWithInstanceQuery struct {
+	q deviationrequest.Query
+}
+
+// DeviationRequestWithInstance starts the plan.
+func DeviationRequestWithInstance() DeviationRequestWithInstanceQuery {
+	return DeviationRequestWithInstanceQuery{q: deviationrequest.New()}
+}
+
+func (p DeviationRequestWithInstanceQuery) Where(ps ...deviationrequest.Pred) DeviationRequestWithInstanceQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p DeviationRequestWithInstanceQuery) WhereIf(cond bool, pr deviationrequest.Pred) DeviationRequestWithInstanceQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p DeviationRequestWithInstanceQuery) Any(ps ...deviationrequest.Pred) DeviationRequestWithInstanceQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p DeviationRequestWithInstanceQuery) Not(pr deviationrequest.Pred) DeviationRequestWithInstanceQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p DeviationRequestWithInstanceQuery) NotAny(ps ...deviationrequest.Pred) DeviationRequestWithInstanceQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p DeviationRequestWithInstanceQuery) Order(ts ...deviationrequest.Sort) DeviationRequestWithInstanceQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p DeviationRequestWithInstanceQuery) Limit(n int64) DeviationRequestWithInstanceQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p DeviationRequestWithInstanceQuery) Offset(n int64) DeviationRequestWithInstanceQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p DeviationRequestWithInstanceQuery) After(r DeviationRequestWithInstanceRow) DeviationRequestWithInstanceQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p DeviationRequestWithInstanceQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p DeviationRequestWithInstanceQuery) All(ctx context.Context, ex runtime.Executor) ([]DeviationRequestWithInstanceRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]DeviationRequestWithInstanceRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = DeviationRequestWithInstanceRow{Row: r}
+		key, ok := r.InstanceID.Get()
+		if !ok {
+			continue
+		}
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := processinstance.New().Unordered().
+		Where(processinstance.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key, ok := out[i].Row.InstanceID.Get()
+		if !ok {
+			continue
+		}
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "deviation_requests", "process_instances")
+		}
+		out[i].Instance = &targets[j]
+	}
+	return out, nil
+}
+
 // DeviationRequestWithProjectRow is deviation_requests with its Project loaded.
 type DeviationRequestWithProjectRow struct {
 	deviationrequest.Row
@@ -1848,6 +2574,123 @@ func (p DeviationRequestWithProjectQuery) All(ctx context.Context, ex runtime.Ex
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "deviation_requests", "projects")
 		}
 		out[i].Project = targets[j]
+	}
+	return out, nil
+}
+
+// DeviationRequestWithRequestedByUserRow is deviation_requests with its RequestedByUser loaded.
+type DeviationRequestWithRequestedByUserRow struct {
+	deviationrequest.Row
+	RequestedByUser user.Row
+}
+
+type DeviationRequestWithRequestedByUserQuery struct {
+	q deviationrequest.Query
+}
+
+// DeviationRequestWithRequestedByUser starts the plan.
+func DeviationRequestWithRequestedByUser() DeviationRequestWithRequestedByUserQuery {
+	return DeviationRequestWithRequestedByUserQuery{q: deviationrequest.New()}
+}
+
+func (p DeviationRequestWithRequestedByUserQuery) Where(ps ...deviationrequest.Pred) DeviationRequestWithRequestedByUserQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p DeviationRequestWithRequestedByUserQuery) WhereIf(cond bool, pr deviationrequest.Pred) DeviationRequestWithRequestedByUserQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p DeviationRequestWithRequestedByUserQuery) Any(ps ...deviationrequest.Pred) DeviationRequestWithRequestedByUserQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p DeviationRequestWithRequestedByUserQuery) Not(pr deviationrequest.Pred) DeviationRequestWithRequestedByUserQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p DeviationRequestWithRequestedByUserQuery) NotAny(ps ...deviationrequest.Pred) DeviationRequestWithRequestedByUserQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p DeviationRequestWithRequestedByUserQuery) Order(ts ...deviationrequest.Sort) DeviationRequestWithRequestedByUserQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p DeviationRequestWithRequestedByUserQuery) Limit(n int64) DeviationRequestWithRequestedByUserQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p DeviationRequestWithRequestedByUserQuery) Offset(n int64) DeviationRequestWithRequestedByUserQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p DeviationRequestWithRequestedByUserQuery) After(r DeviationRequestWithRequestedByUserRow) DeviationRequestWithRequestedByUserQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p DeviationRequestWithRequestedByUserQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p DeviationRequestWithRequestedByUserQuery) All(ctx context.Context, ex runtime.Executor) ([]DeviationRequestWithRequestedByUserRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]DeviationRequestWithRequestedByUserRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = DeviationRequestWithRequestedByUserRow{Row: r}
+		key := r.RequestedByID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := user.New().Unordered().
+		Where(user.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.RequestedByID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "deviation_requests", "users")
+		}
+		out[i].RequestedByUser = targets[j]
 	}
 	return out, nil
 }
@@ -3284,6 +4127,381 @@ func (p IncidentWithJobQuery) All(ctx context.Context, ex runtime.Executor) ([]I
 	return out, nil
 }
 
+// InstanceDeviationWithActorUserRow is instance_deviations with its ActorUser loaded.
+type InstanceDeviationWithActorUserRow struct {
+	instancedeviation.Row
+	// A pointer because the link is optional. nil means the row has no
+	// ActorUser, which is different from having one that failed to load.
+	ActorUser *user.Row
+}
+
+type InstanceDeviationWithActorUserQuery struct {
+	q instancedeviation.Query
+}
+
+// InstanceDeviationWithActorUser starts the plan.
+func InstanceDeviationWithActorUser() InstanceDeviationWithActorUserQuery {
+	return InstanceDeviationWithActorUserQuery{q: instancedeviation.New()}
+}
+
+func (p InstanceDeviationWithActorUserQuery) Where(ps ...instancedeviation.Pred) InstanceDeviationWithActorUserQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithActorUserQuery) WhereIf(cond bool, pr instancedeviation.Pred) InstanceDeviationWithActorUserQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p InstanceDeviationWithActorUserQuery) Any(ps ...instancedeviation.Pred) InstanceDeviationWithActorUserQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithActorUserQuery) Not(pr instancedeviation.Pred) InstanceDeviationWithActorUserQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p InstanceDeviationWithActorUserQuery) NotAny(ps ...instancedeviation.Pred) InstanceDeviationWithActorUserQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithActorUserQuery) Order(ts ...instancedeviation.Sort) InstanceDeviationWithActorUserQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p InstanceDeviationWithActorUserQuery) Limit(n int64) InstanceDeviationWithActorUserQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p InstanceDeviationWithActorUserQuery) Offset(n int64) InstanceDeviationWithActorUserQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p InstanceDeviationWithActorUserQuery) After(r InstanceDeviationWithActorUserRow) InstanceDeviationWithActorUserQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p InstanceDeviationWithActorUserQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p InstanceDeviationWithActorUserQuery) All(ctx context.Context, ex runtime.Executor) ([]InstanceDeviationWithActorUserRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]InstanceDeviationWithActorUserRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = InstanceDeviationWithActorUserRow{Row: r}
+		key, ok := r.ActorID.Get()
+		if !ok {
+			continue
+		}
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := user.New().Unordered().
+		Where(user.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key, ok := out[i].Row.ActorID.Get()
+		if !ok {
+			continue
+		}
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "instance_deviations", "users")
+		}
+		out[i].ActorUser = &targets[j]
+	}
+	return out, nil
+}
+
+// InstanceDeviationWithApprovedByUserRow is instance_deviations with its ApprovedByUser loaded.
+type InstanceDeviationWithApprovedByUserRow struct {
+	instancedeviation.Row
+	// A pointer because the link is optional. nil means the row has no
+	// ApprovedByUser, which is different from having one that failed to load.
+	ApprovedByUser *user.Row
+}
+
+type InstanceDeviationWithApprovedByUserQuery struct {
+	q instancedeviation.Query
+}
+
+// InstanceDeviationWithApprovedByUser starts the plan.
+func InstanceDeviationWithApprovedByUser() InstanceDeviationWithApprovedByUserQuery {
+	return InstanceDeviationWithApprovedByUserQuery{q: instancedeviation.New()}
+}
+
+func (p InstanceDeviationWithApprovedByUserQuery) Where(ps ...instancedeviation.Pred) InstanceDeviationWithApprovedByUserQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithApprovedByUserQuery) WhereIf(cond bool, pr instancedeviation.Pred) InstanceDeviationWithApprovedByUserQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p InstanceDeviationWithApprovedByUserQuery) Any(ps ...instancedeviation.Pred) InstanceDeviationWithApprovedByUserQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithApprovedByUserQuery) Not(pr instancedeviation.Pred) InstanceDeviationWithApprovedByUserQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p InstanceDeviationWithApprovedByUserQuery) NotAny(ps ...instancedeviation.Pred) InstanceDeviationWithApprovedByUserQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithApprovedByUserQuery) Order(ts ...instancedeviation.Sort) InstanceDeviationWithApprovedByUserQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p InstanceDeviationWithApprovedByUserQuery) Limit(n int64) InstanceDeviationWithApprovedByUserQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p InstanceDeviationWithApprovedByUserQuery) Offset(n int64) InstanceDeviationWithApprovedByUserQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p InstanceDeviationWithApprovedByUserQuery) After(r InstanceDeviationWithApprovedByUserRow) InstanceDeviationWithApprovedByUserQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p InstanceDeviationWithApprovedByUserQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p InstanceDeviationWithApprovedByUserQuery) All(ctx context.Context, ex runtime.Executor) ([]InstanceDeviationWithApprovedByUserRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]InstanceDeviationWithApprovedByUserRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = InstanceDeviationWithApprovedByUserRow{Row: r}
+		key, ok := r.ApprovedByID.Get()
+		if !ok {
+			continue
+		}
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := user.New().Unordered().
+		Where(user.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key, ok := out[i].Row.ApprovedByID.Get()
+		if !ok {
+			continue
+		}
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "instance_deviations", "users")
+		}
+		out[i].ApprovedByUser = &targets[j]
+	}
+	return out, nil
+}
+
+// InstanceDeviationWithAuditEntryRow is instance_deviations with its AuditEntry loaded.
+type InstanceDeviationWithAuditEntryRow struct {
+	instancedeviation.Row
+	// A pointer because the link is optional. nil means the row has no
+	// AuditEntry, which is different from having one that failed to load.
+	AuditEntry *auditentry.Row
+}
+
+type InstanceDeviationWithAuditEntryQuery struct {
+	q instancedeviation.Query
+}
+
+// InstanceDeviationWithAuditEntry starts the plan.
+func InstanceDeviationWithAuditEntry() InstanceDeviationWithAuditEntryQuery {
+	return InstanceDeviationWithAuditEntryQuery{q: instancedeviation.New()}
+}
+
+func (p InstanceDeviationWithAuditEntryQuery) Where(ps ...instancedeviation.Pred) InstanceDeviationWithAuditEntryQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithAuditEntryQuery) WhereIf(cond bool, pr instancedeviation.Pred) InstanceDeviationWithAuditEntryQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p InstanceDeviationWithAuditEntryQuery) Any(ps ...instancedeviation.Pred) InstanceDeviationWithAuditEntryQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithAuditEntryQuery) Not(pr instancedeviation.Pred) InstanceDeviationWithAuditEntryQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p InstanceDeviationWithAuditEntryQuery) NotAny(ps ...instancedeviation.Pred) InstanceDeviationWithAuditEntryQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithAuditEntryQuery) Order(ts ...instancedeviation.Sort) InstanceDeviationWithAuditEntryQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p InstanceDeviationWithAuditEntryQuery) Limit(n int64) InstanceDeviationWithAuditEntryQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p InstanceDeviationWithAuditEntryQuery) Offset(n int64) InstanceDeviationWithAuditEntryQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p InstanceDeviationWithAuditEntryQuery) After(r InstanceDeviationWithAuditEntryRow) InstanceDeviationWithAuditEntryQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p InstanceDeviationWithAuditEntryQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p InstanceDeviationWithAuditEntryQuery) All(ctx context.Context, ex runtime.Executor) ([]InstanceDeviationWithAuditEntryRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]InstanceDeviationWithAuditEntryRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = InstanceDeviationWithAuditEntryRow{Row: r}
+		key, ok := r.AuditEntryID.Get()
+		if !ok {
+			continue
+		}
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := auditentry.New().Unordered().
+		Where(auditentry.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key, ok := out[i].Row.AuditEntryID.Get()
+		if !ok {
+			continue
+		}
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "instance_deviations", "audit_logs")
+		}
+		out[i].AuditEntry = &targets[j]
+	}
+	return out, nil
+}
+
 // InstanceDeviationWithDefinitionRow is instance_deviations with its Definition loaded.
 type InstanceDeviationWithDefinitionRow struct {
 	instancedeviation.Row
@@ -3405,6 +4623,123 @@ func (p InstanceDeviationWithDefinitionQuery) All(ctx context.Context, ex runtim
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "instance_deviations", "process_definitions")
 		}
 		out[i].Definition = &targets[j]
+	}
+	return out, nil
+}
+
+// InstanceDeviationWithInstanceRow is instance_deviations with its Instance loaded.
+type InstanceDeviationWithInstanceRow struct {
+	instancedeviation.Row
+	Instance processinstance.Row
+}
+
+type InstanceDeviationWithInstanceQuery struct {
+	q instancedeviation.Query
+}
+
+// InstanceDeviationWithInstance starts the plan.
+func InstanceDeviationWithInstance() InstanceDeviationWithInstanceQuery {
+	return InstanceDeviationWithInstanceQuery{q: instancedeviation.New()}
+}
+
+func (p InstanceDeviationWithInstanceQuery) Where(ps ...instancedeviation.Pred) InstanceDeviationWithInstanceQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithInstanceQuery) WhereIf(cond bool, pr instancedeviation.Pred) InstanceDeviationWithInstanceQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p InstanceDeviationWithInstanceQuery) Any(ps ...instancedeviation.Pred) InstanceDeviationWithInstanceQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithInstanceQuery) Not(pr instancedeviation.Pred) InstanceDeviationWithInstanceQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p InstanceDeviationWithInstanceQuery) NotAny(ps ...instancedeviation.Pred) InstanceDeviationWithInstanceQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithInstanceQuery) Order(ts ...instancedeviation.Sort) InstanceDeviationWithInstanceQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p InstanceDeviationWithInstanceQuery) Limit(n int64) InstanceDeviationWithInstanceQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p InstanceDeviationWithInstanceQuery) Offset(n int64) InstanceDeviationWithInstanceQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p InstanceDeviationWithInstanceQuery) After(r InstanceDeviationWithInstanceRow) InstanceDeviationWithInstanceQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p InstanceDeviationWithInstanceQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p InstanceDeviationWithInstanceQuery) All(ctx context.Context, ex runtime.Executor) ([]InstanceDeviationWithInstanceRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]InstanceDeviationWithInstanceRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = InstanceDeviationWithInstanceRow{Row: r}
+		key := r.InstanceID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := processinstance.New().Unordered().
+		Where(processinstance.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.InstanceID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "instance_deviations", "process_instances")
+		}
+		out[i].Instance = targets[j]
 	}
 	return out, nil
 }
@@ -3651,6 +4986,131 @@ func (p InstanceDeviationWithRequestQuery) All(ctx context.Context, ex runtime.E
 	return out, nil
 }
 
+// InstanceDeviationWithTaskRow is instance_deviations with its Task loaded.
+type InstanceDeviationWithTaskRow struct {
+	instancedeviation.Row
+	// A pointer because the link is optional. nil means the row has no
+	// Task, which is different from having one that failed to load.
+	Task *task.Row
+}
+
+type InstanceDeviationWithTaskQuery struct {
+	q instancedeviation.Query
+}
+
+// InstanceDeviationWithTask starts the plan.
+func InstanceDeviationWithTask() InstanceDeviationWithTaskQuery {
+	return InstanceDeviationWithTaskQuery{q: instancedeviation.New()}
+}
+
+func (p InstanceDeviationWithTaskQuery) Where(ps ...instancedeviation.Pred) InstanceDeviationWithTaskQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithTaskQuery) WhereIf(cond bool, pr instancedeviation.Pred) InstanceDeviationWithTaskQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p InstanceDeviationWithTaskQuery) Any(ps ...instancedeviation.Pred) InstanceDeviationWithTaskQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithTaskQuery) Not(pr instancedeviation.Pred) InstanceDeviationWithTaskQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p InstanceDeviationWithTaskQuery) NotAny(ps ...instancedeviation.Pred) InstanceDeviationWithTaskQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p InstanceDeviationWithTaskQuery) Order(ts ...instancedeviation.Sort) InstanceDeviationWithTaskQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p InstanceDeviationWithTaskQuery) Limit(n int64) InstanceDeviationWithTaskQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p InstanceDeviationWithTaskQuery) Offset(n int64) InstanceDeviationWithTaskQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p InstanceDeviationWithTaskQuery) After(r InstanceDeviationWithTaskRow) InstanceDeviationWithTaskQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p InstanceDeviationWithTaskQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p InstanceDeviationWithTaskQuery) All(ctx context.Context, ex runtime.Executor) ([]InstanceDeviationWithTaskRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]InstanceDeviationWithTaskRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = InstanceDeviationWithTaskRow{Row: r}
+		key, ok := r.TaskID.Get()
+		if !ok {
+			continue
+		}
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := task.New().Unordered().
+		Where(task.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key, ok := out[i].Row.TaskID.Get()
+		if !ok {
+			continue
+		}
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "instance_deviations", "tasks")
+		}
+		out[i].Task = &targets[j]
+	}
+	return out, nil
+}
+
 // JobWithDefinitionRow is jobs with its Definition loaded.
 type JobWithDefinitionRow struct {
 	job.Row
@@ -3877,6 +5337,129 @@ func (p JobWithInstanceQuery) All(ctx context.Context, ex runtime.Executor) ([]J
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "jobs", "process_instances")
 		}
 		out[i].Instance = targets[j]
+	}
+	return out, nil
+}
+
+// JobWithOrganizationRow is jobs with its Organization loaded.
+type JobWithOrganizationRow struct {
+	job.Row
+	// A pointer because the link is optional. nil means the row has no
+	// Organization, which is different from having one that failed to load.
+	Organization *organization.Row
+}
+
+type JobWithOrganizationQuery struct {
+	q job.Query
+}
+
+// JobWithOrganization starts the plan.
+func JobWithOrganization() JobWithOrganizationQuery { return JobWithOrganizationQuery{q: job.New()} }
+
+func (p JobWithOrganizationQuery) Where(ps ...job.Pred) JobWithOrganizationQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p JobWithOrganizationQuery) WhereIf(cond bool, pr job.Pred) JobWithOrganizationQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p JobWithOrganizationQuery) Any(ps ...job.Pred) JobWithOrganizationQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p JobWithOrganizationQuery) Not(pr job.Pred) JobWithOrganizationQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p JobWithOrganizationQuery) NotAny(ps ...job.Pred) JobWithOrganizationQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p JobWithOrganizationQuery) Order(ts ...job.Sort) JobWithOrganizationQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p JobWithOrganizationQuery) Limit(n int64) JobWithOrganizationQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p JobWithOrganizationQuery) Offset(n int64) JobWithOrganizationQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p JobWithOrganizationQuery) After(r JobWithOrganizationRow) JobWithOrganizationQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p JobWithOrganizationQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p JobWithOrganizationQuery) All(ctx context.Context, ex runtime.Executor) ([]JobWithOrganizationRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]JobWithOrganizationRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = JobWithOrganizationRow{Row: r}
+		key, ok := r.OrganizationID.Get()
+		if !ok {
+			continue
+		}
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := organization.New().Unordered().
+		Where(organization.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key, ok := out[i].Row.OrganizationID.Get()
+		if !ok {
+			continue
+		}
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "jobs", "organizations")
+		}
+		out[i].Organization = &targets[j]
 	}
 	return out, nil
 }
@@ -6268,6 +7851,240 @@ func (p ResourceWithDeploymentQuery) All(ctx context.Context, ex runtime.Executo
 	return out, nil
 }
 
+// RetentionHoldWithInstanceRow is retention_holds with its Instance loaded.
+type RetentionHoldWithInstanceRow struct {
+	retentionhold.Row
+	Instance processinstance.Row
+}
+
+type RetentionHoldWithInstanceQuery struct {
+	q retentionhold.Query
+}
+
+// RetentionHoldWithInstance starts the plan.
+func RetentionHoldWithInstance() RetentionHoldWithInstanceQuery {
+	return RetentionHoldWithInstanceQuery{q: retentionhold.New()}
+}
+
+func (p RetentionHoldWithInstanceQuery) Where(ps ...retentionhold.Pred) RetentionHoldWithInstanceQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p RetentionHoldWithInstanceQuery) WhereIf(cond bool, pr retentionhold.Pred) RetentionHoldWithInstanceQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p RetentionHoldWithInstanceQuery) Any(ps ...retentionhold.Pred) RetentionHoldWithInstanceQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p RetentionHoldWithInstanceQuery) Not(pr retentionhold.Pred) RetentionHoldWithInstanceQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p RetentionHoldWithInstanceQuery) NotAny(ps ...retentionhold.Pred) RetentionHoldWithInstanceQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p RetentionHoldWithInstanceQuery) Order(ts ...retentionhold.Sort) RetentionHoldWithInstanceQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p RetentionHoldWithInstanceQuery) Limit(n int64) RetentionHoldWithInstanceQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p RetentionHoldWithInstanceQuery) Offset(n int64) RetentionHoldWithInstanceQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p RetentionHoldWithInstanceQuery) After(r RetentionHoldWithInstanceRow) RetentionHoldWithInstanceQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p RetentionHoldWithInstanceQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p RetentionHoldWithInstanceQuery) All(ctx context.Context, ex runtime.Executor) ([]RetentionHoldWithInstanceRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]RetentionHoldWithInstanceRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = RetentionHoldWithInstanceRow{Row: r}
+		key := r.InstanceID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := processinstance.New().Unordered().
+		Where(processinstance.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.InstanceID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "retention_holds", "process_instances")
+		}
+		out[i].Instance = targets[j]
+	}
+	return out, nil
+}
+
+// RetentionHoldWithPlacedByUserRow is retention_holds with its PlacedByUser loaded.
+type RetentionHoldWithPlacedByUserRow struct {
+	retentionhold.Row
+	PlacedByUser user.Row
+}
+
+type RetentionHoldWithPlacedByUserQuery struct {
+	q retentionhold.Query
+}
+
+// RetentionHoldWithPlacedByUser starts the plan.
+func RetentionHoldWithPlacedByUser() RetentionHoldWithPlacedByUserQuery {
+	return RetentionHoldWithPlacedByUserQuery{q: retentionhold.New()}
+}
+
+func (p RetentionHoldWithPlacedByUserQuery) Where(ps ...retentionhold.Pred) RetentionHoldWithPlacedByUserQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p RetentionHoldWithPlacedByUserQuery) WhereIf(cond bool, pr retentionhold.Pred) RetentionHoldWithPlacedByUserQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p RetentionHoldWithPlacedByUserQuery) Any(ps ...retentionhold.Pred) RetentionHoldWithPlacedByUserQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p RetentionHoldWithPlacedByUserQuery) Not(pr retentionhold.Pred) RetentionHoldWithPlacedByUserQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p RetentionHoldWithPlacedByUserQuery) NotAny(ps ...retentionhold.Pred) RetentionHoldWithPlacedByUserQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p RetentionHoldWithPlacedByUserQuery) Order(ts ...retentionhold.Sort) RetentionHoldWithPlacedByUserQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p RetentionHoldWithPlacedByUserQuery) Limit(n int64) RetentionHoldWithPlacedByUserQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p RetentionHoldWithPlacedByUserQuery) Offset(n int64) RetentionHoldWithPlacedByUserQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p RetentionHoldWithPlacedByUserQuery) After(r RetentionHoldWithPlacedByUserRow) RetentionHoldWithPlacedByUserQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p RetentionHoldWithPlacedByUserQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p RetentionHoldWithPlacedByUserQuery) All(ctx context.Context, ex runtime.Executor) ([]RetentionHoldWithPlacedByUserRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]RetentionHoldWithPlacedByUserRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = RetentionHoldWithPlacedByUserRow{Row: r}
+		key := r.PlacedByID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := user.New().Unordered().
+		Where(user.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.PlacedByID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "retention_holds", "users")
+		}
+		out[i].PlacedByUser = targets[j]
+	}
+	return out, nil
+}
+
 // RetentionHoldWithProjectRow is retention_holds with its Project loaded.
 type RetentionHoldWithProjectRow struct {
 	retentionhold.Row
@@ -6498,6 +8315,123 @@ func (p RetentionPeriodWithProjectQuery) All(ctx context.Context, ex runtime.Exe
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "retention_periods", "projects")
 		}
 		out[i].Project = targets[j]
+	}
+	return out, nil
+}
+
+// RetentionPeriodWithSetByUserRow is retention_periods with its SetByUser loaded.
+type RetentionPeriodWithSetByUserRow struct {
+	retentionperiod.Row
+	SetByUser user.Row
+}
+
+type RetentionPeriodWithSetByUserQuery struct {
+	q retentionperiod.Query
+}
+
+// RetentionPeriodWithSetByUser starts the plan.
+func RetentionPeriodWithSetByUser() RetentionPeriodWithSetByUserQuery {
+	return RetentionPeriodWithSetByUserQuery{q: retentionperiod.New()}
+}
+
+func (p RetentionPeriodWithSetByUserQuery) Where(ps ...retentionperiod.Pred) RetentionPeriodWithSetByUserQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p RetentionPeriodWithSetByUserQuery) WhereIf(cond bool, pr retentionperiod.Pred) RetentionPeriodWithSetByUserQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p RetentionPeriodWithSetByUserQuery) Any(ps ...retentionperiod.Pred) RetentionPeriodWithSetByUserQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p RetentionPeriodWithSetByUserQuery) Not(pr retentionperiod.Pred) RetentionPeriodWithSetByUserQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p RetentionPeriodWithSetByUserQuery) NotAny(ps ...retentionperiod.Pred) RetentionPeriodWithSetByUserQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p RetentionPeriodWithSetByUserQuery) Order(ts ...retentionperiod.Sort) RetentionPeriodWithSetByUserQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p RetentionPeriodWithSetByUserQuery) Limit(n int64) RetentionPeriodWithSetByUserQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p RetentionPeriodWithSetByUserQuery) Offset(n int64) RetentionPeriodWithSetByUserQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p RetentionPeriodWithSetByUserQuery) After(r RetentionPeriodWithSetByUserRow) RetentionPeriodWithSetByUserQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p RetentionPeriodWithSetByUserQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p RetentionPeriodWithSetByUserQuery) All(ctx context.Context, ex runtime.Executor) ([]RetentionPeriodWithSetByUserRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]RetentionPeriodWithSetByUserRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = RetentionPeriodWithSetByUserRow{Row: r}
+		key := r.SetByID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := user.New().Unordered().
+		Where(user.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.SetByID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "retention_periods", "users")
+		}
+		out[i].SetByUser = targets[j]
 	}
 	return out, nil
 }
@@ -7212,6 +9146,123 @@ func (p SubscriptionWithProjectQuery) All(ctx context.Context, ex runtime.Execut
 	return out, nil
 }
 
+// TaskLinkWithParticipantRow is task_links with its Participant loaded.
+type TaskLinkWithParticipantRow struct {
+	tasklink.Row
+	Participant workflowuser.Row
+}
+
+type TaskLinkWithParticipantQuery struct {
+	q tasklink.Query
+}
+
+// TaskLinkWithParticipant starts the plan.
+func TaskLinkWithParticipant() TaskLinkWithParticipantQuery {
+	return TaskLinkWithParticipantQuery{q: tasklink.New()}
+}
+
+func (p TaskLinkWithParticipantQuery) Where(ps ...tasklink.Pred) TaskLinkWithParticipantQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p TaskLinkWithParticipantQuery) WhereIf(cond bool, pr tasklink.Pred) TaskLinkWithParticipantQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p TaskLinkWithParticipantQuery) Any(ps ...tasklink.Pred) TaskLinkWithParticipantQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p TaskLinkWithParticipantQuery) Not(pr tasklink.Pred) TaskLinkWithParticipantQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p TaskLinkWithParticipantQuery) NotAny(ps ...tasklink.Pred) TaskLinkWithParticipantQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p TaskLinkWithParticipantQuery) Order(ts ...tasklink.Sort) TaskLinkWithParticipantQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p TaskLinkWithParticipantQuery) Limit(n int64) TaskLinkWithParticipantQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p TaskLinkWithParticipantQuery) Offset(n int64) TaskLinkWithParticipantQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p TaskLinkWithParticipantQuery) After(r TaskLinkWithParticipantRow) TaskLinkWithParticipantQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p TaskLinkWithParticipantQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p TaskLinkWithParticipantQuery) All(ctx context.Context, ex runtime.Executor) ([]TaskLinkWithParticipantRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]TaskLinkWithParticipantRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = TaskLinkWithParticipantRow{Row: r}
+		key := r.ParticipantID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := workflowuser.New().Unordered().
+		Where(workflowuser.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.ParticipantID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "task_links", "workflow_users")
+		}
+		out[i].Participant = targets[j]
+	}
+	return out, nil
+}
+
 // TaskLinkWithProjectRow is task_links with its Project loaded.
 type TaskLinkWithProjectRow struct {
 	tasklink.Row
@@ -7325,6 +9376,121 @@ func (p TaskLinkWithProjectQuery) All(ctx context.Context, ex runtime.Executor) 
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "task_links", "projects")
 		}
 		out[i].Project = targets[j]
+	}
+	return out, nil
+}
+
+// TaskLinkWithTaskRow is task_links with its Task loaded.
+type TaskLinkWithTaskRow struct {
+	tasklink.Row
+	Task task.Row
+}
+
+type TaskLinkWithTaskQuery struct {
+	q tasklink.Query
+}
+
+// TaskLinkWithTask starts the plan.
+func TaskLinkWithTask() TaskLinkWithTaskQuery { return TaskLinkWithTaskQuery{q: tasklink.New()} }
+
+func (p TaskLinkWithTaskQuery) Where(ps ...tasklink.Pred) TaskLinkWithTaskQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p TaskLinkWithTaskQuery) WhereIf(cond bool, pr tasklink.Pred) TaskLinkWithTaskQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p TaskLinkWithTaskQuery) Any(ps ...tasklink.Pred) TaskLinkWithTaskQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p TaskLinkWithTaskQuery) Not(pr tasklink.Pred) TaskLinkWithTaskQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p TaskLinkWithTaskQuery) NotAny(ps ...tasklink.Pred) TaskLinkWithTaskQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p TaskLinkWithTaskQuery) Order(ts ...tasklink.Sort) TaskLinkWithTaskQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p TaskLinkWithTaskQuery) Limit(n int64) TaskLinkWithTaskQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p TaskLinkWithTaskQuery) Offset(n int64) TaskLinkWithTaskQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p TaskLinkWithTaskQuery) After(r TaskLinkWithTaskRow) TaskLinkWithTaskQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p TaskLinkWithTaskQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p TaskLinkWithTaskQuery) All(ctx context.Context, ex runtime.Executor) ([]TaskLinkWithTaskRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]TaskLinkWithTaskRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = TaskLinkWithTaskRow{Row: r}
+		key := r.TaskID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := task.New().Unordered().
+		Where(task.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.TaskID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "task_links", "tasks")
+		}
+		out[i].Task = targets[j]
 	}
 	return out, nil
 }
