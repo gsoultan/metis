@@ -50,10 +50,10 @@ func (d *ProcessDefinition) Schema(t *storm.Table) {
 	t.SoftDelete(&d.DeletedAt)
 }
 
-// Aggregates declares the process list's read: each key once, however many
-// versions it has, in key order.
+// Aggregates declares the process list's read: each process once, by key,
+// however many versions it has, in key order.
 func (d *ProcessDefinition) Aggregates(a *storm.Aggregates) {
-	keys := a.Named("ByKey")
-	keys.By(&d.Key)
-	keys.Count("Versions")
+	processes := a.Named("Processes")
+	processes.By(&d.Key)
+	processes.Count("Versions")
 }

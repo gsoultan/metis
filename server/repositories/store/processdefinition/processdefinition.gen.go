@@ -1876,63 +1876,63 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 	return stmtFor(q.stream(&buf), q.offset > 0, q.lock).SQL, q.bind(b)
 }
 
-// ByKeyRow is the "ByKey" aggregation over process_definitions.
+// ProcessesRow is the "Processes" aggregation over process_definitions.
 //
 // One row per group. The grouping columns come first, in declaration
 // order, and the result is ordered by them: PostgreSQL promises no
 // order for a GROUP BY, and an unordered report shuffles between
 // requests for no reason anyone can see.
-type ByKeyRow struct {
+type ProcessesRow struct {
 	Key      string
 	Versions int64
 }
 
-const byKeyPrefix = `SELECT "key" AS "key", count(*) AS "versions" FROM "process_definitions"`
-const byKeySuffix = ` GROUP BY "key" ORDER BY "key"`
+const processesPrefix = `SELECT "key" AS "key", count(*) AS "versions" FROM "process_definitions"`
+const processesSuffix = ` GROUP BY "key" ORDER BY "key"`
 
 var (
-	byKeyCache       = runtime.NewTreeCache()
-	byKeyOffsetCache = runtime.NewTreeCache()
+	processesCache       = runtime.NewTreeCache()
+	processesOffsetCache = runtime.NewTreeCache()
 )
 
-func byKeyStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
-	c, suffix := byKeyCache, byKeySuffix+limitSuffix
+func processesStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := processesCache, processesSuffix+limitSuffix
 	if withOffset {
-		c, suffix = byKeyOffsetCache, byKeySuffix+limitOffsetSuffix
+		c, suffix = processesOffsetCache, processesSuffix+limitOffsetSuffix
 	}
 	if st := c.Get(toks); st != nil {
 		return st
 	}
-	return c.Put(toks, runtime.SpliceTreeWhere(byKeyPrefix, softDeleteWhere, toks, lowering, suffix))
+	return c.Put(toks, runtime.SpliceTreeWhere(processesPrefix, softDeleteWhere, toks, lowering, suffix))
 }
 
-func scanByKey(rv [][]byte, r *ByKeyRow, sl *runtime.Slab) error {
+func scanProcesses(rv [][]byte, r *ProcessesRow, sl *runtime.Slab) error {
 	r.Key = sl.Str(rv[0])
 	r.Versions = runtime.Int8(rv[1])
 	return nil
 }
 
-// AllByKey runs the "ByKey" aggregation. Predicates compose exactly as on All —
+// AllProcesses runs the "Processes" aggregation. Predicates compose exactly as on All —
 // they filter the rows that go INTO the groups, which is the WHERE clause
 // and not a HAVING. Limit and offset page the groups.
-func (q Query) AllByKey(ctx context.Context, ex runtime.Executor) ([]ByKeyRow, error) {
+func (q Query) AllProcesses(ctx context.Context, ex runtime.Executor) ([]ProcessesRow, error) {
 	var sl runtime.Slab
-	return q.AllByKeyInto(ctx, ex, nil, &sl)
+	return q.AllProcessesInto(ctx, ex, nil, &sl)
 }
 
-// AllByKeyInto lets the caller own the output slice and the arena.
-func (q Query) AllByKeyInto(ctx context.Context, ex runtime.Executor, dst []ByKeyRow, sl *runtime.Slab) ([]ByKeyRow, error) {
+// AllProcessesInto lets the caller own the output slice and the arena.
+func (q Query) AllProcessesInto(ctx context.Context, ex runtime.Executor, dst []ProcessesRow, sl *runtime.Slab) ([]ProcessesRow, error) {
 	if err := q.Err(); err != nil {
 		return dst, err
 	}
 	if q.no > 0 {
-		return dst, errByKeyOrdered
+		return dst, errProcessesOrdered
 	}
 	if q.lock != 0 {
-		return dst, errByKeyLocked
+		return dst, errProcessesLocked
 	}
 	var buf [21]runtime.Tok
-	st := byKeyStmtFor(q.preds(&buf), q.offset > 0)
+	st := processesStmtFor(q.preds(&buf), q.offset > 0)
 	if st.Err != nil {
 		return dst, st.Err
 	}
@@ -1945,8 +1945,8 @@ func (q Query) AllByKeyInto(ctx context.Context, ex runtime.Executor, dst []ByKe
 	}
 	defer rows.Close()
 	for rows.Next() {
-		dst = append(dst, ByKeyRow{})
-		if err := scanByKey(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+		dst = append(dst, ProcessesRow{})
+		if err := scanProcesses(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
 			return dst, err
 		}
 	}
@@ -1954,11 +1954,11 @@ func (q Query) AllByKeyInto(ctx context.Context, ex runtime.Executor, dst []ByKe
 	return dst, rows.Err()
 }
 
-var errByKeyLocked = errors.New(
+var errProcessesLocked = errors.New(
 	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
 
-var errByKeyOrdered = errors.New(
-	"storm: Order() on an aggregation — its rows are groups, not table rows, and process_definitions.ByKey is already ordered by its grouping columns; sort the returned slice if you need another order")
+var errProcessesOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and process_definitions.Processes is already ordered by its grouping columns; sort the returned slice if you need another order")
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.

@@ -356,7 +356,7 @@ func (r *definitionRepository) scanGraphs(ctx context.Context, q processdefiniti
 // A project keeps every version it has deployed, so finding its processes by
 // reading its definitions read every version, graphs included — and stopped at
 // the store's thousand rows, so one process with a thousand newer versions
-// pushed every other one out of the answer. The model's ByKey grouping
+// pushed every other one out of the answer. The model's Processes grouping
 // instead: each key once, in key order.
 func (r *definitionRepository) ListKeysByProject(ctx context.Context, projectID uuid.UUID) ([]string, error) {
 	scoped, visible, err := r.scopedProjects(ctx, projectID)
@@ -371,13 +371,13 @@ func (r *definitionRepository) ListKeysByProject(ctx context.Context, projectID 
 	if scoped != nil {
 		q = q.Where(processdefinition.ProjectID.In(uuidsToRaw(scoped)...))
 	}
-	grouped, err := q.AllByKey(ctx, ex)
+	processes, err := q.AllProcesses(ctx, ex)
 	if err != nil {
 		return nil, fmt.Errorf("could not list the project's processes: %w", err)
 	}
-	keys := make([]string, len(grouped))
-	for i, g := range grouped {
-		keys[i] = g.Key
+	keys := make([]string, len(processes))
+	for i, p := range processes {
+		keys[i] = p.Key
 	}
 	return keys, nil
 }
