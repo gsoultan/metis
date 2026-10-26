@@ -130,10 +130,10 @@ export function standingOf(participant: Participant): ParticipantStanding {
 }
 
 export const STANDING_LABELS: Record<ParticipantStanding, { label: string; hint: string }> = {
-  ready: { label: 'Active', hint: 'Can be assigned work. Has a password set.' },
+  ready: { label: 'Active', hint: 'Can be assigned work, and signs in to their tasks with the password set for them.' },
   'no-credentials': {
     label: 'No password yet',
-    hint: 'Can be assigned work. Imported without a password; an administrator can set one.',
+    hint: 'Can be assigned work. Imported without a password, so they cannot sign in to their tasks until one is set with the key button.',
   },
   inactive: { label: 'Inactive', hint: 'Receives no new work. Their history is kept.' },
 };

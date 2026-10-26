@@ -7,6 +7,7 @@ import (
 
 	"github.com/gsoultan/metis/internal/pkg/config"
 	"github.com/gsoultan/metis/internal/pkg/envvar"
+	"github.com/gsoultan/metis/internal/pkg/peopletoken"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories/db"
@@ -219,6 +220,23 @@ func (a *App) participantSyncService(locker servicecontracts.DistributedLocker) 
 		directory,
 		locker,
 	)
+}
+
+// peopleSignInService builds the People sign-in, or nothing.
+//
+// Nothing without a People directory (any engine but PostgreSQL) or without a
+// key to seal tokens with; the facade then refuses every People sign-in with a
+// reason rather than accepting one it cannot check.
+func (a *App) peopleSignInService() servicecontracts.PeopleSignInService {
+	if a.storm == nil {
+		return serviceimpl.NewUnavailablePeopleSignInService(
+			"people cannot sign in: the People directory needs PostgreSQL")
+	}
+	if a.peopleKeys == nil {
+		return serviceimpl.NewUnavailablePeopleSignInService(
+			"people cannot sign in: set " + peopletoken.EnvKey + " to enable it")
+	}
+	return serviceimpl.NewPeopleSignInService(pg.NewPersonSignInRepository(a.storm), a.peopleKeys)
 }
 
 // platformUserService builds the account manager, or nothing.

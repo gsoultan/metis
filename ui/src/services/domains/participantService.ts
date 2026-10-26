@@ -82,4 +82,13 @@ export const participantService = {
     );
     return { err: raiseIfRefused(response).err };
   },
+
+  /** Gives a person a password for the People login, ending their sessions. */
+  async setParticipantPassword(projectId: string, id: string, password: string, signal?: AbortSignal) {
+    const response = await requestJSON<{ err?: string }>(
+      `/participants/${encodeURIComponent(id)}/password?project_id=${encodeURIComponent(projectId)}`,
+      { method: "PUT", body: { password }, signal },
+    );
+    raiseIfRefused(response);
+  },
 };

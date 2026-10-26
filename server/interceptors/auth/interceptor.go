@@ -10,6 +10,7 @@ import (
 	"github.com/go-kit/kit/endpoint"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/internal/pkg/peopletoken"
 	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/server/interceptors/contracts"
 	"github.com/rs/zerolog/log"
@@ -70,7 +71,19 @@ func (i *httpAuthInterceptor) Wrap(next http.Handler) http.Handler {
 type mandatoryHTTPAuthInterceptor struct {
 	strategy      SecurityStrategy
 	publicPathSet map[string]struct{}
+	// people authenticates People tokens, on People routes and nowhere else.
+	// Nil refuses every People route but the sign-in.
+	people SecurityStrategy
 }
+
+// PeoplePathPrefix is where every People route lives. A request beneath it is
+// authenticated as a person or not at all; a request anywhere else as a User
+// or not at all.
+const PeoplePathPrefix = "/api/v1/people/"
+
+// PeopleSignInPath is the one People route that takes no token: the one that
+// hands it out.
+const PeopleSignInPath = PeoplePathPrefix + "login"
 
 // publicPathPrefixes are the API paths that are public along with everything
 // beneath them.
@@ -90,6 +103,12 @@ var publicPathPrefixes = []string{
 }
 
 func NewMandatoryHTTPAuthInterceptor(strategy SecurityStrategy, publicPaths []string) contracts.TransportInterceptor {
+	return NewMandatoryHTTPAuthInterceptorWithPeople(strategy, nil, publicPaths)
+}
+
+// NewMandatoryHTTPAuthInterceptorWithPeople is NewMandatoryHTTPAuthInterceptor
+// that also admits People on People routes, through people.
+func NewMandatoryHTTPAuthInterceptorWithPeople(strategy, people SecurityStrategy, publicPaths []string) contracts.TransportInterceptor {
 	publicPathSet := make(map[string]struct{}, len(publicPaths))
 	for _, publicPath := range publicPaths {
 		publicPathSet[publicPath] = struct{}{}
@@ -98,6 +117,7 @@ func NewMandatoryHTTPAuthInterceptor(strategy SecurityStrategy, publicPaths []st
 	return &mandatoryHTTPAuthInterceptor{
 		strategy:      strategy,
 		publicPathSet: publicPathSet,
+		people:        people,
 	}
 }
 
@@ -106,6 +126,11 @@ func (i *mandatoryHTTPAuthInterceptor) Wrap(next http.Handler) http.Handler {
 		// Only protect /api/ endpoints.
 		if !strings.HasPrefix(r.URL.Path, "/api/") {
 			next.ServeHTTP(w, r)
+			return
+		}
+
+		if strings.HasPrefix(r.URL.Path, PeoplePathPrefix) {
+			i.servePerson(w, r, next)
 			return
 		}
 
@@ -127,6 +152,14 @@ func (i *mandatoryHTTPAuthInterceptor) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
+		// A People token is refused here before any rule reads it. The
+		// platform's rules would refuse it too, but by not recognising it;
+		// saying so by its shape keeps that from resting on how they parse.
+		if strings.HasPrefix(token, peopletoken.Prefix) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
 		u, err := i.strategy.Authenticate(r.Context(), token)
 		if err != nil {
 			refuse(w, err)
@@ -136,6 +169,29 @@ func (i *mandatoryHTTPAuthInterceptor) Wrap(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), auth.UserContextKey, u)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// servePerson admits a request to a People route: the sign-in as it is, and
+// anything else only with a People token. A User's token is refused here as a
+// People token is refused everywhere else, so neither population can act on
+// the other's routes.
+func (i *mandatoryHTTPAuthInterceptor) servePerson(w http.ResponseWriter, r *http.Request, next http.Handler) {
+	if r.URL.Path == PeopleSignInPath {
+		next.ServeHTTP(w, r)
+		return
+	}
+	token, ok := bearerTokenFromHeader(r.Header.Get("Authorization"))
+	if !ok || i.people == nil || !strings.HasPrefix(token, peopletoken.Prefix) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	person, err := i.people.Authenticate(r.Context(), token)
+	if err != nil {
+		refuse(w, err)
+		return
+	}
+	ctx := context.WithValue(r.Context(), auth.PersonContextKey, person)
+	next.ServeHTTP(w, r.WithContext(ctx))
 }
 
 // refuse answers a request its token did not admit.

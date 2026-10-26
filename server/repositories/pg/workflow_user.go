@@ -167,6 +167,37 @@ func (r *workflowUserRepository) Upsert(ctx context.Context, participant entitie
 	return !found, nil
 }
 
+// SetPassword gives a project's participant a new credential and ends every
+// People session issued before it.
+//
+// The project is part of the match, not only the id: an id from another
+// project, or another organization, is no such participant.
+func (r *workflowUserRepository) SetPassword(ctx context.Context, projectID, id uuid.UUID, passwordHash string) error {
+	if err := r.scope.requireProjectInTenant(ctx, projectID); err != nil {
+		return err
+	}
+	ex, err := r.conn.Executor(ctx)
+	if err != nil {
+		return err
+	}
+	row, found, err := workflowuser.New().
+		Where(workflowuser.ID.Eq(id), workflowuser.ProjectID.Eq(projectID)).
+		One(ctx, ex)
+	if err != nil {
+		return fmt.Errorf("could not read the participant: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("%w: no such participant in this project", apierr.ErrNotFound)
+	}
+	mut := workflowuser.Mutate(row)
+	mut.SetPasswordHash(passwordHash)
+	mut.SetTokensValidFrom(nowUTC())
+	if err := mut.Update(ctx, ex); err != nil {
+		return fmt.Errorf("could not set the participant's password: %w", err)
+	}
+	return nil
+}
+
 // EnsureGroup returns a project's group of that name, creating it if absent.
 func (r *workflowUserRepository) EnsureGroup(ctx context.Context, projectID uuid.UUID, name string) (entities.WorkflowGroup, bool, error) {
 	if err := r.scope.requireProjectInTenant(ctx, projectID); err != nil {

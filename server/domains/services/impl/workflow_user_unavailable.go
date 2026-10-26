@@ -45,3 +45,7 @@ func (unavailableWorkflowUsers) SyncWorkflowUsersFromPostgres(context.Context, u
 func (unavailableWorkflowUsers) RemoveWorkflowUser(context.Context, uuid.UUID, uuid.UUID) error {
 	return apierr.Invalidf("%s", unavailableReason)
 }
+
+func (unavailableWorkflowUsers) SetWorkflowUserPassword(context.Context, uuid.UUID, uuid.UUID, string) error {
+	return apierr.Invalidf("%s", unavailableReason)
+}

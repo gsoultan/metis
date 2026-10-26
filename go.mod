@@ -33,6 +33,8 @@ require (
 )
 
 require (
+	aidanwoods.dev/go-paseto v1.6.0 // indirect
+	aidanwoods.dev/go-result v0.3.1 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect

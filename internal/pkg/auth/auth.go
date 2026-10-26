@@ -18,6 +18,12 @@ type AuthContextKey string
 
 const (
 	UserContextKey AuthContextKey = "user"
+
+	// PersonContextKey carries a person signed in from a project's People
+	// directory (an entities.Person). Never the same key as UserContextKey:
+	// whatever asks for the signed-in User finds nobody when a person is
+	// signed in, and the other way round.
+	PersonContextKey AuthContextKey = "person"
 )
 
 // EnvOrganizationClaim names the ID-token claim that carries the organizations

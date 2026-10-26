@@ -19,6 +19,10 @@ type WorkflowUserRepository interface {
 	ListByProject(ctx context.Context, projectID uuid.UUID, limit int) ([]entities.WorkflowUser, error)
 	GetByUsername(ctx context.Context, projectID uuid.UUID, username string) (entities.WorkflowUser, error)
 
+	// SetPassword replaces a participant's credential and ends their People
+	// sessions. A participant outside the project is not found.
+	SetPassword(ctx context.Context, projectID, id uuid.UUID, passwordHash string) error
+
 	// Upsert writes one participant, replacing the row with the same username
 	// in the same project if there is one.
 	//

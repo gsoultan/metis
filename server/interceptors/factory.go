@@ -55,6 +55,13 @@ func (f *InterceptorFactory) NewMandatoryHTTPAuth(strategy authinterceptor.Secur
 	return authinterceptor.NewMandatoryHTTPAuthInterceptor(strategy, publicPaths)
 }
 
+// NewMandatoryHTTPAuthWithPeople is NewMandatoryHTTPAuth that also signs
+// People in on People routes, with their own tokens and nowhere else.
+func (f *InterceptorFactory) NewMandatoryHTTPAuthWithPeople(strategy authinterceptor.SecurityStrategy, people servicecontracts.PeopleSignInService, publicPaths []string) contracts.TransportInterceptor {
+	return authinterceptor.NewMandatoryHTTPAuthInterceptorWithPeople(strategy,
+		authinterceptor.NewPeopleStrategy(people.AuthenticatePerson), publicPaths)
+}
+
 func (f *InterceptorFactory) NewRequestSize(maxBodyBytes int64) contracts.TransportInterceptor {
 	return security.NewRequestSizeInterceptor(maxBodyBytes)
 }
@@ -220,6 +227,17 @@ func (f *InterceptorFactory) PlatformChain(method string) func(endpoint.Endpoint
 }
 
 // PublicChain returns a function that applies only logging to an endpoint.
+// PersonChain is for People routes: logging, and a signed-in person. No
+// tenant is resolved and no role is read, because a person has neither; what
+// they may do is decided by the work a process gave them, in their project.
+func (f *InterceptorFactory) PersonChain(method string) func(endpoint.Endpoint) endpoint.Endpoint {
+	logging := f.NewLogging(method)
+	person := authinterceptor.NewRequirePerson()
+	return func(e endpoint.Endpoint) endpoint.Endpoint {
+		return logging.Intercept(person.Intercept(e))
+	}
+}
+
 func (f *InterceptorFactory) PublicChain(method string) func(endpoint.Endpoint) endpoint.Endpoint {
 	logging := f.NewLogging(method)
 	return func(e endpoint.Endpoint) endpoint.Endpoint {

@@ -33,6 +33,7 @@ import (
 	"github.com/gsoultan/metis/server/transports/https/outgoingwebhooks"
 	"github.com/gsoultan/metis/server/transports/https/participants"
 	"github.com/gsoultan/metis/server/transports/https/participantsources"
+	"github.com/gsoultan/metis/server/transports/https/people"
 	"github.com/gsoultan/metis/server/transports/https/platformusers"
 	"github.com/gsoultan/metis/server/transports/https/processes"
 	"github.com/gsoultan/metis/server/transports/https/projects"
@@ -80,6 +81,7 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 	environments.RegisterHandlers(m, eps.Environment, options)
 	participants.RegisterHandlers(m, eps.Participant, options)
 	participantsources.RegisterHandlers(m, eps.ParticipantSource, options)
+	people.RegisterHandlers(m, eps.People, options)
 	platformusers.RegisterHandlers(m, eps.PlatformUser, options)
 	processes.RegisterHandlers(m, eps.Process, options)
 	tasks.RegisterHandlers(m, eps.Task, options)

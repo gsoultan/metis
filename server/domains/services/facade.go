@@ -27,6 +27,10 @@ type ServiceFacade interface {
 	// each of them may do. Administrative in full: every method here changes who
 	// can reconfigure the installation.
 	serviceContracts.PlatformUserService
+
+	// PeopleSignInService signs People in to their project, apart from the
+	// accounts above: a People token is accepted by People routes alone.
+	serviceContracts.PeopleSignInService
 	serviceContracts.TaskService
 	serviceContracts.ExecutionEngine
 	serviceContracts.JobService

@@ -20,6 +20,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/outgoingwebhook"
 	"github.com/gsoultan/metis/server/endpoints/participant"
 	"github.com/gsoultan/metis/server/endpoints/participantsource"
+	"github.com/gsoultan/metis/server/endpoints/people"
 	"github.com/gsoultan/metis/server/endpoints/platformuser"
 	"github.com/gsoultan/metis/server/endpoints/process"
 	"github.com/gsoultan/metis/server/endpoints/project"
@@ -45,6 +46,7 @@ type Endpoints struct {
 	Environment       environment.Endpoints
 	Participant       participant.Endpoints
 	ParticipantSource participantsource.Endpoints
+	People            people.Endpoints
 	PlatformUser      platformuser.Endpoints
 	ExternalTask      external_task.Endpoints
 	Incident          incident.Endpoints
@@ -109,6 +111,8 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// only the administrators the operator named in METIS_PLATFORM_ADMINS.
 	platformAdmin := f.PlatformChain
 	public := f.PublicChain
+	// person is for People routes: a signed-in person, and nobody else.
+	person := f.PersonChain
 
 	collaborationEndpoints := collaboration.MakeEndpoints(s)
 	collaborationEndpoints.BroadcastCollaboration = protected("BroadcastCollaboration")(collaborationEndpoints.BroadcastCollaboration)
@@ -232,6 +236,9 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	participantEndpoints := participant.MakeEndpoints(s)
 	participantEndpoints.ListParticipants = protected("ListParticipants")(participantEndpoints.ListParticipants)
 	participantEndpoints.ImportParticipants = designer("ImportParticipants")(participantEndpoints.ImportParticipants)
+	// Setting somebody's password takes their sign-in, as much as removing
+	// them does, so it takes the same role.
+	participantEndpoints.SetParticipantPassword = designer("SetParticipantPassword")(participantEndpoints.SetParticipantPassword)
 	// Removing somebody takes the same role importing does — they are the same
 	// act in opposite directions, and the removal is reversible by an import.
 	participantEndpoints.RemoveParticipant = designer("RemoveParticipant")(participantEndpoints.RemoveParticipant)
@@ -449,6 +456,13 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// administers everywhere they belong.
 	userEndpoints.ResetUserPassword = adminOnly("ResetUserPassword")(userEndpoints.ResetUserPassword)
 	userEndpoints.Login = public("Login")(userEndpoints.Login)
+
+	// People sign in on their own route, with their own tokens. The sign-in is
+	// public for the reason the platform's is; everything else People reach is
+	// on the person chain, which admits a signed-in person and nobody else.
+	peopleEndpoints := people.MakeEndpoints(s)
+	peopleEndpoints.SignIn = public("SignInPerson")(peopleEndpoints.SignIn)
+	peopleEndpoints.Me = person("GetSignedInPerson")(peopleEndpoints.Me)
 	userEndpoints.ListUsers = protected("ListUsers")(userEndpoints.ListUsers)
 	// Self-service, so protected rather than adminOnly: changing your own
 	// password is the one thing here every account must be able to do. It was
@@ -524,6 +538,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		Environment:       environmentEndpoints,
 		Participant:       participantEndpoints,
 		ParticipantSource: sourceEndpoints,
+		People:            peopleEndpoints,
 		PlatformUser:      accountEndpoints,
 		ExternalTask:      externalTaskEndpoints,
 		Incident:          incidentEndpoints,

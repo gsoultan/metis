@@ -437,6 +437,28 @@ does not undo a migration.
   changes with the current password, and for an account an identity provider
   signs in. Each one is logged with who set it, never the password
   (`PUT /api/v1/users/{id}/password`).
+
+- **An administrator sets a person's password for the People login.** The
+  People page has a key button on each row: the password set there is the one
+  the person signs in to their tasks with, and it ends every People session
+  they had. It takes the role an import takes, reaches only a person in the
+  named project of the caller's own organization, and is logged with who set
+  it, never the password (`PUT /api/v1/participants/{id}/password`). Until
+  now a person imported without a password had no way to get one.
+
+- **People can sign in, separately from Users.** `POST /api/v1/people/login`
+  takes a project, the username a process names the person by, and the
+  password an administrator set, and answers with a People token: PASETO
+  `v4.local`, sealed with `METIS_PEOPLE_TOKEN_KEY`, good for 12 hours.
+  `GET /api/v1/people/me` says who it signs in. A People token is accepted
+  under `/api/v1/people/` and refused everywhere else; a User's token is
+  refused under `/api/v1/people/`. Every request re-reads the person, so
+  removing or deactivating them, or setting a new password, ends their
+  sessions at once. Failed sign-ins are throttled per project and name and
+  all read the same. Unset, `METIS_PEOPLE_TOKEN_KEY` leaves People unable to
+  sign in and changes nothing else. People cannot act on tasks yet; that is
+  the next change.
+
 - **An audit log of what people did, across the organization.** Who waived,
   cancelled, held, migrated, reassigned, activated, approved or rejected
   what was written down on each instance's own history and nowhere it could

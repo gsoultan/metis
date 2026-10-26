@@ -6,6 +6,9 @@ import (
 	"io"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/logic/userimport"
@@ -238,4 +241,40 @@ func (s *workflowUserService) RemoveWorkflowUser(ctx context.Context, projectID,
 	// no such participant, which is also the honest answer when there is one and
 	// they belong to somebody else.
 	return fmt.Errorf("%w: no such participant in this project", apierr.ErrNotFound)
+}
+
+// SetWorkflowUserPassword gives a person a password for the People login.
+//
+// A person has no other way to get one: an import carries names, never
+// passwords. The new one ends every People session they had, as any password
+// change does, and the change is logged with who made it. The password is not.
+// The rules for it are a User's: long enough to replace one, short enough for
+// bcrypt to read whole.
+func (s *workflowUserService) SetWorkflowUserPassword(ctx context.Context, projectID, id uuid.UUID, password string) error {
+	if projectID == uuid.Nil {
+		return apierr.Invalidf("a project is required")
+	}
+	if id == uuid.Nil {
+		return apierr.Invalidf("a participant is required")
+	}
+	if err := checkNewPassword(password); err != nil {
+		return err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("could not hash the new password: %w", err)
+	}
+	if err := s.participants.SetPassword(ctx, projectID, id, string(hash)); err != nil {
+		return err
+	}
+	by := ""
+	if caller := signedIn(ctx); caller != nil {
+		by = caller.Username
+	}
+	log.Info().
+		Str("project_id", projectID.String()).
+		Str("participant_id", id.String()).
+		Str("set_by", by).
+		Msg("A person's password for the People login was set; their earlier sessions have ended")
+	return nil
 }

@@ -25,6 +25,7 @@ import (
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/internal/pkg/features"
+	"github.com/gsoultan/metis/internal/pkg/peopletoken"
 	"github.com/gsoultan/metis/internal/pkg/secrets"
 	"github.com/gsoultan/metis/internal/pkg/sharedcount"
 
@@ -90,7 +91,10 @@ type App struct {
 	participants servicecontracts.WorkflowUserService
 	// accounts is memoised for the same reason: the boot-time role seeding and
 	// the API must be the same service, not two views of the same table.
-	accounts   servicecontracts.PlatformUserService
+	accounts servicecontracts.PlatformUserService
+	// peopleKeys seal People tokens. Nil when METIS_PEOPLE_TOKEN_KEY is unset,
+	// and then nobody can sign in as a person.
+	peopleKeys *peopletoken.Keys
 	repo       repositories.Repository
 	svc        services.ServiceFacade
 	sse        *impl.SSEObserver
@@ -765,6 +769,9 @@ func (a *App) setupService(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if a.peopleKeys, err = resolvePeopleKeys(); err != nil {
+		return err
+	}
 	a.svc = a.newServices(dispatcher, jwtSecret)
 
 	dispatcher.Register(impl.NewNotificationObserver(a.notificationDelivery(ctx)))
@@ -989,7 +996,7 @@ func BuildAPIHandler(
 	limits := resolveHTTPLimits()
 	guarded := sharedRateLimit(f.NewRateLimit(limits.requestsPerMinute, time.Minute)).Wrap(
 		f.NewRequestSize(defaultHTTPMaxBodyBytes).Wrap(
-			f.NewMandatoryHTTPAuth(strategy, publicPaths).Wrap(
+			f.NewMandatoryHTTPAuthWithPeople(strategy, svc, publicPaths).Wrap(
 				// Carries X-Organization-ID into the context. It only lets a
 				// caller *choose* among the organizations they belong to;
 				// the endpoint tenant resolver validates it against their
@@ -1300,6 +1307,30 @@ func (a *App) resolveJWTSecret() (string, error) {
 	// Pre-setup: no persistent users exist yet; ephemeral secret is acceptable.
 	log.Warn().Msg("No JWT_SECRET set and no config.yaml found; using a random ephemeral secret (pre-setup mode only)")
 	return uuid.NewString(), nil
+}
+
+// resolvePeopleKeys reads the secret People tokens are sealed with.
+//
+// Optional, unlike JWT_SECRET: unset, People simply cannot sign in yet, which
+// is how every installation was before People could. Set but weak, the server
+// refuses to start, as it does for JWT_SECRET — a guessable key is a forged
+// session for anybody in any project.
+func resolvePeopleKeys() (*peopletoken.Keys, error) {
+	current := envvar.Get(peopletoken.EnvKey)
+	previous := envvar.Get(peopletoken.EnvPreviousKey)
+	if current == "" {
+		if previous != "" {
+			return nil, fmt.Errorf("%s is set but %s is not: a rotation needs the new key as well as the old one",
+				peopletoken.EnvPreviousKey, peopletoken.EnvKey)
+		}
+		log.Info().Msgf("People cannot sign in: %s is not set", peopletoken.EnvKey)
+		return nil, nil
+	}
+	keys, err := peopletoken.NewKeys(current, previous)
+	if err != nil {
+		return nil, fmt.Errorf("people sign-in: %w", err)
+	}
+	return keys, nil
 }
 
 // resolveDialector determines the GORM dialector based on config.yaml or environment variables.
