@@ -131,7 +131,9 @@ func (r *batchOperationRepository) Create(ctx context.Context, operation entitie
 	if err != nil {
 		return entities.BatchOperation{}, fmt.Errorf("could not record the batch operation's instances: %w", err)
 	}
-	if _, err := ex.Exec(ctx, `UPDATE batch_operations SET total = $2 WHERE id = $1`, []any{uuid.UUID(row.ID), total}); err != nil {
+	var counted batchoperation.Mut
+	counted.SetTotal(total)
+	if _, err := batchoperation.New().Where(batchoperation.ID.Eq(row.ID)).UpdateAll(ctx, ex, counted); err != nil {
 		return entities.BatchOperation{}, fmt.Errorf("could not record how many instances the batch operation has: %w", err)
 	}
 	row.Total = total

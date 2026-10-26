@@ -131,8 +131,7 @@ func (r *broadcastRepository) Prune(ctx context.Context, olderThan time.Time) (i
 	if err != nil {
 		return 0, err
 	}
-	removed, err := ex.Exec(ctx,
-		"DELETE FROM broadcast_events WHERE created_at < $1", []any{olderThan.UTC()})
+	removed, err := broadcastevent.New().Where(broadcastevent.CreatedAt.Lt(olderThan.UTC())).DeleteAll(ctx, ex)
 	if err != nil {
 		return 0, fmt.Errorf("could not prune broadcast events: %w", err)
 	}
