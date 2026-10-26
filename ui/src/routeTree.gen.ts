@@ -31,6 +31,7 @@ import { Route as AuthenticatedSdkRouteImport } from './routes/_authenticated.sd
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated.settings'
 import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated.tasks'
 import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated.users'
+import { Route as PTRouteImport } from './routes/p.t'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
@@ -170,6 +171,11 @@ const AuthenticatedUsersRoute = AuthenticatedUsersRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_authenticated.users.lazy').then((d) => d.Route),
 )
+const PTRoute = PTRouteImport.update({
+  id: '/p/t',
+  path: '/p/t',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import('./routes/p.t.lazy').then((d) => d.Route))
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
@@ -193,6 +199,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/tasks': typeof AuthenticatedTasksRoute
   '/users': typeof AuthenticatedUsersRoute
+  '/p/t': typeof PTRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -215,6 +222,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/tasks': typeof AuthenticatedTasksRoute
   '/users': typeof AuthenticatedUsersRoute
+  '/p/t': typeof PTRoute
   '/': typeof AuthenticatedIndexRoute
 }
 export interface FileRoutesById {
@@ -240,6 +248,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/tasks': typeof AuthenticatedTasksRoute
   '/_authenticated/users': typeof AuthenticatedUsersRoute
+  '/p/t': typeof PTRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
 }
 export interface FileRouteTypes {
@@ -266,6 +275,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/tasks'
     | '/users'
+    | '/p/t'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -288,6 +298,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/tasks'
     | '/users'
+    | '/p/t'
     | '/'
   id:
     | '__root__'
@@ -312,6 +323,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_authenticated/tasks'
     | '/_authenticated/users'
+    | '/p/t'
     | '/_authenticated/'
   fileRoutesById: FileRoutesById
 }
@@ -319,6 +331,7 @@ export interface RootRouteChildren {
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   LoginRoute: typeof LoginRoute
   SetupRoute: typeof SetupRoute
+  PTRoute: typeof PTRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -477,6 +490,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUsersRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/p/t': {
+      id: '/p/t'
+      path: '/p/t'
+      fullPath: '/p/t'
+      preLoaderRoute: typeof PTRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -532,6 +552,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   LoginRoute: LoginRoute,
   SetupRoute: SetupRoute,
+  PTRoute: PTRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

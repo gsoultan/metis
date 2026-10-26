@@ -735,6 +735,22 @@ func _assertTaskShape(m m0.Task) {
 	}
 }
 
+// _assertTaskLinkShape fails to compile if m0.TaskLink gains, loses, renames or
+// reorders a field. Regenerate: `storm generate`.
+func _assertTaskLinkShape(m m0.TaskLink) {
+	type shape m0.TaskLink
+	_ = shape{
+		m.Model,
+		m.Project,
+		m.TaskID,
+		m.ParticipantID,
+		m.TokenHash,
+		m.ExpiresAt,
+		m.UsedAt,
+		m.VoidedAt,
+	}
+}
+
 // _assertUserShape fails to compile if m0.User gains, loses, renames or
 // reorders a field. Regenerate: `storm generate`.
 func _assertUserShape(m m0.User) {

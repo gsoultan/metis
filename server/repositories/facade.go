@@ -77,9 +77,12 @@ type Repository interface {
 	Task() contracts.TaskRepository
 	User() contracts.UserRepository
 	Group() contracts.GroupRepository
-	// PersonGroups reads which People groups a person is in: the groups a
-	// pool task offered to a group is matched against when a person acts.
-	PersonGroups() contracts.PersonGroupsRepository
+	// PeopleDirectory reads the People directory as task work needs it: the
+	// groups a pool task is matched against when a person acts, and who a
+	// task names when a link is issued for it.
+	PeopleDirectory() contracts.PeopleDirectoryRepository
+	// TaskLink keeps the one-use links people act on tasks through.
+	TaskLink() contracts.TaskLinkRepository
 	Notification() contracts.NotificationRepository
 	CompensatableActivity() contracts.CompensatableActivityRepository
 	VariableSnapshot() contracts.VariableSnapshotRepository

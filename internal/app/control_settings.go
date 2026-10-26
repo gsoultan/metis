@@ -162,5 +162,6 @@ func (c controlSettings) warnOfOrganizationsThatDoNotExist(ctx context.Context, 
 func (a *App) newServices(dispatcher observercontracts.EventDispatcher, jwtSecret string) services.ServiceFacade {
 	return services.NewServiceFacade(a.repo, dispatcher, a.sse, jwtSecret,
 		a.participantService(), a.participantSyncService(serviceimpl.NewNoOpLocker()), a.platformUserService(),
-		append(a.control.serviceOptions(), services.WithPeopleSignIn(a.peopleSignInService()))...)
+		append(a.control.serviceOptions(), services.WithPeopleSignIn(a.peopleSignInService()),
+			services.WithTaskLinkLifetime(a.taskLinkLifetime))...)
 }

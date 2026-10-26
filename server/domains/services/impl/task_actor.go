@@ -75,7 +75,7 @@ func (s *taskService) personActor(person entities.Person) taskActor {
 		name:    person.Username,
 		project: person.ProjectID,
 		groupKeys: func(ctx context.Context) ([]string, error) {
-			groups, err := s.repo.PersonGroups().GroupsOf(ctx, person.ID)
+			groups, err := s.repo.PeopleDirectory().GroupsOf(ctx, person.ID)
 			if err != nil {
 				return nil, fmt.Errorf("resolve group membership for %s: %w", person.Username, err)
 			}
