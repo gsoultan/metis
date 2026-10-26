@@ -235,6 +235,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// SQL respectively, so it takes the designer role at least.
 	participantEndpoints := participant.MakeEndpoints(s)
 	participantEndpoints.ListParticipants = protected("ListParticipants")(participantEndpoints.ListParticipants)
+	participantEndpoints.ListParticipantGroups = protected("ListParticipantGroups")(participantEndpoints.ListParticipantGroups)
 	participantEndpoints.ImportParticipants = designer("ImportParticipants")(participantEndpoints.ImportParticipants)
 	// Setting somebody's password takes their sign-in, as much as removing
 	// them does, so it takes the same role.

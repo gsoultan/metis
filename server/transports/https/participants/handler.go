@@ -29,6 +29,14 @@ func RegisterHandlers(m *http.ServeMux, eps participant.Endpoints, options []htt
 		common.EncodeResponse,
 		options...,
 	))
+	m.Handle("GET /api/v1/participant-groups", httptransport.NewServer(
+		eps.ListParticipantGroups,
+		func(_ context.Context, r *http.Request) (any, error) {
+			return participant.ListParticipantGroupsRequest{ProjectID: r.URL.Query().Get("project_id")}, nil
+		},
+		common.EncodeResponse,
+		options...,
+	))
 	m.Handle("POST /api/v1/participants/import", httptransport.NewServer(
 		eps.ImportParticipants,
 		decodeImportParticipantsRequest,

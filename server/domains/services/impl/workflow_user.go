@@ -33,6 +33,13 @@ func (s *workflowUserService) ListWorkflowUsers(ctx context.Context, projectID u
 	return s.participants.ListByProject(ctx, projectID, limit)
 }
 
+func (s *workflowUserService) ListWorkflowGroups(ctx context.Context, projectID uuid.UUID) ([]entities.WorkflowGroup, error) {
+	if projectID == uuid.Nil {
+		return nil, apierr.Invalidf("a project is required")
+	}
+	return s.participants.ListGroups(ctx, projectID)
+}
+
 // ImportWorkflowUsers reads a CSV of participants into a project.
 //
 // Deliberately not one transaction. A file is a list of independent facts about

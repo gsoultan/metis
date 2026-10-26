@@ -22,6 +22,7 @@ import { asText, asTextList } from '../types/bpmn';
 import { NODE_VOCABULARY, isEndingNode, vocabularyFor } from './bpmnVocabulary';
 import { missingStepFields, type StepSchemas, unmappedParameters } from './connectorStep';
 import { connection, serviceImplementation, webAddress, workerTopic } from './serviceImplementation';
+import { isExpression, type AssignmentDirectory } from './assignmentDirectory';
 
 export type IssueSeverity = 'error' | 'warning';
 
@@ -257,10 +258,57 @@ function nobodyNamedIssues(nodes: CheckableNode[]): ValidationIssue[] {
   return nodes.map(nobodyNamedIssue).filter((issue): issue is ValidationIssue => issue !== undefined);
 }
 
+/**
+ * A step that names somebody, or a team, the project's People do not have.
+ *
+ * Such a task arrives for nobody who can sign in to take it: a typo, somebody
+ * removed from the directory, or a platform account's name, which runs the
+ * platform and does not do the work. A warning rather than an error: a
+ * directory synced later may bring the name, and an expression such as
+ * `${initiator}` is worked out when the step runs and is not checked.
+ *
+ * Only when the directory is known: a project whose directory could not be
+ * read is not a project where every name is unknown.
+ */
+export function unknownNameIssues(nodes: CheckableNode[], directory: AssignmentDirectory): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  for (const node of nodes) {
+    if (!ASKS_A_PERSON.has(node.type ?? '')) continue;
+    const data = (node.data ?? {}) as Record<string, unknown>;
+    const unknown = (names: string[], known: ReadonlySet<string>) =>
+      names.filter((name) => !isBlank(name) && !isExpression(name) && !known.has(name));
+    const people = unknown([asText(data.assignee), ...asTextList(data.candidateUsers)], directory.people);
+    const groups = unknown(asTextList(data.candidateGroups), directory.groups);
+    if (people.length > 0) {
+      issues.push({
+        message: `"${stepName(node)}" names ${quotedList(people)}, who ${people.length === 1 ? 'is' : 'are'} not in this project's People, so nobody named that will be able to take it.`,
+        severity: 'warning',
+        id: node.id,
+        suggestion: 'Choose from the project\'s People under “Who does this”, or add them to the People directory.',
+      });
+    }
+    if (groups.length > 0) {
+      issues.push({
+        message: `"${stepName(node)}" is offered to ${quotedList(groups)}, which ${groups.length === 1 ? 'is not a People group' : 'are not People groups'} of this project, so nobody in ${groups.length === 1 ? 'it' : 'them'} will see it.`,
+        severity: 'warning',
+        id: node.id,
+        suggestion: 'Choose from the project\'s People groups under “Who does this”, or import the group with the People directory.',
+      });
+    }
+  }
+  return issues;
+}
+
+function quotedList(names: string[]): string {
+  const quoted = names.map((name) => `"${name}"`);
+  return quoted.length <= 1 ? quoted.join('') : `${quoted.slice(0, -1).join(', ')} and ${quoted[quoted.length - 1]}`;
+}
+
 export function validateProcess(
   nodes: CheckableNode[],
   edges: CheckableEdge[],
   stepSchemas: StepSchemas = new Map(),
+  directory?: AssignmentDirectory,
 ): ValidationIssue[] {
   if (nodes.length === 0) {
     return [{
@@ -274,6 +322,7 @@ export function validateProcess(
     ...connectorStepIssues(nodes, stepSchemas),
     ...unpointedServiceTaskIssues(nodes),
     ...nobodyNamedIssues(nodes),
+    ...(directory ? unknownNameIssues(nodes, directory) : []),
   ];
   const starts = nodes.filter((n) => n.type === 'startEvent');
 

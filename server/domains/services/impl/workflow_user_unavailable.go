@@ -30,6 +30,10 @@ func (unavailableWorkflowUsers) ListWorkflowUsers(context.Context, uuid.UUID, in
 	return nil, apierr.Invalidf("%s", unavailableReason)
 }
 
+func (unavailableWorkflowUsers) ListWorkflowGroups(context.Context, uuid.UUID) ([]entities.WorkflowGroup, error) {
+	return nil, apierr.Invalidf("%s", unavailableReason)
+}
+
 func (unavailableWorkflowUsers) ImportWorkflowUsers(context.Context, uuid.UUID, io.Reader) (entities.ImportSummary, error) {
 	return entities.ImportSummary{}, apierr.Invalidf("%s", unavailableReason)
 }

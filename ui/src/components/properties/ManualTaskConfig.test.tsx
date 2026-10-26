@@ -19,10 +19,10 @@ mock.module('../../store/useAppStore', () => ({ useAppStore: appStoreDouble }));
 
 const { ManualTaskConfig } = await import('./ManualTaskConfig');
 
-const ORGANIZATION = 'acme';
+const PROJECT = 'payments';
 const PEOPLE = [
-  { username: 'dana', full_name: 'Dana Scully' },
-  { username: 'eli', full_name: 'Eli Ness' },
+  { id: 'p1', username: 'dana', display_name: 'Dana Scully', active: true, has_credentials: true },
+  { id: 'p2', username: 'eli', display_name: 'Eli Ness', active: true, has_credentials: false },
 ];
 const TEAMS = [{ id: 'g1', name: 'warehouse' }];
 
@@ -31,12 +31,12 @@ afterEach(resetAppStore);
 const step = (settings: Record<string, unknown>) =>
   ({ label: 'Ship the parcel', nodeType: 'manualTask', ...settings }) as BPMNNodeData;
 
-/** The panel, with the organization's people and teams already read. */
+/** The panel, with the project's People and People groups already read. */
 function panel(settings: Record<string, unknown>): string {
-  setAppState({ currentOrganizationId: ORGANIZATION });
+  setAppState({ currentProjectId: PROJECT, token: 'token' });
   const client = new QueryClient();
-  client.setQueryData(['users', ORGANIZATION], { users: PEOPLE });
-  client.setQueryData(['groups', ORGANIZATION], { groups: TEAMS });
+  client.setQueryData(['participants', PROJECT], { participants: PEOPLE, err: '' });
+  client.setQueryData(['participants', PROJECT, 'groups'], { groups: TEAMS, err: '' });
   return renderMarkup(<ManualTaskConfig data={step(settings)} onUpdate={() => undefined} />, client);
 }
 
@@ -48,7 +48,7 @@ function from(html: string, label: string): string {
 
 describe('who does a manual step', () => {
   it('can be one person', () => {
-    expect(labelledControl(panel({ assignee: 'dana' }), 'Assign to')?.value).toBe('Dana Scully');
+    expect(labelledControl(panel({ assignee: 'dana' }), 'Assign to')?.value).toBe('Dana Scully (dana)');
   });
 
   it('can be people or teams, one of whom takes it', () => {

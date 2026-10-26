@@ -487,6 +487,16 @@ does not undo a migration.
   SHA-256, and travels after the `#`, which a browser does not send. Migration
   47 adds the `task_links` table.
 
+- **The designer picks People, not Users, for a task.** A user task's
+  assignee, candidate users and candidate groups now come from the project's
+  People directory and its People groups, read from
+  `GET /api/v1/participants` and the new
+  `GET /api/v1/participant-groups?project_id=`. A name already in the
+  definition that is not in the directory stays selectable and is labelled
+  as such, and checking the process warns about each one before deploy;
+  expressions such as `${initiator}` are left alone. Both reads answer only
+  for a project in the caller's own organization.
+
 - **An audit log of what people did, across the organization.** Who waived,
   cancelled, held, migrated, reassigned, activated, approved or rejected
   what was written down on each instance's own history and nowhere it could

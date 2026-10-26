@@ -78,6 +78,30 @@ func (r *workflowUserRepository) ListByProject(ctx context.Context, projectID uu
 	return out, nil
 }
 
+// ListGroups returns every group of the project, by name. A project's groups
+// are the teams its directory names, a handful to a few hundred, so the whole
+// list is what a picker shows.
+func (r *workflowUserRepository) ListGroups(ctx context.Context, projectID uuid.UUID) ([]entities.WorkflowGroup, error) {
+	if err := r.scope.requireProjectInTenant(ctx, projectID); err != nil {
+		return nil, err
+	}
+	ex, err := r.conn.Executor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := everyRow[workflowgroup.Row](ctx, ex, workflowgroup.New().
+		Where(workflowgroup.ProjectID.Eq(projectID)).
+		Order(workflowgroup.Name.Asc(), workflowgroup.ID.Asc()))
+	if err != nil {
+		return nil, fmt.Errorf("could not list the project's groups: %w", err)
+	}
+	out := make([]entities.WorkflowGroup, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, groupFrom(row))
+	}
+	return out, nil
+}
+
 // GetByUsername finds one participant by the name a process would refer to.
 func (r *workflowUserRepository) GetByUsername(ctx context.Context, projectID uuid.UUID, username string) (entities.WorkflowUser, error) {
 	if err := r.scope.requireProjectInTenant(ctx, projectID); err != nil {

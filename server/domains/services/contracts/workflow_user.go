@@ -15,6 +15,10 @@ type WorkflowUserService interface {
 	// username: at most limit of them, or all of them when limit is zero.
 	ListWorkflowUsers(ctx context.Context, projectID uuid.UUID, limit int) ([]entities.WorkflowUser, error)
 
+	// ListWorkflowGroups returns the project's People groups: the teams a step
+	// can offer its task to.
+	ListWorkflowGroups(ctx context.Context, projectID uuid.UUID) ([]entities.WorkflowGroup, error)
+
 	// ImportWorkflowUsers reads a CSV of participants into a project.
 	//
 	// A bad row is reported and the rest still imports. All-or-nothing on a

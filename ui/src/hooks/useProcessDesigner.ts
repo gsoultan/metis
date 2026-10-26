@@ -31,6 +31,7 @@ import { useAppStore } from '../store/useAppStore';
 import { buildDefinitionPayload, mapLoadedEdges, mapLoadedNodes, restoredNodes } from '../mappers/definitionMapper';
 import { stepSchemasOf } from '../domain/connectorStep';
 import { validateProcess } from '../domain/processValidation';
+import { directoryOf } from '../domain/assignmentDirectory';
 import { vocabularyFor } from '../domain/bpmnVocabulary';
 import { DEFAULT_STEP_HEIGHT, DEFAULT_STEP_WIDTH, STEP_GAP, clearSpot, followsOn } from '../domain/canvasPlacement';
 import {
@@ -43,6 +44,7 @@ import {
   type DesignerDraft,
 } from '../domain/designerDraft';
 import { useConnectors } from './useConnectors';
+import { useParticipantGroups, useParticipants } from './useParticipants';
 import { useDesignerHistory } from './useDesignerHistory';
 import { useDesignerCollaboration } from './useDesignerCollaboration';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
@@ -199,7 +201,22 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
   // query is flagged on the step rather than refused by the server.
   const { data: connectorsData } = useConnectors();
   const stepSchemas = useMemo(() => stepSchemasOf(connectorsData?.connectors ?? []), [connectorsData]);
-  const issues = useMemo(() => validateProcess(nodes, edges, stepSchemas), [nodes, edges, stepSchemas]);
+  // The project's People and their groups, so a step naming somebody the
+  // directory does not have is said before deploy. Only once both are read: a
+  // directory that has not loaded is not one in which every name is unknown.
+  const { data: participantsData, isSuccess: participantsRead } = useParticipants();
+  const { data: groupsData, isSuccess: groupsRead } = useParticipantGroups();
+  const directory = useMemo(
+    () =>
+      participantsRead && groupsRead && !participantsData?.err && !groupsData?.err
+        ? directoryOf(participantsData?.participants ?? [], groupsData?.groups ?? [])
+        : undefined,
+    [participantsRead, groupsRead, participantsData, groupsData],
+  );
+  const issues = useMemo(
+    () => validateProcess(nodes, edges, stepSchemas, directory),
+    [nodes, edges, stepSchemas, directory],
+  );
 
   // FE-ARCH-5: Sub-hook for undo/redo history management.
   const { history, historyIndex, pushToHistory, undo: undoHistory, redo: redoHistory } =

@@ -14,6 +14,7 @@ import (
 
 type Endpoints struct {
 	ListParticipants       endpoint.Endpoint
+	ListParticipantGroups  endpoint.Endpoint
 	ImportParticipants     endpoint.Endpoint
 	RemoveParticipant      endpoint.Endpoint
 	SetParticipantPassword endpoint.Endpoint
@@ -22,6 +23,7 @@ type Endpoints struct {
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	return Endpoints{
 		ListParticipants:       MakeListParticipantsEndpoint(s),
+		ListParticipantGroups:  MakeListParticipantGroupsEndpoint(s),
 		ImportParticipants:     MakeImportParticipantsEndpoint(s),
 		RemoveParticipant:      MakeRemoveParticipantEndpoint(s),
 		SetParticipantPassword: MakeSetParticipantPasswordEndpoint(s),
@@ -40,6 +42,26 @@ func MakeListParticipantsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		people, err := s.ListWorkflowUsers(ctx, projectID, req.Limit)
 		return ListParticipantsResponse{Participants: people, Err: err}, nil
+	}
+}
+
+// MakeListParticipantGroupsEndpoint answers a project's People groups: the
+// teams the designer offers a step's task to.
+func MakeListParticipantGroupsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ListParticipantGroupsRequest)
+		if !ok {
+			return nil, fmt.Errorf("participant: expected a ListParticipantGroupsRequest, got %T", request)
+		}
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return ListParticipantGroupsResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
+		}
+		groups, err := s.ListWorkflowGroups(ctx, projectID)
+		if groups == nil {
+			groups = []entities.WorkflowGroup{}
+		}
+		return ListParticipantGroupsResponse{Groups: groups, Err: err}, nil
 	}
 }
 
