@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -196,10 +197,11 @@ func (r *definitionRepository) DeleteScheduledRelease(ctx context.Context, proje
 	if err != nil {
 		return err
 	}
-	removed, err := ex.Exec(ctx,
-		`DELETE FROM process_definition_releases
-		  WHERE id = $1 AND project_id = $2 AND activate_at > $3`,
-		[]any{id, projectID, time.Now().UTC()})
+	removed, err := processdefinitionrelease.New().
+		Where(processdefinitionrelease.ID.Eq(id),
+			processdefinitionrelease.ProjectID.Eq(projectID),
+			processdefinitionrelease.ActivateAt.Gt(time.Now().UTC())).
+		HardDeleteAll(ctx, ex)
 	if err != nil {
 		return fmt.Errorf("could not cancel the scheduled release: %w", err)
 	}
@@ -354,8 +356,8 @@ func (r *definitionRepository) scanGraphs(ctx context.Context, q processdefiniti
 // A project keeps every version it has deployed, so finding its processes by
 // reading its definitions read every version, graphs included — and stopped at
 // the store's thousand rows, so one process with a thousand newer versions
-// pushed every other one out of the answer. One DISTINCT instead; raw SQL,
-// because the generated store has none.
+// pushed every other one out of the answer. The model's Processes grouping
+// instead: each key once, in key order.
 func (r *definitionRepository) ListKeysByProject(ctx context.Context, projectID uuid.UUID) ([]string, error) {
 	scoped, visible, err := r.scopedProjects(ctx, projectID)
 	if err != nil || !visible {
@@ -365,23 +367,17 @@ func (r *definitionRepository) ListKeysByProject(ctx context.Context, projectID 
 	if err != nil {
 		return nil, err
 	}
-	query := `SELECT DISTINCT key FROM process_definitions WHERE deleted_at IS NULL`
-	var args []any
+	q := processdefinition.New().Limit(math.MaxInt64)
 	if scoped != nil {
-		args = append(args, uuidsToRaw(scoped))
-		query += " AND project_id = ANY($1)"
+		q = q.Where(processdefinition.ProjectID.In(uuidsToRaw(scoped)...))
 	}
-	rows, err := ex.Query(ctx, query+" ORDER BY key", args)
+	processes, err := q.AllProcesses(ctx, ex)
 	if err != nil {
 		return nil, fmt.Errorf("could not list the project's processes: %w", err)
 	}
-	defer rows.Close()
-	var keys []string
-	for rows.Next() {
-		keys = append(keys, string(rows.RawValues()[0]))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("could not list the project's processes: %w", err)
+	keys := make([]string, len(processes))
+	for i, p := range processes {
+		keys[i] = p.Key
 	}
 	return keys, nil
 }

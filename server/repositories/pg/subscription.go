@@ -76,16 +76,17 @@ func (r *subscriptionRepository) Delete(ctx context.Context, id uuid.UUID) error
 
 // DeleteByNode drops what one node of one instance was waiting for.
 //
-// Raw SQL: this deletes by a pair that is not the primary key, and reading the
-// rows first to name them would be a read of exactly the rows about to go.
+// One set-based delete by a pair that is not the primary key, rather than
+// reading the rows first to name them. A real delete, not a mark: a wait that
+// ended is not kept.
 func (r *subscriptionRepository) DeleteByNode(ctx context.Context, instanceID uuid.UUID, nodeID string) error {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return err
 	}
-	if _, err := ex.Exec(ctx,
-		"DELETE FROM event_subscriptions WHERE instance_id = $1 AND node_id = $2",
-		[]any{instanceID, nodeID}); err != nil {
+	if _, err := subscription.New().
+		Where(subscription.InstanceID.Eq(instanceID), subscription.NodeID.Eq(nodeID)).
+		HardDeleteAll(ctx, ex); err != nil {
 		return fmt.Errorf("could not clear the node's subscriptions: %w", err)
 	}
 	return nil

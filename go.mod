@@ -3,6 +3,7 @@ module github.com/gsoultan/metis
 go 1.27.0
 
 require (
+	aidanwoods.dev/go-paseto v1.6.0
 	connectrpc.com/connect v1.21.1
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/dop251/goja v0.0.0-20260305124333-6a7976c22267
@@ -11,7 +12,7 @@ require (
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
-	github.com/gsoultan/storm v1.4.0
+	github.com/gsoultan/storm v1.5.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/microsoft/go-mssqldb v1.11.2
 	github.com/prometheus/client_golang v1.25.0
@@ -33,7 +34,6 @@ require (
 )
 
 require (
-	aidanwoods.dev/go-paseto v1.6.0 // indirect
 	aidanwoods.dev/go-result v0.3.1 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
