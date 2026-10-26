@@ -49,3 +49,11 @@ func (d *ProcessDefinition) Schema(t *storm.Table) {
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&d.DeletedAt)
 }
+
+// Aggregates declares the process list's read: each key once, however many
+// versions it has, in key order.
+func (d *ProcessDefinition) Aggregates(a *storm.Aggregates) {
+	keys := a.Named("ByKey")
+	keys.By(&d.Key)
+	keys.Count("Versions")
+}
