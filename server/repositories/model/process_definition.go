@@ -56,4 +56,8 @@ func (d *ProcessDefinition) Aggregates(a *storm.Aggregates) {
 	processes := a.Named("Processes")
 	processes.By(&d.Key)
 	processes.Count("Versions")
+
+	// Over every row, deleted ones included: the unique key covers them, so
+	// a version number once used is never reissued.
+	a.Named("HighestVersion").AcrossDeleted().Max(&d.Version, "Version")
 }

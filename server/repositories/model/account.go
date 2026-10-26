@@ -159,3 +159,11 @@ func (m *Membership) Schema(t *storm.Table) {
 	t.Col(&m.User).OnDelete(storm.Cascade)
 	t.Col(&m.Group).OnDelete(storm.Cascade)
 }
+
+// Aggregates declares Ever: how many accounts this database has held, the
+// deleted ones included. Setup reads it to tell a new installation from one
+// whose every account was removed, which must not be handed to the next
+// visitor as new.
+func (a *User) Aggregates(g *storm.Aggregates) {
+	g.Named("Ever").AcrossDeleted().Count("Accounts")
+}

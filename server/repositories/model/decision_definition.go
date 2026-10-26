@@ -49,3 +49,10 @@ func (d *DecisionDefinition) Schema(t *storm.Table) {
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&d.DeletedAt)
 }
+
+// Aggregates declares HighestVersion over every row, deleted ones included:
+// the unique key covers them, so a version number once used is never
+// reissued.
+func (d *DecisionDefinition) Aggregates(a *storm.Aggregates) {
+	a.Named("HighestVersion").AcrossDeleted().Max(&d.Version, "Version")
+}
