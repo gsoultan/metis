@@ -98,23 +98,19 @@ func (r *decisionRepository) NextVersion(ctx context.Context, projectID uuid.UUI
 	if err != nil {
 		return 0, err
 	}
-	var highest int64
-	rows, err := ex.Query(ctx,
-		`SELECT COALESCE(MAX(version), 0) FROM decision_definitions WHERE project_id = $1 AND key = $2`,
-		[]any{projectID, key})
+	highest, err := decisiondefinition.New().
+		Where(decisiondefinition.ProjectID.Eq(projectID), decisiondefinition.Key.Eq(key)).
+		AllHighestVersion(ctx, ex)
 	if err != nil {
 		return 0, fmt.Errorf("could not read the highest decision version: %w", err)
 	}
-	defer rows.Close()
-	if rows.Next() {
-		if err := scanInt(rows.RawValues(), &highest); err != nil {
-			return 0, err
+	// One row however many it read; NULL when the key has never been used.
+	if len(highest) == 1 {
+		if v, ok := highest[0].Version.Get(); ok {
+			return int(v) + 1, nil
 		}
 	}
-	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("could not read the highest decision version: %w", err)
-	}
-	return int(highest) + 1, nil
+	return 1, nil
 }
 
 func (r *decisionRepository) Create(ctx context.Context, d models.DecisionDefinitionModel) error {

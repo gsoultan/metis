@@ -421,19 +421,18 @@ func (r *userRepository) SetOrganizationRoles(ctx context.Context, userID, organ
 //
 // Deleted ones count: a database somebody has signed in to is an installation
 // even after every account in it is gone, and setup must not hand it to the
-// next visitor as new. Raw SQL for that reason — the generated Exists keeps
-// deleted rows out of every read, which is right everywhere except here.
+// next visitor as new. The model's Ever count is declared across deleted rows
+// for that reason. It runs only until the answer is yes, which setup caches.
 func (r *userRepository) HasAccounts(ctx context.Context) (bool, error) {
 	ex, err := r.conn.conn.MainExecutor(ctx)
 	if err != nil {
 		return false, err
 	}
-	rows, err := ex.Query(ctx, `SELECT 1 FROM users LIMIT 1`, nil)
+	ever, err := user.New().AllEver(ctx, ex)
 	if err != nil {
 		return false, fmt.Errorf("could not tell whether any account exists: %w", err)
 	}
-	defer rows.Close()
-	return rows.Next(), rows.Err()
+	return len(ever) == 1 && ever[0].Accounts > 0, nil
 }
 
 func (r *userRepository) Create(ctx context.Context, u models.UserModel, passwordHash string) error {
