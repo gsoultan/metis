@@ -21,6 +21,7 @@ type service struct {
 	contracts.PlatformUserService
 	contracts.PeopleSignInService
 	contracts.TaskService
+	contracts.PeopleTaskService
 	contracts.ExecutionEngine
 	contracts.JobService
 	contracts.ExternalTaskService
@@ -56,6 +57,7 @@ type ServiceParams struct {
 	PlatformUserService    contracts.PlatformUserService
 	PeopleSignInService    contracts.PeopleSignInService
 	TaskService            contracts.TaskService
+	PeopleTaskService      contracts.PeopleTaskService
 	ExecutionEngine        contracts.ExecutionEngine
 	JobService             contracts.JobService
 	ExternalTaskService    contracts.ExternalTaskService
@@ -101,6 +103,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	if p.OperationLogService == nil {
 		p.OperationLogService = serviceimpl.NewUnavailableOperationLogService()
 	}
+	if p.PeopleTaskService == nil {
+		p.PeopleTaskService = serviceimpl.NewUnavailablePeopleTaskService()
+	}
 	if p.PeopleSignInService == nil {
 		p.PeopleSignInService = serviceimpl.NewUnavailablePeopleSignInService(
 			"people cannot sign in: this server was wired without the People sign-in")
@@ -118,6 +123,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		PlatformUserService:      p.PlatformUserService,
 		PeopleSignInService:      p.PeopleSignInService,
 		TaskService:              p.TaskService,
+		PeopleTaskService:        p.PeopleTaskService,
 		ExecutionEngine:          p.ExecutionEngine,
 		JobService:               p.JobService,
 		ExternalTaskService:      p.ExternalTaskService,
@@ -298,6 +304,7 @@ func NewServiceFacade(
 		PlatformUserService:    accounts,
 		PeopleSignInService:    settings.peopleSignIn,
 		TaskService:            taskSvc,
+		PeopleTaskService:      serviceimpl.PeopleTasksOf(taskSvc),
 		ExecutionEngine:        engine,
 		JobService:             jobSvc,
 		ExternalTaskService:    externalTaskSvc,

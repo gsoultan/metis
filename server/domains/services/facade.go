@@ -32,6 +32,9 @@ type ServiceFacade interface {
 	// accounts above: a People token is accepted by People routes alone.
 	serviceContracts.PeopleSignInService
 	serviceContracts.TaskService
+
+	// PeopleTaskService is the work a signed-in person does, in their project.
+	serviceContracts.PeopleTaskService
 	serviceContracts.ExecutionEngine
 	serviceContracts.JobService
 	serviceContracts.ExternalTaskService

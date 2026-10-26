@@ -77,6 +77,9 @@ type Repository interface {
 	Task() contracts.TaskRepository
 	User() contracts.UserRepository
 	Group() contracts.GroupRepository
+	// PersonGroups reads which People groups a person is in: the groups a
+	// pool task offered to a group is matched against when a person acts.
+	PersonGroups() contracts.PersonGroupsRepository
 	Notification() contracts.NotificationRepository
 	CompensatableActivity() contracts.CompensatableActivityRepository
 	VariableSnapshot() contracts.VariableSnapshotRepository

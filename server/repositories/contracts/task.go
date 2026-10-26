@@ -52,6 +52,12 @@ type TaskRepository interface {
 	ListByProjectPaged(ctx context.Context, projectID uuid.UUID, p Pagination) (Page[models.TaskModel], error)
 	ListByInstancePaged(ctx context.Context, instanceID uuid.UUID, p Pagination) (Page[models.TaskModel], error)
 	ListByCandidatesPaged(ctx context.Context, c Candidacy, p Pagination) (Page[models.TaskModel], error)
+
+	// ListOpenForPersonPaged returns a person's open work in one project: the
+	// tasks they hold, and the unclaimed ones offered to them by name or to one
+	// of their groups. Never a task nobody was named for, and never another
+	// project's.
+	ListOpenForPersonPaged(ctx context.Context, projectID uuid.UUID, username string, groups []string, p Pagination) (Page[models.TaskModel], error)
 	ListPaged(ctx context.Context, p Pagination) (Page[models.TaskModel], error)
 	Update(ctx context.Context, task models.TaskModel) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status models.TaskStatus) error

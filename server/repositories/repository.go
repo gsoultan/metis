@@ -40,6 +40,7 @@ type repository struct {
 	task                  contracts.TaskRepository
 	user                  contracts.UserRepository
 	group                 contracts.GroupRepository
+	personGroups          contracts.PersonGroupsRepository
 	notification          contracts.NotificationRepository
 	compensatableActivity contracts.CompensatableActivityRepository
 	variableSnapshot      contracts.VariableSnapshotRepository
@@ -95,6 +96,7 @@ func NewRepository(conn *stormdb.Conn) Repository {
 		task:                  pg.NewTaskRepository(conn),
 		user:                  pg.NewUserRepository(conn),
 		group:                 pg.NewGroupRepository(conn),
+		personGroups:          pg.NewPersonGroupsRepository(conn),
 		notification:          pg.NewNotificationRepository(conn),
 		compensatableActivity: pg.NewCompensatableActivityRepository(conn),
 		variableSnapshot:      pg.NewVariableSnapshotRepository(conn),
@@ -157,6 +159,9 @@ func (r *repository) Subscription() contracts.SubscriptionRepository { return r.
 func (r *repository) Task() contracts.TaskRepository                 { return r.task }
 func (r *repository) User() contracts.UserRepository                 { return r.user }
 func (r *repository) Group() contracts.GroupRepository               { return r.group }
+func (r *repository) PersonGroups() contracts.PersonGroupsRepository {
+	return r.personGroups
+}
 func (r *repository) Notification() contracts.NotificationRepository { return r.notification }
 func (r *repository) CompensatableActivity() contracts.CompensatableActivityRepository {
 	return r.compensatableActivity

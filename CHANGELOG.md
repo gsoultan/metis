@@ -456,8 +456,19 @@ does not undo a migration.
   removing or deactivating them, or setting a new password, ends their
   sessions at once. Failed sign-ins are throttled per project and name and
   all read the same. Unset, `METIS_PEOPLE_TOKEN_KEY` leaves People unable to
-  sign in and changes nothing else. People cannot act on tasks yet; that is
-  the next change.
+  sign in and changes nothing else.
+
+- **People work their tasks through their own routes.** With a People token,
+  `GET /api/v1/people/tasks` lists the open tasks given to the person by name
+  or offered to them or to a People group they are in, in their project only.
+  `GET /api/v1/people/tasks/{id}` reads one, and `POST .../claim`,
+  `.../release` and `.../complete` act on it under the same rules a User's
+  claim and completion follow: candidate users and groups, separation of
+  duties, and only the variables the form declares. The actor is the token's,
+  never the body's. A task given to somebody else, or in another project,
+  answers 404, so a person learns neither that it exists nor whose it is. A
+  person may give back a task they took from a pool, not one given to them by
+  name, and never takes a task that names nobody.
 
 - **An audit log of what people did, across the organization.** Who waived,
   cancelled, held, migrated, reassigned, activated, approved or rejected

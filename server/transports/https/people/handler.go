@@ -6,6 +6,8 @@ package people
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 
 	httptransport "github.com/go-kit/kit/transport/http"
@@ -31,6 +33,43 @@ func RegisterHandlers(m *http.ServeMux, eps people.Endpoints, options []httptran
 		common.EncodeResponse,
 		options...,
 	))
+	m.Handle("GET /api/v1/people/tasks", httptransport.NewServer(
+		eps.PersonTasks,
+		func(_ context.Context, r *http.Request) (any, error) {
+			page, size := common.PageParams(r)
+			return people.PersonTasksRequest{Page: page, PageSize: size}, nil
+		},
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("GET /api/v1/people/tasks/{id}", httptransport.NewServer(
+		eps.PersonTask, decodePersonTaskRequest, common.EncodeResponse, options...,
+	))
+	m.Handle("POST /api/v1/people/tasks/{id}/claim", httptransport.NewServer(
+		eps.ClaimPersonTask, decodePersonTaskRequest, common.EncodeResponse, options...,
+	))
+	m.Handle("POST /api/v1/people/tasks/{id}/release", httptransport.NewServer(
+		eps.ReleasePersonTask, decodePersonTaskRequest, common.EncodeResponse, options...,
+	))
+	m.Handle("POST /api/v1/people/tasks/{id}/complete", httptransport.NewServer(
+		eps.CompletePersonTask, decodeCompletePersonTaskRequest, common.EncodeResponse, options...,
+	))
+}
+
+func decodePersonTaskRequest(_ context.Context, r *http.Request) (any, error) {
+	return people.PersonTaskRequest{ID: r.PathValue("id")}, nil
+}
+
+// decodeCompletePersonTaskRequest reads the submitted form. An empty body is a
+// form with nothing on it, not an error: a step can ask only for a decision
+// to be made.
+func decodeCompletePersonTaskRequest(_ context.Context, r *http.Request) (any, error) {
+	req := people.CompletePersonTaskRequest{ID: r.PathValue("id")}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		return nil, apierr.Invalidf("the form is not valid JSON")
+	}
+	req.ID = r.PathValue("id")
+	return req, nil
 }
 
 func decodeSignInRequest(_ context.Context, r *http.Request) (any, error) {
