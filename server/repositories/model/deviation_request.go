@@ -17,15 +17,16 @@ type DeviationRequest struct {
 	Project Project
 	Kind    string
 	Status  string
-	// InstanceID is a plain column, as instance_deviations.instance_id is: a
-	// foreign key to a row a completion holds would deadlock a racing request.
-	InstanceID       *storm.UUID
+	// Instance has no foreign key, as instance_deviations.instance_id has
+	// none: a key to a row a completion holds would deadlock a racing request.
+	Instance         *ProcessInstance
 	SourceDefinition *ProcessDefinition
 	TargetDefinition *ProcessDefinition
 
-	RequestedBy   string
-	RequestedByID storm.UUID
-	Reason        string
+	RequestedBy string
+	// RequestedByUser is the account that asked, kept as requested_by_id.
+	RequestedByUser User
+	Reason          string
 
 	// Command and Plan are sealed by the repository; they hold business data.
 	Command storm.JSON
@@ -40,8 +41,9 @@ type DeviationRequest struct {
 	ApprovedInstances storm.JSON
 	ExpiresAt         time.Time
 
-	DecidedBy      *string
-	DecidedByID    *storm.UUID
+	DecidedBy *string
+	// DecidedByUser is the account that decided, kept as decided_by_id.
+	DecidedByUser  *User
 	DecisionReason *string
 	DecidedAt      *time.Time
 	Outcome        storm.JSON
@@ -51,6 +53,9 @@ func (r *DeviationRequest) Schema(t *storm.Table) {
 	t.Name("deviation_requests")
 	t.Col(&r.SourceDefinition).OnDelete(storm.SetNull)
 	t.Col(&r.TargetDefinition).OnDelete(storm.SetNull)
+	t.Col(&r.Instance).NoIndex().AcknowledgeNoFK("a racing request must not deadlock on an instance row a completion holds")
+	t.Col(&r.RequestedByUser).Named("requested_by_id").NoIndex().AcknowledgeNoFK("a compliance record outlives the account that asked")
+	t.Col(&r.DecidedByUser).Named("decided_by_id").NoIndex().AcknowledgeNoFK("a compliance record outlives the account that decided")
 	t.Col(&r.Kind).Size(32)
 	t.Col(&r.Status).Size(32)
 	t.Col(&r.RequestedBy).Size(255)
@@ -79,7 +84,7 @@ func (r *DeviationRequest) Schema(t *storm.Table) {
 func (r *DeviationRequest) Projections(p *storm.Projections) {
 	p.Named("Queue",
 		&r.ID, &r.CreatedAt, &r.UpdatedAt, &r.Project, &r.Kind, &r.Status,
-		&r.InstanceID, &r.SourceDefinition, &r.TargetDefinition,
-		&r.RequestedBy, &r.RequestedByID, &r.Reason, &r.Fingerprint, &r.ExpiresAt,
-		&r.DecidedBy, &r.DecidedByID, &r.DecisionReason, &r.DecidedAt, &r.Outcome)
+		&r.Instance, &r.SourceDefinition, &r.TargetDefinition,
+		&r.RequestedBy, &r.RequestedByUser, &r.Reason, &r.Fingerprint, &r.ExpiresAt,
+		&r.DecidedBy, &r.DecidedByUser, &r.DecisionReason, &r.DecidedAt, &r.Outcome)
 }

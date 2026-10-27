@@ -19,11 +19,11 @@ type Job struct {
 	Instance   ProcessInstance
 	Definition ProcessDefinition
 
-	// OrganizationID is whose work this is, copied from the instance's project
+	// Organization is whose work this is, copied from the instance's project
 	// when the job is made, so the claim can share the workers between
 	// organizations. Nil on a job made before migration 44. No foreign key: the
 	// claim reads it, and nothing is held up by an organization's row.
-	OrganizationID *storm.UUID
+	Organization *Organization
 
 	NodeID      string
 	IterationID *string
@@ -48,6 +48,7 @@ type Job struct {
 }
 
 func (j *Job) Schema(t *storm.Table) {
+	t.Col(&j.Organization).NoIndex().AcknowledgeNoFK("the claim must not be held up by an organization's row")
 	t.Col(&j.NodeID).Size(255)
 	t.Col(&j.Type).Size(64)
 	t.Col(&j.Status).Size(32)
@@ -55,7 +56,7 @@ func (j *Job) Schema(t *storm.Table) {
 	t.Index(&j.Status, &j.NextRunAt)
 	// The fair claim's: each organization's due jobs, oldest first, as one
 	// range.
-	t.Index(&j.Status, &j.OrganizationID, &j.NextRunAt).Named("ix_jobs_claim_by_organization")
+	t.Index(&j.Status, &j.Organization, &j.NextRunAt).Named("ix_jobs_claim_by_organization")
 	t.Col(&j.DeletedAt).Index()
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.

@@ -22,15 +22,18 @@ type RetentionPeriod struct {
 	// METIS_RETENTION_FINISHED_INSTANCES_DAYS, which may be unset.
 	Days *int32
 
-	Reason  string
-	SetBy   string
-	SetByID storm.UUID
+	Reason string
+	SetBy  string
+	// SetByUser is the account that made the change, kept as set_by_id. It
+	// has no foreign key: the history outlives the account.
+	SetByUser User
 }
 
 func (p *RetentionPeriod) Schema(t *storm.Table) {
 	t.Name("retention_periods")
 	t.Col(&p.ProcessKey).Size(255)
 	t.Col(&p.SetBy).Size(255)
+	t.Col(&p.SetByUser).Named("set_by_id").NoIndex().AcknowledgeNoFK("the history outlives the account that made the change")
 	// A process's newest row, which the sweep reads for each instance it
 	// considers, and the history of one process, newest first.
 	t.Index(&p.Project, &p.ProcessKey, &p.CreatedAt, &p.ID).Named("ix_retention_periods_process")

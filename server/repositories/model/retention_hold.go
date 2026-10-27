@@ -13,22 +13,28 @@ type RetentionHold struct {
 	storm.Model
 
 	Project Project
-	// InstanceID is a plain column, as instance_deviations.instance_id is: a
-	// foreign key to a row a completion holds would make placing a hold wait
-	// on the engine, and the engine never needs to know of one.
-	InstanceID storm.UUID
+	// Instance is the held instance. It has no foreign key, as
+	// instance_deviations.instance_id has none: a key to a row a completion
+	// holds would make placing a hold wait on the engine, and the engine never
+	// needs to know of one.
+	Instance ProcessInstance
 
-	Reason     string
-	PlacedBy   string
-	PlacedByID storm.UUID
+	Reason   string
+	PlacedBy string
+	// PlacedByUser is the account that placed the hold, kept as
+	// placed_by_id. It has no foreign key: a hold outlives the account that
+	// placed it.
+	PlacedByUser User
 }
 
 func (h *RetentionHold) Schema(t *storm.Table) {
 	t.Name("retention_holds")
+	t.Col(&h.Instance).AcknowledgeNoFK("placing a hold must not wait on the lock a completing instance holds")
 	t.Col(&h.PlacedBy).Size(255)
+	t.Col(&h.PlacedByUser).Named("placed_by_id").NoIndex().AcknowledgeNoFK("a hold outlives the account that placed it")
 	// One hold per instance. The sweep reads every hold once per batch, and
 	// the instance's own page reads its hold by instance.
-	t.Index(&h.InstanceID).Unique().Named("ux_retention_holds_instance")
+	t.Index(&h.Instance).Unique().Named("ux_retention_holds_instance")
 	// A project's holds, newest first.
 	t.Index(&h.Project, &h.CreatedAt, &h.ID).Named("ix_retention_holds_project")
 }

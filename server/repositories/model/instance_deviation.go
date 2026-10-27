@@ -15,9 +15,9 @@ type InstanceDeviation struct {
 	storm.Model
 
 	Project Project
-	// InstanceID and TaskID are plain columns, not references: see the lock
-	// order note in tests/migrations/instance_deviations_test.go and task.go.
-	InstanceID storm.UUID
+	// Instance and Task have no foreign key: see the lock order note in
+	// tests/migrations/instance_deviations_test.go and task.go.
+	Instance   ProcessInstance
 	Definition *ProcessDefinition
 
 	Kind   string
@@ -27,27 +27,30 @@ type InstanceDeviation struct {
 
 	NodeID      *string
 	NodeName    *string
-	TaskID      *storm.UUID
+	Task        *Task
 	IterationID *string
 
-	Actor   string
-	ActorID *storm.UUID
-	Reason  *string
+	Actor string
+	// ActorUser is the account that acted, kept as actor_id.
+	ActorUser *User
+	Reason    *string
 
 	// Before and After are sealed by the repository; Details is not business data.
 	Before  storm.JSON
 	After   storm.JSON
 	Details storm.JSON
 
-	RunID        storm.UUID
-	AuditEntryID *storm.UUID
-	VisitKey     *string
+	// RunID groups the rows one act wrote. It names no row of its own.
+	RunID      storm.UUID
+	AuditEntry *AuditEntry
+	VisitKey   *string
 
 	// Request is the request this row was asked for or approved under.
-	Request      *DeviationRequest
-	ApprovedBy   *string
-	ApprovedByID *storm.UUID
-	DecidedAt    *time.Time
+	Request    *DeviationRequest
+	ApprovedBy *string
+	// ApprovedByUser is the account that approved it, kept as approved_by_id.
+	ApprovedByUser *User
+	DecidedAt      *time.Time
 
 	// LiveVisitKey is VisitKey while the row is applied or awaiting approval,
 	// NULL once it is rejected, expired or stale: one live row per visit, and a
@@ -63,6 +66,13 @@ type InstanceDeviation struct {
 func (d *InstanceDeviation) Schema(t *storm.Table) {
 	t.Name("instance_deviations")
 	t.Col(&d.Definition).OnDelete(storm.SetNull)
+	// None of these has a foreign key. The ledger outlives every row it names,
+	// and writing it must not wait on a row the engine holds.
+	t.Col(&d.Instance).NoIndex().AcknowledgeNoFK("the ledger must not wait on an instance row a completion holds")
+	t.Col(&d.Task).NoIndex().AcknowledgeNoFK("the ledger must not wait on a task row the engine holds")
+	t.Col(&d.ActorUser).Named("actor_id").NoIndex().AcknowledgeNoFK("the ledger outlives the account that acted")
+	t.Col(&d.AuditEntry).NoIndex().AcknowledgeNoFK("the ledger outlives the audit trail's sweep")
+	t.Col(&d.ApprovedByUser).Named("approved_by_id").NoIndex().AcknowledgeNoFK("the ledger outlives the account that approved")
 	t.Col(&d.Kind).Size(32)
 	t.Col(&d.Scope).Size(16)
 	t.Col(&d.Origin).Size(16)
@@ -74,8 +84,8 @@ func (d *InstanceDeviation) Schema(t *storm.Table) {
 	t.Col(&d.VisitKey).Size(64)
 	t.Col(&d.LiveVisitKey).Size(64)
 	t.Col(&d.ApprovedBy).Size(255)
-	t.Index(&d.InstanceID, &d.CreatedAt, &d.ID).Named("ix_instance_deviations_instance")
+	t.Index(&d.Instance, &d.CreatedAt, &d.ID).Named("ix_instance_deviations_instance")
 	t.Index(&d.RunID).Named("ix_instance_deviations_run")
-	t.Index(&d.InstanceID, &d.LiveVisitKey).Unique().Named("ux_instance_deviations_live_visit")
-	t.Index(&d.InstanceID, &d.VisitKey).Named("ix_instance_deviations_visit")
+	t.Index(&d.Instance, &d.LiveVisitKey).Unique().Named("ux_instance_deviations_live_visit")
+	t.Index(&d.Instance, &d.VisitKey).Named("ix_instance_deviations_visit")
 }
