@@ -34,3 +34,11 @@ func (p *Project) Schema(t *storm.Table) {
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&p.DeletedAt)
 }
+
+// Projections declares the tenant scope's read: an organization's projects by
+// id and nothing else. Every scoped request reads it, and an organization can
+// have thousands of projects, so it carries the 16 bytes it is for rather than
+// each whole row.
+func (p *Project) Projections(pr *storm.Projections) {
+	pr.Named("Key", &p.ID)
+}

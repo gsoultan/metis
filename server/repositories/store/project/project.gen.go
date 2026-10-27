@@ -1657,6 +1657,85 @@ func batchTopByOrganizationIDLateralSQL(order []Sort) string {
 	return batchTopByOrganizationIDLateralCache.Put(toks, &runtime.Stmt{SQL: sql, NArg: 2}).SQL
 }
 
+// KeyRow is the "Key" projection: the same read, 1 column(s) instead of
+// the whole row. Narrower tuples, no TOAST fetch for what nobody asked,
+// and an index-only scan becomes POSSIBLE — the full-row read forecloses
+// it by construction.
+type KeyRow struct {
+	ID [16]byte
+}
+
+const keyPrefix = `SELECT "id" FROM "projects"`
+
+var (
+	keyCache       = runtime.NewTreeCache()
+	keyOffsetCache = runtime.NewTreeCache()
+)
+
+func keyStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := keyCache, limitSuffix
+	if withOffset {
+		c, suffix = keyOffsetCache, limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(keyPrefix, softDeleteWhere, toks, lowering, suffix))
+}
+
+func scanKey(rv [][]byte, r *KeyRow, sl *runtime.Slab) error {
+	copy(r.ID[:], rv[0])
+	return nil
+}
+
+// AllKey runs the query projected to KeyRow. Predicates, ordering, limit,
+// offset and keyset all apply exactly as on All — a projection changes
+// what a row CARRIES, never which rows qualify. (After takes the full Row;
+// populate its ordering columns and the cursor works unchanged.)
+func (q Query) AllKey(ctx context.Context, ex runtime.Executor) ([]KeyRow, error) {
+	var sl runtime.Slab
+	return q.AllKeyInto(ctx, ex, nil, &sl)
+}
+
+// AllKeyInto lets the caller own the output slice and the arena, exactly
+// as AllInto does — a projection's terminals mirror the full read's, so a
+// hot loop reuses both and a benchmark compares like with like.
+func (q Query) AllKeyInto(ctx context.Context, ex runtime.Executor, dst []KeyRow, sl *runtime.Slab) ([]KeyRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	var buf [21]runtime.Tok
+	st := keyStmtFor(q.stream(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, KeyRow{})
+		if err := scanKey(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// OneKey is AllKey stopped at one row.
+func (q Query) OneKey(ctx context.Context, ex runtime.Executor) (KeyRow, bool, error) {
+	out, err := q.Limit(1).AllKey(ctx, ex)
+	if err != nil || len(out) == 0 {
+		return KeyRow{}, false, err
+	}
+	return out[0], true, nil
+}
+
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
 const insertSQL = `INSERT INTO "projects" ("id", "created_at", "updated_at", "organization_id", "name", "description", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING "id", "created_at", "updated_at", "organization_id", "name", "description", "deleted_at"`

@@ -2,8 +2,8 @@ package pg
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"math"
 	"sync/atomic"
 
 	"github.com/google/uuid"
@@ -12,6 +12,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	"github.com/gsoultan/metis/server/repositories/store/project"
 )
 
 // Tenant scoping, expressed as a predicate rather than a join.
@@ -98,40 +99,30 @@ func (r *conn) scopeOf(ctx context.Context) (tenantScope, error) {
 // whose writes are refused, so an organization with more than a thousand lost
 // the rest.
 //
-// The ids and nothing else, in one statement. Through the store this read whole
-// rows a thousand at a time, the only way it can see every row: at ten thousand
-// projects, ten statements and about 10 MB of rows to keep 16 bytes of each.
-// Raw SQL because the generated store cannot read one column; the soft-delete
-// predicate it adds to every read is written out, because a deleted project is
-// outside the scope.
+// The ids and nothing else, in one statement: the Key projection, with no
+// row cap. Through whole rows this read a thousand at a time, the only way it
+// could see every row: at ten thousand projects, ten statements and about
+// 10 MB of rows to keep 16 bytes of each.
 func (r *conn) projectsOf(ctx context.Context, organization uuid.UUID) ([]uuid.UUID, error) {
 	scopeReads.Add(1)
 	ex, err := r.conn.MainExecutor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := ex.Query(ctx, organizationProjectIDs, []any{organization})
+	rows, err := project.New().
+		Where(project.OrganizationID.Eq(organization)).
+		Unordered().
+		Limit(math.MaxInt64).
+		AllKey(ctx, ex)
 	if err != nil {
 		return nil, fmt.Errorf("could not read the projects in this organization: %w", err)
 	}
-	defer rows.Close()
-	var ids []uuid.UUID
-	for rows.Next() {
-		values := rows.RawValues()
-		if len(values) == 0 || len(values[0]) != len(uuid.UUID{}) {
-			return nil, errors.New("could not read the projects in this organization: a project id is not 16 bytes")
-		}
-		ids = append(ids, uuid.UUID(values[0]))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("could not read the projects in this organization: %w", err)
+	ids := make([]uuid.UUID, len(rows))
+	for i, row := range rows {
+		ids[i] = row.ID
 	}
 	return ids, nil
 }
-
-// organizationProjectIDs is the scope's one read: the organization's live
-// projects, by id.
-const organizationProjectIDs = `SELECT id FROM projects WHERE organization_id = $1 AND deleted_at IS NULL`
 
 // scopeReads counts the reads projectsOf makes; see ScopeReads.
 var scopeReads atomic.Int64
