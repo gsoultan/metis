@@ -697,6 +697,14 @@ func (s *migrationService) apply(
 				instance.ID, err, done, len(instances))
 		}
 		if elsewhere {
+			// This run skipped a step of it, and another run moved it before
+			// this one took its lock. The skip stands, and is counted among
+			// what this run changed; telling the caller the instance was also
+			// passed over, "not decided or moved again", reported one instance
+			// twice, and the second time falsely.
+			if made.wrote {
+				continue
+			}
 			// Nothing of this run's was written to it. Not counted among those
 			// dealt with either: it is no longer one of the source version's.
 			result.PassedOver = append(result.PassedOver, passedOver(instance, becauseAlreadyMoved(told)))

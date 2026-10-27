@@ -42,6 +42,9 @@ type hookedProcess struct {
 	fire  func()
 	once  sync.Once
 	mu    sync.Mutex
+	// skipped is the hook atTheRewriteOfASkippedInstance arms; nil, the
+	// lock is taken as it is.
+	skipped *skippedHook
 }
 
 func (p *hookedProcess) ListByDefinition(ctx context.Context, id uuid.UUID) ([]models.ProcessInstanceModel, error) {
