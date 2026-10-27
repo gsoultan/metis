@@ -503,7 +503,7 @@ func TestTwoRunsUnderOneApprovalMoveEachInstanceOnce(t *testing.T) {
 		var second entities.MigrationResult
 		var secondErr error
 		fired := false
-		listing.atTheRewriteOfASkippedInstance(f.ctx, v1, func() {
+		listing.atTheRewriteOfASkippedInstance(f.db, v1, func() {
 			fired = true
 			second, secondErr = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, under...)
 		})
@@ -579,7 +579,7 @@ func TestTwoRunsUnderOneApprovalMoveEachInstanceOnce(t *testing.T) {
 // still on the source version and no longer on the operations approval: the
 // rewrite of an instance the run has just skipped, before it takes the lock.
 type skippedHook struct {
-	committed context.Context
+	committed *gorm.DB
 	source    uuid.UUID
 	fire      func()
 	fired     bool
@@ -587,10 +587,10 @@ type skippedHook struct {
 
 // atTheRewriteOfASkippedInstance runs fire once, when the next lock is taken of
 // an instance on source that a skip has moved past the operations approval.
-// Whether it has is read as committed — through committed, outside the
-// locker's transaction — so the skip's own unit of work, which has advanced
+// Whether it has is read as committed — through committed, the test's own
+// connection, outside the locker's transaction — so the skip's own unit of work, which has advanced
 // the instance and not yet committed, does not fire it.
-func (p *hookedProcess) atTheRewriteOfASkippedInstance(committed context.Context, source uuid.UUID, fire func()) {
+func (p *hookedProcess) atTheRewriteOfASkippedInstance(committed *gorm.DB, source uuid.UUID, fire func()) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.skipped = &skippedHook{committed: committed, source: source, fire: fire}
@@ -602,7 +602,8 @@ func (p *hookedProcess) GetForUpdate(ctx context.Context, id uuid.UUID) (models.
 	armed := hook != nil && !hook.fired
 	p.mu.Unlock()
 	if armed {
-		now, err := p.ProcessRepository.Get(hook.committed, id)
+		var now models.ProcessInstanceModel
+		err := hook.committed.Where("id = ?", id).Take(&now).Error
 		if err == nil && uuid.UUID(now.DefinitionID) == hook.source && now.Status == models.ProcessActive && !holdsToken(now, "opsApprove") {
 			p.mu.Lock()
 			hook.fired = true
