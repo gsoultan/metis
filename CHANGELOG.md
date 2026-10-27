@@ -14,7 +14,7 @@ says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 47 run at the first boot; twelve of them stop
+administrator. Migrations 31 to 48 run at the first boot; twelve of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -74,7 +74,7 @@ action, in the order it bites:
   release reads neither ([Migrations 37 and
   38](docs/upgrading.md#migrations-37-and-38-retention-holds-and-periods)).
 
-Migrations 31 to 47 run at the first boot. Take a backup first: a rollback
+Migrations 31 to 48 run at the first boot. Take a backup first: a rollback
 does not undo a migration.
 
 - **31** gives a task the run of its step it was created for, and **stops the
@@ -136,6 +136,9 @@ does not undo a migration.
 - **47** creates the task links People are mailed, and stops if `projects` is
   held for more than two seconds; it finishes on the next start ([Migration
   47](docs/upgrading.md#migration-47-task-links)).
+- **48** creates the keys People give their own systems, and stops if
+  `workflow_users` is held for more than two seconds; it finishes on the next
+  start ([Migration 48](docs/upgrading.md#migration-48-personal-api-keys)).
 
 ### Security
 
@@ -472,6 +475,17 @@ does not undo a migration.
   answers 404, so a person learns neither that it exists nor whose it is. A
   person may give back a task they took from a pool, not one given to them by
   name, and never takes a task that names nobody.
+
+- **A person can give their own systems keys of their own.** On their page at
+  `/p/`, a person makes a key for each system that works their tasks for them,
+  named for that system, and revokes one without touching the others. A key is
+  sent as `Authorization: Bearer mpk_…` to the People task API and acts as
+  that person and nobody else: it reads, claims, releases and completes their
+  tasks, and cannot make, list or revoke keys, which takes their sign-in. A key
+  is shown once, when it is made; only its SHA-256 is stored. A person keeps at
+  most 20 live keys. A key stops working when it is revoked or its person is
+  removed or deactivated, and a platform route refuses it as it refuses a
+  People token. Migration 48 adds the `person_api_keys` table.
 
 - **A task link lets a person do a task without signing in.** With
   `METIS_PUBLIC_URL` and the notification mail settings set, a task created

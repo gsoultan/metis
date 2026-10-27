@@ -102,6 +102,39 @@ export const peopleService = {
   },
 };
 
+/** A key one of the person's systems uses, as they see it: never the key itself. */
+export interface PersonAPIKey {
+  id: string;
+  name: string;
+  prefix: string;
+  created_at: string;
+  last_used_at?: string;
+  revoked_at?: string;
+}
+
+/** The person's keys: made and revoked with their sign-in, never with a key. */
+export const personKeyService = {
+  async list(token: string, signal?: AbortSignal): Promise<PersonAPIKey[]> {
+    const data = raiseIfRefused(await asPerson<{ keys?: PersonAPIKey[]; err?: string }>(token, "/people/keys", { signal }));
+    return data.keys ?? [];
+  },
+
+  /** Makes a key and returns it with the key itself, shown this once. */
+  async create(token: string, name: string): Promise<{ key: PersonAPIKey; token: string }> {
+    const data = raiseIfRefused(
+      await asPerson<{ key?: PersonAPIKey; token?: string; err?: string }>(token, "/people/keys", { method: "POST", body: { name } }),
+    );
+    if (!data.key || !data.token) {
+      throw new Error("The server did not answer with the key.");
+    }
+    return { key: data.key, token: data.token };
+  },
+
+  async revoke(token: string, id: string): Promise<void> {
+    raiseIfRefused(await asPerson<{ err?: string }>(token, `/people/keys/${encodeURIComponent(id)}`, { method: "DELETE" }));
+  },
+};
+
 /** What a person may do with a task, from where it stands. */
 export function actionsFor(task: PersonTask, username: string): { claim: boolean; release: boolean; complete: boolean } {
   const holder = task.assignee?.username ?? "";

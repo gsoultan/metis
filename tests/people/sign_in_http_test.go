@@ -55,7 +55,8 @@ func newWorld(t *testing.T) world {
 	}
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "people-sign-in-test-secret",
 		impl.NewWorkflowUserService(pg.NewWorkflowUserRepository(conn)), nil, nil,
-		services.WithPeopleSignIn(impl.NewPeopleSignInService(pg.NewPersonSignInRepository(conn), keys)))
+		services.WithPeopleSignIn(impl.NewPeopleSignInService(pg.NewPersonSignInRepository(conn), keys,
+			impl.WithPersonAPIKeys(pg.NewPersonAPIKeyRepository(conn)))))
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, conn)
 
 	system := entities.WithSystemContext(t.Context())

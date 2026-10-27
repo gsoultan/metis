@@ -32,6 +32,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/outgoingwebhook"
 	"github.com/gsoultan/metis/server/repositories/store/outgoingwebhookdelivery"
 	"github.com/gsoultan/metis/server/repositories/store/participantsource"
+	"github.com/gsoultan/metis/server/repositories/store/personapikey"
 	"github.com/gsoultan/metis/server/repositories/store/platformrole"
 	"github.com/gsoultan/metis/server/repositories/store/platformroleassignment"
 	"github.com/gsoultan/metis/server/repositories/store/platformuser"
@@ -95,30 +96,31 @@ var FlushOrder = map[string]int{
 	"memberships":                 25,
 	"outgoing_webhooks":           26,
 	"participant_sources":         27,
-	"platform_role_assignments":   28,
-	"process_definition_releases": 29,
-	"process_definitions":         30,
-	"process_instances":           31,
-	"tasks":                       32,
-	"user_organizations":          33,
-	"user_projects":               34,
-	"variable_snapshots":          35,
-	"webhook_deliveries":          36,
-	"workflow_group_memberships":  37,
-	"audit_logs":                  38,
-	"batch_operation_items":       39,
-	"broadcast_events":            40,
-	"compensatable_activities":    41,
-	"deployment_resources":        42,
-	"deviation_requests":          43,
-	"event_subscriptions":         44,
-	"external_tasks":              45,
-	"instance_deviations":         46,
-	"jobs":                        47,
-	"notifications":               48,
-	"outgoing_webhook_deliveries": 49,
-	"service_calls":               50,
-	"incidents":                   51,
+	"person_api_keys":             28,
+	"platform_role_assignments":   29,
+	"process_definition_releases": 30,
+	"process_definitions":         31,
+	"process_instances":           32,
+	"tasks":                       33,
+	"user_organizations":          34,
+	"user_projects":               35,
+	"variable_snapshots":          36,
+	"webhook_deliveries":          37,
+	"workflow_group_memberships":  38,
+	"audit_logs":                  39,
+	"batch_operation_items":       40,
+	"broadcast_events":            41,
+	"compensatable_activities":    42,
+	"deployment_resources":        43,
+	"deviation_requests":          44,
+	"event_subscriptions":         45,
+	"external_tasks":              46,
+	"instance_deviations":         47,
+	"jobs":                        48,
+	"notifications":               49,
+	"outgoing_webhook_deliveries": 50,
+	"service_calls":               51,
+	"incidents":                   52,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -6478,6 +6480,123 @@ func (p ParticipantSourceWithProjectQuery) All(ctx context.Context, ex runtime.E
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "participant_sources", "projects")
 		}
 		out[i].Project = targets[j]
+	}
+	return out, nil
+}
+
+// PersonAPIKeyWithParticipantRow is person_api_keys with its Participant loaded.
+type PersonAPIKeyWithParticipantRow struct {
+	personapikey.Row
+	Participant workflowuser.Row
+}
+
+type PersonAPIKeyWithParticipantQuery struct {
+	q personapikey.Query
+}
+
+// PersonAPIKeyWithParticipant starts the plan.
+func PersonAPIKeyWithParticipant() PersonAPIKeyWithParticipantQuery {
+	return PersonAPIKeyWithParticipantQuery{q: personapikey.New()}
+}
+
+func (p PersonAPIKeyWithParticipantQuery) Where(ps ...personapikey.Pred) PersonAPIKeyWithParticipantQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p PersonAPIKeyWithParticipantQuery) WhereIf(cond bool, pr personapikey.Pred) PersonAPIKeyWithParticipantQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p PersonAPIKeyWithParticipantQuery) Any(ps ...personapikey.Pred) PersonAPIKeyWithParticipantQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p PersonAPIKeyWithParticipantQuery) Not(pr personapikey.Pred) PersonAPIKeyWithParticipantQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p PersonAPIKeyWithParticipantQuery) NotAny(ps ...personapikey.Pred) PersonAPIKeyWithParticipantQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p PersonAPIKeyWithParticipantQuery) Order(ts ...personapikey.Sort) PersonAPIKeyWithParticipantQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p PersonAPIKeyWithParticipantQuery) Limit(n int64) PersonAPIKeyWithParticipantQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p PersonAPIKeyWithParticipantQuery) Offset(n int64) PersonAPIKeyWithParticipantQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p PersonAPIKeyWithParticipantQuery) After(r PersonAPIKeyWithParticipantRow) PersonAPIKeyWithParticipantQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p PersonAPIKeyWithParticipantQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p PersonAPIKeyWithParticipantQuery) All(ctx context.Context, ex runtime.Executor) ([]PersonAPIKeyWithParticipantRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]PersonAPIKeyWithParticipantRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = PersonAPIKeyWithParticipantRow{Row: r}
+		key := r.ParticipantID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := workflowuser.New().Unordered().
+		Where(workflowuser.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.ParticipantID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "person_api_keys", "workflow_users")
+		}
+		out[i].Participant = targets[j]
 	}
 	return out, nil
 }

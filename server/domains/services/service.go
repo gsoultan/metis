@@ -26,6 +26,7 @@ type service struct {
 	contracts.PeopleTaskService
 	contracts.TaskLinkService
 	contracts.PeopleSwitchOverService
+	contracts.PersonAPIKeyService
 	contracts.ExecutionEngine
 	contracts.JobService
 	contracts.ExternalTaskService
@@ -64,6 +65,7 @@ type ServiceParams struct {
 	PeopleTaskService      contracts.PeopleTaskService
 	TaskLinkService        contracts.TaskLinkService
 	PeopleSwitchOver       contracts.PeopleSwitchOverService
+	PersonAPIKeys          contracts.PersonAPIKeyService
 	ExecutionEngine        contracts.ExecutionEngine
 	JobService             contracts.JobService
 	ExternalTaskService    contracts.ExternalTaskService
@@ -115,6 +117,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	if p.TaskLinkService == nil {
 		p.TaskLinkService = serviceimpl.NewUnavailableTaskLinkService()
 	}
+	if p.PersonAPIKeys == nil {
+		p.PersonAPIKeys = serviceimpl.PersonAPIKeysOf(p.PeopleSignInService)
+	}
 	if p.PeopleSwitchOver == nil {
 		p.PeopleSwitchOver = serviceimpl.NewUnavailablePeopleSwitchOverService()
 	}
@@ -138,6 +143,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		PeopleTaskService:        p.PeopleTaskService,
 		TaskLinkService:          p.TaskLinkService,
 		PeopleSwitchOverService:  p.PeopleSwitchOver,
+		PersonAPIKeyService:      p.PersonAPIKeys,
 		ExecutionEngine:          p.ExecutionEngine,
 		JobService:               p.JobService,
 		ExternalTaskService:      p.ExternalTaskService,

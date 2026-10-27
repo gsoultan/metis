@@ -34,6 +34,17 @@ const EnvPreviousKey = "METIS_PEOPLE_TOKEN_KEY_PREVIOUS"
 // Prefix is how every People token starts. Anything else is not one.
 const Prefix = "v4.local."
 
+// APIKeyPrefix starts a person's API key, which their own systems present on
+// the People routes in place of a sign-in token. A key is not a PASETO token,
+// so it is told apart, and refused on the platform's routes, by this.
+const APIKeyPrefix = "mpk_"
+
+// IsPeopleCredential reports whether token is one the People routes take: a
+// sign-in token or an API key.
+func IsPeopleCredential(token string) bool {
+	return strings.HasPrefix(token, Prefix) || strings.HasPrefix(token, APIKeyPrefix)
+}
+
 // Audience is the one audience a People token names.
 const Audience = "people"
 

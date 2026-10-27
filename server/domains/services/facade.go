@@ -38,6 +38,8 @@ type ServiceFacade interface {
 
 	// TaskLinkService lets a person act on one task, once, through a link.
 	serviceContracts.TaskLinkService
+	// PersonAPIKeyService is the keys People give their own systems.
+	serviceContracts.PersonAPIKeyService
 	// PeopleSwitchOverService finds and fills what People lack before Users
 	// stop doing tasks.
 	serviceContracts.PeopleSwitchOverService

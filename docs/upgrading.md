@@ -834,6 +834,21 @@ To move an installation over:
 instance is changed by either, because a task keeps its names and only who
 may act on them changes.
 
+## Migration 48: personal API keys
+
+Migration 48 creates `person_api_keys`, one row per key a person in the
+People directory gives one of their own systems, with a foreign key to
+`workflow_users`. It is new and empty, but adding that key needs
+`workflow_users` for a moment, so the migration waits at most two seconds for
+it and then stops, saying that `workflow_users` was held by a long query or
+transaction. Start the server again once that ends.
+
+The table keeps only the SHA-256 of each key, never the key, and the first
+characters of it so a person can tell their keys apart.
+
+**Rolling back** leaves the table in place. The previous release neither
+reads nor writes it, and the keys it holds stop working with it.
+
 ## Migration 47: task links
 
 Migration 47 creates `task_links`, one row per link a task mails to a person

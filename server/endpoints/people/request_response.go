@@ -97,3 +97,29 @@ type CompleteByTaskLinkRequest struct {
 	Token     string         `json:"token"`
 	Variables map[string]any `json:"variables,omitzero"`
 }
+
+type APIKeysRequest struct{}
+
+type APIKeysResponse struct {
+	Keys []entities.PersonAPIKey `json:"keys"`
+	Err  error                   `json:"err,omitzero"`
+}
+
+func (r APIKeysResponse) Failed() error { return r.Err }
+
+type CreateAPIKeyRequest struct {
+	Name string `json:"name"`
+}
+
+// CreateAPIKeyResponse carries the key itself, the one time it is shown.
+type CreateAPIKeyResponse struct {
+	Key   *entities.PersonAPIKey `json:"key,omitzero"`
+	Token string                 `json:"token,omitzero"`
+	Err   error                  `json:"err,omitzero"`
+}
+
+func (r CreateAPIKeyResponse) Failed() error { return r.Err }
+
+type RevokeAPIKeyRequest struct {
+	ID string `json:"-"`
+}

@@ -236,7 +236,8 @@ func (a *App) peopleSignInService() servicecontracts.PeopleSignInService {
 		return serviceimpl.NewUnavailablePeopleSignInService(
 			"people cannot sign in: set " + peopletoken.EnvKey + " to enable it")
 	}
-	return serviceimpl.NewPeopleSignInService(pg.NewPersonSignInRepository(a.storm), a.peopleKeys)
+	return serviceimpl.NewPeopleSignInService(pg.NewPersonSignInRepository(a.storm), a.peopleKeys,
+		serviceimpl.WithPersonAPIKeys(pg.NewPersonAPIKeyRepository(a.storm)))
 }
 
 // platformUserService builds the account manager, or nothing.

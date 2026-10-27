@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,17 +23,33 @@ type peopleSignInService struct {
 	keys      *peopletoken.Keys
 	throttle  *loginthrottle.Throttle
 	now       func() time.Time
+	// apiKeys keeps the keys People give their systems. Nil, keys are not
+	// offered and none is accepted.
+	apiKeys repocontracts.PersonAPIKeyRepository
+}
+
+// PeopleSignInOption adjusts the People sign-in.
+type PeopleSignInOption func(*peopleSignInService)
+
+// WithPersonAPIKeys lets People make keys for their own systems, kept in
+// keys, and accepts those keys on the People routes.
+func WithPersonAPIKeys(keys repocontracts.PersonAPIKeyRepository) PeopleSignInOption {
+	return func(s *peopleSignInService) { s.apiKeys = keys }
 }
 
 // NewPeopleSignInService signs People in against a project's directory, with
 // tokens sealed by keys.
-func NewPeopleSignInService(directory repocontracts.PersonSignInRepository, keys *peopletoken.Keys) servicecontracts.PeopleSignInService {
-	return &peopleSignInService{
+func NewPeopleSignInService(directory repocontracts.PersonSignInRepository, keys *peopletoken.Keys, options ...PeopleSignInOption) servicecontracts.PeopleSignInService {
+	s := &peopleSignInService{
 		directory: directory,
 		keys:      keys,
 		throttle:  loginthrottle.New(),
 		now:       time.Now,
 	}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 // errPersonCredentials is every refusal a sign-in gives that could otherwise
@@ -85,6 +102,9 @@ func (s *peopleSignInService) SignInPerson(ctx context.Context, projectID uuid.U
 // password since the token was sealed is refused, without waiting for it to
 // expire.
 func (s *peopleSignInService) AuthenticatePerson(ctx context.Context, token string) (entities.Person, error) {
+	if strings.HasPrefix(token, PersonAPIKeyPrefix) {
+		return s.authenticateKey(ctx, token)
+	}
 	claims, err := s.keys.Read(token)
 	if err != nil {
 		return entities.Person{}, fmt.Errorf("%w: %w", auth.ErrUnauthorized, err)
