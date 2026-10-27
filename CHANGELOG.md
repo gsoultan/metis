@@ -1397,6 +1397,15 @@ does not undo a migration.
 
 ### Fixed
 
+- **A migration reports an instance it skipped once.** When two runs of one
+  migration overlapped, and the second moved an instance in the moment after
+  the first had skipped its step, the first counted the instance as changed
+  and also passed it over as already moved by another run, "not decided or
+  moved again". The instance itself was skipped once and moved once; only the
+  report, and the outcome an approved request keeps of its run, named it
+  twice. The skip stands, so the instance is counted as changed and is not
+  passed over.
+
 - **A step reached, a process started and a task created reach the browser
   and the webhooks.** An event about an instance the engine had in hand did
   not encode: a token it had just added points back at that instance, and the

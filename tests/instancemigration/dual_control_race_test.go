@@ -1,6 +1,7 @@
 package instancemigration
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"gorm.io/gorm"
 )
 
@@ -446,6 +448,11 @@ func TestTwoAsksForOneMigrationAtOnceMakeOneRequest(t *testing.T) {
 // resumes as any second run of one migration does: it moves nothing the
 // first moved, and between them every instance is skipped and moved once.
 // Once the run has reported, the request is spent, and no apply runs under it.
+//
+// Each run reports every instance it reached once: changed, or passed over.
+// An instance one run skipped and the other moved, in the moment between the
+// skip and the first run's rewrite, was changed by both, and is counted by
+// both — so the two counts add up to at least the instances, not exactly.
 func TestTwoRunsUnderOneApprovalMoveEachInstanceOnce(t *testing.T) {
 	const instances = 4
 	t.Run("the second run, whole, inside the first", func(t *testing.T) {
@@ -478,6 +485,50 @@ func TestTwoRunsUnderOneApprovalMoveEachInstanceOnce(t *testing.T) {
 			t.Fatalf("the request is %s with %v, want applied, saying the reporting run changed none and passed %d over", got, out.Request.Outcome, instances)
 		}
 	})
+	// The first run has skipped an instance and is about to lock it to move
+	// it, when the second run comes, whole, and moves it. The first run's
+	// skip stands: it counts the instance among what it changed, and does not
+	// also pass it over as "already moved" by another run, "not decided or
+	// moved again" — it decided it. It used to say both, so the one instance
+	// was reported twice by one run.
+	t.Run("the second run moves an instance the first has just skipped", func(t *testing.T) {
+		f, listing := newRacedFixture(t)
+		v1, v2 := f.severalParkedOnOpsApprove(t, instances)
+		opts := skipOps("the role was eliminated")
+		pending, err := f.svc.RequestMigrationApproval(adminAs(f.ctx, "dita"), v1, v2, nil, opts...)
+		if err != nil {
+			t.Fatalf("ask: %v", err)
+		}
+		under := append(slices.Clip(opts), asDita(), servicecontracts.WithApprovedRequest(pending.RequestID))
+		var second entities.MigrationResult
+		var secondErr error
+		fired := false
+		listing.atTheRewriteOfASkippedInstance(f.ctx, v1, func() {
+			fired = true
+			second, secondErr = f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, under...)
+		})
+		out, err := f.svc.ApproveDeviationRequest(adminAs(f.ctx, "omar"), pending.RequestID, "")
+		if !fired {
+			t.Fatal("no run locked an instance it had skipped; the test is not exercising the window")
+		}
+		if secondErr != nil || second.Changed != instances || len(second.PassedOver) != 0 {
+			t.Fatalf("the second run: %+v %v, want it to move all %d, the one already skipped among them", second, secondErr, instances)
+		}
+		if err != nil || out.MigrationResult == nil {
+			t.Fatalf("the first run: %+v %v", out, err)
+		}
+		first := out.MigrationResult
+		if first.Changed != 1 || len(first.PassedOver) != instances-1 {
+			t.Fatalf("the first run changed %d and passed over %d, want the one it skipped changed and the other %d passed over",
+				first.Changed, len(first.PassedOver), instances-1)
+		}
+		for _, passed := range first.PassedOver {
+			if passed.Cause != entities.PassedOverAlreadyMoved {
+				t.Fatalf("the first run passed over %s as %s, want already moved", passed.Instance.ID, passed.Cause)
+			}
+		}
+		f.requireEachSkippedOnce(t, v1, v2, pending.RequestID, instances)
+	})
 	for i := range freeRounds {
 		t.Run("both at once "+string(rune('a'+i)), func(t *testing.T) {
 			f, listing := newRacedFixture(t)
@@ -507,12 +558,64 @@ func TestTwoRunsUnderOneApprovalMoveEachInstanceOnce(t *testing.T) {
 			if err != nil || out.MigrationResult == nil {
 				t.Fatalf("the first run: %+v %v", out, err)
 			}
-			if moved := out.MigrationResult.Changed + second.Changed; moved != instances {
-				t.Fatalf("the two runs moved %d and %d instance(s), want %d between them", out.MigrationResult.Changed, second.Changed, instances)
+			// The first run listed every instance, and reports each once. The
+			// second listed those still on the old version when it began.
+			first := out.MigrationResult
+			if reported := first.Changed + len(first.PassedOver); reported != instances {
+				t.Fatalf("the first run changed %d and passed over %d, want each of the %d reported once", first.Changed, len(first.PassedOver), instances)
+			}
+			if reported := second.Changed + len(second.PassedOver); reported > instances {
+				t.Fatalf("the second run changed %d and passed over %d, more than the %d there are", second.Changed, len(second.PassedOver), instances)
+			}
+			if moved := first.Changed + second.Changed; moved < instances {
+				t.Fatalf("the two runs changed %d and %d instance(s), want every one of the %d changed by one of them", first.Changed, second.Changed, instances)
 			}
 			f.requireEachSkippedOnce(t, v1, v2, pending.RequestID, instances)
 		})
 	}
+}
+
+// skippedHook fires once, when a run is about to lock an instance that is
+// still on the source version and no longer on the operations approval: the
+// rewrite of an instance the run has just skipped, before it takes the lock.
+type skippedHook struct {
+	committed context.Context
+	source    uuid.UUID
+	fire      func()
+	fired     bool
+}
+
+// atTheRewriteOfASkippedInstance runs fire once, when the next lock is taken of
+// an instance on source that a skip has moved past the operations approval.
+// Whether it has is read as committed — through committed, outside the
+// locker's transaction — so the skip's own unit of work, which has advanced
+// the instance and not yet committed, does not fire it.
+func (p *hookedProcess) atTheRewriteOfASkippedInstance(committed context.Context, source uuid.UUID, fire func()) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.skipped = &skippedHook{committed: committed, source: source, fire: fire}
+}
+
+func (p *hookedProcess) GetForUpdate(ctx context.Context, id uuid.UUID) (models.ProcessInstanceModel, error) {
+	p.mu.Lock()
+	hook := p.skipped
+	armed := hook != nil && !hook.fired
+	p.mu.Unlock()
+	if armed {
+		now, err := p.ProcessRepository.Get(hook.committed, id)
+		if err == nil && uuid.UUID(now.DefinitionID) == hook.source && now.Status == models.ProcessActive && !holdsToken(now, "opsApprove") {
+			p.mu.Lock()
+			hook.fired = true
+			p.mu.Unlock()
+			hook.fire()
+		}
+	}
+	return p.ProcessRepository.GetForUpdate(ctx, id)
+}
+
+// holdsToken reports whether the instance has a token on nodeID.
+func holdsToken(instance models.ProcessInstanceModel, nodeID string) bool {
+	return slices.ContainsFunc(instance.Tokens, func(token models.Token) bool { return token.NodeID == nodeID })
 }
 
 // requireEachSkippedOnce fails unless every instance runs the new version,
