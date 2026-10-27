@@ -72,7 +72,9 @@ func (s *taskService) ListTasks(ctx context.Context, projectID uuid.UUID) ([]ent
 }
 
 func (s *taskService) ClaimTask(ctx context.Context, id uuid.UUID, userID string) error {
-	return s.claimAs(ctx, id, s.accountActor(userID))
+	return asPlatformActor("claim", id, userID, func() error {
+		return s.claimAs(ctx, id, s.accountActor(userID))
+	})
 }
 
 // claimAs claims a task for actor, whichever population they are from.
@@ -191,7 +193,9 @@ func (s *taskService) authorizeCandidateAs(ctx context.Context, task entities.Ta
 }
 
 func (s *taskService) CompleteTask(ctx context.Context, id uuid.UUID, userID string, vars map[string]any) error {
-	return s.completeAs(ctx, id, s.accountActor(userID), vars)
+	return asPlatformActor("complete", id, userID, func() error {
+		return s.completeAs(ctx, id, s.accountActor(userID), vars)
+	})
 }
 
 // completeAs completes a task as actor, whichever population they are from.

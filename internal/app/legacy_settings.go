@@ -21,6 +21,12 @@ func logLegacySettings() {
 				"and no candidates, because this setting is on. Give those steps an assignee or candidates, " +
 				"then turn it off.")
 	}
+	if serviceimpl.PlatformActorsAllowed() {
+		log.Info().
+			Str("setting", serviceimpl.EnvTasksAllowPlatformActors).
+			Msg("Users can still claim and complete the tasks that name them. Tasks are People's: the log names " +
+				"each User who does one. Move them to People, then set this to false.")
+	}
 	if serviceimpl.AllowUndeclaredTaskVariables() {
 		log.Warn().
 			Str("setting", serviceimpl.EnvAllowUndeclaredTaskVariables).

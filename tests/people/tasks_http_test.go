@@ -2,11 +2,13 @@ package people_test
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/pg"
 	"github.com/gsoultan/metis/tests/testutils"
@@ -203,5 +205,31 @@ func TestAPersonWorksTheirTasksThroughTheirOwnRoutes(t *testing.T) {
 	_, body = w.do(t, http.MethodGet, "/api/v1/people/tasks", token, nil)
 	if ids := listed(t, body); ids[named.ID] || ids[pool.ID] {
 		t.Fatalf("ada's list after finishing %s still shows finished work", body)
+	}
+}
+
+// TestOnceUsersNoLongerDoTasksOnlyPeopleDo: with the switch-over window
+// closed, a User's claim and completion are refused, and the person the task
+// names still does it through their own routes.
+func TestOnceUsersNoLongerDoTasksOnlyPeopleDo(t *testing.T) {
+	w := newWorld(t)
+	t.Setenv("METIS_TASKS_ALLOW_PLATFORM_ACTORS", "false")
+	ctx := entities.WithTenantContext(t.Context(), w.tenant(t))
+
+	named := w.startTask(t, w.project, "named", entities.Node{Assignee: "ada"})
+	if err := w.svc.ClaimTask(ctx, named.ID, "ada"); !errors.Is(err, apierr.ErrForbidden) {
+		t.Errorf("a User named ada claims ada's task = %v, want forbidden", err)
+	}
+	if err := w.svc.CompleteTask(ctx, named.ID, "ada", map[string]any{"approved": true}); !errors.Is(err, apierr.ErrForbidden) {
+		t.Errorf("a User named ada completes ada's task = %v, want forbidden", err)
+	}
+	if got := w.status(t, named.ID); got == entities.TaskCompleted {
+		t.Fatal("a User completed the task with the window closed")
+	}
+
+	token := w.signIn(t)
+	if code, body := w.do(t, http.MethodPost, "/api/v1/people/tasks/"+named.ID.String()+"/complete", token,
+		map[string]any{"variables": map[string]any{"approved": true}}); code != http.StatusOK {
+		t.Fatalf("ada completes her task as a person: %d %s", code, body)
 	}
 }

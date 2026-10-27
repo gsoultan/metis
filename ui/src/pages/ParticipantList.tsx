@@ -3,6 +3,7 @@ import {
   Badge,
   Button,
   Card,
+  CopyButton,
   Modal,
   PasswordInput,
   Group,
@@ -19,6 +20,7 @@ import { useState, useTransition } from 'react';
 import { PageHeader } from '../components/PageHeader';
 import { ParticipantImportModal } from '../components/ParticipantImportModal';
 import { ParticipantSources } from '../components/ParticipantSources';
+import { PeopleSwitchOver } from '../components/PeopleSwitchOver';
 import { EmptyState, ErrorState, TableLoadingState } from '../components/state';
 import {
   STANDING_LABELS,
@@ -61,6 +63,9 @@ const STANDING_COLOURS: Record<string, string> = {
 export function ParticipantList() {
   const { t } = useTranslation();
   const isAdmin = useAppStore((state) => hasRole(state.user, PRIVILEGED_ROLE));
+  const isDesigner = useAppStore((state) => hasRole(state.user, PRIVILEGED_ROLE) || hasRole(state.user, 'DESIGNER'));
+  const projectId = useAppStore((state) => state.currentProjectId);
+  const signInAddress = projectId ? `${window.location.origin}/p/?project=${encodeURIComponent(projectId)}` : '';
   const { data, isLoading, error, refetch } = useParticipants();
   const removeParticipant = useRemoveParticipant();
   const setPassword = useSetParticipantPassword();
@@ -115,6 +120,24 @@ export function ParticipantList() {
           </Button>
         }
       />
+
+      {signInAddress && (
+        <Card withBorder radius="lg" p="md">
+          <Group justify="space-between" wrap="nowrap">
+            <Stack gap={2}>
+              <Text fw={600} size="sm">{t('page.people.signInAddress')}</Text>
+              <Text size="sm" c="dimmed" style={{ wordBreak: 'break-all' }}>{signInAddress}</Text>
+            </Stack>
+            <CopyButton value={signInAddress}>
+              {({ copied, copy }) => (
+                <Button variant="light" size="xs" onClick={copy}>
+                  {copied ? t('page.people.copied') : t('page.people.copy')}
+                </Button>
+              )}
+            </CopyButton>
+          </Group>
+        </Card>
+      )}
 
       <Card withBorder radius="lg" p={0}>
         <Group p="md" justify="space-between">
@@ -236,6 +259,8 @@ export function ParticipantList() {
         refuses a non-admin either way; hiding it is so nobody is shown a
         control that will only ever say no.
       */}
+      {isDesigner && <PeopleSwitchOver />}
+
       {isAdmin && <ParticipantSources />}
 
       <Modal

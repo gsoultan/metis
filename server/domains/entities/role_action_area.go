@@ -43,6 +43,8 @@ var actionNouns = []struct{ noun, area string }{
 	{"PlatformRole", areaPlatform},
 	{"ParticipantSource", areaDirectories},
 	{"Participant", areaPeople},
+	// What a project's People lack before the switch-over, read and filled.
+	{"DirectoryGap", areaPeople},
 	{"Connector", areaConnectors},
 	{"Environment", areaEnvironments},
 	{"Definition", areaProcesses},

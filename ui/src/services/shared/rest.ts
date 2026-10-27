@@ -15,6 +15,17 @@ type RequestOptions = {
   checksCredentials?: boolean;
 };
 
+/** A reply the server refused, with the status it answered. */
+export class RequestError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "RequestError";
+    this.status = status;
+  }
+}
+
 const toErrorMessage = (statusText: string, fallback: string) => {
   if (statusText) {
     return statusText;
@@ -58,7 +69,7 @@ export const requestJSON = async <T>(path: string, options: RequestOptions = {})
     const errorMessage = typeof data.error === "string"
       ? data.error
       : toErrorMessage(response.statusText, "Request failed");
-    throw new Error(errorMessage);
+    throw new RequestError(errorMessage, response.status);
   }
 
   return data as T;

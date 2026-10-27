@@ -94,3 +94,29 @@ type SetParticipantPasswordResponse struct {
 }
 
 func (r SetParticipantPasswordResponse) Failed() error { return r.Err }
+
+type ListDirectoryGapsRequest struct {
+	ProjectID string `json:"project_id"`
+}
+
+type ListDirectoryGapsResponse struct {
+	Gaps []entities.DirectoryGap `json:"gaps"`
+	Err  error                   `json:"err,omitzero"`
+}
+
+func (r ListDirectoryGapsResponse) Failed() error { return r.Err }
+
+// FillDirectoryGapsRequest names the people and groups to add, each one a gap
+// the report listed.
+type FillDirectoryGapsRequest struct {
+	ProjectID string   `json:"project_id"`
+	People    []string `json:"people,omitzero"`
+	Groups    []string `json:"groups,omitzero"`
+}
+
+type FillDirectoryGapsResponse struct {
+	Result entities.DirectoryGapImport `json:"result"`
+	Err    error                       `json:"err,omitzero"`
+}
+
+func (r FillDirectoryGapsResponse) Failed() error { return r.Err }

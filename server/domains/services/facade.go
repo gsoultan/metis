@@ -38,6 +38,9 @@ type ServiceFacade interface {
 
 	// TaskLinkService lets a person act on one task, once, through a link.
 	serviceContracts.TaskLinkService
+	// PeopleSwitchOverService finds and fills what People lack before Users
+	// stop doing tasks.
+	serviceContracts.PeopleSwitchOverService
 	serviceContracts.ExecutionEngine
 	serviceContracts.JobService
 	serviceContracts.ExternalTaskService

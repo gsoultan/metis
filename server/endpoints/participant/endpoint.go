@@ -18,6 +18,8 @@ type Endpoints struct {
 	ImportParticipants     endpoint.Endpoint
 	RemoveParticipant      endpoint.Endpoint
 	SetParticipantPassword endpoint.Endpoint
+	ListDirectoryGaps      endpoint.Endpoint
+	FillDirectoryGaps      endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -27,6 +29,8 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		ImportParticipants:     MakeImportParticipantsEndpoint(s),
 		RemoveParticipant:      MakeRemoveParticipantEndpoint(s),
 		SetParticipantPassword: MakeSetParticipantPasswordEndpoint(s),
+		ListDirectoryGaps:      MakeListDirectoryGapsEndpoint(s),
+		FillDirectoryGaps:      MakeFillDirectoryGapsEndpoint(s),
 	}
 }
 
@@ -149,5 +153,41 @@ func MakeSetParticipantPasswordEndpoint(s services.ServiceFacade) endpoint.Endpo
 			return SetParticipantPasswordResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		return SetParticipantPasswordResponse{Err: s.SetWorkflowUserPassword(ctx, projectID, id, req.Password)}, nil
+	}
+}
+
+// MakeListDirectoryGapsEndpoint answers the names a project's work uses that
+// its People lack: the switch-over report.
+func MakeListDirectoryGapsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ListDirectoryGapsRequest)
+		if !ok {
+			return nil, fmt.Errorf("participant: expected a ListDirectoryGapsRequest, got %T", request)
+		}
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return ListDirectoryGapsResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
+		}
+		gaps, err := s.DirectoryGaps(ctx, projectID)
+		if gaps == nil {
+			gaps = []entities.DirectoryGap{}
+		}
+		return ListDirectoryGapsResponse{Gaps: gaps, Err: err}, nil
+	}
+}
+
+// MakeFillDirectoryGapsEndpoint adds the named gaps to the project's People.
+func MakeFillDirectoryGapsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(FillDirectoryGapsRequest)
+		if !ok {
+			return nil, fmt.Errorf("participant: expected a FillDirectoryGapsRequest, got %T", request)
+		}
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return FillDirectoryGapsResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
+		}
+		result, err := s.FillDirectoryGaps(ctx, projectID, req.People, req.Groups)
+		return FillDirectoryGapsResponse{Result: result, Err: err}, nil
 	}
 }

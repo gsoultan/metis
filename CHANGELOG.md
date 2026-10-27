@@ -497,6 +497,32 @@ does not undo a migration.
   expressions such as `${initiator}` are left alone. Both reads answer only
   for a project in the caller's own organization.
 
+- **People have a page of their own.** `<address>/p/?project=<id>` signs a
+  person in with their username and password and lists the tasks given or
+  offered to them. From there they take a task offered to several people,
+  give back one they took, and complete one with its form. The People page
+  shows the address to hand them. The People session lives in that browser
+  tab only, apart from any User session, and signing out of one leaves the
+  other alone.
+
+- **A switch-over window for moving tasks from Users to People.**
+  `METIS_TASKS_ALLOW_PLATFORM_ACTORS`, on by default, keeps today's
+  behaviour: a User a task names can claim and complete it. Each time one
+  does, the log names the User and the task, so whoever moves the
+  installation over can see who still relies on it. Set to `false`, a User's
+  claim and completion answer 403 and only People do tasks; setting it back
+  is the rollback. The default becomes off in a later release.
+
+- **The People page says what People lack before the switch-over.** *Check*
+  lists every name the project's open tasks and live models use, as
+  assignee, candidate user or candidate group, that is not a person or a
+  People group of the project, with where it is used. A name a User of the
+  organization has is added from their account, with no password; a group
+  the organization has is made a People group with its members. One button
+  adds all that can be added (`GET /api/v1/participants/gaps`,
+  `POST /api/v1/participants/gaps/fill`). Expressions such as `${initiator}`
+  are left out, and another organization's Users are never read.
+
 - **An audit log of what people did, across the organization.** Who waived,
   cancelled, held, migrated, reassigned, activated, approved or rejected
   what was written down on each instance's own history and nowhere it could
