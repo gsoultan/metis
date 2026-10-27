@@ -3644,6 +3644,189 @@ func (p FormWithProjectQuery) All(ctx context.Context, ex runtime.Executor) ([]F
 	return out, nil
 }
 
+// GroupWithMembersRow is groups with its Members loaded.
+//
+// Members is a field HERE and nowhere else: group.Row has no such field, so an
+// unloaded relation is not an empty slice, not a lazy fetch and not a
+// lint warning — it does not compile.
+type GroupWithMembersRow struct {
+	group.Row
+	Members []membership.Row
+}
+
+// GroupWithMembersQuery builds the plan. Every builder method is redeclared rather than
+// embedded: Go has no delegation, and an embedded Query would return
+// itself from Where(), dropping straight out of the plan.
+type GroupWithMembersQuery struct {
+	q          group.Query
+	childLimit int64
+	childOrder []membership.Sort
+	childTop   int64
+}
+
+// GroupWithMembers starts the plan.
+func GroupWithMembers() GroupWithMembersQuery {
+	return GroupWithMembersQuery{q: group.New(), childLimit: defaultChildLimit}
+}
+
+func (p GroupWithMembersQuery) Where(ps ...group.Pred) GroupWithMembersQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p GroupWithMembersQuery) WhereIf(cond bool, pr group.Pred) GroupWithMembersQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p GroupWithMembersQuery) Any(ps ...group.Pred) GroupWithMembersQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p GroupWithMembersQuery) Not(pr group.Pred) GroupWithMembersQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p GroupWithMembersQuery) NotAny(ps ...group.Pred) GroupWithMembersQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p GroupWithMembersQuery) Order(ts ...group.Sort) GroupWithMembersQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p GroupWithMembersQuery) Limit(n int64) GroupWithMembersQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p GroupWithMembersQuery) Offset(n int64) GroupWithMembersQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p GroupWithMembersQuery) After(r GroupWithMembersRow) GroupWithMembersQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p GroupWithMembersQuery) Err() error { return p.q.Err() }
+
+// ChildLimit caps the total children fetched ACROSS ALL PARENTS.
+//
+// It is a guard, not a page size. Fifty parents with ChildLimit(100) is
+// an error, not a hundred children each — the two queries fetch every
+// child of every matched parent in one batch, and the limit only exists
+// so that batch cannot silently come back partial.
+//
+// THERE IS NO PER-PARENT LIMIT. "Each parent with its first twenty
+// children" is greatest-n-per-group, and doing it in two round trips
+// needs LATERAL or row_number(); slicing in Go after the fact would
+// fetch everything and only look like a limit. It is not built yet.
+//
+// To page ONE parent's children — the common case — query the child
+// table directly, where Order, After and Limit all work:
+//
+//	membership.New().Where(membership.GroupID.Eq(id)).Order(...).After(last).Limit(20)
+func (p GroupWithMembersQuery) ChildLimit(n int64) GroupWithMembersQuery {
+	p.childLimit = n
+	return p
+}
+
+// ChildTop keeps at most n children PER PARENT — greatest-n-per-group,
+// still two round trips.
+//
+// This is the per-parent limit ChildLimit is not. "Fifty tenants, each
+// with its five newest people" is one query, not fifty, because the
+// limit is expressed in SQL rather than by looping or by slicing
+// afterwards — slicing would fetch every child and only look like a
+// limit.
+//
+// It REQUIRES ChildOrder, and that ordering must be a strict total order.
+// "The first three by date" with ties on that date returns an arbitrary
+// three, and a different arbitrary three next call — a bug that only
+// appears under data the developer did not have. Add the child's primary
+// key as a final term if the natural ordering is not unique.
+func (p GroupWithMembersQuery) ChildTop(n int64) GroupWithMembersQuery {
+	p.childTop = n
+	return p
+}
+
+// ChildOrder orders the children within each parent.
+//
+// Without it they arrive in the child table's default order, which is its
+// primary key — defined, but almost never what a caller wanted to show.
+func (p GroupWithMembersQuery) ChildOrder(ts ...membership.Sort) GroupWithMembersQuery {
+	p.childOrder = ts
+	return p
+}
+
+// All runs the plan in exactly TWO round trips, whatever the parent count.
+//
+// The mechanism is `= ANY($1)`: one placeholder binds the whole id list, so
+// fifty parents and five thousand produce the same SQL and share one
+// compiled statement. No join is involved, which is why M3 was never
+// actually blocked on join support.
+func (p GroupWithMembersQuery) All(ctx context.Context, ex runtime.Executor) ([]GroupWithMembersRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		// Round two would be `= ANY('{}')`, a guaranteed-empty query. Not
+		// issuing it is the difference between costing 2 round trips when
+		// there is work and 2 when there is none.
+		return nil, nil
+	}
+	out := make([]GroupWithMembersRow, len(parents))
+	ids := make([][16]byte, len(parents))
+	at := make(map[[16]byte]int, len(parents))
+	for i, r := range parents {
+		out[i] = GroupWithMembersRow{Row: r}
+		ids[i] = r.ID
+		at[r.ID] = i
+	}
+	var kids []membership.Row
+	if p.childTop > 0 {
+		// Per-parent limit: one query with the limit expressed in SQL.
+		kids, err = membership.BatchTopByGroupID(ctx, ex, ids, p.childTop, p.childOrder...)
+	} else {
+		// Unordered: the rows are bucketed into a map by parent, so a
+		// server-side sort is paid and then destroyed. ChildOrder still
+		// applies when given — order WITHIN a parent survives bucketing.
+		cq := membership.New().Unordered().Where(membership.GroupID.In(ids...)).Limit(p.childLimit)
+		if len(p.childOrder) > 0 {
+			cq = cq.Order(p.childOrder...)
+		}
+		kids, err = cq.All(ctx, ex, nil)
+	}
+	if err != nil {
+		return nil, err
+	}
+	// A partial relation load is worse than a failed one: every count
+	// computed from it is wrong and nothing says so. A per-parent load
+	// is bounded by construction, so the global guard does not apply.
+	if p.childTop == 0 && int64(len(kids)) >= p.childLimit {
+		return nil, runtime.ErrChildLimit
+	}
+	for _, k := range kids {
+		if i, ok := at[k.GroupID]; ok {
+			out[i].Members = append(out[i].Members, k)
+		}
+	}
+	return out, nil
+}
+
 // GroupWithOrganizationRow is groups with its Organization loaded.
 type GroupWithOrganizationRow struct {
 	group.Row
@@ -11909,6 +12092,219 @@ func (h DeploymentResourcesProbeQuery) Count(ctx context.Context, ex runtime.Exe
 	defer func() {
 		for _, cb := range cbs {
 			resource.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return 0, rows.Err()
+	}
+	return runtime.Int8(rows.RawValues()[0]), rows.Err()
+}
+
+// GroupMembersProbeQuery is a parent query with one or more existence probes against
+// memberships, combined with AND. Build it with GroupHavingMembers or
+// GroupNotHavingMembers and extend it with AndHaving/AndNotHaving.
+type GroupMembersProbeQuery struct {
+	q group.Query
+	p []groupMembersProbeQueryProbe
+}
+
+type groupMembersProbeQueryProbe struct {
+	c   membership.Query
+	neg bool
+}
+
+// GroupHavingMembers narrows q to rows with at least one matching memberships row —
+// the filtered semi-join, in one statement. The child predicates are
+// typed by the child's own package; ids and values meet only here.
+func GroupHavingMembers(q group.Query, ps ...membership.Pred) GroupMembersProbeQuery {
+	return GroupMembersProbeQuery{q: q}.AndHaving(ps...)
+}
+
+// GroupNotHavingMembers narrows q to rows with NO matching memberships row — the
+// filtered anti-join.
+//
+// Read the predicates carefully: this is "has no memberships row matching
+// these", not "has a memberships row that does not match". With no predicates
+// at all it is "has none". The two questions have different answers
+// whenever a parent has several children, and SQL spells them the same
+// way round.
+func GroupNotHavingMembers(q group.Query, ps ...membership.Pred) GroupMembersProbeQuery {
+	return GroupMembersProbeQuery{q: q}.AndNotHaving(ps...)
+}
+
+// AndHaving adds another EXISTS probe against memberships, ANDed with the
+// ones already there.
+func (h GroupMembersProbeQuery) AndHaving(ps ...membership.Pred) GroupMembersProbeQuery {
+	return h.probe(false, ps...)
+}
+
+// AndNotHaving adds a NOT EXISTS probe against memberships. This is how
+// "has one of these but none of those" is one statement:
+//
+//	GroupHavingMembers(q, bought).AndNotHaving(alsoBought)
+func (h GroupMembersProbeQuery) AndNotHaving(ps ...membership.Pred) GroupMembersProbeQuery {
+	return h.probe(true, ps...)
+}
+
+func (h GroupMembersProbeQuery) probe(neg bool, ps ...membership.Pred) GroupMembersProbeQuery {
+	// Copied rather than appended in place: a composer is a value, and
+	// two chains branching from one base must not share a backing array.
+	p := make([]groupMembersProbeQueryProbe, len(h.p), len(h.p)+1)
+	copy(p, h.p)
+	h.p = append(p, groupMembersProbeQueryProbe{c: membership.New().Unordered().Where(ps...), neg: neg})
+	return h
+}
+
+var groupMembersProbeQueryLowering = func() runtime.Lowering {
+	lw := group.Lowering()
+	parentFrag := lw.Frag
+	lw.Frag = func(op, col uint32) runtime.Frag {
+		if col >= runtime.ChildColBase {
+			return membership.FragOf(op, col-runtime.ChildColBase)
+		}
+		return parentFrag(op, col)
+	}
+	// The token's relation id picks the header: 0 positive, 1 negated.
+	// Both probes are the same relation, so only the polarity varies.
+	lw.Exists = func(rel uint32) string {
+		if rel == 1 {
+			return "NOT EXISTS (SELECT 1 FROM \"memberships\" AS \"_storm_e\" WHERE \"_storm_e\".\"group_id\" = \"groups\".\"id\""
+		}
+		return "EXISTS (SELECT 1 FROM \"memberships\" AS \"_storm_e\" WHERE \"_storm_e\".\"group_id\" = \"groups\".\"id\""
+	}
+	return lw
+}()
+
+var groupMembersProbeQueryCache = runtime.NewTreeCache()
+
+func (h GroupMembersProbeQuery) stmt(count bool) (*runtime.Stmt, []runtime.Tok) {
+	var buf [44]runtime.Tok
+	toks := h.tokens(buf[:0], count)
+	sel, cnt, limitSfx := group.StmtPieces()
+	prefix, suffix := sel, limitSfx
+	if count {
+		prefix, suffix = cnt, ""
+	}
+	if st := groupMembersProbeQueryCache.Get(toks); st != nil {
+		return st, toks
+	}
+	return groupMembersProbeQueryCache.Put(toks, runtime.SpliceTreeWhere(prefix, `"deleted_at" IS NULL`, toks, groupMembersProbeQueryLowering, suffix)), toks
+}
+
+// tokens appends the composed stream to dst: the parent's predicates,
+// each probe, and — unless count — the parent's ordering.
+func (h GroupMembersProbeQuery) tokens(dst []runtime.Tok, count bool) []runtime.Tok {
+	toks := h.q.PredToks(dst)
+	stack := 0
+	if len(toks) > 0 {
+		stack = 1
+	}
+	for _, pr := range h.p {
+		child := pr.c.PredToks(nil)
+		toks = runtime.OffsetCols(toks, child, runtime.ChildColBase)
+		arity := uint32(0)
+		if len(child) > 0 {
+			arity = 1 // the child stream reduces to one stack entry
+		}
+		rel := uint32(0)
+		if pr.neg {
+			rel = 1
+		}
+		toks = append(toks, runtime.MakeExists(rel, arity))
+		stack++
+	}
+	if stack > 1 {
+		toks = append(toks, runtime.MakeGroup(runtime.KAnd, uint32(stack)))
+	}
+	if !count {
+		toks = h.q.OrderToks(toks)
+	}
+	return toks
+}
+
+// bind returns the arguments in STREAM order: parent predicates, then
+// each probe's, then the parent's paging. Each probe takes its own
+// binder — bindPreds resets the arenas it fills, so two probes sharing
+// one binder would have the second silently overwrite the first.
+func (h GroupMembersProbeQuery) bind(pb *group.Binder, paging bool) ([]any, []*membership.Binder) {
+	args := h.q.BindPreds(pb, nil)
+	cbs := make([]*membership.Binder, 0, len(h.p))
+	for _, pr := range h.p {
+		cb := membership.GetBinder()
+		cbs = append(cbs, cb)
+		args = pr.c.BindPreds(cb, args)
+	}
+	if paging {
+		args = h.q.BindPaging(pb, args)
+	}
+	return args, cbs
+}
+
+func (h GroupMembersProbeQuery) err() error {
+	if err := h.q.Err(); err != nil {
+		return err
+	}
+	for _, pr := range h.p {
+		if err := pr.c.Err(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// All runs the composed statement.
+func (h GroupMembersProbeQuery) All(ctx context.Context, ex runtime.Executor) ([]group.Row, error) {
+	if err := h.err(); err != nil {
+		return nil, err
+	}
+	st, _ := h.stmt(false)
+	if st.Err != nil {
+		return nil, st.Err
+	}
+	pb := group.GetBinder()
+	defer group.PutBinder(pb)
+	args, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			membership.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	var out []group.Row
+	for rows.Next() {
+		out = append(out, group.Row{})
+		if err := group.Scan(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
+}
+
+// Count runs the composed count: no ordering, no paging.
+func (h GroupMembersProbeQuery) Count(ctx context.Context, ex runtime.Executor) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	st, _ := h.stmt(true)
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := group.GetBinder()
+	defer group.PutBinder(pb)
+	args, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			membership.PutBinder(cb)
 		}
 	}()
 	rows, err := ex.Query(ctx, st.SQL, args)

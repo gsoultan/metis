@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 
 	"github.com/google/uuid"
@@ -13,6 +14,9 @@ import (
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store"
+	"github.com/gsoultan/metis/server/repositories/store/group"
+	"github.com/gsoultan/metis/server/repositories/store/membership"
 	"github.com/gsoultan/metis/server/repositories/store/user"
 	"github.com/gsoultan/metis/server/repositories/store/userorganization"
 	"github.com/gsoultan/metis/server/repositories/store/userproject"
@@ -273,43 +277,43 @@ func (r *userRepository) HasAnotherAdministrator(ctx context.Context, organizati
 	return false, nil
 }
 
-// groupRolesOfAccount reads the roles of the live groups an account is in, for
-// the organizations it is still a member of. The join on user_organizations is
-// the rule, not a narrowing: a membership left behind in a group of an
-// organization the account has since left grants nothing there.
-const groupRolesOfAccount = `SELECT g.organization_id::text, g.roles::text
-	  FROM memberships m
-	  JOIN groups g ON g.id = m.group_id
-	  JOIN user_organizations uo ON uo.user_id = m.user_id AND uo.organization_id = g.organization_id
-	 WHERE m.user_id = $1
-	   AND g.deleted_at IS NULL`
-
 // GroupRolesByOrganization returns the roles an account holds through its
-// groups, by organization, each role once.
+// live groups, by organization, each role once. Only the groups of the
+// organizations it is still a member of count: a membership left behind in a
+// group of an organization the account has since left grants nothing there.
 func (r *userRepository) GroupRolesByOrganization(ctx context.Context, userID uuid.UUID) (map[uuid.UUID][]string, error) {
 	ex, err := r.conn.conn.MainExecutor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := ex.Query(ctx, groupRolesOfAccount, []any{userID})
+	memberships, err := userorganization.New().Where(userorganization.UserID.Eq(userID)).
+		Unordered().Limit(math.MaxInt64).All(ctx, ex, nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not read the roles the account's groups grant: %w", err)
 	}
-	defer rows.Close()
+	if len(memberships) == 0 {
+		return nil, nil
+	}
+	organizations := make([][16]byte, len(memberships))
+	for i, m := range memberships {
+		organizations[i] = m.OrganizationID
+	}
+	groups, err := store.GroupHavingMembers(
+		group.New().Where(group.OrganizationID.In(organizations...)).Unordered().Limit(math.MaxInt64),
+		membership.UserID.Eq(userID)).All(ctx, ex)
+	if err != nil {
+		return nil, fmt.Errorf("could not read the roles the account's groups grant: %w", err)
+	}
 	var out map[uuid.UUID][]string
-	for rows.Next() {
-		values := rows.RawValues()
-		if len(values) != 2 || len(values[1]) == 0 {
+	for _, g := range groups {
+		if len(g.Roles) == 0 {
 			continue
 		}
-		organization, err := uuid.ParseBytes(values[0])
-		if err != nil {
-			return nil, fmt.Errorf("could not read the organization of a group: %w", err)
-		}
 		var roles []string
-		if err := json.Unmarshal(values[1], &roles); err != nil {
+		if err := json.Unmarshal(g.Roles, &roles); err != nil {
 			return nil, fmt.Errorf("could not decode a group's roles: %w", err)
 		}
+		organization := uuid.UUID(g.OrganizationID)
 		for _, role := range roles {
 			if out == nil {
 				out = map[uuid.UUID][]string{}
@@ -318,9 +322,6 @@ func (r *userRepository) GroupRolesByOrganization(ctx context.Context, userID uu
 				out[organization] = append(out[organization], role)
 			}
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("could not read the roles the account's groups grant: %w", err)
 	}
 	return out, nil
 }

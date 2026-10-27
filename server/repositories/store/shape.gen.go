@@ -299,6 +299,7 @@ func _assertGroupShape(m m0.Group) {
 		m.Description,
 		m.Roles,
 		m.DeletedAt,
+		m.Members,
 	}
 }
 

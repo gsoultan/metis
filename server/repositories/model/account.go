@@ -134,6 +134,9 @@ type Group struct {
 	Roles storm.JSON
 
 	DeletedAt *time.Time
+
+	// Members is the inverse of Membership.Group: no column here.
+	Members []Membership
 }
 
 func (g *Group) Schema(t *storm.Table) {
