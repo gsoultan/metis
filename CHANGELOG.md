@@ -1421,6 +1421,13 @@ does not undo a migration.
   account that belongs to no organization at all was a 500. All three are 403
   now, with the reason; 401 is kept for a token that proves nothing.
 
+- **An organization is deleted only once it is empty.** Deleting an
+  organization only hid it: its members went on signing in to it and its
+  projects went on running, on one administrator's click. The delete is now
+  refused with a 400 that names what is still there, while anybody but the
+  caller is a member or any project is in it. Once it is empty it is deleted,
+  and the caller stops being a member of it.
+
 - **Whoever creates an organization administers it.** A new organization was
   created with nobody in it: its creator could not see it in their list,
   could not reach it, and was refused with "that organization is not yours"

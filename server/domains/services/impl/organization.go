@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -108,8 +109,71 @@ func (s *organizationService) UpdateOrganization(ctx context.Context, id uuid.UU
 	})
 }
 
+// DeleteOrganization deletes an organization nobody else is in and no project
+// is in.
+//
+// Deleting one only hid it: its members went on signing in to it and its
+// projects went on running, on one administrator's click. So it is refused,
+// naming what is still there, until those are gone — the projects deleted and
+// everybody but the caller taken out — and the caller leaves it with it.
 func (s *organizationService) DeleteOrganization(ctx context.Context, id uuid.UUID) error {
-	return s.repo.Organization().Delete(ctx, id)
+	if id == uuid.Nil {
+		return apierr.Invalidf("an organization is required")
+	}
+	caller := signedIn(ctx)
+	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		members, err := s.repo.User().ListByOrganization(txCtx, id)
+		if err != nil {
+			return err
+		}
+		others := 0
+		for _, m := range members {
+			if caller == nil || uuid.UUID(m.ID) != caller.ID {
+				others++
+			}
+		}
+		projects, err := s.repo.Project().ListByOrganization(txCtx, id)
+		if err != nil {
+			return err
+		}
+		if still := stillIn(others, len(projects)); still != "" {
+			return apierr.Invalidf("this organization still has %s; remove them before deleting it", still)
+		}
+		if err := s.repo.Organization().Delete(txCtx, id); err != nil {
+			return err
+		}
+		if caller == nil {
+			return nil
+		}
+		return s.repo.User().RemoveOrganization(txCtx, caller.ID, id)
+	})
+	if err != nil {
+		return err
+	}
+	if caller != nil {
+		s.forget(caller.ID)
+	}
+	return nil
+}
+
+// stillIn names what an organization still holds, or nothing.
+func stillIn(members, projects int) string {
+	var parts []string
+	if members > 0 {
+		parts = append(parts, howMany(members, "other member", "other members"))
+	}
+	if projects > 0 {
+		parts = append(parts, howMany(projects, "project", "projects"))
+	}
+	return strings.Join(parts, " and ")
+}
+
+// howMany is n of something, in words a sentence can use.
+func howMany(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }
 
 func (s *organizationService) CountOrganizations(ctx context.Context) (int64, error) {
