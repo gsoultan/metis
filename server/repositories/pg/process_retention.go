@@ -13,6 +13,8 @@ import (
 	"github.com/gsoultan/metis/server/repositories/model"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	"github.com/gsoultan/metis/server/repositories/store/retentionperiod"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // lockRetentionHolds waits for every transaction that is placing or
@@ -86,18 +88,37 @@ func (r *processRepository) ForgetFinished(ctx context.Context, now time.Time, f
 	}
 }
 
-// shortestPeriod reads model.ShortestRetentionPeriod; zero when no process
-// has one.
+// shortestPeriod is the shortest period any process has now, in days: the
+// least of each process's newest row; zero when no process has one.
+//
+// A page at a time, by offset, because a keyset cursor cannot follow an order
+// that mixes directions; there is a row per process that has a period, so
+// there is rarely a second page.
 func (r *processRepository) shortestPeriod(ctx context.Context) (int64, error) {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return 0, err
 	}
-	period, _, err := model.ShortestRetentionPeriod.One(ctx, ex)
-	if err != nil {
-		return 0, fmt.Errorf("could not read the processes' retention periods: %w", err)
+	newest := retentionperiod.New().
+		Order(retentionperiod.ProjectID.Asc(), retentionperiod.ProcessKey.Asc(),
+			retentionperiod.CreatedAt.Desc(), retentionperiod.ID.Desc()).
+		Limit(db.PruneBatch)
+	var shortest runtime.Null[int32]
+	var rows []retentionperiod.Row
+	for offset := int64(0); ; offset += db.PruneBatch {
+		rows, err = newest.Offset(offset).AllDistinctOn(ctx, ex, 2, rows[:0])
+		if err != nil {
+			return 0, fmt.Errorf("could not read the processes' retention periods: %w", err)
+		}
+		for _, p := range rows {
+			if p.Days.Valid && (!shortest.Valid || p.Days.V < shortest.V) {
+				shortest = p.Days
+			}
+		}
+		if len(rows) < db.PruneBatch {
+			return int64(shortest.V), nil
+		}
 	}
-	return int64(period.Days.V), nil
 }
 
 // forgetOneBatch removes one batch, with the holds and the periods held

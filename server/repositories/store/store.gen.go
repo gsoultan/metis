@@ -15729,11 +15729,6 @@ func (h WorkflowUserGroupsProbeQuery) UpdateAll(ctx context.Context, ex runtime.
 func init() {
 	storm.RegisterScanner(scanClaimTurn)
 	storm.RegisterScanner(scanOrganizationOf)
-	storm.RegisterScanner(scanPeriodDays)
-	storm.RegisterStatement(`SELECT min(days) AS days FROM (
-	SELECT DISTINCT ON (project_id, process_key) days FROM retention_periods
-	 ORDER BY project_id, process_key, created_at DESC, id DESC
-) newest`)
 	storm.RegisterStatement(`SELECT p.organization_id FROM process_instances AS i
 JOIN projects AS p ON p.id = i.project_id WHERE i.id = $1`)
 	storm.RegisterStatement(`WITH RECURSIVE held_up AS (
@@ -15836,10 +15831,5 @@ func scanClaimTurn(rv [][]byte, r *model.ClaimTurn, sl *runtime.Slab) error {
 
 func scanOrganizationOf(rv [][]byte, r *model.OrganizationOf, sl *runtime.Slab) error {
 	copy(r.OrganizationID[:], rv[0])
-	return nil
-}
-
-func scanPeriodDays(rv [][]byte, r *model.PeriodDays, sl *runtime.Slab) error {
-	r.Days = runtime.Nullable(rv[0], runtime.Int4)
 	return nil
 }

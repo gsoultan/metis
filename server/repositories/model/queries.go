@@ -2,7 +2,6 @@ package model
 
 import (
 	"github.com/gsoultan/storm"
-	"github.com/gsoultan/storm/runtime"
 )
 
 // Queries is every statement written in SQL rather than built from the model,
@@ -21,7 +20,6 @@ func Queries() []storm.RawDecl {
 		FairClaimableJobs,
 		InstanceOrganization,
 		ForgetFinishedInstances,
-		ShortestRetentionPeriod,
 	}
 }
 
@@ -178,15 +176,3 @@ var ForgetFinishedInstances = storm.SQLExec(`WITH RECURSIVE held_up AS (
 	DELETE FROM notifications WHERE instance_id IN (SELECT id FROM doomed)
 )
 DELETE FROM process_instances WHERE id IN (SELECT id FROM doomed)`)
-
-// PeriodDays is a number of days, or null when there is none.
-type PeriodDays struct {
-	Days runtime.Null[int32]
-}
-
-// ShortestRetentionPeriod is the shortest period any process has now, in
-// days, or null when none has one. SQL because storm has no DISTINCT ON.
-var ShortestRetentionPeriod = storm.SQL[PeriodDays](`SELECT min(days) AS days FROM (
-	SELECT DISTINCT ON (project_id, process_key) days FROM retention_periods
-	 ORDER BY project_id, process_key, created_at DESC, id DESC
-) newest`)
