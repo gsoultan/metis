@@ -1738,6 +1738,102 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 	return q.readStmt(q.stream(&buf)).SQL, q.bind(b)
 }
 
+// LiveRow is the "Live" aggregation over decision_releases.
+//
+// One row per group. The grouping columns come first, in declaration
+// order, and the result is ordered by them: PostgreSQL promises no
+// order for a GROUP BY, and an unordered report shuffles between
+// requests for no reason anyone can see.
+type LiveRow struct {
+	ProjectID   [16]byte
+	DecisionKey string
+	Version     runtime.Null[int64]
+	ActivateAt  runtime.Null[time.Time]
+}
+
+const livePrefix = `SELECT "project_id" AS "project_id", "decision_key" AS "decision_key", (array_agg("version" ORDER BY "activate_at" DESC))[1] AS "version", max("activate_at") AS "activate_at" FROM "decision_releases"`
+const liveSuffix = ` GROUP BY "project_id", "decision_key" ORDER BY "project_id", "decision_key"`
+
+var (
+	liveCache       = runtime.NewTreeCache()
+	liveOffsetCache = runtime.NewTreeCache()
+)
+
+func liveStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := liveCache, liveSuffix+limitSuffix
+	if withOffset {
+		c, suffix = liveOffsetCache, liveSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(livePrefix, softDeleteWhere, toks, lowering, suffix))
+}
+
+func scanLive(rv [][]byte, r *LiveRow, sl *runtime.Slab) error {
+	copy(r.ProjectID[:], rv[0])
+	r.DecisionKey = sl.Str(rv[1])
+	r.Version = runtime.Nullable(rv[2], runtime.Int8)
+	r.ActivateAt = runtime.Nullable(rv[3], runtime.Timestamptz)
+	return nil
+}
+
+// AllLive runs the "Live" aggregation. Predicates compose exactly as on All —
+// they filter the rows that go INTO the groups, which is the WHERE clause
+// and not a HAVING. Limit and offset page the groups.
+func (q Query) AllLive(ctx context.Context, ex runtime.Executor) ([]LiveRow, error) {
+	var sl runtime.Slab
+	return q.AllLiveInto(ctx, ex, nil, &sl)
+}
+
+// AllLiveInto lets the caller own the output slice and the arena.
+func (q Query) AllLiveInto(ctx context.Context, ex runtime.Executor, dst []LiveRow, sl *runtime.Slab) ([]LiveRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errLiveOrdered
+	}
+	if q.lock != 0 {
+		return dst, errLiveLocked
+	}
+	var buf [21]runtime.Tok
+	st := liveStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, LiveRow{})
+		if err := scanLive(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// LivePieces is the "Live" aggregation's statement around its
+// predicates, for the context package to splice a composed read into:
+// the SELECT … FROM, and the GROUP BY, ORDER BY and LIMIT after it.
+func LivePieces() (prefix, suffix string) { return livePrefix, liveSuffix + limitSuffix }
+
+// ScanLive decodes one row of the "Live" aggregation.
+func ScanLive(rv [][]byte, r *LiveRow, sl *runtime.Slab) error { return scanLive(rv, r, sl) }
+
+var errLiveLocked = errors.New(
+	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
+
+var errLiveOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and decision_releases.Live is already ordered by its grouping columns; sort the returned slice if you need another order")
+
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
 const insertSQL = `INSERT INTO "decision_releases" ("id", "created_at", "updated_at", "project_id", "decision_key", "activate_at", "version", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING "id", "created_at", "updated_at", "project_id", "decision_key", "activate_at", "version", "deleted_at"`

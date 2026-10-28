@@ -43,3 +43,13 @@ func (r *DecisionRelease) Schema(t *storm.Table) {
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&r.DeletedAt)
 }
+
+// Aggregates declares Live: each key's newest release, its version and its
+// moment. The caller says which releases count — the ones whose moment has
+// come.
+func (r *DecisionRelease) Aggregates(a *storm.Aggregates) {
+	live := a.Named("Live")
+	live.By(&r.Project, &r.DecisionKey)
+	live.FirstOf(&r.Version, "Version", a.Over().OrderByDesc(&r.ActivateAt))
+	live.Max(&r.ActivateAt, "ActivateAt")
+}

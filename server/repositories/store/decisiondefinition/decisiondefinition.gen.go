@@ -2458,6 +2458,658 @@ func (q Query) OneHighestVersion(ctx context.Context, ex runtime.Executor) (High
 	return out[0], nil
 }
 
+// KeysRow is the "Keys" aggregation over decision_definitions.
+//
+// One row per group. The grouping columns come first, in declaration
+// order, and the result is ordered by them: PostgreSQL promises no
+// order for a GROUP BY, and an unordered report shuffles between
+// requests for no reason anyone can see.
+type KeysRow struct {
+	ProjectID [16]byte
+	Key       string
+	Newest    runtime.Null[int64]
+	SavedAt   runtime.Null[time.Time]
+}
+
+const keysPrefix = `SELECT "project_id" AS "project_id", "key" AS "key", max("version") AS "newest", max("created_at") AS "saved_at" FROM "decision_definitions"`
+const keysSuffix = ` GROUP BY "project_id", "key" ORDER BY "project_id", "key"`
+
+var (
+	keysCache       = runtime.NewTreeCache()
+	keysOffsetCache = runtime.NewTreeCache()
+)
+
+func keysStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := keysCache, keysSuffix+limitSuffix
+	if withOffset {
+		c, suffix = keysOffsetCache, keysSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(keysPrefix, softDeleteWhere, toks, lowering, suffix))
+}
+
+func scanKeys(rv [][]byte, r *KeysRow, sl *runtime.Slab) error {
+	copy(r.ProjectID[:], rv[0])
+	r.Key = sl.Str(rv[1])
+	r.Newest = runtime.Nullable(rv[2], runtime.Int8)
+	r.SavedAt = runtime.Nullable(rv[3], runtime.Timestamptz)
+	return nil
+}
+
+// AllKeys runs the "Keys" aggregation. Predicates compose exactly as on All —
+// they filter the rows that go INTO the groups, which is the WHERE clause
+// and not a HAVING. Limit and offset page the groups.
+func (q Query) AllKeys(ctx context.Context, ex runtime.Executor) ([]KeysRow, error) {
+	var sl runtime.Slab
+	return q.AllKeysInto(ctx, ex, nil, &sl)
+}
+
+// AllKeysInto lets the caller own the output slice and the arena.
+func (q Query) AllKeysInto(ctx context.Context, ex runtime.Executor, dst []KeysRow, sl *runtime.Slab) ([]KeysRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errKeysOrdered
+	}
+	if q.lock != 0 {
+		return dst, errKeysLocked
+	}
+	var buf [21]runtime.Tok
+	st := keysStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, KeysRow{})
+		if err := scanKeys(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// KeysPieces is the "Keys" aggregation's statement around its
+// predicates, for the context package to splice a composed read into:
+// the SELECT … FROM, and the GROUP BY, ORDER BY and LIMIT after it.
+func KeysPieces() (prefix, suffix string) { return keysPrefix, keysSuffix + limitSuffix }
+
+// ScanKeys decodes one row of the "Keys" aggregation.
+func ScanKeys(rv [][]byte, r *KeysRow, sl *runtime.Slab) error { return scanKeys(rv, r, sl) }
+
+var errKeysLocked = errors.New(
+	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
+
+var errKeysOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and decision_definitions.Keys is already ordered by its grouping columns; sort the returned slice if you need another order")
+
+// joinFragTable is fragTable for a join: every column named with its table.
+var joinFragTable = [15][31]runtime.Frag{
+	{ // id
+		{}, // opNone
+		{A: "\"decision_definitions\".\"id\" = $", B: ""},
+		{A: "\"decision_definitions\".\"id\" <> $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"decision_definitions\".\"id\" = ANY($", B: ")"},
+		{A: "\"decision_definitions\".\"id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // created_at
+		{}, // opNone
+		{A: "\"decision_definitions\".\"created_at\" = $", B: ""},
+		{A: "\"decision_definitions\".\"created_at\" <> $", B: ""},
+		{A: "\"decision_definitions\".\"created_at\" > $", B: ""},
+		{A: "\"decision_definitions\".\"created_at\" >= $", B: ""},
+		{A: "\"decision_definitions\".\"created_at\" < $", B: ""},
+		{A: "\"decision_definitions\".\"created_at\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // updated_at
+		{}, // opNone
+		{A: "\"decision_definitions\".\"updated_at\" = $", B: ""},
+		{A: "\"decision_definitions\".\"updated_at\" <> $", B: ""},
+		{A: "\"decision_definitions\".\"updated_at\" > $", B: ""},
+		{A: "\"decision_definitions\".\"updated_at\" >= $", B: ""},
+		{A: "\"decision_definitions\".\"updated_at\" < $", B: ""},
+		{A: "\"decision_definitions\".\"updated_at\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // project_id
+		{}, // opNone
+		{A: "\"decision_definitions\".\"project_id\" = $", B: ""},
+		{A: "\"decision_definitions\".\"project_id\" <> $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"decision_definitions\".\"project_id\" = ANY($", B: ")"},
+		{A: "\"decision_definitions\".\"project_id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // key
+		{}, // opNone
+		{A: "\"decision_definitions\".\"key\" = $", B: ""},
+		{A: "\"decision_definitions\".\"key\" <> $", B: ""},
+		{A: "\"decision_definitions\".\"key\" > $", B: ""},
+		{A: "\"decision_definitions\".\"key\" >= $", B: ""},
+		{A: "\"decision_definitions\".\"key\" < $", B: ""},
+		{A: "\"decision_definitions\".\"key\" <= $", B: ""},
+		{A: "lower(\"decision_definitions\".\"key\") = lower($", B: ")"},
+		{A: "\"decision_definitions\".\"key\" LIKE $", B: ""},
+		{A: "\"decision_definitions\".\"key\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"decision_definitions\".\"key\" = ANY($", B: ")"},
+		{A: "\"decision_definitions\".\"key\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // name
+		{}, // opNone
+		{A: "\"decision_definitions\".\"name\" = $", B: ""},
+		{A: "\"decision_definitions\".\"name\" <> $", B: ""},
+		{A: "\"decision_definitions\".\"name\" > $", B: ""},
+		{A: "\"decision_definitions\".\"name\" >= $", B: ""},
+		{A: "\"decision_definitions\".\"name\" < $", B: ""},
+		{A: "\"decision_definitions\".\"name\" <= $", B: ""},
+		{A: "lower(\"decision_definitions\".\"name\") = lower($", B: ")"},
+		{A: "\"decision_definitions\".\"name\" LIKE $", B: ""},
+		{A: "\"decision_definitions\".\"name\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"decision_definitions\".\"name\" = ANY($", B: ")"},
+		{A: "\"decision_definitions\".\"name\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // version
+		{}, // opNone
+		{A: "\"decision_definitions\".\"version\" = $", B: ""},
+		{A: "\"decision_definitions\".\"version\" <> $", B: ""},
+		{A: "\"decision_definitions\".\"version\" > $", B: ""},
+		{A: "\"decision_definitions\".\"version\" >= $", B: ""},
+		{A: "\"decision_definitions\".\"version\" < $", B: ""},
+		{A: "\"decision_definitions\".\"version\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"decision_definitions\".\"version\" = ANY($", B: ")"},
+		{A: "\"decision_definitions\".\"version\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // hit_policy
+		{}, // opNone
+		{A: "\"decision_definitions\".\"hit_policy\" = $", B: ""},
+		{A: "\"decision_definitions\".\"hit_policy\" <> $", B: ""},
+		{A: "\"decision_definitions\".\"hit_policy\" > $", B: ""},
+		{A: "\"decision_definitions\".\"hit_policy\" >= $", B: ""},
+		{A: "\"decision_definitions\".\"hit_policy\" < $", B: ""},
+		{A: "\"decision_definitions\".\"hit_policy\" <= $", B: ""},
+		{A: "lower(\"decision_definitions\".\"hit_policy\") = lower($", B: ")"},
+		{A: "\"decision_definitions\".\"hit_policy\" LIKE $", B: ""},
+		{A: "\"decision_definitions\".\"hit_policy\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"decision_definitions\".\"hit_policy\" = ANY($", B: ")"},
+		{A: "\"decision_definitions\".\"hit_policy\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // aggregation
+		{}, // opNone
+		{A: "\"decision_definitions\".\"aggregation\" = $", B: ""},
+		{A: "\"decision_definitions\".\"aggregation\" <> $", B: ""},
+		{A: "\"decision_definitions\".\"aggregation\" > $", B: ""},
+		{A: "\"decision_definitions\".\"aggregation\" >= $", B: ""},
+		{A: "\"decision_definitions\".\"aggregation\" < $", B: ""},
+		{A: "\"decision_definitions\".\"aggregation\" <= $", B: ""},
+		{A: "lower(\"decision_definitions\".\"aggregation\") = lower($", B: ")"},
+		{A: "\"decision_definitions\".\"aggregation\" LIKE $", B: ""},
+		{A: "\"decision_definitions\".\"aggregation\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"decision_definitions\".\"aggregation\" = ANY($", B: ")"},
+		{A: "\"decision_definitions\".\"aggregation\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"decision_definitions\".\"aggregation\" IS NULL", B: ""},
+		{A: "\"decision_definitions\".\"aggregation\" IS NOT NULL", B: ""},
+		{},
+		{A: "COALESCE(\"decision_definitions\".\"aggregation\", '') = ''", B: ""},
+		{},
+		{},
+	},
+	{ // required_decisions
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"decision_definitions\".\"required_decisions\" @> $", B: ""},
+		{A: "\"decision_definitions\".\"required_decisions\" <@ $", B: ""},
+		{A: "\"decision_definitions\".\"required_decisions\" ?| $", B: ""},
+		{A: "\"decision_definitions\".\"required_decisions\" ?& $", B: ""},
+		{A: "COALESCE(\"decision_definitions\".\"required_decisions\"::text, '') LIKE ANY($", B: ")"},
+		{},
+		{},
+		{A: "COALESCE(\"decision_definitions\".\"required_decisions\"::text, '') IN ('', 'null', '[]', '{}')", B: ""},
+		{},
+		{},
+		{},
+	},
+	{ // inputs
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"decision_definitions\".\"inputs\" @> $", B: ""},
+		{A: "\"decision_definitions\".\"inputs\" <@ $", B: ""},
+		{A: "\"decision_definitions\".\"inputs\" ?| $", B: ""},
+		{A: "\"decision_definitions\".\"inputs\" ?& $", B: ""},
+		{A: "COALESCE(\"decision_definitions\".\"inputs\"::text, '') LIKE ANY($", B: ")"},
+		{},
+		{},
+		{A: "COALESCE(\"decision_definitions\".\"inputs\"::text, '') IN ('', 'null', '[]', '{}')", B: ""},
+		{},
+		{},
+		{},
+	},
+	{ // outputs
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"decision_definitions\".\"outputs\" @> $", B: ""},
+		{A: "\"decision_definitions\".\"outputs\" <@ $", B: ""},
+		{A: "\"decision_definitions\".\"outputs\" ?| $", B: ""},
+		{A: "\"decision_definitions\".\"outputs\" ?& $", B: ""},
+		{A: "COALESCE(\"decision_definitions\".\"outputs\"::text, '') LIKE ANY($", B: ")"},
+		{},
+		{},
+		{A: "COALESCE(\"decision_definitions\".\"outputs\"::text, '') IN ('', 'null', '[]', '{}')", B: ""},
+		{},
+		{},
+		{},
+	},
+	{ // rules
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"decision_definitions\".\"rules\" @> $", B: ""},
+		{A: "\"decision_definitions\".\"rules\" <@ $", B: ""},
+		{A: "\"decision_definitions\".\"rules\" ?| $", B: ""},
+		{A: "\"decision_definitions\".\"rules\" ?& $", B: ""},
+		{A: "COALESCE(\"decision_definitions\".\"rules\"::text, '') LIKE ANY($", B: ")"},
+		{},
+		{},
+		{A: "COALESCE(\"decision_definitions\".\"rules\"::text, '') IN ('', 'null', '[]', '{}')", B: ""},
+		{},
+		{},
+		{},
+	},
+	{ // tests
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"decision_definitions\".\"tests\" @> $", B: ""},
+		{A: "\"decision_definitions\".\"tests\" <@ $", B: ""},
+		{A: "\"decision_definitions\".\"tests\" ?| $", B: ""},
+		{A: "\"decision_definitions\".\"tests\" ?& $", B: ""},
+		{A: "COALESCE(\"decision_definitions\".\"tests\"::text, '') LIKE ANY($", B: ")"},
+		{},
+		{},
+		{A: "COALESCE(\"decision_definitions\".\"tests\"::text, '') IN ('', 'null', '[]', '{}')", B: ""},
+		{},
+		{},
+		{},
+	},
+	{ // deleted_at
+		{}, // opNone
+		{A: "\"decision_definitions\".\"deleted_at\" = $", B: ""},
+		{A: "\"decision_definitions\".\"deleted_at\" <> $", B: ""},
+		{A: "\"decision_definitions\".\"deleted_at\" > $", B: ""},
+		{A: "\"decision_definitions\".\"deleted_at\" >= $", B: ""},
+		{A: "\"decision_definitions\".\"deleted_at\" < $", B: ""},
+		{A: "\"decision_definitions\".\"deleted_at\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"decision_definitions\".\"deleted_at\" IS NULL", B: ""},
+		{A: "\"decision_definitions\".\"deleted_at\" IS NOT NULL", B: ""},
+		{},
+		{},
+		{},
+		{},
+	},
+}
+
+func joinFragOf(op, col uint32) runtime.Frag {
+	if int(col) >= len(joinFragTable) || int(op) >= len(joinFragTable[0]) {
+		return runtime.Frag{}
+	}
+	return joinFragTable[col][op]
+}
+
+// joinLowering is lowering with qualified predicates. A join takes no
+// call-site order and no cursor, so qualifying the predicates is all
+// it needs.
+var joinLowering = func() runtime.Lowering {
+	l := lowering
+	l.Frag = joinFragOf
+	return l
+}()
+
+// JoinLowering is joinLowering, exported for the composers that run
+// this table's joins with narrowed CTEs.
+func JoinLowering() runtime.Lowering { return joinLowering }
+
+// ShownRow is the "Shown" join: 11 column(s) from 4 table(s).
+//
+// A flat projection, not a graph. Any column taken through a LEFT join is
+// nullable whatever its own constraint says — that is what a LEFT join
+// means, and typing it otherwise would decode a missing match as a zero.
+type ShownRow struct {
+	ID                [16]byte
+	ProjectID         [16]byte
+	Key               string
+	Name              string
+	Version           int64
+	RequiredDecisions runtime.JSON
+	HitPolicy         string
+	LiveVersion       runtime.Null[int64]
+	Newest            runtime.Null[int64]
+	SavedAt           runtime.Null[time.Time]
+	ActivatedAt       runtime.Null[time.Time]
+}
+
+func scanShown(rv [][]byte, r *ShownRow, sl *runtime.Slab) error {
+	copy(r.ID[:], rv[0])
+	copy(r.ProjectID[:], rv[1])
+	r.Key = sl.Str(rv[2])
+	r.Name = sl.Str(rv[3])
+	r.Version = runtime.Int8(rv[4])
+	r.RequiredDecisions = runtime.JSON(runtime.JSONB(rv[5], sl))
+	r.HitPolicy = sl.Str(rv[6])
+	r.LiveVersion = runtime.Nullable(rv[7], runtime.Int8)
+	r.Newest = runtime.Nullable(rv[8], runtime.Int8)
+	r.SavedAt = runtime.Nullable(rv[9], runtime.Timestamptz)
+	r.ActivatedAt = runtime.Nullable(rv[10], runtime.Timestamptz)
+	return nil
+}
+
+// ScanShown decodes one Shown row, for the composer that runs the join.
+func ScanShown(rv [][]byte, r *ShownRow, sl *runtime.Slab) error { return scanShown(rv, r, sl) }
+
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
 const insertSQL = `INSERT INTO "decision_definitions" ("id", "created_at", "updated_at", "project_id", "key", "name", "version", "hit_policy", "aggregation", "required_decisions", "inputs", "outputs", "rules", "tests", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING "id", "created_at", "updated_at", "project_id", "key", "name", "version", "hit_policy", "aggregation", "required_decisions", "inputs", "outputs", "rules", "tests", "deleted_at"`

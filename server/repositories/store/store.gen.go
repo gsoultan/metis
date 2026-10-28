@@ -15954,6 +15954,186 @@ func (h WorkflowUserGroupsProbeQuery) UpdateAll(ctx context.Context, ex runtime.
 	return ex.Exec(ctx, st.SQL, append(args, read...))
 }
 
+// DecisionDefinitionShownQuery runs the "Shown" join of decision_definitions: one query for its own rows and one for
+// each CTE it narrows, whose predicates choose the rows that CTE
+// aggregates. Build it with DecisionDefinitionShown.
+type DecisionDefinitionShownQuery struct {
+	q  decisiondefinition.Query
+	w0 decisiondefinition.Query // keys
+	w1 decisionrelease.Query    // released
+}
+
+// DecisionDefinitionShown composes the "Shown" join: q chooses decision_definitions's rows, and each
+// further query the rows of the CTE it is named for, in declaration order.
+func DecisionDefinitionShown(q decisiondefinition.Query, keys decisiondefinition.Query, released decisionrelease.Query) DecisionDefinitionShownQuery {
+	return DecisionDefinitionShownQuery{q: q, w0: keys, w1: released}
+}
+
+// decisionDefinitionShownCTEs are each CTE's head, declared predicate and tail.
+var decisionDefinitionShownCTEs = [2][3]string{
+	{`WITH "keys" AS (SELECT "project_id" AS "project_id", "key" AS "key", max("version") AS "newest", max("created_at") AS "saved_at" FROM "decision_definitions"`, `"deleted_at" IS NULL`, ` GROUP BY "project_id", "key" ORDER BY "project_id", "key")`},
+	{`, "released" AS (SELECT "project_id" AS "project_id", "decision_key" AS "decision_key", (array_agg("version" ORDER BY "activate_at" DESC))[1] AS "version", max("activate_at") AS "activate_at" FROM "decision_releases"`, `"deleted_at" IS NULL`, ` GROUP BY "project_id", "decision_key" ORDER BY "project_id", "decision_key")`},
+}
+
+const (
+	decisionDefinitionShownSelect = ` SELECT "decision_definitions"."id" AS "id", "decision_definitions"."project_id" AS "project_id", "decision_definitions"."key" AS "key", "decision_definitions"."name" AS "name", "decision_definitions"."version" AS "version", "decision_definitions"."required_decisions" AS "required_decisions", "decision_definitions"."hit_policy" AS "hit_policy", "live"."version" AS "live_version", "keys"."newest" AS "newest", "keys"."saved_at" AS "saved_at", "released"."activate_at" AS "activated_at" FROM "decision_definitions" JOIN "keys" ON ("keys"."project_id" = "decision_definitions"."project_id" AND "keys"."key" = "decision_definitions"."key") LEFT JOIN "released" ON ("released"."project_id" = "decision_definitions"."project_id" AND "released"."decision_key" = "decision_definitions"."key") LEFT JOIN "decision_definitions" AS "live" ON ("decision_definitions"."project_id" = "live"."project_id" AND "decision_definitions"."key" = "live"."key" AND "released"."version" = "live"."version") AND "live"."deleted_at" IS NULL`
+	decisionDefinitionShownCount  = ` SELECT count(*) FROM "decision_definitions" JOIN "keys" ON ("keys"."project_id" = "decision_definitions"."project_id" AND "keys"."key" = "decision_definitions"."key") LEFT JOIN "released" ON ("released"."project_id" = "decision_definitions"."project_id" AND "released"."decision_key" = "decision_definitions"."key") LEFT JOIN "decision_definitions" AS "live" ON ("decision_definitions"."project_id" = "live"."project_id" AND "decision_definitions"."key" = "live"."key" AND "released"."version" = "live"."version") AND "live"."deleted_at" IS NULL`
+	decisionDefinitionShownWhere  = `("decision_definitions"."version" = coalesce("live"."version", "keys"."newest")) AND "decision_definitions"."deleted_at" IS NULL`
+	decisionDefinitionShownSuffix = ` ORDER BY "decision_definitions"."key", "decision_definitions"."project_id"`
+	decisionDefinitionShownLimit  = ` LIMIT $`
+	decisionDefinitionShownPaged  = ` LIMIT $ OFFSET $`
+)
+
+var decisionDefinitionShownCache = runtime.NewTreeCache()
+
+var errDecisionDefinitionShown = errors.New(
+	"storm: the Shown join takes no Order() and no row lock, and its narrowing queries take predicates alone — no Order, Limit, Offset or row lock")
+
+func (h DecisionDefinitionShownQuery) err() error {
+	if err := h.q.Err(); err != nil {
+		return err
+	}
+	if h.q.Ordered() || h.q.Locked() {
+		return errDecisionDefinitionShown
+	}
+	if err := h.w0.Err(); err != nil {
+		return err
+	}
+	if h.w0.Ordered() || h.w0.Shaped() {
+		return errDecisionDefinitionShown
+	}
+	if err := h.w1.Err(); err != nil {
+		return err
+	}
+	if h.w1.Ordered() || h.w1.Shaped() {
+		return errDecisionDefinitionShown
+	}
+	return nil
+}
+
+// stmt compiles the streams once per shape. The key is a flag, each
+// stream's length, then the streams.
+func (h DecisionDefinitionShownQuery) stmt(count, paged bool) *runtime.Stmt {
+	var b0 [44]runtime.Tok
+	t0 := h.w0.PredToks(b0[:0])
+	var b1 [44]runtime.Tok
+	t1 := h.w1.PredToks(b1[:0])
+	var bq [44]runtime.Tok
+	tq := h.q.PredToks(bq[:0])
+	var kb [136]runtime.Tok
+	flag := runtime.Tok(0)
+	if count {
+		flag = 1
+	} else if paged {
+		flag = 2
+	}
+	key := append(kb[:0], flag)
+	key = append(key, runtime.Tok(len(t0)))
+	key = append(key, t0...)
+	key = append(key, runtime.Tok(len(t1)))
+	key = append(key, t1...)
+	key = append(key, runtime.Tok(len(tq)))
+	key = append(key, tq...)
+	if st := decisionDefinitionShownCache.Get(key); st != nil {
+		return st
+	}
+	var (
+		sql string
+		n   int
+		err error
+	)
+	var st *runtime.Stmt
+	st = runtime.SpliceTreeWhereFrom(decisionDefinitionShownCTEs[0][0], decisionDefinitionShownCTEs[0][1], t0, decisiondefinition.Lowering(), decisionDefinitionShownCTEs[0][2], n)
+	sql, n = sql+st.SQL, st.NArg
+	if err == nil {
+		err = st.Err
+	}
+	st = runtime.SpliceTreeWhereFrom(decisionDefinitionShownCTEs[1][0], decisionDefinitionShownCTEs[1][1], t1, decisionrelease.Lowering(), decisionDefinitionShownCTEs[1][2], n)
+	sql, n = sql+st.SQL, st.NArg
+	if err == nil {
+		err = st.Err
+	}
+	head, tail := decisionDefinitionShownSelect, decisionDefinitionShownSuffix+decisionDefinitionShownLimit
+	if paged {
+		tail = decisionDefinitionShownSuffix + decisionDefinitionShownPaged
+	}
+	if count {
+		head, tail = decisionDefinitionShownCount, ""
+	}
+	st = runtime.SpliceTreeWhereFrom(head, decisionDefinitionShownWhere, tq, decisiondefinition.JoinLowering(), tail, n)
+	sql, n = sql+st.SQL, st.NArg
+	if err == nil {
+		err = st.Err
+	}
+	return decisionDefinitionShownCache.Put(key, &runtime.Stmt{SQL: sql, NArg: n, Err: err})
+}
+
+// All runs the join: its rows in the declared order, paged by q.
+func (h DecisionDefinitionShownQuery) All(ctx context.Context, ex runtime.Executor) ([]decisiondefinition.ShownRow, error) {
+	if err := h.err(); err != nil {
+		return nil, err
+	}
+	st := h.stmt(false, h.q.Paged())
+	if st.Err != nil {
+		return nil, st.Err
+	}
+	args := make([]any, 0, st.NArg)
+	b0 := decisiondefinition.GetBinder()
+	defer decisiondefinition.PutBinder(b0)
+	args = h.w0.BindPreds(b0, args)
+	b1 := decisionrelease.GetBinder()
+	defer decisionrelease.PutBinder(b1)
+	args = h.w1.BindPreds(b1, args)
+	pb := decisiondefinition.GetBinder()
+	defer decisiondefinition.PutBinder(pb)
+	args = h.q.BindPreds(pb, args)
+	args = h.q.BindPaging(pb, args)
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	var out []decisiondefinition.ShownRow
+	for rows.Next() {
+		out = append(out, decisiondefinition.ShownRow{})
+		if err := decisiondefinition.ScanShown(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
+}
+
+// Count counts the rows All would return before paging.
+func (h DecisionDefinitionShownQuery) Count(ctx context.Context, ex runtime.Executor) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	st := h.stmt(true, false)
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	args := make([]any, 0, st.NArg)
+	b0 := decisiondefinition.GetBinder()
+	defer decisiondefinition.PutBinder(b0)
+	args = h.w0.BindPreds(b0, args)
+	b1 := decisionrelease.GetBinder()
+	defer decisionrelease.PutBinder(b1)
+	args = h.w1.BindPreds(b1, args)
+	pb := decisiondefinition.GetBinder()
+	defer decisiondefinition.PutBinder(pb)
+	args = h.q.BindPreds(pb, args)
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return 0, rows.Err()
+	}
+	return runtime.Int8(rows.RawValues()[0]), rows.Err()
+}
+
 const lockTimeoutSQL = "SELECT set_config('lock_timeout', $1, true)"
 
 // LockTimeout bounds how long each later statement of this transaction
