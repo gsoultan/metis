@@ -20,6 +20,7 @@ import { useAppStore } from '../store/useAppStore';
 import { hasRole } from '../domain/access';
 import { PRIVILEGED_ROLE } from '../domain/roles';
 import { EnvironmentSettings } from '../components/EnvironmentSettings';
+import { ServerSettings } from '../components/settings/ServerSettings';
 import { PageHeader } from '../components/PageHeader';
 import { useTranslation } from '../i18n/context';
 
@@ -47,6 +48,10 @@ export function Settings() {
         the thing an administrator opens this page to change.
       */}
       {isAdmin && <EnvironmentSettings />}
+
+      {/* The server's own settings. The server decides who may read them — a
+          platform administrator — and says so to anybody else. */}
+      {isAdmin && <ServerSettings />}
 
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
         <Stack gap="lg">
