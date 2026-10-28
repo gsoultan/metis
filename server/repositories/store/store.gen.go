@@ -10670,6 +10670,189 @@ func (p UserProjectWithUserQuery) All(ctx context.Context, ex runtime.Executor) 
 	return out, nil
 }
 
+// UserWithOrganizationsRow is users with its Organizations loaded.
+//
+// Organizations is a field HERE and nowhere else: user.Row has no such field, so an
+// unloaded relation is not an empty slice, not a lazy fetch and not a
+// lint warning — it does not compile.
+type UserWithOrganizationsRow struct {
+	user.Row
+	Organizations []userorganization.Row
+}
+
+// UserWithOrganizationsQuery builds the plan. Every builder method is redeclared rather than
+// embedded: Go has no delegation, and an embedded Query would return
+// itself from Where(), dropping straight out of the plan.
+type UserWithOrganizationsQuery struct {
+	q          user.Query
+	childLimit int64
+	childOrder []userorganization.Sort
+	childTop   int64
+}
+
+// UserWithOrganizations starts the plan.
+func UserWithOrganizations() UserWithOrganizationsQuery {
+	return UserWithOrganizationsQuery{q: user.New(), childLimit: defaultChildLimit}
+}
+
+func (p UserWithOrganizationsQuery) Where(ps ...user.Pred) UserWithOrganizationsQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p UserWithOrganizationsQuery) WhereIf(cond bool, pr user.Pred) UserWithOrganizationsQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p UserWithOrganizationsQuery) Any(ps ...user.Pred) UserWithOrganizationsQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p UserWithOrganizationsQuery) Not(pr user.Pred) UserWithOrganizationsQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p UserWithOrganizationsQuery) NotAny(ps ...user.Pred) UserWithOrganizationsQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p UserWithOrganizationsQuery) Order(ts ...user.Sort) UserWithOrganizationsQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p UserWithOrganizationsQuery) Limit(n int64) UserWithOrganizationsQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p UserWithOrganizationsQuery) Offset(n int64) UserWithOrganizationsQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p UserWithOrganizationsQuery) After(r UserWithOrganizationsRow) UserWithOrganizationsQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p UserWithOrganizationsQuery) Err() error { return p.q.Err() }
+
+// ChildLimit caps the total children fetched ACROSS ALL PARENTS.
+//
+// It is a guard, not a page size. Fifty parents with ChildLimit(100) is
+// an error, not a hundred children each — the two queries fetch every
+// child of every matched parent in one batch, and the limit only exists
+// so that batch cannot silently come back partial.
+//
+// THERE IS NO PER-PARENT LIMIT. "Each parent with its first twenty
+// children" is greatest-n-per-group, and doing it in two round trips
+// needs LATERAL or row_number(); slicing in Go after the fact would
+// fetch everything and only look like a limit. It is not built yet.
+//
+// To page ONE parent's children — the common case — query the child
+// table directly, where Order, After and Limit all work:
+//
+//	userorganization.New().Where(userorganization.UserID.Eq(id)).Order(...).After(last).Limit(20)
+func (p UserWithOrganizationsQuery) ChildLimit(n int64) UserWithOrganizationsQuery {
+	p.childLimit = n
+	return p
+}
+
+// ChildTop keeps at most n children PER PARENT — greatest-n-per-group,
+// still two round trips.
+//
+// This is the per-parent limit ChildLimit is not. "Fifty tenants, each
+// with its five newest people" is one query, not fifty, because the
+// limit is expressed in SQL rather than by looping or by slicing
+// afterwards — slicing would fetch every child and only look like a
+// limit.
+//
+// It REQUIRES ChildOrder, and that ordering must be a strict total order.
+// "The first three by date" with ties on that date returns an arbitrary
+// three, and a different arbitrary three next call — a bug that only
+// appears under data the developer did not have. Add the child's primary
+// key as a final term if the natural ordering is not unique.
+func (p UserWithOrganizationsQuery) ChildTop(n int64) UserWithOrganizationsQuery {
+	p.childTop = n
+	return p
+}
+
+// ChildOrder orders the children within each parent.
+//
+// Without it they arrive in the child table's default order, which is its
+// primary key — defined, but almost never what a caller wanted to show.
+func (p UserWithOrganizationsQuery) ChildOrder(ts ...userorganization.Sort) UserWithOrganizationsQuery {
+	p.childOrder = ts
+	return p
+}
+
+// All runs the plan in exactly TWO round trips, whatever the parent count.
+//
+// The mechanism is `= ANY($1)`: one placeholder binds the whole id list, so
+// fifty parents and five thousand produce the same SQL and share one
+// compiled statement. No join is involved, which is why M3 was never
+// actually blocked on join support.
+func (p UserWithOrganizationsQuery) All(ctx context.Context, ex runtime.Executor) ([]UserWithOrganizationsRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		// Round two would be `= ANY('{}')`, a guaranteed-empty query. Not
+		// issuing it is the difference between costing 2 round trips when
+		// there is work and 2 when there is none.
+		return nil, nil
+	}
+	out := make([]UserWithOrganizationsRow, len(parents))
+	ids := make([][16]byte, len(parents))
+	at := make(map[[16]byte]int, len(parents))
+	for i, r := range parents {
+		out[i] = UserWithOrganizationsRow{Row: r}
+		ids[i] = r.ID
+		at[r.ID] = i
+	}
+	var kids []userorganization.Row
+	if p.childTop > 0 {
+		// Per-parent limit: one query with the limit expressed in SQL.
+		kids, err = userorganization.BatchTopByUserID(ctx, ex, ids, p.childTop, p.childOrder...)
+	} else {
+		// Unordered: the rows are bucketed into a map by parent, so a
+		// server-side sort is paid and then destroyed. ChildOrder still
+		// applies when given — order WITHIN a parent survives bucketing.
+		cq := userorganization.New().Unordered().Where(userorganization.UserID.In(ids...)).Limit(p.childLimit)
+		if len(p.childOrder) > 0 {
+			cq = cq.Order(p.childOrder...)
+		}
+		kids, err = cq.All(ctx, ex, nil)
+	}
+	if err != nil {
+		return nil, err
+	}
+	// A partial relation load is worse than a failed one: every count
+	// computed from it is wrong and nothing says so. A per-parent load
+	// is bounded by construction, so the global guard does not apply.
+	if p.childTop == 0 && int64(len(kids)) >= p.childLimit {
+		return nil, runtime.ErrChildLimit
+	}
+	for _, k := range kids {
+		if i, ok := at[k.UserID]; ok {
+			out[i].Organizations = append(out[i].Organizations, k)
+		}
+	}
+	return out, nil
+}
+
 // VariableSnapshotWithInstanceRow is variable_snapshots with its Instance loaded.
 type VariableSnapshotWithInstanceRow struct {
 	variablesnapshot.Row
@@ -12995,6 +13178,219 @@ func (h ProcessInstanceIncidentsProbeQuery) InsertBatchOperationItemPerInstance(
 		}
 	}()
 	return ex.Exec(ctx, st.SQL, append(args, bound...))
+}
+
+// UserOrganizationsProbeQuery is a parent query with one or more existence probes against
+// user_organizations, combined with AND. Build it with UserHavingOrganizations or
+// UserNotHavingOrganizations and extend it with AndHaving/AndNotHaving.
+type UserOrganizationsProbeQuery struct {
+	q user.Query
+	p []userOrganizationsProbeQueryProbe
+}
+
+type userOrganizationsProbeQueryProbe struct {
+	c   userorganization.Query
+	neg bool
+}
+
+// UserHavingOrganizations narrows q to rows with at least one matching user_organizations row —
+// the filtered semi-join, in one statement. The child predicates are
+// typed by the child's own package; ids and values meet only here.
+func UserHavingOrganizations(q user.Query, ps ...userorganization.Pred) UserOrganizationsProbeQuery {
+	return UserOrganizationsProbeQuery{q: q}.AndHaving(ps...)
+}
+
+// UserNotHavingOrganizations narrows q to rows with NO matching user_organizations row — the
+// filtered anti-join.
+//
+// Read the predicates carefully: this is "has no user_organizations row matching
+// these", not "has a user_organizations row that does not match". With no predicates
+// at all it is "has none". The two questions have different answers
+// whenever a parent has several children, and SQL spells them the same
+// way round.
+func UserNotHavingOrganizations(q user.Query, ps ...userorganization.Pred) UserOrganizationsProbeQuery {
+	return UserOrganizationsProbeQuery{q: q}.AndNotHaving(ps...)
+}
+
+// AndHaving adds another EXISTS probe against user_organizations, ANDed with the
+// ones already there.
+func (h UserOrganizationsProbeQuery) AndHaving(ps ...userorganization.Pred) UserOrganizationsProbeQuery {
+	return h.probe(false, ps...)
+}
+
+// AndNotHaving adds a NOT EXISTS probe against user_organizations. This is how
+// "has one of these but none of those" is one statement:
+//
+//	UserHavingOrganizations(q, bought).AndNotHaving(alsoBought)
+func (h UserOrganizationsProbeQuery) AndNotHaving(ps ...userorganization.Pred) UserOrganizationsProbeQuery {
+	return h.probe(true, ps...)
+}
+
+func (h UserOrganizationsProbeQuery) probe(neg bool, ps ...userorganization.Pred) UserOrganizationsProbeQuery {
+	// Copied rather than appended in place: a composer is a value, and
+	// two chains branching from one base must not share a backing array.
+	p := make([]userOrganizationsProbeQueryProbe, len(h.p), len(h.p)+1)
+	copy(p, h.p)
+	h.p = append(p, userOrganizationsProbeQueryProbe{c: userorganization.New().Unordered().Where(ps...), neg: neg})
+	return h
+}
+
+var userOrganizationsProbeQueryLowering = func() runtime.Lowering {
+	lw := user.Lowering()
+	parentFrag := lw.Frag
+	lw.Frag = func(op, col uint32) runtime.Frag {
+		if col >= runtime.ChildColBase {
+			return userorganization.FragOf(op, col-runtime.ChildColBase)
+		}
+		return parentFrag(op, col)
+	}
+	// The token's relation id picks the header: 0 positive, 1 negated.
+	// Both probes are the same relation, so only the polarity varies.
+	lw.Exists = func(rel uint32) string {
+		if rel == 1 {
+			return "NOT EXISTS (SELECT 1 FROM \"user_organizations\" AS \"_storm_e\" WHERE \"_storm_e\".\"user_id\" = \"users\".\"id\""
+		}
+		return "EXISTS (SELECT 1 FROM \"user_organizations\" AS \"_storm_e\" WHERE \"_storm_e\".\"user_id\" = \"users\".\"id\""
+	}
+	return lw
+}()
+
+var userOrganizationsProbeQueryCache = runtime.NewTreeCache()
+
+func (h UserOrganizationsProbeQuery) stmt(count bool) (*runtime.Stmt, []runtime.Tok) {
+	var buf [44]runtime.Tok
+	toks := h.tokens(buf[:0], count)
+	sel, cnt, limitSfx := user.StmtPieces()
+	prefix, suffix := sel, limitSfx
+	if count {
+		prefix, suffix = cnt, ""
+	}
+	if st := userOrganizationsProbeQueryCache.Get(toks); st != nil {
+		return st, toks
+	}
+	return userOrganizationsProbeQueryCache.Put(toks, runtime.SpliceTreeWhere(prefix, `"deleted_at" IS NULL`, toks, userOrganizationsProbeQueryLowering, suffix)), toks
+}
+
+// tokens appends the composed stream to dst: the parent's predicates,
+// each probe, and — unless count — the parent's ordering.
+func (h UserOrganizationsProbeQuery) tokens(dst []runtime.Tok, count bool) []runtime.Tok {
+	toks := h.q.PredToks(dst)
+	stack := 0
+	if len(toks) > 0 {
+		stack = 1
+	}
+	for _, pr := range h.p {
+		child := pr.c.PredToks(nil)
+		toks = runtime.OffsetCols(toks, child, runtime.ChildColBase)
+		arity := uint32(0)
+		if len(child) > 0 {
+			arity = 1 // the child stream reduces to one stack entry
+		}
+		rel := uint32(0)
+		if pr.neg {
+			rel = 1
+		}
+		toks = append(toks, runtime.MakeExists(rel, arity))
+		stack++
+	}
+	if stack > 1 {
+		toks = append(toks, runtime.MakeGroup(runtime.KAnd, uint32(stack)))
+	}
+	if !count {
+		toks = h.q.OrderToks(toks)
+	}
+	return toks
+}
+
+// bind returns the arguments in STREAM order: parent predicates, then
+// each probe's, then the parent's paging. Each probe takes its own
+// binder — bindPreds resets the arenas it fills, so two probes sharing
+// one binder would have the second silently overwrite the first.
+func (h UserOrganizationsProbeQuery) bind(pb *user.Binder, paging bool) ([]any, []*userorganization.Binder) {
+	args := h.q.BindPreds(pb, nil)
+	cbs := make([]*userorganization.Binder, 0, len(h.p))
+	for _, pr := range h.p {
+		cb := userorganization.GetBinder()
+		cbs = append(cbs, cb)
+		args = pr.c.BindPreds(cb, args)
+	}
+	if paging {
+		args = h.q.BindPaging(pb, args)
+	}
+	return args, cbs
+}
+
+func (h UserOrganizationsProbeQuery) err() error {
+	if err := h.q.Err(); err != nil {
+		return err
+	}
+	for _, pr := range h.p {
+		if err := pr.c.Err(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// All runs the composed statement.
+func (h UserOrganizationsProbeQuery) All(ctx context.Context, ex runtime.Executor) ([]user.Row, error) {
+	if err := h.err(); err != nil {
+		return nil, err
+	}
+	st, _ := h.stmt(false)
+	if st.Err != nil {
+		return nil, st.Err
+	}
+	pb := user.GetBinder()
+	defer user.PutBinder(pb)
+	args, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			userorganization.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	var out []user.Row
+	for rows.Next() {
+		out = append(out, user.Row{})
+		if err := user.Scan(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
+}
+
+// Count runs the composed count: no ordering, no paging.
+func (h UserOrganizationsProbeQuery) Count(ctx context.Context, ex runtime.Executor) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	st, _ := h.stmt(true)
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := user.GetBinder()
+	defer user.PutBinder(pb)
+	args, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			userorganization.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return 0, rows.Err()
+	}
+	return runtime.Int8(rows.RawValues()[0]), rows.Err()
 }
 
 // WorkflowGroupMembersProbeQuery is a parent query with one or more existence probes against

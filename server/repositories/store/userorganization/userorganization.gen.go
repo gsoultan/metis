@@ -1171,6 +1171,118 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 	return stmtFor(q.stream(&buf), q.offset > 0, q.lock).SQL, q.bind(b)
 }
 
+// Greatest-n-per-group: at most n children per parent, in ONE query.
+//
+// The ordering is REQUIRED and must be a strict total order. "The first
+// three by date" with ties on that date returns an arbitrary three, and
+// a different arbitrary three on the next call — a paging bug that only
+// appears under data the developer did not have. Add the primary key as
+// a final term if the natural ordering is not unique.
+var errNoTopOrder = errors.New(
+	"storm: a per-parent limit needs an ordering — without one \"the first three\" is an arbitrary three, and a different three next time")
+
+// BatchTopByUserID fetches at most n rows for each id, ordered by order.
+//
+// ONE round trip regardless of how many ids are passed — the per-parent
+// limit is expressed in SQL, not by looping. It delegates to the lowering
+// chosen at BUILD time by measurement (bench/RESULTS.md); the strategy is
+// never sniffed at run time.
+func BatchTopByUserID(ctx context.Context, ex runtime.Executor, ids [][16]byte, n int64, order ...Sort) ([]Row, error) {
+	return BatchTopByUserIDLateral(ctx, ex, ids, n, order...)
+}
+
+// BatchTopByUserIDWindow runs the window lowering.
+//
+// Both forms are exported so a benchmark can compare them on identical
+// generated code rather than on two hand-written approximations, and so
+// a caller whose data defeats the default has a way out that does not
+// involve writing SQL.
+func BatchTopByUserIDWindow(ctx context.Context, ex runtime.Executor, ids [][16]byte, n int64, order ...Sort) ([]Row, error) {
+	return batchTopByUserIDRun(ctx, ex, batchTopByUserIDWindowSQL(order), ids, n)
+}
+
+// BatchTopByUserIDLateral runs the lateral lowering.
+//
+// Both forms are exported so a benchmark can compare them on identical
+// generated code rather than on two hand-written approximations, and so
+// a caller whose data defeats the default has a way out that does not
+// involve writing SQL.
+func BatchTopByUserIDLateral(ctx context.Context, ex runtime.Executor, ids [][16]byte, n int64, order ...Sort) ([]Row, error) {
+	return batchTopByUserIDRun(ctx, ex, batchTopByUserIDLateralSQL(order), ids, n)
+}
+
+// batchTopByUserIDRun executes one lowered statement.
+func batchTopByUserIDRun(ctx context.Context, ex runtime.Executor, sql string, ids [][16]byte, n int64) ([]Row, error) {
+	if len(ids) == 0 || n <= 0 {
+		return nil, nil
+	}
+	if sql == "" {
+		return nil, errNoTopOrder
+	}
+	rows, err := ex.Query(ctx, sql, []any{ids, n})
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	out := make([]Row, 0, int64(len(ids))*n)
+	for rows.Next() {
+		out = append(out, Row{})
+		if err := scan(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
+}
+
+var batchTopByUserIDWindowCache = runtime.NewTreeCache()
+
+// batchTopByUserIDWindowSQL compiles one ordering, once. The ordering is the key, exactly
+// as it is for an ordinary read; an empty ordering yields "", which the
+// runner turns into errNoTopOrder.
+func batchTopByUserIDWindowSQL(order []Sort) string {
+	if len(order) == 0 {
+		return ""
+	}
+	toks := make([]runtime.Tok, len(order))
+	for i, s := range order {
+		toks[i] = runtime.Tok(s)
+	}
+	if st := batchTopByUserIDWindowCache.Get(toks); st != nil {
+		return st.SQL
+	}
+	terms := make([]string, len(toks))
+	for i, t := range toks {
+		terms[i] = orderOf(t.Op(), t.Col())
+	}
+	sql := runtime.SpliceOrder("SELECT \"user_id\", \"organization_id\", \"roles\" FROM (SELECT \"user_id\", \"organization_id\", \"roles\", row_number() OVER (PARTITION BY \"user_id\"\x00order\x00) AS \"_storm_rn\" FROM \"user_organizations\" WHERE \"user_id\" = ANY($1)) \"_storm_t\" WHERE \"_storm_rn\" <= $2", terms, " ORDER BY ", ", ")
+	return batchTopByUserIDWindowCache.Put(toks, &runtime.Stmt{SQL: sql, NArg: 2}).SQL
+}
+
+var batchTopByUserIDLateralCache = runtime.NewTreeCache()
+
+// batchTopByUserIDLateralSQL compiles one ordering, once. The ordering is the key, exactly
+// as it is for an ordinary read; an empty ordering yields "", which the
+// runner turns into errNoTopOrder.
+func batchTopByUserIDLateralSQL(order []Sort) string {
+	if len(order) == 0 {
+		return ""
+	}
+	toks := make([]runtime.Tok, len(order))
+	for i, s := range order {
+		toks[i] = runtime.Tok(s)
+	}
+	if st := batchTopByUserIDLateralCache.Get(toks); st != nil {
+		return st.SQL
+	}
+	terms := make([]string, len(toks))
+	for i, t := range toks {
+		terms[i] = orderOf(t.Op(), t.Col())
+	}
+	sql := runtime.SpliceOrder("SELECT \"_storm_c\".\"user_id\", \"_storm_c\".\"organization_id\", \"_storm_c\".\"roles\" FROM unnest($1::uuid[]) AS \"_storm_p\"(\"_storm_k\") CROSS JOIN LATERAL (SELECT \"user_id\", \"organization_id\", \"roles\" FROM \"user_organizations\" WHERE \"user_id\" = \"_storm_p\".\"_storm_k\"\x00order\x00 LIMIT $2) \"_storm_c\"", terms, " ORDER BY ", ", ")
+	return batchTopByUserIDLateralCache.Put(toks, &runtime.Stmt{SQL: sql, NArg: 2}).SQL
+}
+
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
 const insertSQL = `INSERT INTO "user_organizations" ("user_id", "organization_id", "roles") VALUES ($1, $2, $3) RETURNING "user_id", "organization_id", "roles"`

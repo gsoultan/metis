@@ -216,27 +216,36 @@ func membershipRoles(raw []byte) ([]string, error) {
 	return roles, nil
 }
 
-// otherAdministratorCandidates reads the roles of an organization's members,
-// other than one account, whose roles could name the administrator role: the
-// ones it holds in every organization, and the ones it holds in this one.
-//
-// A narrowing, not the decision: HasAnotherAdministrator decides with
-// entities.HasRole, the same test that grants an administrator their access.
-// translate() folds exactly the letters of ADMIN, as HasRole folds ASCII;
-// lower() would follow the database's locale, and a Turkish one lowers 'I' to
-// a dotless 'ı' and would hide every administrator. The quotes keep
-// "ADMINISTRATOR" and the like out.
-const otherAdministratorCandidates = `SELECT u.roles::text, m.roles::text
-	  FROM users u
-	  JOIN user_organizations m ON m.user_id = u.id
-	 WHERE m.organization_id = $1
-	   AND u.id <> $2
-	   AND u.deleted_at IS NULL
-	   AND (translate(u.roles::text, 'ADMIN', 'admin') LIKE '%"admin"%'
-	     OR translate(m.roles::text, 'ADMIN', 'admin') LIKE '%"admin"%')`
+// adminSpellings is every way of writing the administrator role that
+// entities.HasRole accepts: each of its letters in either case, and nothing
+// else. A role list holding one of them is a role list HasRole grants the role
+// to, so a read narrowed by them decides what HasRole would, in the database.
+// ASCII folding, as HasRole folds; the database's locale is never asked, so a
+// Turkish one that lowers 'I' to a dotless 'ı' hides nobody.
+var adminSpellings = func() []string {
+	role := entities.RoleAdmin
+	out := make([]string, 0, 1<<len(role))
+	for mask := 0; mask < 1<<len(role); mask++ {
+		b := []byte(role)
+		for i, c := range b {
+			lower, upper := c|0x20, c&^0x20
+			if c < 'A' || (c > 'Z' && c < 'a') || c > 'z' {
+				continue
+			}
+			if mask&(1<<i) != 0 {
+				b[i] = upper
+			} else {
+				b[i] = lower
+			}
+		}
+		out = append(out, string(b))
+	}
+	return out
+}()
 
 // HasAnotherAdministrator reports whether an organization has an administrator
-// besides one account.
+// besides one account: a live member holding the role in every organization,
+// or in this one.
 //
 // Asked of the database rather than of a list of the members. The list stops
 // at the store's thousand rows, so in a larger organization the other
@@ -257,24 +266,21 @@ func (r *userRepository) HasAnotherAdministrator(ctx context.Context, organizati
 	if err != nil {
 		return false, err
 	}
-	rows, err := ex.Query(ctx, otherAdministratorCandidates, []any{organizationID, except})
+	member := userorganization.OrganizationID.Eq(organizationID)
+	everywhere, err := store.UserHavingOrganizations(
+		user.New().Where(user.ID.NotEq(except), user.Roles.HasAnyKey(adminSpellings...)), member).Count(ctx, ex)
 	if err != nil {
 		return false, fmt.Errorf("could not look for another administrator: %w", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		administers, err := administersFrom(rows.RawValues())
-		if err != nil {
-			return false, err
-		}
-		if administers {
-			return true, nil
-		}
+	if everywhere > 0 {
+		return true, nil
 	}
-	if err := rows.Err(); err != nil {
+	here, err := store.UserHavingOrganizations(
+		user.New().Where(user.ID.NotEq(except)), member, userorganization.Roles.HasAnyKey(adminSpellings...)).Count(ctx, ex)
+	if err != nil {
 		return false, fmt.Errorf("could not look for another administrator: %w", err)
 	}
-	return false, nil
+	return here > 0, nil
 }
 
 // GroupRolesByOrganization returns the roles an account holds through its
@@ -326,17 +332,8 @@ func (r *userRepository) GroupRolesByOrganization(ctx context.Context, userID uu
 	return out, nil
 }
 
-// otherGlobalAdministratorCandidates reads the roles of the live accounts,
-// other than one, whose own roles could name the administrator role. Narrowed
-// as otherAdministratorCandidates is, and decided the same way.
-const otherGlobalAdministratorCandidates = `SELECT u.roles::text
-	  FROM users u
-	 WHERE u.id <> $1
-	   AND u.deleted_at IS NULL
-	   AND translate(u.roles::text, 'ADMIN', 'admin') LIKE '%"admin"%'`
-
-// HasAnotherGlobalAdministrator reports whether an account besides one holds
-// the administrator role in every organization.
+// HasAnotherGlobalAdministrator reports whether a live account besides one
+// holds the administrator role in every organization.
 //
 // Unscoped, like Count and HasAccounts: the answer is one bit about the
 // installation, and it has to count accounts in organizations the caller is
@@ -347,39 +344,11 @@ func (r *userRepository) HasAnotherGlobalAdministrator(ctx context.Context, exce
 	if err != nil {
 		return false, err
 	}
-	rows, err := ex.Query(ctx, otherGlobalAdministratorCandidates, []any{except})
+	found, err := user.New().Where(user.ID.NotEq(except), user.Roles.HasAnyKey(adminSpellings...)).Exists(ctx, ex)
 	if err != nil {
 		return false, fmt.Errorf("could not look for another administrator of every organization: %w", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		administers, err := administersFrom(rows.RawValues())
-		if err != nil {
-			return false, err
-		}
-		if administers {
-			return true, nil
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return false, fmt.Errorf("could not look for another administrator of every organization: %w", err)
-	}
-	return false, nil
-}
-
-// administersFrom decides one candidate: the administrator role held in every
-// organization, or in the one asked about.
-func administersFrom(values [][]byte) (bool, error) {
-	for _, raw := range values {
-		var roles []string
-		if err := json.Unmarshal(raw, &roles); err != nil {
-			return false, fmt.Errorf("could not decode an account's roles: %w", err)
-		}
-		if entities.HasRole(roles, entities.RoleAdmin) {
-			return true, nil
-		}
-	}
-	return false, nil
+	return found, nil
 }
 
 // SetOrganizationRoles writes the roles an account holds in one organization,

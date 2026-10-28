@@ -785,6 +785,7 @@ func _assertUserShape(m m0.User) {
 		m.IdentityIssuer,
 		m.IdentitySubject,
 		m.DeletedAt,
+		m.Organizations,
 	}
 }
 

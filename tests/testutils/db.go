@@ -110,6 +110,9 @@ func setupTestSchema(t *testing.T) (*gorm.DB, *db.Conn) {
 	}
 	ensureVersionIndexes(t, gormDB)
 	ensureAuditWriteOrder(t, gormDB)
+	if err := migrations.EnsureRolesJSONB(context.Background(), gormDB); err != nil {
+		t.Fatalf("failed to make roles jsonb: %v", err)
+	}
 
 	conn, err := db.Open(context.Background(), stormDSN(dsn, namespace))
 	if err != nil {

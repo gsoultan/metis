@@ -51,6 +51,11 @@ type User struct {
 	IdentitySubject *string
 
 	DeletedAt *time.Time
+
+	// Organizations is the inverse of UserOrganization.User: no column here.
+	// It is what lets a read of accounts ask about their memberships in the
+	// same statement.
+	Organizations []UserOrganization
 }
 
 // The type is named User so storm derives the table and every foreign key

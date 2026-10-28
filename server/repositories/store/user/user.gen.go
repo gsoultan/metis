@@ -910,6 +910,13 @@ func (q *Query) leaf(p Pred) {
 	q.push(runtime.MakeLeaf(uint32(p.op), uint32(p.col)))
 }
 
+// Relation existence — the semi-join. HasPosts() matches rows with at
+// least one related row; HasNoPosts() matches the rest. Both compose
+// under Where/Any/Not like any predicate, because both lower to constant
+// fragments: no bound value, one compiled statement per structure.
+func HasOrganizations() Pred   { return Pred{col: 14, op: opExists} }
+func HasNoOrganizations() Pred { return Pred{col: 14, op: opNotExists} }
+
 // Chained predicate sugar. Identical to Where(Col.Op(v)).
 func (q Query) IDEq(v [16]byte) Query                  { return q.Where(ID.Eq(v)) }
 func (q Query) IDNotEq(v [16]byte) Query               { return q.Where(ID.NotEq(v)) }
@@ -1217,7 +1224,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [14][28]runtime.Frag{
+var fragTable = [15][28]runtime.Frag{
 	{ // id
 		{}, // opNone
 		{A: "\"id\" = $", B: ""},
@@ -1637,6 +1644,36 @@ var fragTable = [14][28]runtime.Frag{
 		{A: "\"deleted_at\" IS NOT NULL", B: ""},
 		{},
 		{},
+	},
+	{ // relation Organizations (pseudo-column)
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "EXISTS (SELECT 1 FROM \"user_organizations\" AS \"_storm_e\" WHERE \"_storm_e\".\"user_id\" = \"users\".\"id\")"},
+		{A: "NOT EXISTS (SELECT 1 FROM \"user_organizations\" AS \"_storm_e\" WHERE \"_storm_e\".\"user_id\" = \"users\".\"id\")"},
 	},
 }
 

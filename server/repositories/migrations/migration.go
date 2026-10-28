@@ -854,6 +854,7 @@ func Schema(models []any) []Migration {
 		auditActor(),
 		taskLinks(),
 		personAPIKeys(),
+		rolesJSONB(),
 	}
 }
 
