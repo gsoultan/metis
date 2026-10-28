@@ -41,6 +41,8 @@ type Environment struct {
 }
 
 func (e *Environment) Schema(t *storm.Table) {
+	// GORM's defaults, kept. See fill.go.
+	t.Col(&e.Port).Default(zero)
 	// What a database GORM created holds where these are NULL: the value GORM
 	// read a NULL as. See fill.go.
 	t.Col(&e.Name).FillNulls(blank)

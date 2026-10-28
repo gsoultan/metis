@@ -22,6 +22,9 @@ type ConnectorManifest struct {
 }
 
 func (c *ConnectorManifest) Schema(t *storm.Table) {
+	// GORM's defaults, kept. See fill.go.
+	t.Col(&c.Version).Default(zero)
+	t.Col(&c.Enabled).Default(yes)
 	// What a database GORM created holds where these are NULL: the value GORM
 	// read a NULL as. See fill.go.
 	t.Col(&c.Key).FillNulls(blank)

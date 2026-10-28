@@ -37,7 +37,7 @@ func (s *Subscription) Schema(t *storm.Table) {
 	// The table predates the type's name; keeping it avoids renaming a table
 	// for cosmetics.
 	t.Name("event_subscriptions")
-	t.Col(&s.NodeID).Size(255)
+	// No size: a step's id is the definition's, and nothing at deploy limits how long it is.
 	t.Col(&s.Type).Size(32)
 	t.Col(&s.Type).Index()
 	t.Col(&s.EventName).Size(255)

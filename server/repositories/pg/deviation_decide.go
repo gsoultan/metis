@@ -25,7 +25,7 @@ func NewDeviationDecider(c *db.Conn) contracts.DeviationDecider {
 // Decide moves a ledger row from pending_approval to what became of it, once,
 // inside the transaction that decides its request.
 //
-// It takes the row (FOR UPDATE) and only then looks at its status, so a
+// It takes the row (FOR NO KEY UPDATE) and only then looks at its status, so a
 // decision that waited for another reads what the other left: of two made at
 // once, one is written and the other is ErrDeviationRowDecided. Whoever
 // decides a row holds its request's row already — request, then instance,
@@ -118,7 +118,7 @@ func (r *deviationRepository) waitingRow(ctx context.Context, id uuid.UUID) (ins
 		}
 		q = q.Where(instancedeviation.ProjectID.In(uuidsToRaw(scope.projects)...))
 	}
-	row, found, err := q.ForUpdate().One(ctx, ex)
+	row, found, err := q.ForNoKeyUpdate().One(ctx, ex)
 	if err != nil {
 		return instancedeviation.Row{}, fmt.Errorf("could not read the deviation: %w", err)
 	}

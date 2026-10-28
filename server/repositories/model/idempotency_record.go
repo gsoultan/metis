@@ -31,6 +31,8 @@ type IdempotencyRecord struct {
 }
 
 func (i *IdempotencyRecord) Schema(t *storm.Table) {
+	// GORM's defaults, kept. See fill.go.
+	t.Col(&i.StatusCode).Default(zero)
 	// What a database GORM created holds where these are NULL: the value GORM
 	// read a NULL as. See fill.go.
 	t.Col(&i.RequestHash).FillNulls(blank)

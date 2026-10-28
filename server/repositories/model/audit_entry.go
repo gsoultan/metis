@@ -54,7 +54,7 @@ func (a *AuditEntry) Schema(t *storm.Table) {
 	t.Col(&a.Data).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Name("audit_logs")
 	t.Col(&a.Type).Size(64)
-	t.Col(&a.NodeID).Size(255)
+	// No size: a step's id is the definition's, and nothing at deploy limits how long it is.
 	t.Col(&a.Actor).Size(255)
 	t.Col(&a.Seq).Serial().FillNulls("0")
 	t.Col(&a.DeletedAt).Index()

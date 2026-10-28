@@ -14,3 +14,12 @@ const (
 	no       storm.RawSQL = "false"
 	jsonNull storm.RawSQL = "'null'::jsonb"
 )
+
+// The defaults GORM's tables carried, kept where the model would otherwise
+// drop them: a writer that leaves one of these columns out — an older
+// replica during an upgrade, a script — is given what it was given before,
+// rather than refused.
+const (
+	zero storm.RawSQL = "0"
+	yes  storm.RawSQL = "true"
+)

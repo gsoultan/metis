@@ -37,7 +37,7 @@ func (i *Incident) Schema(t *storm.Table) {
 	t.Col(&i.NodeID).FillNulls(blank)
 	t.Col(&i.Error).FillNulls(blank)
 	t.Col(&i.Status).FillNulls(blank)
-	t.Col(&i.NodeID).Size(255)
+	// No size: a step's id is the definition's, and nothing at deploy limits how long it is.
 	t.Col(&i.Status).Size(32)
 	t.Col(&i.Status).Index()
 	// An incident outlives the job it came from: the job row is cleaned up,

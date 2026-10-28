@@ -57,6 +57,8 @@ type Task struct {
 }
 
 func (t2 *Task) Schema(t *storm.Table) {
+	// GORM's defaults, kept. See fill.go.
+	t.Col(&t2.Priority).Default(zero)
 	// What a database GORM created holds where these are NULL: the value GORM
 	// read a NULL as. See fill.go.
 	t.Col(&t2.NodeID).FillNulls(blank)
@@ -66,7 +68,7 @@ func (t2 *Task) Schema(t *storm.Table) {
 	t.Col(&t2.CandidateUsers).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Col(&t2.CandidateGroups).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Col(&t2.Variables).FillNulls(blank)
-	t.Col(&t2.NodeID).Size(255)
+	// No size: a step's id is the definition's, and nothing at deploy limits how long it is.
 	t.Col(&t2.Type).Size(64)
 	t.Col(&t2.Type).Index()
 	t.Col(&t2.Status).Size(32)

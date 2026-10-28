@@ -78,7 +78,14 @@ func (r *processRepository) Get(ctx context.Context, id uuid.UUID) (models.Proce
 // This is what makes advancing a token safe. Two workers reaching the same
 // instance — a job firing while a person completes a task — would otherwise
 // both read the same tokens, both decide what happens next, and the second
-// write would silently discard the first. FOR UPDATE makes the second wait.
+// write would silently discard the first. The lock makes the second wait.
+//
+// FOR NO KEY UPDATE rather than FOR UPDATE: an instance is the parent of its
+// tasks, notifications, deviations and jobs, and inserting any of them checks
+// the instance's key. Under FOR UPDATE that check waits for the lock, so a
+// completion holding the instance and waiting for a task deadlocked with a
+// hand-over holding the task and notifying somebody about the instance. The
+// key never changes, so nothing the stronger lock adds is needed.
 func (r *processRepository) GetForUpdate(ctx context.Context, id uuid.UUID) (models.ProcessInstanceModel, error) {
 	row, err := r.one(ctx, id, true)
 	if err != nil {
@@ -498,7 +505,7 @@ func (r *processRepository) one(ctx context.Context, id uuid.UUID, forUpdate boo
 		q = q.Where(instanceInProjects(scope.projects))
 	}
 	if forUpdate {
-		q = q.ForUpdate()
+		q = q.ForNoKeyUpdate()
 	}
 	row, found, err := q.One(ctx, ex)
 	if err != nil {

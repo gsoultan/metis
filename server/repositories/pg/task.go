@@ -51,7 +51,7 @@ func (r *taskRepository) one(ctx context.Context, id uuid.UUID, forUpdate bool) 
 		q = q.Where(task.ProjectID.In(uuidsToRaw(scope.projects)...))
 	}
 	if forUpdate {
-		q = q.ForUpdate()
+		q = q.ForNoKeyUpdate()
 	}
 	row, found, err := q.One(ctx, ex)
 	if err != nil {

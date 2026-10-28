@@ -123,7 +123,7 @@ func (r *userRepository) SetOrganizations(ctx context.Context, userID uuid.UUID,
 		if err != nil {
 			return err
 		}
-		_, found, err := user.New().Where(user.ID.Eq(userID)).ForUpdate().One(txCtx, ex)
+		_, found, err := user.New().Where(user.ID.Eq(userID)).ForNoKeyUpdate().One(txCtx, ex)
 		if err != nil {
 			return fmt.Errorf("could not lock the account: %w", err)
 		}

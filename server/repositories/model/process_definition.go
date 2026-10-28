@@ -34,6 +34,8 @@ type ProcessDefinition struct {
 }
 
 func (d *ProcessDefinition) Schema(t *storm.Table) {
+	// GORM's defaults, kept. See fill.go.
+	t.Col(&d.Version).Default(zero)
 	// What a database GORM created holds where these are NULL: the value GORM
 	// read a NULL as. See fill.go.
 	t.Col(&d.Key).FillNulls(blank)

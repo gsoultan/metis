@@ -53,6 +53,10 @@ type Job struct {
 }
 
 func (j *Job) Schema(t *storm.Table) {
+	// GORM's defaults, kept. See fill.go.
+	t.Col(&j.Retries).Default(zero)
+	t.Col(&j.MaxRetries).Default(zero)
+	t.Col(&j.RepeatsRemaining).Default(zero)
 	// What a database GORM created holds where these are NULL: the value GORM
 	// read a NULL as. See fill.go.
 	t.Col(&j.NodeID).FillNulls(blank)
@@ -60,7 +64,7 @@ func (j *Job) Schema(t *storm.Table) {
 	t.Col(&j.Status).FillNulls(blank)
 	t.Col(&j.Payload).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Col(&j.Organization).NoIndex().AcknowledgeNoFK("the claim must not be held up by an organization's row")
-	t.Col(&j.NodeID).Size(255)
+	// No size: a step's id is the definition's, and nothing at deploy limits how long it is.
 	t.Col(&j.Type).Size(64)
 	t.Col(&j.Status).Size(32)
 	// A claim that takes over a job whose worker died counts as an attempt;

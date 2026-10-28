@@ -37,6 +37,8 @@ type Webhook struct {
 }
 
 func (w *Webhook) Schema(t *storm.Table) {
+	// GORM's defaults, kept. See fill.go.
+	t.Col(&w.Enabled).Default(yes)
 	// What a database GORM created holds where these are NULL: the value GORM
 	// read a NULL as. See fill.go.
 	t.Col(&w.Name).FillNulls(blank)
