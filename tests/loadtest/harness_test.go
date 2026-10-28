@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/app"
@@ -19,7 +20,6 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // sloHarness serves the same handler production runs, over PostgreSQL.

@@ -2,9 +2,10 @@ package task_test
 
 import (
 	"context"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"slices"
 	"testing"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -12,7 +13,6 @@ import (
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // The repository's two readings of who a task is offered to: the unclaimed

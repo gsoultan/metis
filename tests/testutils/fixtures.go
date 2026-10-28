@@ -6,8 +6,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/organization"
 	"github.com/gsoultan/metis/server/repositories/store/processdefinition"
 	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	"github.com/gsoultan/metis/server/repositories/store/project"
 	"github.com/gsoultan/metis/server/repositories/store/webhook"
 	"github.com/gsoultan/storm/runtime"
 )
@@ -78,6 +80,31 @@ func SeedWebhook(t *testing.T, conn *db.Conn, project uuid.UUID) uuid.UUID {
 	row.SetEnabled(true)
 	if _, err := row.Insert(t.Context(), Executor(conn)); err != nil {
 		t.Fatalf("seed a webhook: %v", err)
+	}
+	return id
+}
+
+// SeedProject leaves a project, in an organization of its own, in conn's main
+// database and returns the project's id. Written through the stores, so it
+// asks nothing of the repository layer: for a database a test opened itself.
+func SeedProject(t *testing.T, conn *db.Conn) uuid.UUID {
+	t.Helper()
+	ex := Executor(conn)
+	org := organization.Create()
+	org.SetName("Seeded")
+	org.SetDescription("")
+	written, err := org.Insert(t.Context(), ex)
+	if err != nil {
+		t.Fatalf("seed an organization: %v", err)
+	}
+	id := uuid.Must(uuid.NewV7())
+	row := project.Create()
+	row.SetID(id)
+	row.SetOrganizationID(written.ID)
+	row.SetName("Seeded")
+	row.SetDescription("")
+	if _, err := row.Insert(t.Context(), ex); err != nil {
+		t.Fatalf("seed a project: %v", err)
 	}
 	return id
 }

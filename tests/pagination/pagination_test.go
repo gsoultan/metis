@@ -24,10 +24,12 @@ import (
 
 func seedTasks(t *testing.T, repo repositories.Repository, ctx context.Context, projectID uuid.UUID, assignee string, n int) {
 	t.Helper()
+	instance := testutils.ProcessIn(t, repo, ctx, projectID).Instance
 	for i := range n {
 		task := entities.Task{
 			ID:       uuid.Must(uuid.NewV7()),
 			Project:  &entities.Project{ID: projectID},
+			Instance: &entities.ProcessInstance{ID: instance},
 			Name:     "Task",
 			Status:   entities.TaskClaimed,
 			Node:     &entities.Node{ID: "n1"},

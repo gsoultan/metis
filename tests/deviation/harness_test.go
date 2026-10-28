@@ -7,12 +7,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/app"
@@ -25,7 +26,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 const harnessPassword = "deviation-test-password"

@@ -13,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/user"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // Who administers an organization is changed through the account service:
@@ -106,10 +108,11 @@ func TestEveryChangeToWhoHoldsWhichRoleIsLoggedWithWhoMadeIt(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("root creates an administrator of Acme: %d (%s)", status, body)
 	}
-	var second uuid.UUID
-	if err := w.db.Raw(`SELECT id FROM users WHERE username = 'second'`).Row().Scan(&second); err != nil {
-		t.Fatalf("read the new account's id: %v", err)
+	created, found, err := user.New().UsernameEq("second").One(t.Context(), testutils.Executor(w.db))
+	if err != nil || !found {
+		t.Fatalf("read the new account's id: found %v, %v", found, err)
 	}
+	second := uuid.UUID(created.ID)
 	w.ids["second"] = second
 	expect("creating an account", change("An account was created", second), second, "second", w.acme, map[string]any{
 		"roles_before": none, "roles_after": []any{entities.RoleOperator},

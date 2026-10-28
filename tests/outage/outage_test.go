@@ -23,7 +23,6 @@ package outage
 
 import (
 	"context"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"io"
 	"net"
 	"net/http"
@@ -33,6 +32,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/health"

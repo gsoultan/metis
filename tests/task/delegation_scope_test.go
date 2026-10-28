@@ -11,7 +11,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
-	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // staleMark leaves alice's claimed task the way a pod on the release before

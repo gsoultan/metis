@@ -3,17 +3,17 @@ package deviation_test
 import (
 	"context"
 	"errors"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	stormruntime "github.com/gsoultan/storm/runtime"
-	"gorm.io/gorm"
 )
 
 // sweepRead is one of the sweep's reads, as the repository has it.

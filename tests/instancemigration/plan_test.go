@@ -9,8 +9,9 @@ package instancemigration
 
 import (
 	"context"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"testing"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -19,7 +20,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 type fixture struct {

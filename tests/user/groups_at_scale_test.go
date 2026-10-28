@@ -1,6 +1,17 @@
 package user_test
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/gsoultan/metis/server/repositories/store/group"
+	"github.com/gsoultan/metis/server/repositories/store/membership"
+	"github.com/gsoultan/metis/server/repositories/store/userorganization"
+	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/runtime"
+)
 
 // A group's member list shows everybody in it.
 //
@@ -11,9 +22,17 @@ import "testing"
 func TestAGroupListsEveryOneOfItsMembers(t *testing.T) {
 	w := newGroupWorld(t)
 	w.seedMembers(t, w.orgA, membersAheadOfTheSecondAdministrator)
-	if err := w.db.WithContext(t.Context()).Exec(`
-		INSERT INTO memberships (user_id, group_id)
-		SELECT m.user_id, ? FROM user_organizations m WHERE m.organization_id = ?`, w.groupA, w.orgA).Error; err != nil {
+	ex := testutils.Executor(w.db)
+	everybody, err := userorganization.New().OrganizationIDEq(w.orgA).Limit(2*membersAheadOfTheSecondAdministrator).
+		All(t.Context(), ex, nil)
+	if err != nil {
+		t.Fatalf("read the organization's members: %v", err)
+	}
+	joined := make([]membership.Row, len(everybody))
+	for i, member := range everybody {
+		joined[i] = membership.Row{UserID: member.UserID, GroupID: w.groupA}
+	}
+	if _, err := membership.InsertAll(t.Context(), ex, joined); err != nil {
 		t.Fatalf("put the organization in the group: %v", err)
 	}
 	want := membersAheadOfTheSecondAdministrator + 2
@@ -30,10 +49,15 @@ func TestAGroupListsEveryOneOfItsMembers(t *testing.T) {
 // An organization's group list shows every group it has, by the same reasoning.
 func TestAnOrganizationListsEveryOneOfItsGroups(t *testing.T) {
 	w := newGroupWorld(t)
-	if err := w.db.WithContext(t.Context()).Exec(`
-		INSERT INTO groups (id, created_at, updated_at, organization_id, name, description, roles)
-		SELECT gen_random_uuid(), now(), now(), ?, format('Team %s', lpad(n::text, 5, '0')), '', '[]'
-		  FROM generate_series(1, ?) AS n`, w.orgA, membersAheadOfTheSecondAdministrator).Error; err != nil {
+	now := time.Now()
+	teams := make([]group.Row, membersAheadOfTheSecondAdministrator)
+	for i := range teams {
+		teams[i] = group.Row{
+			ID: uuid.New(), CreatedAt: now, UpdatedAt: now, OrganizationID: w.orgA,
+			Name: fmt.Sprintf("Team %05d", i+1), Roles: runtime.JSON("[]"),
+		}
+	}
+	if _, err := group.InsertAll(t.Context(), testutils.Executor(w.db), teams); err != nil {
 		t.Fatalf("seed %d groups: %v", membersAheadOfTheSecondAdministrator, err)
 	}
 	want := membersAheadOfTheSecondAdministrator + 1

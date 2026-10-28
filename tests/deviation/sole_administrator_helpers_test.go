@@ -19,7 +19,6 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/interceptors/tenant"
-	"github.com/gsoultan/metis/tests/testutils"
 )
 
 const (

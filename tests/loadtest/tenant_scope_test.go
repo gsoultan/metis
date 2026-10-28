@@ -12,6 +12,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/pg"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	"github.com/gsoultan/metis/server/repositories/store/project"
+	"github.com/gsoultan/metis/server/repositories/store/task"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // What tenant scoping costs an organization with ten thousand projects.
@@ -146,7 +150,8 @@ func newScopeHarness(t *testing.T) *scopeHarness {
 	// Planner statistics, as a database that has been running would have
 	// them. Straight after a bulk load autovacuum has not caught up, and a
 	// plan chosen on no statistics measures the load rather than the query.
-	if err := h.db.Exec("ANALYZE projects, process_definitions, process_instances, tasks").Error; err != nil {
+	// Maintenance, not a query: no model says it.
+	if _, err := h.db.Main().Exec(t.Context(), "ANALYZE projects, process_definitions, process_instances, tasks"); err != nil {
 		t.Fatalf("analyze: %v", err)
 	}
 	t.Logf("seeding took %v", time.Since(start).Round(time.Second))
@@ -185,10 +190,15 @@ func (h *scopeHarness) seedOrganization(t *testing.T, label string, projects, in
 	// The rest hold nothing. Written in one statement: ten thousand projects
 	// through the service would be ten thousand requests' worth of seeding.
 	if idle := projects - scopeBusyProjects; idle > 0 {
-		if err := h.db.Exec(`
-			INSERT INTO projects (id, created_at, updated_at, organization_id, name)
-			SELECT gen_random_uuid(), now(), now(), ?, format('Idle %s', lpad(n::text, 6, '0'))
-			  FROM generate_series(1, ?) AS n`, org.ID, idle).Error; err != nil {
+		now := time.Now()
+		rows := make([]project.Row, idle)
+		for n := range rows {
+			rows[n] = project.Row{
+				ID: uuid.New(), CreatedAt: now, UpdatedAt: now, OrganizationID: org.ID,
+				Name: fmt.Sprintf("Idle %06d", n+1),
+			}
+		}
+		if _, err := project.InsertAll(ctx, testutils.Executor(h.db), rows); err != nil {
 			t.Fatalf("seed %d idle projects in %s: %v", idle, label, err)
 		}
 	}
@@ -202,23 +212,18 @@ func (h *scopeHarness) seedOrganization(t *testing.T, label string, projects, in
 		t.Fatalf("create the %s administrator: %v", label, err)
 	}
 	seeded.token = h.loginAs(username, scopePassword)
-	seeded.instance = h.firstID(t, "process_instances", seeded.busy)
-	seeded.task = h.firstID(t, "tasks", seeded.busy)
+	ex := testutils.Executor(h.db)
+	instance, found, err := processinstance.New().ProjectIDEq(seeded.busy).
+		Order(processinstance.CreatedAt.Desc()).One(ctx, ex)
+	if err != nil || !found {
+		t.Fatalf("find an instance in %s: found %v, %v", label, found, err)
+	}
+	step, found, err := task.New().ProjectIDEq(seeded.busy).Order(task.CreatedAt.Desc()).One(ctx, ex)
+	if err != nil || !found {
+		t.Fatalf("find a task in %s: found %v, %v", label, found, err)
+	}
+	seeded.instance, seeded.task = instance.ID, step.ID
 	return seeded
-}
-
-func (h *scopeHarness) firstID(t *testing.T, table string, projectID uuid.UUID) uuid.UUID {
-	t.Helper()
-	var id string
-	if err := h.db.Raw("SELECT id::text FROM "+table+" WHERE project_id = ? ORDER BY created_at DESC LIMIT 1", projectID).
-		Scan(&id).Error; err != nil {
-		t.Fatalf("find a row in %s: %v", table, err)
-	}
-	parsed, err := uuid.Parse(id)
-	if err != nil {
-		t.Fatalf("find a row in %s: %q is not an id: %v", table, id, err)
-	}
-	return parsed
 }
 
 // endpoints are the reads a person opening the product makes: the inbox, the

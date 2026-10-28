@@ -15,6 +15,10 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/job"
+	"github.com/gsoultan/metis/server/repositories/store/servicecall"
+	"github.com/gsoultan/metis/server/repositories/store/task"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // The checks TestConcurrentApprovalsLoseNothingAndRepeatNothing holds a run
@@ -160,14 +164,14 @@ func tokenNodes(instance entities.ProcessInstance) []string {
 	return nodes
 }
 
-func taskProblems(a approval, tasks []taskRow) []string {
+func taskProblems(a approval, tasks []task.Row) []string {
 	if len(tasks) != 2 {
 		return []string{fmt.Sprintf("%s has %d tasks, want its two approvals", a.order, len(tasks))}
 	}
 	var problems []string
-	for _, task := range tasks {
-		if task.Status != string(entities.TaskCompleted) {
-			problems = append(problems, fmt.Sprintf("%s: the %s task is %s", a.order, task.NodeID, task.Status))
+	for _, step := range tasks {
+		if step.Status != string(entities.TaskCompleted) {
+			problems = append(problems, fmt.Sprintf("%s: the %s task is %s", a.order, step.NodeID, step.Status))
 		}
 	}
 	return problems
@@ -199,35 +203,25 @@ func (w *writeLoad) auditProblems(t *testing.T, a approval) []string {
 	return problems
 }
 
-// jobRow and serviceCallRow are read straight from the tables, because the
-// question is what the queue and the call ledger hold, not what an API makes of
-// them.
-type jobRow struct {
-	InstanceID uuid.UUID `gorm:"column:instance_id"`
-	Status     string    `gorm:"column:status"`
-	Retries    int       `gorm:"column:retries"`
-	LastError  *string   `gorm:"column:last_error"`
-}
-
-type serviceCallRow struct {
-	InstanceID uuid.UUID `gorm:"column:instance_id"`
-	Status     string    `gorm:"column:status"`
-	Attempts   int       `gorm:"column:attempts"`
-}
+// everything is a limit no read of this test's tables reaches.
+const everything = 1 << 30
 
 // checkLedger holds each instance to one service-task job, run once, and one
 // recorded partner call, made once.
 func (w *writeLoad) checkLedger(t *testing.T, approvals []approval) {
 	t.Helper()
-	var jobs []jobRow
-	if err := w.db.Raw(`SELECT instance_id, status, retries, last_error FROM jobs`).Scan(&jobs).Error; err != nil {
+	// Read straight from the tables, because the question is what the queue
+	// and the call ledger hold, not what an API makes of them.
+	ex := testutils.Executor(w.db)
+	jobs, err := job.New().Limit(everything).All(t.Context(), ex, nil)
+	if err != nil {
 		t.Fatalf("read the jobs: %v", err)
 	}
-	var calls []serviceCallRow
-	if err := w.db.Raw(`SELECT instance_id, status, attempts FROM service_calls`).Scan(&calls).Error; err != nil {
+	calls, err := servicecall.New().Limit(everything).All(t.Context(), ex, nil)
+	if err != nil {
 		t.Fatalf("read the service calls: %v", err)
 	}
-	jobsOf, callsOf := map[uuid.UUID][]jobRow{}, map[uuid.UUID][]serviceCallRow{}
+	jobsOf, callsOf := map[uuid.UUID][]job.Row{}, map[uuid.UUID][]servicecall.Row{}
 	for _, j := range jobs {
 		jobsOf[j.InstanceID] = append(jobsOf[j.InstanceID], j)
 	}
@@ -242,7 +236,7 @@ func (w *writeLoad) checkLedger(t *testing.T, approvals []approval) {
 	reportProblems(t, "one job and one partner call per instance", problems)
 }
 
-func ledgerProblems(a approval, jobs []jobRow, calls []serviceCallRow) []string {
+func ledgerProblems(a approval, jobs []job.Row, calls []servicecall.Row) []string {
 	var problems []string
 	if len(jobs) != 1 {
 		problems = append(problems, fmt.Sprintf("%s has %d jobs, want one service task", a.order, len(jobs)))
@@ -250,7 +244,7 @@ func ledgerProblems(a approval, jobs []jobRow, calls []serviceCallRow) []string 
 	for _, j := range jobs {
 		if j.Status != string(models.JobCompleted) || j.Retries != 0 {
 			problems = append(problems, fmt.Sprintf("%s: its job is %s after %d retries (last error %q)",
-				a.order, j.Status, j.Retries, valueOf(j.LastError)))
+				a.order, j.Status, j.Retries, j.LastError.V))
 		}
 	}
 	if len(calls) != 1 {
@@ -262,13 +256,6 @@ func ledgerProblems(a approval, jobs []jobRow, calls []serviceCallRow) []string 
 		}
 	}
 	return problems
-}
-
-func valueOf(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
 }
 
 // checkPartner holds the outside world to one call per instance, and no key used

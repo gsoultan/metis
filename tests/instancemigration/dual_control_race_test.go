@@ -3,12 +3,13 @@ package instancemigration
 import (
 	"context"
 	"errors"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -16,7 +17,6 @@ import (
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories/models"
-	"gorm.io/gorm"
 )
 
 // Decisions on one request, made at once.

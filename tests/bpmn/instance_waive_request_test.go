@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -17,7 +18,6 @@ import (
 	deviationendpoint "github.com/gsoultan/metis/server/endpoints/deviation"
 	"github.com/gsoultan/metis/server/repositories"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
-	"gorm.io/gorm"
 )
 
 // requestCount is how many requests for a second administrator the test's

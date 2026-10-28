@@ -2,8 +2,9 @@ package tenant
 
 import (
 	"context"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"testing"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/features"
@@ -12,8 +13,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/pg"
-	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // A request reads its organization's projects once and every scoped call in it

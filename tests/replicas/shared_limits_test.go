@@ -3,17 +3,16 @@ package replicas
 import (
 	"context"
 	"fmt"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/gsoultan/metis/server/repositories/db"
+
 	"github.com/gsoultan/metis/internal/pkg/sharedcount"
 	"github.com/gsoultan/metis/server/interceptors/security"
 	"github.com/gsoultan/metis/server/repositories"
-	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // A rate limit has to be the installation's, not each process's.

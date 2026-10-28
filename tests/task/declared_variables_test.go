@@ -11,7 +11,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
-	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // Completing a task set whatever variables the request carried: the service

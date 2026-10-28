@@ -1,10 +1,11 @@
 package postgres_test
 
 import (
-	"github.com/gsoultan/metis/server/repositories/db"
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -12,7 +13,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // What each sweep removes and what it keeps. A sweep picks its rows by what a

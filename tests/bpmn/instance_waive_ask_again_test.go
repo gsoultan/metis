@@ -3,14 +3,14 @@ package bpmn_test
 import (
 	"context"
 	"errors"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"strings"
 	"testing"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
-	"gorm.io/gorm"
 )
 
 // Nothing that blocks an act is found only by trying it. A preview of a waive

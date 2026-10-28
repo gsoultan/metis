@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	projectstore "github.com/gsoultan/metis/server/repositories/store/project"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/app"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -27,7 +29,7 @@ import (
 // fresh environment database, so every scoped read matched nothing and every
 // create was refused with "record not found".
 func TestAProcessRunsInAnEnvironment(t *testing.T) {
-	mainDB, conn := testutils.SetupTestStore(t)
+	conn := testutils.SetupTestDB(t)
 	stagingDB := testutils.SetupTestDB(t)
 
 	environmentID := uuid.New()
@@ -37,7 +39,7 @@ func TestAProcessRunsInAnEnvironment(t *testing.T) {
 		conn.RegisterEnvironment(environmentID, pool.Main())
 	}
 
-	repo := repositories.NewRepository(mainDB)
+	repo := repositories.NewRepository(conn)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "env-e2e", nil, nil, nil)
 
@@ -132,8 +134,8 @@ func TestSeedingIsIdempotent(t *testing.T) {
 		}
 	}
 
-	var projects int64
-	if err := stagingDB.Model(&models.ProjectModel{}).Count(&projects).Error; err != nil {
+	projects, err := projectstore.New().Unordered().Count(ctx, testutils.Executor(stagingDB))
+	if err != nil {
 		t.Fatalf("count projects: %v", err)
 	}
 	if projects != 1 {
@@ -145,8 +147,8 @@ func TestSeedingIsIdempotent(t *testing.T) {
 	if err := app.SeedEnvironmentIdentity(ctx, stagingDB.Main(), project, organization); err != nil {
 		t.Fatalf("reseed after a rename: %v", err)
 	}
-	var stored models.ProjectModel
-	if err := stagingDB.First(&stored, "id = ?", models.FromUUID(projectID)).Error; err != nil {
+	stored, found, err := projectstore.New().IDEq(projectID).One(ctx, testutils.Executor(stagingDB))
+	if err != nil || !found {
 		t.Fatalf("read back the project: %v", err)
 	}
 	if stored.Name != "Purchase Approval (EU)" {

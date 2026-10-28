@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"io"
 	"maps"
 	"net/http"
@@ -14,6 +13,10 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/userorganization"
+	"github.com/gsoultan/storm/runtime"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/coreos/go-oidc/v3/oidc/oidctest"
@@ -27,7 +30,6 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 const (
@@ -306,11 +308,12 @@ func (h *apiHarness) holdsIn(account, org uuid.UUID, roles ...string) {
 	if err != nil {
 		h.t.Fatalf("encode %v: %v", roles, err)
 	}
-	result := h.db.WithContext(h.t.Context()).Exec(
-		`UPDATE user_organizations SET roles = ?::jsonb WHERE user_id = ? AND organization_id = ?`,
-		string(encoded), account, org)
-	if result.Error != nil || result.RowsAffected != 1 {
-		h.t.Fatalf("give %s %v in %s: %v (%d rows)", account, roles, org, result.Error, result.RowsAffected)
+	var granted userorganization.Mut
+	granted.SetRoles(runtime.JSON(encoded))
+	n, err := userorganization.New().UserIDEq(account).OrganizationIDEq(org).
+		UpdateAll(h.t.Context(), testutils.Executor(h.db), granted)
+	if err != nil || n != 1 {
+		h.t.Fatalf("give %s %v in %s: %v (%d rows)", account, roles, org, err, n)
 	}
 }
 

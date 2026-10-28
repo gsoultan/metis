@@ -3,11 +3,12 @@ package bpmn_test
 import (
 	"context"
 	"errors"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
@@ -16,7 +17,6 @@ import (
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 const waiveReason = "The operations manager is on leave; the CFO agreed by email, ticket FIN-2231."

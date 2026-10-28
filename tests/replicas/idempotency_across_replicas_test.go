@@ -11,7 +11,6 @@ package replicas
 import (
 	"bytes"
 	"fmt"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -19,9 +18,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/organization"
+
 	"github.com/gsoultan/metis/server/interceptors/security"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 const idempotencyTTL = time.Minute
@@ -52,7 +53,17 @@ func forEachDialect(t *testing.T, body func(t *testing.T, db *db.Conn)) {
 	}
 	for _, engine := range engines {
 		t.Run(engine.name, func(t *testing.T) {
-			body(t, engine.open(t))
+			conn := engine.open(t)
+			// The organization replicaScope addresses: an event names its
+			// audience by a key the database holds it to.
+			audience := organization.Create()
+			audience.SetID(replicaScope.Organization)
+			audience.SetName("Replicas")
+			audience.SetDescription("")
+			if _, err := audience.Insert(t.Context(), testutils.Executor(conn)); err != nil {
+				t.Fatalf("seed the audience's organization: %v", err)
+			}
+			body(t, conn)
 		})
 	}
 }

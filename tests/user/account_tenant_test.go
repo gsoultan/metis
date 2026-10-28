@@ -3,9 +3,10 @@ package user_test
 import (
 	"context"
 	"errors"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"strings"
 	"testing"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -16,7 +17,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // Accounts are installation-wide in the repository — an account is read by ID

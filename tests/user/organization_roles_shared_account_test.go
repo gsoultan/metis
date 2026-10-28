@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/user"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // An account is the same in every organization it belongs to: renaming it,
@@ -62,9 +64,9 @@ func refusedAsNotTheirs(t *testing.T, what string, status int, body string) {
 // fullName is what the database holds, whatever any response said.
 func (w *orgRolesWorld) fullName(id uuid.UUID) string {
 	w.t.Helper()
-	var name string
-	if err := w.db.WithContext(w.t.Context()).Raw(`SELECT full_name FROM users WHERE id = ?`, id).Row().Scan(&name); err != nil {
-		w.t.Fatalf("read %s's name: %v", id, err)
+	account, found, err := user.New().IDEq(id).One(w.t.Context(), testutils.Executor(w.db))
+	if err != nil || !found {
+		w.t.Fatalf("read %s's name: found %v, %v", id, found, err)
 	}
-	return name
+	return account.FullName
 }

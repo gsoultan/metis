@@ -5,10 +5,15 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/user"
+	"github.com/gsoultan/metis/server/repositories/store/userorganization"
+	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // membersAheadOfTheSecondAdministrator is as many members as one read of the
@@ -21,17 +26,21 @@ const membersAheadOfTheSecondAdministrator = 1000
 // read that stops at a thousand stops before the administrator does.
 func (w accountWorld) seedMembers(t *testing.T, organizationID uuid.UUID, n int) {
 	t.Helper()
-	if err := w.db.WithContext(t.Context()).Exec(`
-		WITH seeded AS (
-			INSERT INTO users (id, created_at, updated_at, username, password_hash,
-			                   full_name, display_name, organization, email, roles)
-			SELECT gen_random_uuid(), now(), now(), format('member-%s', lpad(n::text, 5, '0')), '',
-			       '', '', '', '', '["USER"]'
-			  FROM generate_series(1, ?) AS n
-			RETURNING id)
-		INSERT INTO user_organizations (user_id, organization_id)
-		SELECT id, ? FROM seeded`, n, organizationID).Error; err != nil {
+	ex, now := testutils.Executor(w.db), time.Now()
+	accounts := make([]user.Row, n)
+	memberships := make([]userorganization.Row, n)
+	for i := range accounts {
+		accounts[i] = user.Row{
+			ID: uuid.New(), CreatedAt: now, UpdatedAt: now, Username: fmt.Sprintf("member-%05d", i+1),
+			Roles: runtime.JSON(`["USER"]`),
+		}
+		memberships[i] = userorganization.Row{UserID: accounts[i].ID, OrganizationID: organizationID, Roles: runtime.JSON("[]")}
+	}
+	if _, err := user.InsertAll(t.Context(), ex, accounts); err != nil {
 		t.Fatalf("seed %d members: %v", n, err)
+	}
+	if _, err := userorganization.InsertAll(t.Context(), ex, memberships); err != nil {
+		t.Fatalf("seed %d memberships: %v", n, err)
 	}
 }
 

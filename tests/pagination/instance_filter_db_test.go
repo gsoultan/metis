@@ -2,8 +2,15 @@ package pagination_test
 
 import (
 	"context"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"testing"
+
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/incident"
+	"github.com/gsoultan/metis/server/repositories/store/organization"
+	"github.com/gsoultan/metis/server/repositories/store/processdefinition"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	"github.com/gsoultan/metis/server/repositories/store/project"
+	"github.com/gsoultan/storm/runtime"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -11,7 +18,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // The instance list's status filter used to run in the browser, over the rows
@@ -26,32 +32,36 @@ import (
 // fixtures here are rows rather than bare ids.
 func seedProject(t *testing.T, db *db.Conn, orgID, projectID uuid.UUID, name string) {
 	t.Helper()
-	rows := []any{
-		&models.OrganizationModel{Base: models.Base{ID: models.FromUUID(orgID)}, Name: name},
-		&models.ProjectModel{
-			Base:           models.Base{ID: models.FromUUID(projectID)},
-			OrganizationID: models.FromUUID(orgID),
-			Name:           name,
-		},
+	ex := testutils.Executor(db)
+	org := organization.Create()
+	org.SetID(orgID)
+	org.SetName(name)
+	org.SetDescription("")
+	if _, err := org.Insert(t.Context(), ex); err != nil {
+		t.Fatalf("seed the organization: %v", err)
 	}
-	for _, row := range rows {
-		if err := db.Create(row).Error; err != nil {
-			t.Fatalf("seed %T: %v", row, err)
-		}
+	proj := project.Create()
+	proj.SetID(projectID)
+	proj.SetOrganizationID(orgID)
+	proj.SetName(name)
+	proj.SetDescription("")
+	if _, err := proj.Insert(t.Context(), ex); err != nil {
+		t.Fatalf("seed the project: %v", err)
 	}
 }
 
 // seedDefinition writes the process an instance is a run of.
 func seedDefinition(t *testing.T, db *db.Conn, projectID, definitionID uuid.UUID, key string, version int) {
 	t.Helper()
-	err := db.Create(&models.ProcessDefinitionModel{
-		Base:      models.Base{ID: models.FromUUID(definitionID)},
-		ProjectID: models.FromUUID(projectID),
-		Key:       key,
-		Name:      key,
-		Version:   version,
-	}).Error
-	if err != nil {
+	row := processdefinition.Create()
+	row.SetID(definitionID)
+	row.SetProjectID(projectID)
+	row.SetKey(key)
+	row.SetName(key)
+	row.SetVersion(int64(version))
+	row.SetNodes(runtime.JSON("[]"))
+	row.SetFlows(runtime.JSON("[]"))
+	if _, err := row.Insert(t.Context(), testutils.Executor(db)); err != nil {
 		t.Fatalf("seed definition %s: %v", key, err)
 	}
 }
@@ -276,16 +286,14 @@ func TestInstanceFilter_DoesNotReachAnotherTenantsRows(t *testing.T) {
 // seedIncident raises an unresolved incident against an instance.
 func seedIncident(t *testing.T, db *db.Conn, instanceID, definitionID uuid.UUID) {
 	t.Helper()
-	err := db.Create(&models.IncidentModel{
-		Base:         models.Base{ID: models.FromUUID(uuid.Must(uuid.NewV7()))},
-		InstanceID:   models.FromUUID(instanceID),
-		DefinitionID: models.FromUUID(definitionID),
-		JobID:        models.FromUUID(uuid.Must(uuid.NewV7())),
-		NodeID:       "Activity_ChargeCard",
-		Error:        "the payment gateway refused the connection",
-		Status:       models.IncidentOpen,
-	}).Error
-	if err != nil {
+	// No job: the incident is what is being counted, not what raised it.
+	row := incident.Create()
+	row.SetInstanceID(instanceID)
+	row.SetDefinitionID(definitionID)
+	row.SetNodeID("Activity_ChargeCard")
+	row.SetError("the payment gateway refused the connection")
+	row.SetStatus(string(models.IncidentOpen))
+	if _, err := row.Insert(t.Context(), testutils.Executor(db)); err != nil {
 		t.Fatalf("seed incident: %v", err)
 	}
 }
@@ -367,9 +375,9 @@ func TestInstanceAttention_IsNotTheStatusColumn(t *testing.T) {
 	})
 
 	t.Run("a resolved incident stops counting", func(t *testing.T) {
-		if err := db.Model(&models.IncidentModel{}).
-			Where("instance_id = ?", models.FromUUID(broken)).
-			Update("status", models.IncidentResolved).Error; err != nil {
+		var resolved incident.Mut
+		resolved.SetStatus(string(models.IncidentResolved))
+		if _, err := incident.New().InstanceIDEq(broken).UpdateAll(t.Context(), testutils.Executor(db), resolved); err != nil {
 			t.Fatalf("resolve: %v", err)
 		}
 		total, err := repo.Process().CountInstancesNeedingAttention(
@@ -400,7 +408,7 @@ func TestInstanceAttention_IsNotTheStatusColumn(t *testing.T) {
 		if counts[gone] != 2 {
 			t.Fatalf("the instance with two incidents reports %d", counts[gone])
 		}
-		if err := db.Exec(`UPDATE process_instances SET deleted_at = now() WHERE id = ?`, models.FromUUID(gone)).Error; err != nil {
+		if err := processinstance.Delete(t.Context(), testutils.Executor(db), gone); err != nil {
 			t.Fatalf("delete: %v", err)
 		}
 		if counts, err = repo.Process().OpenIncidentsByInstance(ctx, []uuid.UUID{gone}); err != nil {

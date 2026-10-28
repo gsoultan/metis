@@ -3,11 +3,13 @@ package notification_test
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/notification"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/app"
@@ -18,7 +20,6 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 const (
@@ -270,21 +271,18 @@ func TestNobodyReadsOrClearsAnotherPersonsNotifications(t *testing.T) {
 
 func (a api) oneNotificationOf(recipient string) uuid.UUID {
 	a.t.Helper()
-	var id string
-	if err := a.db.WithContext(a.t.Context()).Raw(
-		`SELECT id::text FROM notifications WHERE user_id = ? AND is_read = false ORDER BY created_at, id LIMIT 1`,
-		recipient).Scan(&id).Error; err != nil || id == "" {
-		a.t.Fatalf("find one of %s's unread notifications: %v", recipient, err)
+	row, found, err := notification.New().UserIDEq(recipient).IsReadEq(false).
+		Order(notification.CreatedAt.Asc(), notification.ID.Asc()).One(a.t.Context(), testutils.Executor(a.db))
+	if err != nil || !found {
+		a.t.Fatalf("find one of %s's unread notifications: found %v, %v", recipient, found, err)
 	}
-	return uuid.MustParse(id)
+	return row.ID
 }
 
 func (a api) unreadOf(recipient string) int64 {
 	a.t.Helper()
-	var n int64
-	if err := a.db.WithContext(a.t.Context()).Raw(
-		`SELECT count(*) FROM notifications WHERE user_id = ? AND is_read = false AND deleted_at IS NULL`,
-		recipient).Scan(&n).Error; err != nil {
+	n, err := notification.New().UserIDEq(recipient).IsReadEq(false).Count(a.t.Context(), testutils.Executor(a.db))
+	if err != nil {
 		a.t.Fatalf("count %s's unread notifications: %v", recipient, err)
 	}
 	return n
@@ -292,9 +290,8 @@ func (a api) unreadOf(recipient string) int64 {
 
 func (a api) exists(id uuid.UUID) bool {
 	a.t.Helper()
-	var n int64
-	if err := a.db.WithContext(a.t.Context()).Raw(
-		`SELECT count(*) FROM notifications WHERE id = ? AND deleted_at IS NULL`, id).Scan(&n).Error; err != nil {
+	n, err := notification.New().IDEq(id).Count(a.t.Context(), testutils.Executor(a.db))
+	if err != nil {
 		a.t.Fatalf("look for notification %s: %v", id, err)
 	}
 	return n == 1

@@ -2,17 +2,16 @@ package replicas
 
 import (
 	"context"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	observers "github.com/gsoultan/metis/server/domains/observers/impl"
 	"github.com/gsoultan/metis/server/repositories"
-	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // replicaScope is the audience both replicas' browsers are in. Events carry it

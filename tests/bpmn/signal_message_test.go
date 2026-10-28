@@ -2,8 +2,9 @@ package bpmn_test
 
 import (
 	"context"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"testing"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -15,7 +16,6 @@ import (
 	service_impl2 "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // engineHarness wires the engine the same way bpmn_events_test.go does,

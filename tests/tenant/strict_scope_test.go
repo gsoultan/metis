@@ -1,16 +1,15 @@
 package tenant
 
 import (
-	"github.com/gsoultan/metis/server/repositories/db"
 	"testing"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/features"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/pg"
-	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // TestStrictScope_DeniesAContextWithNoIdentity is the point of the flag.

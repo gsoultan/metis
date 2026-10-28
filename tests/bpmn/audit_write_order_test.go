@@ -2,9 +2,10 @@ package bpmn_test
 
 import (
 	"context"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"slices"
 	"testing"
+
+	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -12,7 +13,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // auditedEngine is the service facade with the audit trail written the way the

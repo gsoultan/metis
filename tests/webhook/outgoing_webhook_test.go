@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +12,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/outgoingwebhook"
+	"github.com/gsoultan/metis/server/repositories/store/outgoingwebhookdelivery"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -24,7 +27,6 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // The outgoing half: a project's events, owed to the receivers that asked for
@@ -170,10 +172,11 @@ func TestTheSigningSecretIsShownOnceAndSealedAtRest(t *testing.T) {
 		t.Fatalf("the secret returned at creation is %q, want a generated one", hook.Secret)
 	}
 
-	var stored string
-	if err := h.db.Raw(`SELECT secret FROM outgoing_webhooks WHERE id = ?`, hook.ID).Scan(&stored).Error; err != nil {
+	row, _, err := outgoingwebhook.New().IDEq(hook.ID).One(h.ctx, testutils.Executor(h.db))
+	if err != nil {
 		t.Fatalf("read the stored secret: %v", err)
 	}
+	stored := row.Secret
 	if stored == hook.Secret || !crypto.IsCiphertext(stored) {
 		t.Errorf("the secret is stored as %q, want it sealed", stored)
 	}
@@ -220,10 +223,11 @@ func TestADeliveryIsClaimedByOneWorkerAtATime(t *testing.T) {
 	if err := queue.Settle(h.ctx, stale, entities.OutgoingWebhookAttempt{StatusCode: 200, At: now}); err != nil {
 		t.Fatalf("settle the stale attempt: %v", err)
 	}
-	var status string
-	if err := h.db.Raw(`SELECT status FROM outgoing_webhook_deliveries WHERE id = ?`, first[0].ID).Scan(&status).Error; err != nil {
+	delivery, _, err := outgoingwebhookdelivery.New().IDEq(first[0].ID).One(h.ctx, testutils.Executor(h.db))
+	if err != nil {
 		t.Fatalf("read the delivery: %v", err)
 	}
+	status := delivery.Status
 	if status != string(entities.DeliveryPending) {
 		t.Errorf("a stale attempt settled the delivery as %s", status)
 	}
@@ -317,9 +321,13 @@ func TestADeletedWebhookIsNeverClaimed(t *testing.T) {
 	if due := h.claimAll(t, time.Now()); len(due) != 0 {
 		t.Fatalf("a deleted webhook was handed %d deliveries", len(due))
 	}
-	var attempts int
-	if err := h.db.Raw(`SELECT COALESCE(SUM(attempts), 0) FROM outgoing_webhook_deliveries`).Scan(&attempts).Error; err != nil {
+	deliveries, err := outgoingwebhookdelivery.New().All(h.ctx, testutils.Executor(h.db), nil)
+	if err != nil {
 		t.Fatalf("read the deliveries: %v", err)
+	}
+	var attempts int64
+	for _, d := range deliveries {
+		attempts += d.Attempts
 	}
 	if attempts != 0 {
 		t.Errorf("a deleted webhook's deliveries were claimed %d times", attempts)
@@ -435,12 +443,13 @@ func waitForSettled(t *testing.T, h *outgoingHarness, id string) settledRow {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		var row settledRow
-		err := h.db.Raw(`SELECT status, attempts, COALESCE(last_status_code, 0) AS last_status_code,
-		        COALESCE(last_response, '') AS last_response, next_attempt_at
-		   FROM outgoing_webhook_deliveries WHERE id = ?`, id).Scan(&row).Error
+		stored, _, err := outgoingwebhookdelivery.New().IDEq(uuid.MustParse(id)).One(t.Context(), testutils.Executor(h.db))
 		if err != nil {
 			t.Fatalf("read the delivery: %v", err)
+		}
+		row := settledRow{
+			Status: stored.Status, Attempts: int(stored.Attempts), LastStatusCode: int(stored.LastStatusCode.V),
+			LastResponse: stored.LastResponse.V, NextAttemptAt: stored.NextAttemptAt,
 		}
 		if row.LastStatusCode != 0 {
 			return row

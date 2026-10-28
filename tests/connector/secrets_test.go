@@ -12,6 +12,7 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/endpoints/connector"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/store/connectorinstance"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -193,10 +194,11 @@ func TestTheStoredConfigIsNotReadableAsPlainText(t *testing.T) {
 		t.Fatalf("create instance: %v", err)
 	}
 
-	var raw string
-	if err := db.Raw("SELECT config FROM connector_instances LIMIT 1").Scan(&raw).Error; err != nil {
+	stored, _, err := connectorinstance.New().One(t.Context(), testutils.Executor(db))
+	if err != nil {
 		t.Fatalf("read the raw column: %v", err)
 	}
+	raw := stored.Config
 	if strings.Contains(raw, "sk-live-do-not-leak") {
 		t.Fatalf("the credential is stored in clear text: %s", raw)
 	}

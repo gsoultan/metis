@@ -2,15 +2,23 @@ package pagination_test
 
 import (
 	"context"
-	"github.com/gsoultan/metis/server/repositories/db"
+	"fmt"
 	"testing"
+	"time"
+
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/decisiondefinition"
+	"github.com/gsoultan/metis/server/repositories/store/notification"
+	"github.com/gsoultan/metis/server/repositories/store/processdefinition"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	"github.com/gsoultan/metis/server/repositories/store/task"
+	"github.com/gsoultan/storm/runtime"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // Rows created in one statement — the way one transaction creates them, a
@@ -32,8 +40,7 @@ func TestEveryPagedListShowsRowsSharingACreationTimeExactlyOnce(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(db)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
-	instanceID := uuid.Must(uuid.NewV7())
-	seedAtOneMoment(t, db, ctx, projectID, instanceID)
+	instanceID := seedAtOneMoment(t, db, ctx, projectID)
 
 	reads := []struct {
 		name string
@@ -106,53 +113,62 @@ func TestEveryPagedListShowsRowsSharingACreationTimeExactlyOnce(t *testing.T) {
 	}
 }
 
-// seedAtOneMoment writes sameMoment tasks, instances, definitions and decisions,
-// each table in one statement, so each shares one created_at. Definitions come
-// first: an instance names one.
-func seedAtOneMoment(t *testing.T, db *db.Conn, ctx context.Context, projectID, instanceID uuid.UUID) {
+// seedAtOneMoment writes sameMoment tasks, instances, definitions, decisions
+// and notifications, each table in one statement, so each shares one
+// created_at. It answers the instance the tasks belong to.
+func seedAtOneMoment(t *testing.T, db *db.Conn, ctx context.Context, projectID uuid.UUID) uuid.UUID {
 	t.Helper()
-	for _, seed := range []struct {
-		table     string
-		statement string
-		args      []any
-	}{
-		{"definitions", `
-			INSERT INTO process_definitions (id, created_at, updated_at, project_id, key, name, version, nodes, flows)
-			SELECT gen_random_uuid(), now(), now(), ?, 'process-' || n, 'Process ' || n, 1, '[]', '[]'
-			  FROM generate_series(1, ?) AS n`,
-			[]any{projectID, sameMoment}},
-		{"instances", `
-			INSERT INTO process_instances (id, created_at, updated_at, project_id, definition_id, status, variables,
-			                               tokens, completed_nodes, compensated_nodes, multi_instance, joins)
-			SELECT gen_random_uuid(), now(), now(), ?,
-			       (SELECT id FROM process_definitions WHERE project_id = ? ORDER BY id LIMIT 1),
-			       'active', '', '[]', '[]', '[]', '{}', '{}'
-			  FROM generate_series(1, ?) AS n`,
-			[]any{projectID, projectID, sameMoment}},
-		{"tasks", `
-			INSERT INTO tasks (id, created_at, updated_at, project_id, instance_id, node_id, name, type,
-			                   status, assignee, candidate_users, candidate_groups, priority, variables)
-			SELECT gen_random_uuid(), now(), now(), ?, ?, 'approve', 'Approve', 'userTask',
-			       'unclaimed', 'alice', '["alice"]', '["clerks"]', 0, ''
-			  FROM generate_series(1, ?) AS n`,
-			[]any{projectID, instanceID, sameMoment}},
-		{"decisions", `
-			INSERT INTO decision_definitions (id, created_at, updated_at, project_id, key, name, version, hit_policy,
-			                                  required_decisions, inputs, outputs, rules, tests)
-			SELECT gen_random_uuid(), now(), now(), ?, 'decision-' || n, 'Decision ' || n, 1, 'FIRST',
-			       '[]', '[]', '[]', '[]', '[]'
-			  FROM generate_series(1, ?) AS n`,
-			[]any{projectID, sameMoment}},
-		{"notifications", `
-			INSERT INTO notifications (id, created_at, updated_at, user_id, type, title, message, is_read, project_id)
-			SELECT gen_random_uuid(), now(), now(), 'alice', 'TaskAssignment', 'Approve ' || n, 'Request ' || n, false, ?
-			  FROM generate_series(1, ?) AS n`,
-			[]any{projectID, sameMoment}},
-	} {
-		if err := db.WithContext(ctx).Exec(seed.statement, seed.args...).Error; err != nil {
-			t.Fatalf("seed %s: %v", seed.table, err)
+	ex, now := testutils.Executor(db), time.Now()
+	none, empty := runtime.JSON("[]"), runtime.JSON("{}")
+	definitions := make([]processdefinition.Row, sameMoment)
+	instances := make([]processinstance.Row, sameMoment)
+	tasks := make([]task.Row, sameMoment)
+	decisions := make([]decisiondefinition.Row, sameMoment)
+	notifications := make([]notification.Row, sameMoment)
+	for i := range sameMoment {
+		n := i + 1
+		definitions[i] = processdefinition.Row{
+			ID: uuid.New(), CreatedAt: now, UpdatedAt: now, ProjectID: projectID,
+			Key: fmt.Sprintf("process-%d", n), Name: fmt.Sprintf("Process %d", n), Version: 1, Nodes: none, Flows: none,
+		}
+		instances[i] = processinstance.Row{
+			ID: uuid.New(), CreatedAt: now, UpdatedAt: now, ProjectID: projectID, DefinitionID: definitions[0].ID,
+			Status: "active", Tokens: none, CompletedNodes: none, CompensatedNodes: none, MultiInstance: empty, Joins: empty,
+		}
+		tasks[i] = task.Row{
+			ID: uuid.New(), CreatedAt: now, UpdatedAt: now, ProjectID: projectID, InstanceID: instances[0].ID,
+			NodeID: "approve", Name: "Approve", Type: "userTask", Status: "unclaimed",
+			Assignee:       runtime.Null[string]{V: "alice", Valid: true},
+			CandidateUsers: runtime.JSON(`["alice"]`), CandidateGroups: runtime.JSON(`["clerks"]`),
+		}
+		decisions[i] = decisiondefinition.Row{
+			ID: uuid.New(), CreatedAt: now, UpdatedAt: now, ProjectID: projectID,
+			Key: fmt.Sprintf("decision-%d", n), Name: fmt.Sprintf("Decision %d", n), Version: 1, HitPolicy: "FIRST",
+			RequiredDecisions: none, Inputs: none, Outputs: none, Rules: none, Tests: none,
+		}
+		notifications[i] = notification.Row{
+			ID: uuid.New(), CreatedAt: now, UpdatedAt: now, UserID: "alice", Type: "TaskAssignment",
+			Title: fmt.Sprintf("Approve %d", n), Message: fmt.Sprintf("Request %d", n),
+			ProjectID: runtime.Null[[16]byte]{V: projectID, Valid: true},
 		}
 	}
+	seeded := func(table string, _ int64, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("seed %s: %v", table, err)
+		}
+	}
+	n, err := processdefinition.InsertAll(ctx, ex, definitions)
+	seeded("definitions", n, err)
+	n, err = processinstance.InsertAll(ctx, ex, instances)
+	seeded("instances", n, err)
+	n, err = task.InsertAll(ctx, ex, tasks)
+	seeded("tasks", n, err)
+	n, err = decisiondefinition.InsertAll(ctx, ex, decisions)
+	seeded("decisions", n, err)
+	n, err = notification.InsertAll(ctx, ex, notifications)
+	seeded("notifications", n, err)
+	return instances[0].ID
 }
 
 func taskIDOf(m models.TaskModel) models.UUID                    { return m.ID }

@@ -12,7 +12,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // TestARequestOnAnEnvironmentPortReadsThatEnvironmentsDatabase is the property
@@ -24,7 +23,7 @@ import (
 // by the listener rather than read from the request is the security property,
 // and a test that set the context itself would prove nothing about that.
 func TestARequestOnAnEnvironmentPortReadsThatEnvironmentsDatabase(t *testing.T) {
-	mainDB, mainConn := testutils.SetupTestStore(t)
+	mainConn := testutils.SetupTestDB(t)
 	stagingDB := testutils.SetupTestDB(t)
 
 	environmentID := uuid.New()
@@ -32,12 +31,12 @@ func TestARequestOnAnEnvironmentPortReadsThatEnvironmentsDatabase(t *testing.T) 
 		mainConn.RegisterEnvironment(environmentID, pool.Main())
 	}
 
-	repo := repositories.NewRepository(mainDB)
+	repo := repositories.NewRepository(mainConn)
 	system := entities.WithSystemContext(context.Background())
 
 	// One definition in each database, with different keys, so which database
 	// answered is visible in the result rather than inferred from a count.
-	writeDefinition(t, mainDB, "lives-in-main")
+	writeDefinition(t, mainConn, "lives-in-main")
 	writeDefinition(t, stagingDB, "lives-in-staging")
 
 	var seen []string
@@ -76,7 +75,7 @@ func TestARequestOnAnEnvironmentPortReadsThatEnvironmentsDatabase(t *testing.T) 
 // authenticated against them would be refused with a valid token, because the
 // account is real and the database being asked is the wrong one.
 func TestIdentityStillResolvesAgainstTheMainDatabase(t *testing.T) {
-	mainDB, mainConn := testutils.SetupTestStore(t)
+	mainConn := testutils.SetupTestDB(t)
 	stagingDB := testutils.SetupTestDB(t)
 
 	environmentID := uuid.New()
@@ -91,7 +90,7 @@ func TestIdentityStillResolvesAgainstTheMainDatabase(t *testing.T) {
 		FullName: "Ada Lovelace",
 		Roles:    []string{entities.RoleAdmin},
 	}
-	if err := mainDB.Create(&account).Error; err != nil {
+	if err := repo.User().Create(entities.WithSystemContext(t.Context()), account, ""); err != nil {
 		t.Fatalf("seed the account in the main database: %v", err)
 	}
 
@@ -116,10 +115,10 @@ func TestIdentityStillResolvesAgainstTheMainDatabase(t *testing.T) {
 // case. A fallback here would succeed, silently, and write one runtime's rows
 // into another's store.
 func TestAnEnvironmentWithNoConnectionIsRefusedNotServedFromMain(t *testing.T) {
-	mainDB := testutils.SetupTestDB(t)
+	mainConn := testutils.SetupTestDB(t)
 
-	repo := repositories.NewRepository(mainDB)
-	writeDefinition(t, mainDB, "lives-in-main")
+	repo := repositories.NewRepository(mainConn)
+	writeDefinition(t, mainConn, "lives-in-main")
 
 	// Registered nowhere: this is an environment whose database would not open.
 	unopened := uuid.New()
@@ -146,15 +145,7 @@ func requestScoped(environmentID uuid.UUID, body func(*http.Request)) http.Handl
 
 func writeDefinition(t *testing.T, db *db.Conn, key string) {
 	t.Helper()
-	def := models.ProcessDefinitionModel{
-		Base:    models.Base{ID: models.FromUUID(uuid.New())},
-		Key:     key,
-		Name:    key,
-		Version: 1,
-	}
-	if err := db.Create(&def).Error; err != nil {
-		t.Fatalf("seed definition %q: %v", key, err)
-	}
+	testutils.SeedDefinition(t, db, testutils.SeedProject(t, db), key)
 }
 
 func keyOf(defs []models.ProcessDefinitionModel) string {

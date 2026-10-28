@@ -74,6 +74,8 @@ func (s *dbIdempotencyStore) Claim(ctx context.Context, key, requestHash string)
 	// decoder panics on a zero-length integer rather than reporting anything a
 	// reader could act on.
 	ins.SetStatusCode(0)
+	// No answer, so no headers: JSON null, for the same reason.
+	ins.SetHeaders(nil)
 	ins.DoNothing()
 	if _, err := ins.Insert(ctx, ex); err == nil {
 		return ClaimOutcome{Owned: true}, nil
