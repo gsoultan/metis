@@ -57,6 +57,9 @@ func (j *Job) Schema(t *storm.Table) {
 	t.Col(&j.NodeID).Size(255)
 	t.Col(&j.Type).Size(64)
 	t.Col(&j.Status).Size(32)
+	// A claim that takes over a job whose worker died counts as an attempt;
+	// the guard reads the status the claim replaces, in the same UPDATE.
+	t.Col(&j.Retries).IncWhen(&j.Status)
 	// The claim query's index: the predicate and the order in one.
 	t.Index(&j.Status, &j.NextRunAt)
 	// The fair claim's: each organization's due jobs, oldest first, as one

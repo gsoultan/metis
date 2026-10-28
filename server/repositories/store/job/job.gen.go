@@ -2844,6 +2844,38 @@ const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"insta
 // Masks reports how many distinct UPDATE shapes have compiled.
 func Masks() int { return updCache.Masks() }
 
+// Guarded increments. Each takes an expression bit above every
+// column's, so it is a statement key of its own and the loops over
+// the columns pass it by.
+const (
+	guardRetries uint64 = 1 << (nUpdatable + 0)
+)
+
+// guardFrags adds one to a counter when another column, as the row
+// stands before the write, equals the bound value.
+var guardFrags = [1]runtime.Frag{
+	{A: "\"retries\" = \"retries\" + CASE WHEN \"status\" = $", B: " THEN 1 ELSE 0 END"}, // retries + 1 when status matches
+}
+
+// withGuards appends the guarded increments expr carries, in order.
+func withGuards(expr uint64, set []runtime.Frag) []runtime.Frag {
+	for j := range guardFrags {
+		if expr&(1<<uint(nUpdatable+j)) != 0 {
+			set = append(set, guardFrags[j])
+		}
+	}
+	return set
+}
+
+// guardArgs appends the values the guarded increments compare with,
+// in the order withGuards writes them.
+func (m Mut) guardArgs(args []any) []any {
+	if m.expr&guardRetries != 0 {
+		args = append(args, m.whenRetries)
+	}
+	return args
+}
+
 // Mut is a row staged for update: the values, plus which of them were
 // actually assigned. An UPDATE writes the assigned ones and no others,
 // so a read-modify-write cannot clobber a column it never looked at.
@@ -2851,6 +2883,8 @@ type Mut struct {
 	row   Row
 	dirty uint64
 	expr  uint64
+	// whenRetries is what IncRetriesWhenStatus compares status with.
+	whenRetries string
 }
 
 // Mutate stages a row read from the database.
@@ -3011,6 +3045,7 @@ func (m *Mut) SetRetries(v int64) {
 	m.row.Retries = v
 	m.dirty |= dRetries
 	m.expr &^= dRetries
+	m.expr &^= guardRetries
 }
 
 // IncRetries adds one to the column's OWN value, in the database.
@@ -3021,6 +3056,7 @@ func (m *Mut) SetRetries(v int64) {
 func (m *Mut) IncRetries() {
 	m.expr |= dRetries
 	m.dirty &^= dRetries
+	m.expr &^= guardRetries
 }
 
 // AddRetries adds n to the column's OWN value, in the database, for
@@ -3032,6 +3068,20 @@ func (m *Mut) AddRetries(n int64) {
 	m.row.Retries = n
 	m.dirty |= dRetries
 	m.expr |= dRetries
+	m.expr &^= guardRetries
+}
+
+// IncRetriesWhenStatus adds one to the column's OWN value when status, as
+// the row stands before the write, equals v, and adds nothing
+// otherwise. The test and the write are one statement, so it
+// reads the value this write replaces: two writers racing see
+// one outcome each, not the same old value twice. It replaces
+// any other assignment to the column staged on m.
+func (m *Mut) IncRetriesWhenStatus(v string) {
+	m.whenRetries = v
+	m.dirty &^= dRetries
+	m.expr &^= dRetries
+	m.expr |= guardRetries
 }
 
 func (m *Mut) SetMaxRetries(v int64) {
@@ -4011,6 +4061,7 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}
+	args = m.guardArgs(args)
 	args = append(args, m.row.ID)
 	return runtime.BatchOp{SQL: st.SQL, Args: args}, true
 }
@@ -4065,6 +4116,7 @@ func stmtForKey(k runtime.MaskKey, ret bool) *runtime.Stmt {
 			set = append(set, setFrags[i])
 		}
 	}
+	set = withGuards(k.Expr, set)
 	where := make([]runtime.Frag, 0, 3)
 	where = append(where, pkFrags[:]...)
 	// A deleted row is not updatable: every read here says it is gone.
@@ -4143,6 +4195,7 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}
+	args = m.guardArgs(args)
 	args = append(args, m.row.ID)
 	if m.expr != 0 {
 		return m.updateReturning(ctx, ex, st, args)
@@ -4314,6 +4367,7 @@ func (m Mut) updateArgs(args []any) []any {
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}
+	args = m.guardArgs(args)
 	return args
 }
 
@@ -4356,6 +4410,7 @@ func updHead(k runtime.MaskKey) *runtime.Stmt {
 			set = append(set, setFrags[i])
 		}
 	}
+	set = withGuards(k.Expr, set)
 	return updHeadCache.Put(k, runtime.SpliceSections(updatePrefix, []runtime.Section{
 		{Lead: "", Sep: ", ", Frags: set},
 	}, ""))
@@ -4674,6 +4729,7 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 				args = append(args, m.row.DeletedAt.Arg())
 			}
 		}
+		args = m.guardArgs(args)
 		return run(st.SQL, append(args, q.bindPreds(b)...))
 	}
 }

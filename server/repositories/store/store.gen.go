@@ -15736,9 +15736,6 @@ func init() {
 ) newest`)
 	storm.RegisterStatement(`SELECT p.organization_id FROM process_instances AS i
 JOIN projects AS p ON p.id = i.project_id WHERE i.id = $1`)
-	storm.RegisterStatement(`UPDATE jobs SET status = $1, locked_by = $2, lock_expires = $3, updated_at = now(),
-        retries = retries + CASE WHEN status = $1 THEN 1 ELSE 0 END
-  WHERE id = $4 AND (status = $5 OR (status = $1 AND lock_expires < $6))`)
 	storm.RegisterStatement(`WITH RECURSIVE held_up AS (
 	SELECT h.instance_id AS id FROM retention_holds h
 	UNION

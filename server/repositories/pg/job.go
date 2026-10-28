@@ -403,24 +403,28 @@ func (r *jobRepository) ListByInstance(ctx context.Context, instanceID uuid.UUID
 // the loser sees no rows changed. Reading first and updating second would let
 // both read "pending" and both proceed.
 //
-// Raw SQL because the predicate is part of the write. Reading the row, deciding
-// in Go and writing back is exactly the pattern this avoids.
-//
 // Reclaiming a job whose worker died is counted as an attempt, in the same
 // statement: the attempt it died in never reached the code that counts
 // failures. Otherwise a job that kills its worker every time — a script that
 // runs a pod out of memory — would be picked up by the next pod, and the next,
-// forever, instead of ending as an incident somebody can look at. The SET reads
-// the row as it was, so only a claim of a running job counts.
+// forever, instead of ending as an incident somebody can look at. The guard
+// reads the row as it was, so only a claim of a running job counts.
 func (r *jobRepository) Lock(ctx context.Context, id uuid.UUID, lockDuration time.Duration, workerID string) (bool, error) {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return false, err
 	}
 	now := time.Now().UTC()
-	claimed, err := model.LockJob.Exec(ctx, ex,
-		string(models.JobRunning), workerID, now.Add(lockDuration),
-		id, string(models.JobPending), now)
+	running, pending := string(models.JobRunning), string(models.JobPending)
+	var claim job.Mut
+	claim.SetStatus(running)
+	claim.SetLockedBy(workerID)
+	claim.SetLockExpires(now.Add(lockDuration))
+	claim.SetUpdatedAtNow()
+	claim.IncRetriesWhenStatus(running)
+	claimed, err := job.New().Where(job.ID.Eq(id)).
+		AnyOf(job.And(job.Status.Eq(pending)), job.And(job.Status.Eq(running), job.LockExpires.Lt(now))).
+		UpdateAll(ctx, ex, claim)
 	if err != nil {
 		return false, fmt.Errorf("could not lock the job: %w", err)
 	}

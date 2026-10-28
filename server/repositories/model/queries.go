@@ -20,7 +20,6 @@ func Queries() []storm.RawDecl {
 	return []storm.RawDecl{
 		FairClaimableJobs,
 		InstanceOrganization,
-		LockJob,
 		ForgetFinishedInstances,
 		ShortestRetentionPeriod,
 	}
@@ -99,13 +98,6 @@ type OrganizationOf struct {
 // Both are in every database: an environment's has its own project's row.
 var InstanceOrganization = storm.SQL[OrganizationOf](`SELECT p.organization_id FROM process_instances AS i
 JOIN projects AS p ON p.id = i.project_id WHERE i.id = $1`)
-
-// LockJob claims a job for one worker: $1 running, $2 the worker, $3 when the
-// lease ends, $4 the job, $5 pending, $6 now. The predicate is part of the
-// write, so of two workers racing for one job the database applies one.
-var LockJob = storm.SQLExec(`UPDATE jobs SET status = $1, locked_by = $2, lock_expires = $3, updated_at = now(),
-        retries = retries + CASE WHEN status = $1 THEN 1 ELSE 0 END
-  WHERE id = $4 AND (status = $5 OR (status = $1 AND lock_expires < $6))`)
 
 // ForgetFinishedInstances deletes one batch of finished instances and the
 // rows that exist only to run them, in one statement so a batch goes whole or
