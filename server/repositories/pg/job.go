@@ -17,6 +17,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store"
 	"github.com/gsoultan/metis/server/repositories/store/incident"
 	"github.com/gsoultan/metis/server/repositories/store/job"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 	"github.com/gsoultan/storm/runtime"
 )
 
@@ -360,7 +361,7 @@ func claimable(ctx context.Context, ex runtime.Executor, status models.JobStatus
 
 // organizationOf is whose work a job is: the one the caller named, or the
 // organization of its instance's project. uuid.Nil when the instance or its
-// project is not there to say, which the claim treats as one more queue.
+// project is not there to say, or is deleted, which the claim treats as one more queue.
 func (r *jobRepository) organizationOf(ctx context.Context, ex runtime.Executor, j models.JobModel) (uuid.UUID, error) {
 	if j.OrganizationID != nil && uuid.UUID(*j.OrganizationID) != uuid.Nil {
 		return uuid.UUID(*j.OrganizationID), nil
@@ -368,11 +369,14 @@ func (r *jobRepository) organizationOf(ctx context.Context, ex runtime.Executor,
 	if uuid.UUID(j.InstanceID) == uuid.Nil {
 		return uuid.Nil, nil
 	}
-	found, _, err := model.InstanceOrganization.One(ctx, ex, uuid.UUID(j.InstanceID))
+	found, err := processinstance.New().Where(processinstance.ID.Eq(uuid.UUID(j.InstanceID))).Limit(1).AllOrganization(ctx, ex)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("could not read whose work the job is: %w", err)
 	}
-	return uuid.UUID(found.OrganizationID), nil
+	if len(found) == 0 {
+		return uuid.Nil, nil
+	}
+	return uuid.UUID(found[0].OrganizationID), nil
 }
 
 // ListByInstance returns every job an instance has, soonest first.

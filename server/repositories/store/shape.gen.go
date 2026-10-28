@@ -599,7 +599,7 @@ func _assertProcessInstanceShape(m m0.ProcessInstance) {
 		m.CompletedNodes,
 		m.CompensatedNodes,
 		m.MultiInstance,
-		m.Joins,
+		m.JoinArrivals,
 		m.DeletedAt,
 		m.Incidents,
 	}

@@ -2819,6 +2819,668 @@ var errByDefinitionAndStatusLocked = errors.New(
 var errByDefinitionAndStatusOrdered = errors.New(
 	"storm: Order() on an aggregation — its rows are groups, not table rows, and process_instances.ByDefinitionAndStatus is already ordered by its grouping columns; sort the returned slice if you need another order")
 
+// joinFragTable is fragTable for a join: every column named with its table.
+var joinFragTable = [17][31]runtime.Frag{
+	{ // id
+		{}, // opNone
+		{A: "\"process_instances\".\"id\" = $", B: ""},
+		{A: "\"process_instances\".\"id\" <> $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"id\" = ANY($", B: ")"},
+		{A: "\"process_instances\".\"id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // created_at
+		{}, // opNone
+		{A: "\"process_instances\".\"created_at\" = $", B: ""},
+		{A: "\"process_instances\".\"created_at\" <> $", B: ""},
+		{A: "\"process_instances\".\"created_at\" > $", B: ""},
+		{A: "\"process_instances\".\"created_at\" >= $", B: ""},
+		{A: "\"process_instances\".\"created_at\" < $", B: ""},
+		{A: "\"process_instances\".\"created_at\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // updated_at
+		{}, // opNone
+		{A: "\"process_instances\".\"updated_at\" = $", B: ""},
+		{A: "\"process_instances\".\"updated_at\" <> $", B: ""},
+		{A: "\"process_instances\".\"updated_at\" > $", B: ""},
+		{A: "\"process_instances\".\"updated_at\" >= $", B: ""},
+		{A: "\"process_instances\".\"updated_at\" < $", B: ""},
+		{A: "\"process_instances\".\"updated_at\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // project_id
+		{}, // opNone
+		{A: "\"process_instances\".\"project_id\" = $", B: ""},
+		{A: "\"process_instances\".\"project_id\" <> $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"project_id\" = ANY($", B: ")"},
+		{A: "\"process_instances\".\"project_id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // definition_id
+		{}, // opNone
+		{A: "\"process_instances\".\"definition_id\" = $", B: ""},
+		{A: "\"process_instances\".\"definition_id\" <> $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"definition_id\" = ANY($", B: ")"},
+		{A: "\"process_instances\".\"definition_id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // parent_instance_id
+		{}, // opNone
+		{A: "\"process_instances\".\"parent_instance_id\" = $", B: ""},
+		{A: "\"process_instances\".\"parent_instance_id\" <> $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"parent_instance_id\" = ANY($", B: ")"},
+		{A: "\"process_instances\".\"parent_instance_id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"parent_instance_id\" IS NULL", B: ""},
+		{A: "\"process_instances\".\"parent_instance_id\" IS NOT NULL", B: ""},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // parent_node_id
+		{}, // opNone
+		{A: "\"process_instances\".\"parent_node_id\" = $", B: ""},
+		{A: "\"process_instances\".\"parent_node_id\" <> $", B: ""},
+		{A: "\"process_instances\".\"parent_node_id\" > $", B: ""},
+		{A: "\"process_instances\".\"parent_node_id\" >= $", B: ""},
+		{A: "\"process_instances\".\"parent_node_id\" < $", B: ""},
+		{A: "\"process_instances\".\"parent_node_id\" <= $", B: ""},
+		{A: "lower(\"process_instances\".\"parent_node_id\") = lower($", B: ")"},
+		{A: "\"process_instances\".\"parent_node_id\" LIKE $", B: ""},
+		{A: "\"process_instances\".\"parent_node_id\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"parent_node_id\" = ANY($", B: ")"},
+		{A: "\"process_instances\".\"parent_node_id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"parent_node_id\" IS NULL", B: ""},
+		{A: "\"process_instances\".\"parent_node_id\" IS NOT NULL", B: ""},
+		{},
+		{A: "COALESCE(\"process_instances\".\"parent_node_id\", '') = ''", B: ""},
+		{},
+		{},
+	},
+	{ // status
+		{}, // opNone
+		{A: "\"process_instances\".\"status\" = $", B: ""},
+		{A: "\"process_instances\".\"status\" <> $", B: ""},
+		{A: "\"process_instances\".\"status\" > $", B: ""},
+		{A: "\"process_instances\".\"status\" >= $", B: ""},
+		{A: "\"process_instances\".\"status\" < $", B: ""},
+		{A: "\"process_instances\".\"status\" <= $", B: ""},
+		{A: "lower(\"process_instances\".\"status\") = lower($", B: ")"},
+		{A: "\"process_instances\".\"status\" LIKE $", B: ""},
+		{A: "\"process_instances\".\"status\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"status\" = ANY($", B: ")"},
+		{A: "\"process_instances\".\"status\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // business_key
+		{}, // opNone
+		{A: "\"process_instances\".\"business_key\" = $", B: ""},
+		{A: "\"process_instances\".\"business_key\" <> $", B: ""},
+		{A: "\"process_instances\".\"business_key\" > $", B: ""},
+		{A: "\"process_instances\".\"business_key\" >= $", B: ""},
+		{A: "\"process_instances\".\"business_key\" < $", B: ""},
+		{A: "\"process_instances\".\"business_key\" <= $", B: ""},
+		{A: "lower(\"process_instances\".\"business_key\") = lower($", B: ")"},
+		{A: "\"process_instances\".\"business_key\" LIKE $", B: ""},
+		{A: "\"process_instances\".\"business_key\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"business_key\" = ANY($", B: ")"},
+		{A: "\"process_instances\".\"business_key\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"business_key\" IS NULL", B: ""},
+		{A: "\"process_instances\".\"business_key\" IS NOT NULL", B: ""},
+		{},
+		{A: "COALESCE(\"process_instances\".\"business_key\", '') = ''", B: ""},
+		{},
+		{},
+	},
+	{ // variables
+		{}, // opNone
+		{A: "\"process_instances\".\"variables\" = $", B: ""},
+		{A: "\"process_instances\".\"variables\" <> $", B: ""},
+		{A: "\"process_instances\".\"variables\" > $", B: ""},
+		{A: "\"process_instances\".\"variables\" >= $", B: ""},
+		{A: "\"process_instances\".\"variables\" < $", B: ""},
+		{A: "\"process_instances\".\"variables\" <= $", B: ""},
+		{A: "lower(\"process_instances\".\"variables\") = lower($", B: ")"},
+		{A: "\"process_instances\".\"variables\" LIKE $", B: ""},
+		{A: "\"process_instances\".\"variables\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"variables\" = ANY($", B: ")"},
+		{A: "\"process_instances\".\"variables\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // tokens
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"tokens\" @> $", B: ""},
+		{A: "\"process_instances\".\"tokens\" <@ $", B: ""},
+		{A: "\"process_instances\".\"tokens\" ?| $", B: ""},
+		{A: "\"process_instances\".\"tokens\" ?& $", B: ""},
+		{A: "COALESCE(\"process_instances\".\"tokens\"::text, '') LIKE ANY($", B: ")"},
+		{},
+		{},
+		{A: "COALESCE(\"process_instances\".\"tokens\"::text, '') IN ('', 'null', '[]', '{}')", B: ""},
+		{},
+		{},
+		{},
+	},
+	{ // completed_nodes
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"completed_nodes\" @> $", B: ""},
+		{A: "\"process_instances\".\"completed_nodes\" <@ $", B: ""},
+		{A: "\"process_instances\".\"completed_nodes\" ?| $", B: ""},
+		{A: "\"process_instances\".\"completed_nodes\" ?& $", B: ""},
+		{A: "COALESCE(\"process_instances\".\"completed_nodes\"::text, '') LIKE ANY($", B: ")"},
+		{},
+		{},
+		{A: "COALESCE(\"process_instances\".\"completed_nodes\"::text, '') IN ('', 'null', '[]', '{}')", B: ""},
+		{},
+		{},
+		{},
+	},
+	{ // compensated_nodes
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"compensated_nodes\" @> $", B: ""},
+		{A: "\"process_instances\".\"compensated_nodes\" <@ $", B: ""},
+		{A: "\"process_instances\".\"compensated_nodes\" ?| $", B: ""},
+		{A: "\"process_instances\".\"compensated_nodes\" ?& $", B: ""},
+		{A: "COALESCE(\"process_instances\".\"compensated_nodes\"::text, '') LIKE ANY($", B: ")"},
+		{},
+		{},
+		{A: "COALESCE(\"process_instances\".\"compensated_nodes\"::text, '') IN ('', 'null', '[]', '{}')", B: ""},
+		{},
+		{},
+		{},
+	},
+	{ // multi_instance
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"multi_instance\" @> $", B: ""},
+		{A: "\"process_instances\".\"multi_instance\" <@ $", B: ""},
+		{A: "\"process_instances\".\"multi_instance\" ?| $", B: ""},
+		{A: "\"process_instances\".\"multi_instance\" ?& $", B: ""},
+		{A: "COALESCE(\"process_instances\".\"multi_instance\"::text, '') LIKE ANY($", B: ")"},
+		{},
+		{},
+		{A: "COALESCE(\"process_instances\".\"multi_instance\"::text, '') IN ('', 'null', '[]', '{}')", B: ""},
+		{},
+		{},
+		{},
+	},
+	{ // joins
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"joins\" @> $", B: ""},
+		{A: "\"process_instances\".\"joins\" <@ $", B: ""},
+		{A: "\"process_instances\".\"joins\" ?| $", B: ""},
+		{A: "\"process_instances\".\"joins\" ?& $", B: ""},
+		{A: "COALESCE(\"process_instances\".\"joins\"::text, '') LIKE ANY($", B: ")"},
+		{},
+		{},
+		{A: "COALESCE(\"process_instances\".\"joins\"::text, '') IN ('', 'null', '[]', '{}')", B: ""},
+		{},
+		{},
+		{},
+	},
+	{ // deleted_at
+		{}, // opNone
+		{A: "\"process_instances\".\"deleted_at\" = $", B: ""},
+		{A: "\"process_instances\".\"deleted_at\" <> $", B: ""},
+		{A: "\"process_instances\".\"deleted_at\" > $", B: ""},
+		{A: "\"process_instances\".\"deleted_at\" >= $", B: ""},
+		{A: "\"process_instances\".\"deleted_at\" < $", B: ""},
+		{A: "\"process_instances\".\"deleted_at\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"process_instances\".\"deleted_at\" IS NULL", B: ""},
+		{A: "\"process_instances\".\"deleted_at\" IS NOT NULL", B: ""},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // relation Incidents (pseudo-column)
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "EXISTS (SELECT 1 FROM \"incidents\" AS \"_storm_e\" WHERE \"_storm_e\".\"instance_id\" = \"process_instances\".\"id\" AND \"_storm_e\".\"deleted_at\" IS NULL)"},
+		{A: "NOT EXISTS (SELECT 1 FROM \"incidents\" AS \"_storm_e\" WHERE \"_storm_e\".\"instance_id\" = \"process_instances\".\"id\" AND \"_storm_e\".\"deleted_at\" IS NULL)"},
+	},
+}
+
+func joinFragOf(op, col uint32) runtime.Frag {
+	if int(col) >= len(joinFragTable) || int(op) >= len(joinFragTable[0]) {
+		return runtime.Frag{}
+	}
+	return joinFragTable[col][op]
+}
+
+// joinLowering is lowering with qualified predicates. A join takes no
+// call-site order and no cursor, so qualifying the predicates is all
+// it needs.
+var joinLowering = func() runtime.Lowering {
+	l := lowering
+	l.Frag = joinFragOf
+	return l
+}()
+
+// OrganizationRow is the "Organization" join: 1 column(s) from 2 table(s).
+//
+// A flat projection, not a graph. Any column taken through a LEFT join is
+// nullable whatever its own constraint says — that is what a LEFT join
+// means, and typing it otherwise would decode a missing match as a zero.
+type OrganizationRow struct {
+	OrganizationID [16]byte
+}
+
+const organizationPrefix = `SELECT "projects"."organization_id" AS "organization_id" FROM "process_instances" JOIN "projects" ON "process_instances"."project_id" = "projects"."id" AND "projects"."deleted_at" IS NULL`
+const organizationSuffix = ``
+const organizationWhere = `"process_instances"."deleted_at" IS NULL`
+
+var (
+	organizationCache       = runtime.NewTreeCache()
+	organizationOffsetCache = runtime.NewTreeCache()
+)
+
+func organizationStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := organizationCache, organizationSuffix+limitSuffix
+	if withOffset {
+		c, suffix = organizationOffsetCache, organizationSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(organizationPrefix, organizationWhere, toks, joinLowering, suffix))
+}
+
+func scanOrganization(rv [][]byte, r *OrganizationRow, sl *runtime.Slab) error {
+	copy(r.OrganizationID[:], rv[0])
+	return nil
+}
+
+// AllOrganization runs the "Organization" join. Call-site predicates apply to process_instances and compose
+// with whatever the declaration already filtered.
+func (q Query) AllOrganization(ctx context.Context, ex runtime.Executor) ([]OrganizationRow, error) {
+	var sl runtime.Slab
+	return q.AllOrganizationInto(ctx, ex, nil, &sl)
+}
+
+// AllOrganizationInto lets the caller own the output slice and the arena.
+func (q Query) AllOrganizationInto(ctx context.Context, ex runtime.Executor, dst []OrganizationRow, sl *runtime.Slab) ([]OrganizationRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errOrganizationOrdered
+	}
+	if q.lock != 0 {
+		return dst, errOrganizationLocked
+	}
+	var buf [21]runtime.Tok
+	st := organizationStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, OrganizationRow{})
+		if err := scanOrganization(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+var errOrganizationLocked = errors.New(
+	"storm: a declared join cannot be row-locked — the server refuses a row lock on the nullable side of an outer join, and which side a lock would take is not something the call site says; lock the base read instead")
+
+var errOrganizationOrdered = errors.New(
+	"storm: Order() on a join — its ordering is declared, because a column name in a multi-table result is ambiguous; sort the returned slice if you need another order")
+
 // Recursive traversal of process_instances's self-reference through parent_instance_id.
 //
 // ONE query for a whole subtree, with a MANDATORY depth bound and a cycle

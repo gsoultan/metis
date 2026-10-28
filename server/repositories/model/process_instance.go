@@ -46,11 +46,12 @@ type ProcessInstance struct {
 	CompletedNodes   storm.JSON
 	CompensatedNodes storm.JSON
 
-	// MultiInstance and Joins are engine bookkeeping, kept out of Variables so
-	// they cannot collide with business data or reach the audit trail through
-	// it.
+	// MultiInstance and JoinArrivals are engine bookkeeping, kept out of
+	// Variables so they cannot collide with business data or reach the audit
+	// trail through it. JoinArrivals is the joins column: the field cannot be
+	// Joins, which is the name of the method declaring this table's joins.
 	MultiInstance storm.JSON
-	Joins         storm.JSON
+	JoinArrivals  storm.JSON
 
 	DeletedAt *time.Time
 
@@ -69,6 +70,7 @@ func (i *ProcessInstance) Schema(t *storm.Table) {
 	t.Col(&i.ParentInstance).OnDelete(storm.SetNull).Index()
 	t.Col(&i.DeletedAt).Index()
 	t.Col(&i.BusinessKey).Size(255)
+	t.Col(&i.JoinArrivals).Named("joins")
 	// A project's instances of one case, which the instance list searches by.
 	t.Index(&i.Project, &i.BusinessKey).Named("ix_process_instances_business_key")
 	// Declared, so the predicate is compiled into every read of this table
@@ -98,4 +100,14 @@ func (i *ProcessInstance) Aggregates(a *storm.Aggregates) {
 	byDefinition := a.Named("ByDefinitionAndStatus")
 	byDefinition.By(&i.Definition, &i.Status)
 	byDefinition.Count("Total")
+}
+
+// Joins declares Organization: whose work an instance is, through its
+// project. A job that does not name its organization is claimed in that
+// organization's queue.
+func (i *ProcessInstance) Joins(j *storm.Joins) {
+	var p Project
+	j.Named("Organization").
+		Inner(&p, &i.Project).
+		Take(&p.Organization, "OrganizationID")
 }

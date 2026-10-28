@@ -15826,9 +15826,6 @@ func (h WorkflowUserGroupsProbeQuery) UpdateAll(ctx context.Context, ex runtime.
 // statements listed here run; see storm.RegisterStatement.
 func init() {
 	storm.RegisterScanner(scanClaimTurn)
-	storm.RegisterScanner(scanOrganizationOf)
-	storm.RegisterStatement(`SELECT p.organization_id FROM process_instances AS i
-JOIN projects AS p ON p.id = i.project_id WHERE i.id = $1`)
 	storm.RegisterStatement(`WITH RECURSIVE held_up AS (
 	SELECT h.instance_id AS id FROM retention_holds h
 	UNION
@@ -15924,11 +15921,6 @@ SELECT id, turn FROM queued ORDER BY turn, next_run_at, id LIMIT $3`)
 func scanClaimTurn(rv [][]byte, r *model.ClaimTurn, sl *runtime.Slab) error {
 	copy(r.ID[:], rv[0])
 	r.Turn = runtime.Int8(rv[1])
-	return nil
-}
-
-func scanOrganizationOf(rv [][]byte, r *model.OrganizationOf, sl *runtime.Slab) error {
-	copy(r.OrganizationID[:], rv[0])
 	return nil
 }
 

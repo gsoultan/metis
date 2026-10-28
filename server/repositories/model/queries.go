@@ -18,7 +18,6 @@ import (
 func Queries() []storm.RawDecl {
 	return []storm.RawDecl{
 		FairClaimableJobs,
-		InstanceOrganization,
 		ForgetFinishedInstances,
 	}
 }
@@ -86,16 +85,6 @@ var FairClaimableJobs = storm.SQL[ClaimTurn](`WITH RECURSIVE onward(id, n) AS (
      LIMIT $3) AS unowned
 )
 SELECT id, turn FROM queued ORDER BY turn, next_run_at, id LIMIT $3`)
-
-// OrganizationOf is the organization of one instance's project.
-type OrganizationOf struct {
-	OrganizationID [16]byte
-}
-
-// InstanceOrganization is an instance's organization, through its project.
-// Both are in every database: an environment's has its own project's row.
-var InstanceOrganization = storm.SQL[OrganizationOf](`SELECT p.organization_id FROM process_instances AS i
-JOIN projects AS p ON p.id = i.project_id WHERE i.id = $1`)
 
 // ForgetFinishedInstances deletes one batch of finished instances and the
 // rows that exist only to run them, in one statement so a batch goes whole or
