@@ -4448,256 +4448,21 @@ var (
 	delAllCache = runtime.NewTreeCache()
 )
 
-// writeAllErr is what UpdateAll and DeleteAll refuse.
-func (q Query) writeAllErr() error {
-	if err := q.Err(); err != nil {
-		return err
-	}
-	if q.nt == 0 {
-		return runtime.ErrUnfilteredWrite
-	}
-	if q.limit != 1000 || q.offset != 0 || q.lock != 0 {
-		return runtime.ErrPagedWrite
-	}
-	return nil
-}
-
-// updAllStmtFor compiles one (assignments, predicates) pair, once.
-func updAllStmtFor(k runtime.MaskKey, preds []runtime.Tok) *runtime.Stmt {
-	return updAllStmtIn(updAllCache, "", k, preds)
-}
-
-func updAllStmtIn(c *runtime.TreeCache, suffix string, k runtime.MaskKey, preds []runtime.Tok) *runtime.Stmt {
-	var key [25]runtime.Tok
-	key[0], key[1] = runtime.Tok(k.Dirty), runtime.Tok(k.Dirty>>32)
-	key[2], key[3] = runtime.Tok(k.Expr), runtime.Tok(k.Expr>>32)
-	n := 4 + copy(key[4:], preds)
-	if st := c.Get(key[:n]); st != nil {
-		return st
-	}
-	set := make([]runtime.Frag, 0, nUpdatable+1)
-	for i := 0; i < nUpdatable; i++ {
-		switch {
-		case k.Expr&k.Dirty&(1<<uint(i)) != 0:
-			set = append(set, addFrags[i])
-		case k.Expr&(1<<uint(i)) != 0:
-			set = append(set, exprFrags[i])
-		case k.Dirty&(1<<uint(i)) != 0:
-			set = append(set, setFrags[i])
-		}
-	}
-	head := runtime.SpliceSections(updatePrefix, []runtime.Section{
-		{Lead: "", Sep: ", ", Frags: set},
-	}, "")
-	if head.Err != nil {
-		return head
-	}
-	return c.Put(key[:n], runtime.SpliceTreeFrom(head.SQL, preds, lowering, suffix, head.NArg))
-}
-
-// UpdateAll writes m's assigned columns to every row the query
-// matches, in ONE statement, and reports how many it wrote:
-//
-//	var m Mut
-//	m.Set…(v)            // bound values and server-side forms alike
-//	n, err := New().Where(…).UpdateAll(ctx, ex, m)
-//
-// Only assigned columns are written, as for Update; nothing assigned
-// issues no statement and reports 0. The query must have a predicate —
-// runtime.ErrUnfilteredWrite otherwise — and must not carry Limit,
-// Offset or a row lock, which a set-based UPDATE has no clause for:
-// runtime.ErrPagedWrite. Order is ignored, as it is by Count.
-func (q Query) UpdateAll(ctx context.Context, ex runtime.Executor, m Mut) (int64, error) {
-	if err := q.writeAllErr(); err != nil {
-		return 0, err
-	}
+// UpdateHead is UpdateAll's statement without its predicates, for the
+// context package to narrow with a composed read: the UPDATE … SET, the
+// identity a statement built from it is cached under, and the values m
+// assigns. ok is false when m assigns nothing.
+func (m Mut) UpdateHead() (head *runtime.Stmt, key [4]runtime.Tok, args []any, ok bool) {
 	if m.dirty == 0 && m.expr == 0 {
-		return 0, nil
+		return nil, key, nil, false
 	}
-	var buf [21]runtime.Tok
-	st := updAllStmtFor(m.key(), q.preds(&buf))
-	if st.Err != nil {
-		return 0, st.Err
-	}
-	b := binders.Get()
-	defer putBinder(b)
-	args := make([]any, 0, st.NArg)
-	for i := 0; i < nUpdatable; i++ {
-		if m.dirty&(1<<uint(i)) == 0 {
-			continue
-		}
-		switch i {
-		case 0:
-			args = append(args, m.row.UpdatedAt)
-		case 1:
-			args = append(args, m.row.ProjectID)
-		case 2:
-			args = append(args, m.row.OrganizationID)
-		case 3:
-			args = append(args, m.row.Kind)
-		case 4:
-			args = append(args, m.row.Reason)
-		case 5:
-			args = append(args, m.row.FilterStatus)
-		case 6:
-			args = append(args, m.row.FilterDefinitionID.Arg())
-		case 7:
-			args = append(args, m.row.FilterBusinessKey)
-		case 8:
-			args = append(args, m.row.FilterNeedsAttention)
-		case 9:
-			args = append(args, m.row.RequestedBy)
-		case 10:
-			args = append(args, m.row.RequestedByID)
-		case 11:
-			args = append(args, m.row.Status)
-		case 12:
-			args = append(args, m.row.Total)
-		case 13:
-			args = append(args, m.row.Succeeded)
-		case 14:
-			args = append(args, m.row.Failed)
-		case 15:
-			args = append(args, m.row.Skipped)
-		case 16:
-			args = append(args, m.row.LeaseExpires.Arg())
-		case 17:
-			args = append(args, m.row.FinishedAt.Arg())
-		case 18:
-			args = append(args, m.row.StoppedBy)
-		case 19:
-			args = append(args, m.row.StopReason)
-		}
-	}
-	args = append(args, q.bindPreds(b)...)
-	return ex.Exec(ctx, st.SQL, args)
+	key[0], key[1] = runtime.Tok(m.dirty), runtime.Tok(m.dirty>>32)
+	key[2], key[3] = runtime.Tok(m.expr), runtime.Tok(m.expr>>32)
+	return updHead(m.key()), key, m.updateArgs(nil), true
 }
 
-func delAllStmtFor(toks []runtime.Tok) *runtime.Stmt {
-	if st := delAllCache.Get(toks); st != nil {
-		return st
-	}
-	return delAllCache.Put(toks, runtime.SpliceTree(deletePrefix, toks, lowering, ""))
-}
-
-// DeleteAll removes every row the query matches, in ONE statement,
-// and reports how many it removed.
-//
-// The query must have a predicate — runtime.ErrUnfilteredWrite
-// otherwise — and must not carry Limit, Offset or a row lock:
-// runtime.ErrPagedWrite. Order is ignored, as it is by Count.
-func (q Query) DeleteAll(ctx context.Context, ex runtime.Executor) (int64, error) {
-	if err := q.writeAllErr(); err != nil {
-		return 0, err
-	}
-	var buf [21]runtime.Tok
-	st := delAllStmtFor(q.preds(&buf))
-	if st.Err != nil {
-		return 0, st.Err
-	}
-	b := binders.Get()
-	defer putBinder(b)
-	return ex.Exec(ctx, st.SQL, q.bindPreds(b))
-}
-
-var takeCache = runtime.NewTreeCache()
-
-// takeOpen narrows the UPDATE to the rows the read selects.
-const takeOpen = ` WHERE "id" IN (SELECT "id" FROM "batch_operations"`
-
-var takeHeadCache = runtime.NewMaskCache()
-
-// takeHead is the UPDATE … SET of one assignment mask, before the read
-// that narrows it.
-func takeHead(k runtime.MaskKey) *runtime.Stmt {
-	if st := takeHeadCache.Get(k); st != nil {
-		return st
-	}
-	set := make([]runtime.Frag, 0, nUpdatable+1)
-	for i := 0; i < nUpdatable; i++ {
-		switch {
-		case k.Expr&k.Dirty&(1<<uint(i)) != 0:
-			set = append(set, addFrags[i])
-		case k.Expr&(1<<uint(i)) != 0:
-			set = append(set, exprFrags[i])
-		case k.Dirty&(1<<uint(i)) != 0:
-			set = append(set, setFrags[i])
-		}
-	}
-	return takeHeadCache.Put(k, runtime.SpliceSections(updatePrefix, []runtime.Section{
-		{Lead: "", Sep: ", ", Frags: set},
-	}, ""))
-}
-
-// takeStmtFor compiles one (assignments, lock, read) triple, once.
-func takeStmtFor(k runtime.MaskKey, lock uint8, toks []runtime.Tok) *runtime.Stmt {
-	var key [26]runtime.Tok
-	key[0], key[1] = runtime.Tok(k.Dirty), runtime.Tok(k.Dirty>>32)
-	key[2], key[3] = runtime.Tok(k.Expr), runtime.Tok(k.Expr>>32)
-	key[4] = runtime.Tok(lock)
-	n := 5 + copy(key[5:], toks)
-	if st := takeCache.Get(key[:n]); st != nil {
-		return st
-	}
-	head := takeHead(k)
-	if head.Err != nil {
-		return head
-	}
-	suffix := limitSuffix + lockSuffix[lock] + `)` + updReturning
-	return takeCache.Put(key[:n], runtime.SpliceTreeFrom(head.SQL+takeOpen, toks, lowering, suffix, head.NArg))
-}
-
-// Take writes m's assigned columns to the rows the query would read —
-// its predicates, order, Limit and row lock all apply — in ONE
-// statement, and returns those rows as they now stand:
-//
-//	var m Mut
-//	m.Set…(leaseEnd)
-//	got, err := New().Where(…).Order(…).Limit(1).ForUpdateSkipLocked().Take(ctx, ex, m, nil)
-//
-// That is the queue claim: with ForUpdateSkipLocked two workers asking
-// at once take different rows, or one finds none, and neither waits.
-// Without a lock it is an UPDATE bounded by a read. Nothing assigned
-// issues no statement and returns dst. Offset is refused with
-// runtime.ErrPagedWrite: a claim that skips rows it could take is a
-// claim that leaves work behind.
-func (q Query) Take(ctx context.Context, ex runtime.Executor, m Mut, dst []Row) ([]Row, error) {
-	if err := q.readErr(); err != nil {
-		return dst, err
-	}
-	if q.offset != 0 {
-		return dst, runtime.ErrPagedWrite
-	}
-	if m.dirty == 0 && m.expr == 0 {
-		return dst, nil
-	}
-	var buf [21]runtime.Tok
-	st := takeStmtFor(m.key(), q.lock, q.stream(&buf))
-	if st.Err != nil {
-		return dst, st.Err
-	}
-	b := binders.Get()
-	defer putBinder(b)
-	args := append(m.takeArgs(make([]any, 0, st.NArg)), q.bind(b)...)
-	var sl runtime.Slab
-	sl.Reserve(st.SlabHint())
-	rows, err := ex.Query(ctx, st.SQL, args)
-	if err != nil {
-		return dst, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		dst = append(dst, Row{})
-		if err := scan(rows.RawValues(), &dst[len(dst)-1], &sl); err != nil {
-			return dst, err
-		}
-	}
-	st.ObserveSlab(sl.Size())
-	return dst, rows.Err()
-}
-
-// takeArgs appends the values m assigns, in SET order.
-func (m Mut) takeArgs(args []any) []any {
+// updateArgs appends the values m assigns, in SET order.
+func (m Mut) updateArgs(args []any) []any {
 	for i := 0; i < nUpdatable; i++ {
 		if m.dirty&(1<<uint(i)) == 0 {
 			continue
@@ -4748,6 +4513,199 @@ func (m Mut) takeArgs(args []any) []any {
 	return args
 }
 
+// Shaped reports a Limit, Offset or row lock, which shape a read and
+// which a set-based write composed around this query has no place for.
+func (q Query) Shaped() bool {
+	return q.limit != 1000 || q.offset != 0 || q.lock != 0
+}
+
+// writeAllErr is what UpdateAll and DeleteAll refuse.
+func (q Query) writeAllErr() error {
+	if err := q.Err(); err != nil {
+		return err
+	}
+	if q.nt == 0 {
+		return runtime.ErrUnfilteredWrite
+	}
+	if q.limit != 1000 || q.offset != 0 || q.lock != 0 {
+		return runtime.ErrPagedWrite
+	}
+	return nil
+}
+
+var updHeadCache = runtime.NewMaskCache()
+
+// updHead is the UPDATE … SET of one assignment mask, before the
+// predicates or the read that narrow it.
+func updHead(k runtime.MaskKey) *runtime.Stmt {
+	if st := updHeadCache.Get(k); st != nil {
+		return st
+	}
+	set := make([]runtime.Frag, 0, nUpdatable+1)
+	for i := 0; i < nUpdatable; i++ {
+		switch {
+		case k.Expr&k.Dirty&(1<<uint(i)) != 0:
+			set = append(set, addFrags[i])
+		case k.Expr&(1<<uint(i)) != 0:
+			set = append(set, exprFrags[i])
+		case k.Dirty&(1<<uint(i)) != 0:
+			set = append(set, setFrags[i])
+		}
+	}
+	return updHeadCache.Put(k, runtime.SpliceSections(updatePrefix, []runtime.Section{
+		{Lead: "", Sep: ", ", Frags: set},
+	}, ""))
+}
+
+// updAllStmtFor compiles one (assignments, predicates) pair, once.
+func updAllStmtFor(k runtime.MaskKey, preds []runtime.Tok) *runtime.Stmt {
+	return updAllStmtIn(updAllCache, "", k, preds)
+}
+
+func updAllStmtIn(c *runtime.TreeCache, suffix string, k runtime.MaskKey, preds []runtime.Tok) *runtime.Stmt {
+	var key [25]runtime.Tok
+	key[0], key[1] = runtime.Tok(k.Dirty), runtime.Tok(k.Dirty>>32)
+	key[2], key[3] = runtime.Tok(k.Expr), runtime.Tok(k.Expr>>32)
+	n := 4 + copy(key[4:], preds)
+	if st := c.Get(key[:n]); st != nil {
+		return st
+	}
+	head := updHead(k)
+	if head.Err != nil {
+		return head
+	}
+	return c.Put(key[:n], runtime.SpliceTreeFrom(head.SQL, preds, lowering, suffix, head.NArg))
+}
+
+// UpdateAll writes m's assigned columns to every row the query
+// matches, in ONE statement, and reports how many it wrote:
+//
+//	var m Mut
+//	m.Set…(v)            // bound values and server-side forms alike
+//	n, err := New().Where(…).UpdateAll(ctx, ex, m)
+//
+// Only assigned columns are written, as for Update; nothing assigned
+// issues no statement and reports 0. The query must have a predicate —
+// runtime.ErrUnfilteredWrite otherwise — and must not carry Limit,
+// Offset or a row lock, which a set-based UPDATE has no clause for:
+// runtime.ErrPagedWrite. Order is ignored, as it is by Count.
+func (q Query) UpdateAll(ctx context.Context, ex runtime.Executor, m Mut) (int64, error) {
+	if err := q.writeAllErr(); err != nil {
+		return 0, err
+	}
+	if m.dirty == 0 && m.expr == 0 {
+		return 0, nil
+	}
+	var buf [21]runtime.Tok
+	st := updAllStmtFor(m.key(), q.preds(&buf))
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	b := binders.Get()
+	defer putBinder(b)
+	args := append(m.updateArgs(make([]any, 0, st.NArg)), q.bindPreds(b)...)
+	return ex.Exec(ctx, st.SQL, args)
+}
+
+func delAllStmtFor(toks []runtime.Tok) *runtime.Stmt {
+	if st := delAllCache.Get(toks); st != nil {
+		return st
+	}
+	return delAllCache.Put(toks, runtime.SpliceTree(deletePrefix, toks, lowering, ""))
+}
+
+// DeleteAll removes every row the query matches, in ONE statement,
+// and reports how many it removed.
+//
+// The query must have a predicate — runtime.ErrUnfilteredWrite
+// otherwise — and must not carry Limit, Offset or a row lock:
+// runtime.ErrPagedWrite. Order is ignored, as it is by Count.
+func (q Query) DeleteAll(ctx context.Context, ex runtime.Executor) (int64, error) {
+	if err := q.writeAllErr(); err != nil {
+		return 0, err
+	}
+	var buf [21]runtime.Tok
+	st := delAllStmtFor(q.preds(&buf))
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	b := binders.Get()
+	defer putBinder(b)
+	return ex.Exec(ctx, st.SQL, q.bindPreds(b))
+}
+
+var takeCache = runtime.NewTreeCache()
+
+// takeOpen narrows the UPDATE to the rows the read selects.
+const takeOpen = ` WHERE "id" IN (SELECT "id" FROM "batch_operations"`
+
+// takeStmtFor compiles one (assignments, lock, read) triple, once.
+func takeStmtFor(k runtime.MaskKey, lock uint8, toks []runtime.Tok) *runtime.Stmt {
+	var key [26]runtime.Tok
+	key[0], key[1] = runtime.Tok(k.Dirty), runtime.Tok(k.Dirty>>32)
+	key[2], key[3] = runtime.Tok(k.Expr), runtime.Tok(k.Expr>>32)
+	key[4] = runtime.Tok(lock)
+	n := 5 + copy(key[5:], toks)
+	if st := takeCache.Get(key[:n]); st != nil {
+		return st
+	}
+	head := updHead(k)
+	if head.Err != nil {
+		return head
+	}
+	suffix := limitSuffix + lockSuffix[lock] + `)` + updReturning
+	return takeCache.Put(key[:n], runtime.SpliceTreeFrom(head.SQL+takeOpen, toks, lowering, suffix, head.NArg))
+}
+
+// Take writes m's assigned columns to the rows the query would read —
+// its predicates, order, Limit and row lock all apply — in ONE
+// statement, and returns those rows as they now stand:
+//
+//	var m Mut
+//	m.Set…(leaseEnd)
+//	got, err := New().Where(…).Order(…).Limit(1).ForUpdateSkipLocked().Take(ctx, ex, m, nil)
+//
+// That is the queue claim: with ForUpdateSkipLocked two workers asking
+// at once take different rows, or one finds none, and neither waits.
+// Without a lock it is an UPDATE bounded by a read. Nothing assigned
+// issues no statement and returns dst. Offset is refused with
+// runtime.ErrPagedWrite: a claim that skips rows it could take is a
+// claim that leaves work behind.
+func (q Query) Take(ctx context.Context, ex runtime.Executor, m Mut, dst []Row) ([]Row, error) {
+	if err := q.readErr(); err != nil {
+		return dst, err
+	}
+	if q.offset != 0 {
+		return dst, runtime.ErrPagedWrite
+	}
+	if m.dirty == 0 && m.expr == 0 {
+		return dst, nil
+	}
+	var buf [21]runtime.Tok
+	st := takeStmtFor(m.key(), q.lock, q.stream(&buf))
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	b := binders.Get()
+	defer putBinder(b)
+	args := append(m.updateArgs(make([]any, 0, st.NArg)), q.bind(b)...)
+	var sl runtime.Slab
+	sl.Reserve(st.SlabHint())
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, Row{})
+		if err := scan(rows.RawValues(), &dst[len(dst)-1], &sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
 // TakeHead is Take's statement without its read, for the context
 // package to narrow with a composed one: the UPDATE … SET, what opens
 // and closes the read (the lock q holds spelled in the close), the
@@ -4760,7 +4718,7 @@ func (m Mut) TakeHead(q Query) (head *runtime.Stmt, open, close string, key [5]r
 	key[0], key[1] = runtime.Tok(m.dirty), runtime.Tok(m.dirty>>32)
 	key[2], key[3] = runtime.Tok(m.expr), runtime.Tok(m.expr>>32)
 	key[4] = runtime.Tok(q.lock)
-	return takeHead(m.key()), takeOpen, lockSuffix[q.lock] + `)` + updReturning, key, m.takeArgs(nil), true
+	return updHead(m.key()), takeOpen, lockSuffix[q.lock] + `)` + updReturning, key, m.updateArgs(nil), true
 }
 
 var trimCache = runtime.NewTreeCache()

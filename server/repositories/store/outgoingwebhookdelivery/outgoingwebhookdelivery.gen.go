@@ -3482,6 +3482,61 @@ var (
 	delAllCache = runtime.NewTreeCache()
 )
 
+// UpdateHead is UpdateAll's statement without its predicates, for the
+// context package to narrow with a composed read: the UPDATE … SET, the
+// identity a statement built from it is cached under, and the values m
+// assigns. ok is false when m assigns nothing.
+func (m Mut) UpdateHead() (head *runtime.Stmt, key [4]runtime.Tok, args []any, ok bool) {
+	if m.dirty == 0 && m.expr == 0 {
+		return nil, key, nil, false
+	}
+	key[0], key[1] = runtime.Tok(m.dirty), runtime.Tok(m.dirty>>32)
+	key[2], key[3] = runtime.Tok(m.expr), runtime.Tok(m.expr>>32)
+	return updHead(m.key()), key, m.updateArgs(nil), true
+}
+
+// updateArgs appends the values m assigns, in SET order.
+func (m Mut) updateArgs(args []any) []any {
+	for i := 0; i < nUpdatable; i++ {
+		if m.dirty&(1<<uint(i)) == 0 {
+			continue
+		}
+		switch i {
+		case 0:
+			args = append(args, m.row.UpdatedAt)
+		case 1:
+			args = append(args, m.row.WebhookID)
+		case 2:
+			args = append(args, m.row.Event)
+		case 3:
+			args = append(args, m.row.Body)
+		case 4:
+			args = append(args, m.row.Status)
+		case 5:
+			args = append(args, m.row.Attempts)
+		case 6:
+			args = append(args, m.row.NextAttemptAt)
+		case 7:
+			args = append(args, m.row.LastAttemptAt.Arg())
+		case 8:
+			args = append(args, m.row.LastStatusCode.Arg())
+		case 9:
+			args = append(args, m.row.LastError.Arg())
+		case 10:
+			args = append(args, m.row.LastResponse.Arg())
+		case 11:
+			args = append(args, m.row.Test)
+		}
+	}
+	return args
+}
+
+// Shaped reports a Limit, Offset or row lock, which shape a read and
+// which a set-based write composed around this query has no place for.
+func (q Query) Shaped() bool {
+	return q.limit != 1000 || q.offset != 0 || q.lock != 0
+}
+
 // writeAllErr is what UpdateAll and DeleteAll refuse.
 func (q Query) writeAllErr() error {
 	if err := q.Err(); err != nil {
@@ -3494,6 +3549,30 @@ func (q Query) writeAllErr() error {
 		return runtime.ErrPagedWrite
 	}
 	return nil
+}
+
+var updHeadCache = runtime.NewMaskCache()
+
+// updHead is the UPDATE … SET of one assignment mask, before the
+// predicates or the read that narrow it.
+func updHead(k runtime.MaskKey) *runtime.Stmt {
+	if st := updHeadCache.Get(k); st != nil {
+		return st
+	}
+	set := make([]runtime.Frag, 0, nUpdatable+1)
+	for i := 0; i < nUpdatable; i++ {
+		switch {
+		case k.Expr&k.Dirty&(1<<uint(i)) != 0:
+			set = append(set, addFrags[i])
+		case k.Expr&(1<<uint(i)) != 0:
+			set = append(set, exprFrags[i])
+		case k.Dirty&(1<<uint(i)) != 0:
+			set = append(set, setFrags[i])
+		}
+	}
+	return updHeadCache.Put(k, runtime.SpliceSections(updatePrefix, []runtime.Section{
+		{Lead: "", Sep: ", ", Frags: set},
+	}, ""))
 }
 
 // updAllStmtFor compiles one (assignments, predicates) pair, once.
@@ -3509,20 +3588,7 @@ func updAllStmtIn(c *runtime.TreeCache, suffix string, k runtime.MaskKey, preds 
 	if st := c.Get(key[:n]); st != nil {
 		return st
 	}
-	set := make([]runtime.Frag, 0, nUpdatable+1)
-	for i := 0; i < nUpdatable; i++ {
-		switch {
-		case k.Expr&k.Dirty&(1<<uint(i)) != 0:
-			set = append(set, addFrags[i])
-		case k.Expr&(1<<uint(i)) != 0:
-			set = append(set, exprFrags[i])
-		case k.Dirty&(1<<uint(i)) != 0:
-			set = append(set, setFrags[i])
-		}
-	}
-	head := runtime.SpliceSections(updatePrefix, []runtime.Section{
-		{Lead: "", Sep: ", ", Frags: set},
-	}, "")
+	head := updHead(k)
 	if head.Err != nil {
 		return head
 	}
@@ -3555,39 +3621,7 @@ func (q Query) UpdateAll(ctx context.Context, ex runtime.Executor, m Mut) (int64
 	}
 	b := binders.Get()
 	defer putBinder(b)
-	args := make([]any, 0, st.NArg)
-	for i := 0; i < nUpdatable; i++ {
-		if m.dirty&(1<<uint(i)) == 0 {
-			continue
-		}
-		switch i {
-		case 0:
-			args = append(args, m.row.UpdatedAt)
-		case 1:
-			args = append(args, m.row.WebhookID)
-		case 2:
-			args = append(args, m.row.Event)
-		case 3:
-			args = append(args, m.row.Body)
-		case 4:
-			args = append(args, m.row.Status)
-		case 5:
-			args = append(args, m.row.Attempts)
-		case 6:
-			args = append(args, m.row.NextAttemptAt)
-		case 7:
-			args = append(args, m.row.LastAttemptAt.Arg())
-		case 8:
-			args = append(args, m.row.LastStatusCode.Arg())
-		case 9:
-			args = append(args, m.row.LastError.Arg())
-		case 10:
-			args = append(args, m.row.LastResponse.Arg())
-		case 11:
-			args = append(args, m.row.Test)
-		}
-	}
-	args = append(args, q.bindPreds(b)...)
+	args := append(m.updateArgs(make([]any, 0, st.NArg)), q.bindPreds(b)...)
 	return ex.Exec(ctx, st.SQL, args)
 }
 
@@ -3623,30 +3657,6 @@ var takeCache = runtime.NewTreeCache()
 // takeOpen narrows the UPDATE to the rows the read selects.
 const takeOpen = ` WHERE "id" IN (SELECT "id" FROM "outgoing_webhook_deliveries"`
 
-var takeHeadCache = runtime.NewMaskCache()
-
-// takeHead is the UPDATE … SET of one assignment mask, before the read
-// that narrows it.
-func takeHead(k runtime.MaskKey) *runtime.Stmt {
-	if st := takeHeadCache.Get(k); st != nil {
-		return st
-	}
-	set := make([]runtime.Frag, 0, nUpdatable+1)
-	for i := 0; i < nUpdatable; i++ {
-		switch {
-		case k.Expr&k.Dirty&(1<<uint(i)) != 0:
-			set = append(set, addFrags[i])
-		case k.Expr&(1<<uint(i)) != 0:
-			set = append(set, exprFrags[i])
-		case k.Dirty&(1<<uint(i)) != 0:
-			set = append(set, setFrags[i])
-		}
-	}
-	return takeHeadCache.Put(k, runtime.SpliceSections(updatePrefix, []runtime.Section{
-		{Lead: "", Sep: ", ", Frags: set},
-	}, ""))
-}
-
 // takeStmtFor compiles one (assignments, lock, read) triple, once.
 func takeStmtFor(k runtime.MaskKey, lock uint8, toks []runtime.Tok) *runtime.Stmt {
 	var key [26]runtime.Tok
@@ -3657,7 +3667,7 @@ func takeStmtFor(k runtime.MaskKey, lock uint8, toks []runtime.Tok) *runtime.Stm
 	if st := takeCache.Get(key[:n]); st != nil {
 		return st
 	}
-	head := takeHead(k)
+	head := updHead(k)
 	if head.Err != nil {
 		return head
 	}
@@ -3696,7 +3706,7 @@ func (q Query) Take(ctx context.Context, ex runtime.Executor, m Mut, dst []Row) 
 	}
 	b := binders.Get()
 	defer putBinder(b)
-	args := append(m.takeArgs(make([]any, 0, st.NArg)), q.bind(b)...)
+	args := append(m.updateArgs(make([]any, 0, st.NArg)), q.bind(b)...)
 	var sl runtime.Slab
 	sl.Reserve(st.SlabHint())
 	rows, err := ex.Query(ctx, st.SQL, args)
@@ -3714,42 +3724,6 @@ func (q Query) Take(ctx context.Context, ex runtime.Executor, m Mut, dst []Row) 
 	return dst, rows.Err()
 }
 
-// takeArgs appends the values m assigns, in SET order.
-func (m Mut) takeArgs(args []any) []any {
-	for i := 0; i < nUpdatable; i++ {
-		if m.dirty&(1<<uint(i)) == 0 {
-			continue
-		}
-		switch i {
-		case 0:
-			args = append(args, m.row.UpdatedAt)
-		case 1:
-			args = append(args, m.row.WebhookID)
-		case 2:
-			args = append(args, m.row.Event)
-		case 3:
-			args = append(args, m.row.Body)
-		case 4:
-			args = append(args, m.row.Status)
-		case 5:
-			args = append(args, m.row.Attempts)
-		case 6:
-			args = append(args, m.row.NextAttemptAt)
-		case 7:
-			args = append(args, m.row.LastAttemptAt.Arg())
-		case 8:
-			args = append(args, m.row.LastStatusCode.Arg())
-		case 9:
-			args = append(args, m.row.LastError.Arg())
-		case 10:
-			args = append(args, m.row.LastResponse.Arg())
-		case 11:
-			args = append(args, m.row.Test)
-		}
-	}
-	return args
-}
-
 // TakeHead is Take's statement without its read, for the context
 // package to narrow with a composed one: the UPDATE … SET, what opens
 // and closes the read (the lock q holds spelled in the close), the
@@ -3762,7 +3736,7 @@ func (m Mut) TakeHead(q Query) (head *runtime.Stmt, open, close string, key [5]r
 	key[0], key[1] = runtime.Tok(m.dirty), runtime.Tok(m.dirty>>32)
 	key[2], key[3] = runtime.Tok(m.expr), runtime.Tok(m.expr>>32)
 	key[4] = runtime.Tok(q.lock)
-	return takeHead(m.key()), takeOpen, lockSuffix[q.lock] + `)` + updReturning, key, m.takeArgs(nil), true
+	return updHead(m.key()), takeOpen, lockSuffix[q.lock] + `)` + updReturning, key, m.updateArgs(nil), true
 }
 
 var trimCache = runtime.NewTreeCache()

@@ -12475,6 +12475,301 @@ func (h DeploymentResourcesProbeQuery) Count(ctx context.Context, ex runtime.Exe
 	return runtime.Int8(rows.RawValues()[0]), rows.Err()
 }
 
+var deploymentResourcesProbeQueryUpdateAllCache = runtime.NewTreeCache()
+
+// UpdateAll is the deployment package's UpdateAll over this semi-join: it
+// writes m's assigned columns to every deployments row the predicates and
+// probes select, in ONE statement, and reports how many. Nothing
+// assigned issues no statement; a Limit, Offset or row lock is
+// runtime.ErrPagedWrite.
+func (h DeploymentResourcesProbeQuery) UpdateAll(ctx context.Context, ex runtime.Executor, m deployment.Mut) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	if h.q.Shaped() {
+		return 0, runtime.ErrPagedWrite
+	}
+	head, key, args, ok := m.UpdateHead()
+	if !ok {
+		return 0, nil
+	}
+	var buf [48]runtime.Tok
+	toks := h.tokens(append(buf[:0], key[:]...), true)
+	st := deploymentResourcesProbeQueryUpdateAllCache.Get(toks)
+	if st == nil {
+		if head.Err != nil {
+			return 0, head.Err
+		}
+		st = deploymentResourcesProbeQueryUpdateAllCache.Put(toks, runtime.SpliceTreeWhereFrom(head.SQL, `"deleted_at" IS NULL`, toks[len(key):], deploymentResourcesProbeQueryLowering, "", head.NArg))
+	}
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := deployment.GetBinder()
+	defer deployment.PutBinder(pb)
+	read, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			resource.PutBinder(cb)
+		}
+	}()
+	return ex.Exec(ctx, st.SQL, append(args, read...))
+}
+
+// ExternalTaskStepIncidentsProbeQuery is a parent query with one or more existence probes against
+// incidents, combined with AND. Build it with ExternalTaskHavingStepIncidents or
+// ExternalTaskNotHavingStepIncidents and extend it with AndHaving/AndNotHaving.
+type ExternalTaskStepIncidentsProbeQuery struct {
+	q externaltask.Query
+	p []externalTaskStepIncidentsProbeQueryProbe
+}
+
+type externalTaskStepIncidentsProbeQueryProbe struct {
+	c   incident.Query
+	neg bool
+}
+
+// ExternalTaskHavingStepIncidents narrows q to rows with at least one matching incidents row —
+// the filtered semi-join, in one statement. The child predicates are
+// typed by the child's own package; ids and values meet only here.
+func ExternalTaskHavingStepIncidents(q externaltask.Query, ps ...incident.Pred) ExternalTaskStepIncidentsProbeQuery {
+	return ExternalTaskStepIncidentsProbeQuery{q: q}.AndHaving(ps...)
+}
+
+// ExternalTaskNotHavingStepIncidents narrows q to rows with NO matching incidents row — the
+// filtered anti-join.
+//
+// Read the predicates carefully: this is "has no incidents row matching
+// these", not "has a incidents row that does not match". With no predicates
+// at all it is "has none". The two questions have different answers
+// whenever a parent has several children, and SQL spells them the same
+// way round.
+func ExternalTaskNotHavingStepIncidents(q externaltask.Query, ps ...incident.Pred) ExternalTaskStepIncidentsProbeQuery {
+	return ExternalTaskStepIncidentsProbeQuery{q: q}.AndNotHaving(ps...)
+}
+
+// AndHaving adds another EXISTS probe against incidents, ANDed with the
+// ones already there.
+func (h ExternalTaskStepIncidentsProbeQuery) AndHaving(ps ...incident.Pred) ExternalTaskStepIncidentsProbeQuery {
+	return h.probe(false, ps...)
+}
+
+// AndNotHaving adds a NOT EXISTS probe against incidents. This is how
+// "has one of these but none of those" is one statement:
+//
+//	ExternalTaskHavingStepIncidents(q, bought).AndNotHaving(alsoBought)
+func (h ExternalTaskStepIncidentsProbeQuery) AndNotHaving(ps ...incident.Pred) ExternalTaskStepIncidentsProbeQuery {
+	return h.probe(true, ps...)
+}
+
+func (h ExternalTaskStepIncidentsProbeQuery) probe(neg bool, ps ...incident.Pred) ExternalTaskStepIncidentsProbeQuery {
+	// Copied rather than appended in place: a composer is a value, and
+	// two chains branching from one base must not share a backing array.
+	p := make([]externalTaskStepIncidentsProbeQueryProbe, len(h.p), len(h.p)+1)
+	copy(p, h.p)
+	h.p = append(p, externalTaskStepIncidentsProbeQueryProbe{c: incident.New().Unordered().Where(ps...), neg: neg})
+	return h
+}
+
+var externalTaskStepIncidentsProbeQueryLowering = func() runtime.Lowering {
+	lw := externaltask.Lowering()
+	parentFrag := lw.Frag
+	lw.Frag = func(op, col uint32) runtime.Frag {
+		if col >= runtime.ChildColBase {
+			return incident.FragOf(op, col-runtime.ChildColBase)
+		}
+		return parentFrag(op, col)
+	}
+	// The token's relation id picks the header: 0 positive, 1 negated.
+	// Both probes are the same relation, so only the polarity varies.
+	lw.Exists = func(rel uint32) string {
+		if rel == 1 {
+			return "NOT EXISTS (SELECT 1 FROM \"incidents\" AS \"_storm_e\" WHERE \"_storm_e\".\"instance_id\" = \"external_tasks\".\"instance_id\" AND \"_storm_e\".\"node_id\" = \"external_tasks\".\"node_id\" AND \"_storm_e\".\"deleted_at\" IS NULL"
+		}
+		return "EXISTS (SELECT 1 FROM \"incidents\" AS \"_storm_e\" WHERE \"_storm_e\".\"instance_id\" = \"external_tasks\".\"instance_id\" AND \"_storm_e\".\"node_id\" = \"external_tasks\".\"node_id\" AND \"_storm_e\".\"deleted_at\" IS NULL"
+	}
+	return lw
+}()
+
+var externalTaskStepIncidentsProbeQueryCache = runtime.NewTreeCache()
+
+func (h ExternalTaskStepIncidentsProbeQuery) stmt(count bool) (*runtime.Stmt, []runtime.Tok) {
+	var buf [44]runtime.Tok
+	toks := h.tokens(buf[:0], count)
+	sel, cnt, limitSfx := externaltask.StmtPieces()
+	prefix, suffix := sel, limitSfx
+	if count {
+		prefix, suffix = cnt, ""
+	}
+	if st := externalTaskStepIncidentsProbeQueryCache.Get(toks); st != nil {
+		return st, toks
+	}
+	return externalTaskStepIncidentsProbeQueryCache.Put(toks, runtime.SpliceTreeWhere(prefix, `"deleted_at" IS NULL`, toks, externalTaskStepIncidentsProbeQueryLowering, suffix)), toks
+}
+
+// tokens appends the composed stream to dst: the parent's predicates,
+// each probe, and — unless count — the parent's ordering.
+func (h ExternalTaskStepIncidentsProbeQuery) tokens(dst []runtime.Tok, count bool) []runtime.Tok {
+	toks := h.q.PredToks(dst)
+	stack := 0
+	if len(toks) > 0 {
+		stack = 1
+	}
+	for _, pr := range h.p {
+		child := pr.c.PredToks(nil)
+		toks = runtime.OffsetCols(toks, child, runtime.ChildColBase)
+		arity := uint32(0)
+		if len(child) > 0 {
+			arity = 1 // the child stream reduces to one stack entry
+		}
+		rel := uint32(0)
+		if pr.neg {
+			rel = 1
+		}
+		toks = append(toks, runtime.MakeExists(rel, arity))
+		stack++
+	}
+	if stack > 1 {
+		toks = append(toks, runtime.MakeGroup(runtime.KAnd, uint32(stack)))
+	}
+	if !count {
+		toks = h.q.OrderToks(toks)
+	}
+	return toks
+}
+
+// bind returns the arguments in STREAM order: parent predicates, then
+// each probe's, then the parent's paging. Each probe takes its own
+// binder — bindPreds resets the arenas it fills, so two probes sharing
+// one binder would have the second silently overwrite the first.
+func (h ExternalTaskStepIncidentsProbeQuery) bind(pb *externaltask.Binder, paging bool) ([]any, []*incident.Binder) {
+	args := h.q.BindPreds(pb, nil)
+	cbs := make([]*incident.Binder, 0, len(h.p))
+	for _, pr := range h.p {
+		cb := incident.GetBinder()
+		cbs = append(cbs, cb)
+		args = pr.c.BindPreds(cb, args)
+	}
+	if paging {
+		args = h.q.BindPaging(pb, args)
+	}
+	return args, cbs
+}
+
+func (h ExternalTaskStepIncidentsProbeQuery) err() error {
+	if err := h.q.Err(); err != nil {
+		return err
+	}
+	for _, pr := range h.p {
+		if err := pr.c.Err(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// All runs the composed statement.
+func (h ExternalTaskStepIncidentsProbeQuery) All(ctx context.Context, ex runtime.Executor) ([]externaltask.Row, error) {
+	if err := h.err(); err != nil {
+		return nil, err
+	}
+	st, _ := h.stmt(false)
+	if st.Err != nil {
+		return nil, st.Err
+	}
+	pb := externaltask.GetBinder()
+	defer externaltask.PutBinder(pb)
+	args, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			incident.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	var out []externaltask.Row
+	for rows.Next() {
+		out = append(out, externaltask.Row{})
+		if err := externaltask.Scan(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
+}
+
+// Count runs the composed count: no ordering, no paging.
+func (h ExternalTaskStepIncidentsProbeQuery) Count(ctx context.Context, ex runtime.Executor) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	st, _ := h.stmt(true)
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := externaltask.GetBinder()
+	defer externaltask.PutBinder(pb)
+	args, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			incident.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return 0, rows.Err()
+	}
+	return runtime.Int8(rows.RawValues()[0]), rows.Err()
+}
+
+var externalTaskStepIncidentsProbeQueryUpdateAllCache = runtime.NewTreeCache()
+
+// UpdateAll is the externaltask package's UpdateAll over this semi-join: it
+// writes m's assigned columns to every external_tasks row the predicates and
+// probes select, in ONE statement, and reports how many. Nothing
+// assigned issues no statement; a Limit, Offset or row lock is
+// runtime.ErrPagedWrite.
+func (h ExternalTaskStepIncidentsProbeQuery) UpdateAll(ctx context.Context, ex runtime.Executor, m externaltask.Mut) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	if h.q.Shaped() {
+		return 0, runtime.ErrPagedWrite
+	}
+	head, key, args, ok := m.UpdateHead()
+	if !ok {
+		return 0, nil
+	}
+	var buf [48]runtime.Tok
+	toks := h.tokens(append(buf[:0], key[:]...), true)
+	st := externalTaskStepIncidentsProbeQueryUpdateAllCache.Get(toks)
+	if st == nil {
+		if head.Err != nil {
+			return 0, head.Err
+		}
+		st = externalTaskStepIncidentsProbeQueryUpdateAllCache.Put(toks, runtime.SpliceTreeWhereFrom(head.SQL, `"deleted_at" IS NULL`, toks[len(key):], externalTaskStepIncidentsProbeQueryLowering, "", head.NArg))
+	}
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := externaltask.GetBinder()
+	defer externaltask.PutBinder(pb)
+	read, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			incident.PutBinder(cb)
+		}
+	}()
+	return ex.Exec(ctx, st.SQL, append(args, read...))
+}
+
 // GroupMembersProbeQuery is a parent query with one or more existence probes against
 // memberships, combined with AND. Build it with GroupHavingMembers or
 // GroupNotHavingMembers and extend it with AndHaving/AndNotHaving.
@@ -12688,6 +12983,47 @@ func (h GroupMembersProbeQuery) Count(ctx context.Context, ex runtime.Executor) 
 	return runtime.Int8(rows.RawValues()[0]), rows.Err()
 }
 
+var groupMembersProbeQueryUpdateAllCache = runtime.NewTreeCache()
+
+// UpdateAll is the group package's UpdateAll over this semi-join: it
+// writes m's assigned columns to every groups row the predicates and
+// probes select, in ONE statement, and reports how many. Nothing
+// assigned issues no statement; a Limit, Offset or row lock is
+// runtime.ErrPagedWrite.
+func (h GroupMembersProbeQuery) UpdateAll(ctx context.Context, ex runtime.Executor, m group.Mut) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	if h.q.Shaped() {
+		return 0, runtime.ErrPagedWrite
+	}
+	head, key, args, ok := m.UpdateHead()
+	if !ok {
+		return 0, nil
+	}
+	var buf [48]runtime.Tok
+	toks := h.tokens(append(buf[:0], key[:]...), true)
+	st := groupMembersProbeQueryUpdateAllCache.Get(toks)
+	if st == nil {
+		if head.Err != nil {
+			return 0, head.Err
+		}
+		st = groupMembersProbeQueryUpdateAllCache.Put(toks, runtime.SpliceTreeWhereFrom(head.SQL, `"deleted_at" IS NULL`, toks[len(key):], groupMembersProbeQueryLowering, "", head.NArg))
+	}
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := group.GetBinder()
+	defer group.PutBinder(pb)
+	read, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			membership.PutBinder(cb)
+		}
+	}()
+	return ex.Exec(ctx, st.SQL, append(args, read...))
+}
+
 // IncidentInstanceProbeQuery is a parent query with one or more existence probes against
 // process_instances, combined with AND. Build it with IncidentHavingInstance or
 // IncidentNotHavingInstance and extend it with AndHaving/AndNotHaving.
@@ -12899,6 +13235,47 @@ func (h IncidentInstanceProbeQuery) Count(ctx context.Context, ex runtime.Execut
 		return 0, rows.Err()
 	}
 	return runtime.Int8(rows.RawValues()[0]), rows.Err()
+}
+
+var incidentInstanceProbeQueryUpdateAllCache = runtime.NewTreeCache()
+
+// UpdateAll is the incident package's UpdateAll over this semi-join: it
+// writes m's assigned columns to every incidents row the predicates and
+// probes select, in ONE statement, and reports how many. Nothing
+// assigned issues no statement; a Limit, Offset or row lock is
+// runtime.ErrPagedWrite.
+func (h IncidentInstanceProbeQuery) UpdateAll(ctx context.Context, ex runtime.Executor, m incident.Mut) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	if h.q.Shaped() {
+		return 0, runtime.ErrPagedWrite
+	}
+	head, key, args, ok := m.UpdateHead()
+	if !ok {
+		return 0, nil
+	}
+	var buf [48]runtime.Tok
+	toks := h.tokens(append(buf[:0], key[:]...), true)
+	st := incidentInstanceProbeQueryUpdateAllCache.Get(toks)
+	if st == nil {
+		if head.Err != nil {
+			return 0, head.Err
+		}
+		st = incidentInstanceProbeQueryUpdateAllCache.Put(toks, runtime.SpliceTreeWhereFrom(head.SQL, `"deleted_at" IS NULL`, toks[len(key):], incidentInstanceProbeQueryLowering, "", head.NArg))
+	}
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := incident.GetBinder()
+	defer incident.PutBinder(pb)
+	read, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			processinstance.PutBinder(cb)
+		}
+	}()
+	return ex.Exec(ctx, st.SQL, append(args, read...))
 }
 
 var incidentInstanceProbeQueryByInstanceCache = runtime.NewTreeCache()
@@ -13251,6 +13628,47 @@ func (h JobIncidentsProbeQuery) Take(ctx context.Context, ex runtime.Executor, m
 	return dst, rows.Err()
 }
 
+var jobIncidentsProbeQueryUpdateAllCache = runtime.NewTreeCache()
+
+// UpdateAll is the job package's UpdateAll over this semi-join: it
+// writes m's assigned columns to every jobs row the predicates and
+// probes select, in ONE statement, and reports how many. Nothing
+// assigned issues no statement; a Limit, Offset or row lock is
+// runtime.ErrPagedWrite.
+func (h JobIncidentsProbeQuery) UpdateAll(ctx context.Context, ex runtime.Executor, m job.Mut) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	if h.q.Shaped() {
+		return 0, runtime.ErrPagedWrite
+	}
+	head, key, args, ok := m.UpdateHead()
+	if !ok {
+		return 0, nil
+	}
+	var buf [48]runtime.Tok
+	toks := h.tokens(append(buf[:0], key[:]...), true)
+	st := jobIncidentsProbeQueryUpdateAllCache.Get(toks)
+	if st == nil {
+		if head.Err != nil {
+			return 0, head.Err
+		}
+		st = jobIncidentsProbeQueryUpdateAllCache.Put(toks, runtime.SpliceTreeWhereFrom(head.SQL, `"deleted_at" IS NULL`, toks[len(key):], jobIncidentsProbeQueryLowering, "", head.NArg))
+	}
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := job.GetBinder()
+	defer job.PutBinder(pb)
+	read, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			incident.PutBinder(cb)
+		}
+	}()
+	return ex.Exec(ctx, st.SQL, append(args, read...))
+}
+
 // OrganizationProjectsProbeQuery is a parent query with one or more existence probes against
 // projects, combined with AND. Build it with OrganizationHavingProjects or
 // OrganizationNotHavingProjects and extend it with AndHaving/AndNotHaving.
@@ -13462,6 +13880,47 @@ func (h OrganizationProjectsProbeQuery) Count(ctx context.Context, ex runtime.Ex
 		return 0, rows.Err()
 	}
 	return runtime.Int8(rows.RawValues()[0]), rows.Err()
+}
+
+var organizationProjectsProbeQueryUpdateAllCache = runtime.NewTreeCache()
+
+// UpdateAll is the organization package's UpdateAll over this semi-join: it
+// writes m's assigned columns to every organizations row the predicates and
+// probes select, in ONE statement, and reports how many. Nothing
+// assigned issues no statement; a Limit, Offset or row lock is
+// runtime.ErrPagedWrite.
+func (h OrganizationProjectsProbeQuery) UpdateAll(ctx context.Context, ex runtime.Executor, m organization.Mut) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	if h.q.Shaped() {
+		return 0, runtime.ErrPagedWrite
+	}
+	head, key, args, ok := m.UpdateHead()
+	if !ok {
+		return 0, nil
+	}
+	var buf [48]runtime.Tok
+	toks := h.tokens(append(buf[:0], key[:]...), true)
+	st := organizationProjectsProbeQueryUpdateAllCache.Get(toks)
+	if st == nil {
+		if head.Err != nil {
+			return 0, head.Err
+		}
+		st = organizationProjectsProbeQueryUpdateAllCache.Put(toks, runtime.SpliceTreeWhereFrom(head.SQL, `"deleted_at" IS NULL`, toks[len(key):], organizationProjectsProbeQueryLowering, "", head.NArg))
+	}
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := organization.GetBinder()
+	defer organization.PutBinder(pb)
+	read, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			project.PutBinder(cb)
+		}
+	}()
+	return ex.Exec(ctx, st.SQL, append(args, read...))
 }
 
 // OutgoingWebhookDeliveryWebhookProbeQuery is a parent query with one or more existence probes against
@@ -13767,6 +14226,47 @@ func (h OutgoingWebhookDeliveryWebhookProbeQuery) Take(ctx context.Context, ex r
 	return dst, rows.Err()
 }
 
+var outgoingWebhookDeliveryWebhookProbeQueryUpdateAllCache = runtime.NewTreeCache()
+
+// UpdateAll is the outgoingwebhookdelivery package's UpdateAll over this semi-join: it
+// writes m's assigned columns to every outgoing_webhook_deliveries row the predicates and
+// probes select, in ONE statement, and reports how many. Nothing
+// assigned issues no statement; a Limit, Offset or row lock is
+// runtime.ErrPagedWrite.
+func (h OutgoingWebhookDeliveryWebhookProbeQuery) UpdateAll(ctx context.Context, ex runtime.Executor, m outgoingwebhookdelivery.Mut) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	if h.q.Shaped() {
+		return 0, runtime.ErrPagedWrite
+	}
+	head, key, args, ok := m.UpdateHead()
+	if !ok {
+		return 0, nil
+	}
+	var buf [48]runtime.Tok
+	toks := h.tokens(append(buf[:0], key[:]...), true)
+	st := outgoingWebhookDeliveryWebhookProbeQueryUpdateAllCache.Get(toks)
+	if st == nil {
+		if head.Err != nil {
+			return 0, head.Err
+		}
+		st = outgoingWebhookDeliveryWebhookProbeQueryUpdateAllCache.Put(toks, runtime.SpliceTreeFrom(head.SQL, toks[len(key):], outgoingWebhookDeliveryWebhookProbeQueryLowering, "", head.NArg))
+	}
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := outgoingwebhookdelivery.GetBinder()
+	defer outgoingwebhookdelivery.PutBinder(pb)
+	read, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			outgoingwebhook.PutBinder(cb)
+		}
+	}()
+	return ex.Exec(ctx, st.SQL, append(args, read...))
+}
+
 // PlatformUserRolesProbeQuery is a parent query with one or more existence probes against
 // platform_role_assignments, combined with AND. Build it with PlatformUserHavingRoles or
 // PlatformUserNotHavingRoles and extend it with AndHaving/AndNotHaving.
@@ -13980,6 +14480,47 @@ func (h PlatformUserRolesProbeQuery) Count(ctx context.Context, ex runtime.Execu
 	return runtime.Int8(rows.RawValues()[0]), rows.Err()
 }
 
+var platformUserRolesProbeQueryUpdateAllCache = runtime.NewTreeCache()
+
+// UpdateAll is the platformuser package's UpdateAll over this semi-join: it
+// writes m's assigned columns to every platform_users row the predicates and
+// probes select, in ONE statement, and reports how many. Nothing
+// assigned issues no statement; a Limit, Offset or row lock is
+// runtime.ErrPagedWrite.
+func (h PlatformUserRolesProbeQuery) UpdateAll(ctx context.Context, ex runtime.Executor, m platformuser.Mut) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	if h.q.Shaped() {
+		return 0, runtime.ErrPagedWrite
+	}
+	head, key, args, ok := m.UpdateHead()
+	if !ok {
+		return 0, nil
+	}
+	var buf [48]runtime.Tok
+	toks := h.tokens(append(buf[:0], key[:]...), true)
+	st := platformUserRolesProbeQueryUpdateAllCache.Get(toks)
+	if st == nil {
+		if head.Err != nil {
+			return 0, head.Err
+		}
+		st = platformUserRolesProbeQueryUpdateAllCache.Put(toks, runtime.SpliceTreeWhereFrom(head.SQL, `"deleted_at" IS NULL`, toks[len(key):], platformUserRolesProbeQueryLowering, "", head.NArg))
+	}
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := platformuser.GetBinder()
+	defer platformuser.PutBinder(pb)
+	read, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			platformroleassignment.PutBinder(cb)
+		}
+	}()
+	return ex.Exec(ctx, st.SQL, append(args, read...))
+}
+
 // ProcessInstanceIncidentsProbeQuery is a parent query with one or more existence probes against
 // incidents, combined with AND. Build it with ProcessInstanceHavingIncidents or
 // ProcessInstanceNotHavingIncidents and extend it with AndHaving/AndNotHaving.
@@ -14191,6 +14732,47 @@ func (h ProcessInstanceIncidentsProbeQuery) Count(ctx context.Context, ex runtim
 		return 0, rows.Err()
 	}
 	return runtime.Int8(rows.RawValues()[0]), rows.Err()
+}
+
+var processInstanceIncidentsProbeQueryUpdateAllCache = runtime.NewTreeCache()
+
+// UpdateAll is the processinstance package's UpdateAll over this semi-join: it
+// writes m's assigned columns to every process_instances row the predicates and
+// probes select, in ONE statement, and reports how many. Nothing
+// assigned issues no statement; a Limit, Offset or row lock is
+// runtime.ErrPagedWrite.
+func (h ProcessInstanceIncidentsProbeQuery) UpdateAll(ctx context.Context, ex runtime.Executor, m processinstance.Mut) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	if h.q.Shaped() {
+		return 0, runtime.ErrPagedWrite
+	}
+	head, key, args, ok := m.UpdateHead()
+	if !ok {
+		return 0, nil
+	}
+	var buf [48]runtime.Tok
+	toks := h.tokens(append(buf[:0], key[:]...), true)
+	st := processInstanceIncidentsProbeQueryUpdateAllCache.Get(toks)
+	if st == nil {
+		if head.Err != nil {
+			return 0, head.Err
+		}
+		st = processInstanceIncidentsProbeQueryUpdateAllCache.Put(toks, runtime.SpliceTreeWhereFrom(head.SQL, `"deleted_at" IS NULL`, toks[len(key):], processInstanceIncidentsProbeQueryLowering, "", head.NArg))
+	}
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := processinstance.GetBinder()
+	defer processinstance.PutBinder(pb)
+	read, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			incident.PutBinder(cb)
+		}
+	}()
+	return ex.Exec(ctx, st.SQL, append(args, read...))
 }
 
 var processInstanceIncidentsProbeQueryByStatusCache = runtime.NewTreeCache()
@@ -14540,6 +15122,47 @@ func (h UserOrganizationsProbeQuery) Count(ctx context.Context, ex runtime.Execu
 	return runtime.Int8(rows.RawValues()[0]), rows.Err()
 }
 
+var userOrganizationsProbeQueryUpdateAllCache = runtime.NewTreeCache()
+
+// UpdateAll is the user package's UpdateAll over this semi-join: it
+// writes m's assigned columns to every users row the predicates and
+// probes select, in ONE statement, and reports how many. Nothing
+// assigned issues no statement; a Limit, Offset or row lock is
+// runtime.ErrPagedWrite.
+func (h UserOrganizationsProbeQuery) UpdateAll(ctx context.Context, ex runtime.Executor, m user.Mut) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	if h.q.Shaped() {
+		return 0, runtime.ErrPagedWrite
+	}
+	head, key, args, ok := m.UpdateHead()
+	if !ok {
+		return 0, nil
+	}
+	var buf [48]runtime.Tok
+	toks := h.tokens(append(buf[:0], key[:]...), true)
+	st := userOrganizationsProbeQueryUpdateAllCache.Get(toks)
+	if st == nil {
+		if head.Err != nil {
+			return 0, head.Err
+		}
+		st = userOrganizationsProbeQueryUpdateAllCache.Put(toks, runtime.SpliceTreeWhereFrom(head.SQL, `"deleted_at" IS NULL`, toks[len(key):], userOrganizationsProbeQueryLowering, "", head.NArg))
+	}
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := user.GetBinder()
+	defer user.PutBinder(pb)
+	read, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			userorganization.PutBinder(cb)
+		}
+	}()
+	return ex.Exec(ctx, st.SQL, append(args, read...))
+}
+
 var userOrganizationsProbeQueryEverCache = runtime.NewTreeCache()
 
 // AllEver is the user package's aggregation of that name over this
@@ -14800,6 +15423,47 @@ func (h WorkflowGroupMembersProbeQuery) Count(ctx context.Context, ex runtime.Ex
 	return runtime.Int8(rows.RawValues()[0]), rows.Err()
 }
 
+var workflowGroupMembersProbeQueryUpdateAllCache = runtime.NewTreeCache()
+
+// UpdateAll is the workflowgroup package's UpdateAll over this semi-join: it
+// writes m's assigned columns to every workflow_groups row the predicates and
+// probes select, in ONE statement, and reports how many. Nothing
+// assigned issues no statement; a Limit, Offset or row lock is
+// runtime.ErrPagedWrite.
+func (h WorkflowGroupMembersProbeQuery) UpdateAll(ctx context.Context, ex runtime.Executor, m workflowgroup.Mut) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	if h.q.Shaped() {
+		return 0, runtime.ErrPagedWrite
+	}
+	head, key, args, ok := m.UpdateHead()
+	if !ok {
+		return 0, nil
+	}
+	var buf [48]runtime.Tok
+	toks := h.tokens(append(buf[:0], key[:]...), true)
+	st := workflowGroupMembersProbeQueryUpdateAllCache.Get(toks)
+	if st == nil {
+		if head.Err != nil {
+			return 0, head.Err
+		}
+		st = workflowGroupMembersProbeQueryUpdateAllCache.Put(toks, runtime.SpliceTreeWhereFrom(head.SQL, `"deleted_at" IS NULL`, toks[len(key):], workflowGroupMembersProbeQueryLowering, "", head.NArg))
+	}
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := workflowgroup.GetBinder()
+	defer workflowgroup.PutBinder(pb)
+	read, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			workflowgroupmembership.PutBinder(cb)
+		}
+	}()
+	return ex.Exec(ctx, st.SQL, append(args, read...))
+}
+
 // WorkflowUserGroupsProbeQuery is a parent query with one or more existence probes against
 // workflow_group_memberships, combined with AND. Build it with WorkflowUserHavingGroups or
 // WorkflowUserNotHavingGroups and extend it with AndHaving/AndNotHaving.
@@ -15011,6 +15675,47 @@ func (h WorkflowUserGroupsProbeQuery) Count(ctx context.Context, ex runtime.Exec
 		return 0, rows.Err()
 	}
 	return runtime.Int8(rows.RawValues()[0]), rows.Err()
+}
+
+var workflowUserGroupsProbeQueryUpdateAllCache = runtime.NewTreeCache()
+
+// UpdateAll is the workflowuser package's UpdateAll over this semi-join: it
+// writes m's assigned columns to every workflow_users row the predicates and
+// probes select, in ONE statement, and reports how many. Nothing
+// assigned issues no statement; a Limit, Offset or row lock is
+// runtime.ErrPagedWrite.
+func (h WorkflowUserGroupsProbeQuery) UpdateAll(ctx context.Context, ex runtime.Executor, m workflowuser.Mut) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	if h.q.Shaped() {
+		return 0, runtime.ErrPagedWrite
+	}
+	head, key, args, ok := m.UpdateHead()
+	if !ok {
+		return 0, nil
+	}
+	var buf [48]runtime.Tok
+	toks := h.tokens(append(buf[:0], key[:]...), true)
+	st := workflowUserGroupsProbeQueryUpdateAllCache.Get(toks)
+	if st == nil {
+		if head.Err != nil {
+			return 0, head.Err
+		}
+		st = workflowUserGroupsProbeQueryUpdateAllCache.Put(toks, runtime.SpliceTreeWhereFrom(head.SQL, `"deleted_at" IS NULL`, toks[len(key):], workflowUserGroupsProbeQueryLowering, "", head.NArg))
+	}
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := workflowuser.GetBinder()
+	defer workflowuser.PutBinder(pb)
+	read, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			workflowgroupmembership.PutBinder(cb)
+		}
+	}()
+	return ex.Exec(ctx, st.SQL, append(args, read...))
 }
 
 // Raw-query scanners, registered by row type. The statements were

@@ -45,4 +45,8 @@ func (e *ExternalTask) Schema(t *storm.Table) {
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&e.DeletedAt)
+	// An incident at a task's step: the same instance and the same node,
+	// which no foreign key between the two says.
+	var i Incident
+	t.ProbesOn("StepIncidents", &i, &e.Instance, &i.Instance, &e.NodeID, &i.NodeID)
 }
