@@ -171,8 +171,8 @@ func TestALocalAccountsAccessIsTheSameWithOrWithoutOIDC(t *testing.T) {
 			if got := h.projects(token, ""); !slices.Equal(got, []string{"Acme Project"}) {
 				t.Fatalf("Hopper reached %v, want Acme's projects", got)
 			}
-			if status, body := h.get("/api/v1/projects", token, globex.String()); status != http.StatusUnauthorized {
-				t.Fatalf("Hopper asking for Globex: status %d (%s), want the 401 a non-member has always had", status, body)
+			if status, body := h.get("/api/v1/projects", token, globex.String()); status != http.StatusForbidden {
+				t.Fatalf("Hopper asking for Globex: status %d (%s), want the 403 a non-member has", status, body)
 			}
 			account := h.me(token)
 			if account.IdentityProvider != "" || !slices.Equal(account.Roles, []string{"DESIGNER"}) {

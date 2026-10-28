@@ -277,7 +277,7 @@ func TestOnlyAnAdministratorOfTheOrganizationDeviatesAnInstance(t *testing.T) {
 		// Naming an organization in the header does not put an account in it:
 		// the header chooses among the caller's own.
 		caller{name: "another organization's administrator, naming this organization in the header", token: outsider,
-			headers: []string{"X-Organization-ID", h.orgID.String()}, status: http.StatusUnauthorized},
+			headers: []string{"X-Organization-ID", h.orgID.String()}, status: http.StatusForbidden},
 		caller{name: "nobody", status: http.StatusUnauthorized},
 	)
 

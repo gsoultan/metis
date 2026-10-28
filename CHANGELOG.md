@@ -1405,6 +1405,13 @@ does not undo a migration.
 
 ### Fixed
 
+- **Asking for somebody else's organization is a 403, not a 401.** A request
+  for an organization the caller is not a member of, or one naming another
+  organization in what it sends, answered 401, which says the token is no good:
+  the UI signed out, and an integration would sign in again and repeat it. An
+  account that belongs to no organization at all was a 500. All three are 403
+  now, with the reason; 401 is kept for a token that proves nothing.
+
 - **The REST organization calls report their failures.** Reading, creating,
   listing, renaming or deleting an organization answered 200 whatever happened:
   the error was sent as `"err":{}`. Asking for an organization that is not the

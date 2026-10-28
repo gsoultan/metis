@@ -122,7 +122,7 @@ func TestProtectedChainWithRolesRefusesAnOrganizationTheCallerIsNotIn(t *testing
 		ProtectedChainWithRoles("DeleteGroup", entities.RoleAdmin)
 
 	runChain(t, chain, []chainCase{
-		{"an administrator of Acme asking for Initech", memberOfBoth(acme, globex, nil, entities.RoleAdmin), initech, false, pkgauth.ErrUnauthorized},
+		{"an administrator of Acme asking for Initech", memberOfBoth(acme, globex, nil, entities.RoleAdmin), initech, false, tenant.ErrNotAMember},
 	})
 }
 
