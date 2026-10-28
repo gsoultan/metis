@@ -4131,7 +4131,9 @@ func (p IncidentWithJobQuery) All(ctx context.Context, ex runtime.Executor) ([]I
 // InstallationSettingWithSetByUserRow is installation_settings with its SetByUser loaded.
 type InstallationSettingWithSetByUserRow struct {
 	installationsetting.Row
-	SetByUser user.Row
+	// A pointer because nothing keeps the target there: the column has no
+	// foreign key. nil means the row it names is gone.
+	SetByUser *user.Row
 }
 
 type InstallationSettingWithSetByUserQuery struct {
@@ -4236,11 +4238,9 @@ func (p InstallationSettingWithSetByUserQuery) All(ctx context.Context, ex runti
 		key := out[i].Row.SetByID
 		j, ok := by[key]
 		if !ok {
-			// A foreign key pointing at a row that is not there. The database
-			// forbids it, so reaching this means the constraint was dropped.
-			return nil, fmt.Errorf("storm: %s references a missing %s row", "installation_settings", "users")
+			continue // no foreign key: the row it names may be gone
 		}
-		out[i].SetByUser = targets[j]
+		out[i].SetByUser = &targets[j]
 	}
 	return out, nil
 }
