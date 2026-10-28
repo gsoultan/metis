@@ -39,4 +39,8 @@ func (c *Connector) Schema(t *storm.Table) {
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&c.DeletedAt)
+	// Restoring by key finds the entry removed last under it, which is a read
+	// of the marked rows, and takes it back in the same statement.
+	t.ReadsDeleted()
+	t.Takes()
 }

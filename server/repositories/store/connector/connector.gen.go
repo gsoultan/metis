@@ -115,6 +115,9 @@ type Query struct {
 	// noOrder suppresses the default ordering. See Unordered.
 	noOrder  bool
 	badAfter bool
+
+	// deleted reads the marked rows as well. See WithDeleted.
+	deleted bool
 }
 
 // New starts a query.
@@ -321,6 +324,14 @@ func (q Query) Order(ts ...Sort) Query {
 
 // Err reports a query that outgrew its buffers.
 func (q Query) Err() error {
+	if q.deleted {
+		return errWithDeleted
+	}
+	return q.readErr()
+}
+
+// readErr is Err for the terminals that can read the marked rows too.
+func (q Query) readErr() error {
 	if q.over {
 		return errTooComplex
 	}
@@ -332,6 +343,9 @@ func (q Query) Err() error {
 	}
 	return nil
 }
+
+var errWithDeleted = errors.New(
+	"storm: WithDeleted() reaches All, One, Count, Exists and Take; every other terminal keeps the marked rows out, and running it as if it did not would answer a different question than the one asked")
 
 var errAfterUnordered = errors.New(
 	"storm: After() on an Unordered() query with no explicit Order — a keyset cursor without an ordering is a position in nothing")
@@ -1490,6 +1504,58 @@ func countStmtFor(toks []runtime.Tok) *runtime.Stmt {
 	return countCache.Put(toks, runtime.SpliceTreeWhere(countPrefix, softDeleteWhere, toks, lowering, ""))
 }
 
+// WithDeleted reads the marked rows as well as the live ones. All, One,
+// Count, Exists and Take honour it; every other terminal refuses it,
+// rather than quietly answering about the live rows only.
+func (q Query) WithDeleted() Query { q.deleted = true; return q }
+
+var (
+	deletedReads = func() [7][2]*runtime.TreeCache {
+		var cs [7][2]*runtime.TreeCache
+		for i := range cs {
+			cs[i][0], cs[i][1] = runtime.NewTreeCache(), runtime.NewTreeCache()
+		}
+		return cs
+	}()
+	deletedCount  = runtime.NewTreeCache()
+	deletedExists = runtime.NewTreeCache()
+)
+
+func (q Query) readStmt(toks []runtime.Tok) *runtime.Stmt {
+	if !q.deleted {
+		return stmtFor(toks, q.offset > 0, q.lock)
+	}
+	i, suffix := 0, limitSuffix
+	if q.offset > 0 {
+		i, suffix = 1, limitOffsetSuffix
+	}
+	c := deletedReads[q.lock][i]
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTree(selectPrefix, toks, lowering, suffix+lockSuffix[q.lock]))
+}
+
+func (q Query) countStmt(toks []runtime.Tok) *runtime.Stmt {
+	if !q.deleted {
+		return countStmtFor(toks)
+	}
+	if st := deletedCount.Get(toks); st != nil {
+		return st
+	}
+	return deletedCount.Put(toks, runtime.SpliceTree(countPrefix, toks, lowering, ""))
+}
+
+func (q Query) existsStmt(toks []runtime.Tok) *runtime.Stmt {
+	if !q.deleted {
+		return existsStmtFor(toks)
+	}
+	if st := deletedExists.Get(toks); st != nil {
+		return st
+	}
+	return deletedExists.Put(toks, runtime.SpliceTree(existsPrefix, toks, lowering, existsSuffix))
+}
+
 // Composition seams, for the generated CONTEXT package and it alone:
 // cross-table statements (a filtered semi-join spans two packages) are
 // assembled there from each side's tokens, fragments and bindings. Ids
@@ -1560,7 +1626,7 @@ func (q Query) Shape() uint64 {
 // SQL returns the compiled text for this query's structure.
 func (q Query) SQL() string {
 	var buf [21]runtime.Tok
-	return stmtFor(q.stream(&buf), q.offset > 0, q.lock).SQL
+	return q.readStmt(q.stream(&buf)).SQL
 }
 
 // Scan decodes one row from raw wire bytes into r, copying text into sl.
@@ -1752,11 +1818,11 @@ func (q Query) All(ctx context.Context, ex runtime.Executor, dst []Row) ([]Row, 
 
 // AllInto lets the caller own the string arena.
 func (q Query) AllInto(ctx context.Context, ex runtime.Executor, dst []Row, sl *runtime.Slab) ([]Row, error) {
-	if err := q.Err(); err != nil {
+	if err := q.readErr(); err != nil {
 		return dst, err
 	}
 	var buf [21]runtime.Tok
-	st := stmtFor(q.stream(&buf), q.offset > 0, q.lock)
+	st := q.readStmt(q.stream(&buf))
 	if st.Err != nil {
 		// A malformed token stream is a code-generation bug. Executing it
 		// would run a query whose filter is not the one that was asked for.
@@ -1794,14 +1860,14 @@ func (q Query) One(ctx context.Context, ex runtime.Executor) (Row, bool, error) 
 
 // Count ignores Limit: counting a truncated set is a bug, not a feature.
 func (q Query) Count(ctx context.Context, ex runtime.Executor) (int64, error) {
-	if err := q.Err(); err != nil {
+	if err := q.readErr(); err != nil {
 		return 0, err
 	}
 	if q.lock != 0 {
 		return 0, errCountLocked
 	}
 	var buf [21]runtime.Tok
-	st := countStmtFor(q.preds(&buf))
+	st := q.countStmt(q.preds(&buf))
 	if st.Err != nil {
 		// A malformed token stream is a code-generation bug. Executing it
 		// would run a query whose filter is not the one that was asked for.
@@ -1831,14 +1897,14 @@ func (q Query) Count(ctx context.Context, ex runtime.Executor) (int64, error) {
 // measured on 50k rows, the planner top-N-sorted all 16,667 matches to
 // return the "first" of an order nobody was going to read.
 func (q Query) Exists(ctx context.Context, ex runtime.Executor) (bool, error) {
-	if err := q.Err(); err != nil {
+	if err := q.readErr(); err != nil {
 		return false, err
 	}
 	if q.lock != 0 {
 		return false, errExistsLocked
 	}
 	var buf [21]runtime.Tok
-	st := existsStmtFor(q.preds(&buf))
+	st := q.existsStmt(q.preds(&buf))
 	if st.Err != nil {
 		return false, st.Err
 	}
@@ -1855,7 +1921,7 @@ func (q Query) Exists(ctx context.Context, ex runtime.Executor) (bool, error) {
 // Prepare resolves the structure and binds arguments without executing.
 func (q Query) Prepare(b *Binder) (string, []any) {
 	var buf [21]runtime.Tok
-	return stmtFor(q.stream(&buf), q.offset > 0, q.lock).SQL, q.bind(b)
+	return q.readStmt(q.stream(&buf)).SQL, q.bind(b)
 }
 
 // insertSQL does not vary: the column list is fixed by the table, so
@@ -3101,6 +3167,197 @@ func (q Query) HardDeleteAll(ctx context.Context, ex runtime.Executor) (int64, e
 	b := binders.Get()
 	defer putBinder(b)
 	return ex.Exec(ctx, st.SQL, q.bindPreds(b))
+}
+
+var takeCache = runtime.NewTreeCache()
+
+// takeOpen narrows the UPDATE to the rows the read selects.
+const takeOpen = ` WHERE "id" IN (SELECT "id" FROM "connectors"`
+
+var takeHeadCache = runtime.NewMaskCache()
+
+// takeHead is the UPDATE … SET of one assignment mask, before the read
+// that narrows it.
+func takeHead(k runtime.MaskKey) *runtime.Stmt {
+	if st := takeHeadCache.Get(k); st != nil {
+		return st
+	}
+	set := make([]runtime.Frag, 0, nUpdatable+1)
+	for i := 0; i < nUpdatable; i++ {
+		switch {
+		case k.Expr&(1<<uint(i)) != 0:
+			set = append(set, exprFrags[i])
+		case k.Dirty&(1<<uint(i)) != 0:
+			set = append(set, setFrags[i])
+		}
+	}
+	return takeHeadCache.Put(k, runtime.SpliceSections(updatePrefix, []runtime.Section{
+		{Lead: "", Sep: ", ", Frags: set},
+	}, ""))
+}
+
+// takeStmtFor compiles one (assignments, lock, read) triple, once.
+func takeStmtFor(k runtime.MaskKey, lock uint8, deleted bool, toks []runtime.Tok) *runtime.Stmt {
+	var key [26]runtime.Tok
+	key[0], key[1] = runtime.Tok(k.Dirty), runtime.Tok(k.Dirty>>32)
+	key[2], key[3] = runtime.Tok(k.Expr), runtime.Tok(k.Expr>>32)
+	key[4] = runtime.Tok(lock)
+	if deleted {
+		key[4] |= 1 << 8
+	}
+	n := 5 + copy(key[5:], toks)
+	if st := takeCache.Get(key[:n]); st != nil {
+		return st
+	}
+	head := takeHead(k)
+	if head.Err != nil {
+		return head
+	}
+	suffix := limitSuffix + lockSuffix[lock] + `)` + updReturning
+	if deleted {
+		return takeCache.Put(key[:n], runtime.SpliceTreeFrom(head.SQL+takeOpen, toks, lowering, suffix, head.NArg))
+	}
+	return takeCache.Put(key[:n], runtime.SpliceTreeWhereFrom(head.SQL+takeOpen, softDeleteWhere, toks, lowering, suffix, head.NArg))
+}
+
+// Take writes m's assigned columns to the rows the query would read —
+// its predicates, order, Limit and row lock all apply — in ONE
+// statement, and returns those rows as they now stand:
+//
+//	var m Mut
+//	m.Set…(leaseEnd)
+//	got, err := New().Where(…).Order(…).Limit(1).ForUpdateSkipLocked().Take(ctx, ex, m, nil)
+//
+// That is the queue claim: with ForUpdateSkipLocked two workers asking
+// at once take different rows, or one finds none, and neither waits.
+// Without a lock it is an UPDATE bounded by a read. Nothing assigned
+// issues no statement and returns dst. Offset is refused with
+// runtime.ErrPagedWrite: a claim that skips rows it could take is a
+// claim that leaves work behind.
+func (q Query) Take(ctx context.Context, ex runtime.Executor, m Mut, dst []Row) ([]Row, error) {
+	if err := q.readErr(); err != nil {
+		return dst, err
+	}
+	if q.offset != 0 {
+		return dst, runtime.ErrPagedWrite
+	}
+	if m.dirty == 0 && m.expr == 0 {
+		return dst, nil
+	}
+	var buf [21]runtime.Tok
+	st := takeStmtFor(m.key(), q.lock, q.deleted, q.stream(&buf))
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	b := binders.Get()
+	defer putBinder(b)
+	args := append(m.takeArgs(make([]any, 0, st.NArg)), q.bind(b)...)
+	var sl runtime.Slab
+	sl.Reserve(st.SlabHint())
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, Row{})
+		if err := scan(rows.RawValues(), &dst[len(dst)-1], &sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// takeArgs appends the values m assigns, in SET order.
+func (m Mut) takeArgs(args []any) []any {
+	for i := 0; i < nUpdatable; i++ {
+		if m.dirty&(1<<uint(i)) == 0 {
+			continue
+		}
+		switch i {
+		case 0:
+			args = append(args, m.row.UpdatedAt)
+		case 1:
+			args = append(args, m.row.Key)
+		case 2:
+			args = append(args, m.row.Name)
+		case 3:
+			args = append(args, m.row.Description.Arg())
+		case 4:
+			args = append(args, m.row.Icon.Arg())
+		case 5:
+			args = append(args, m.row.Type)
+		case 6:
+			args = append(args, m.row.Properties)
+		case 7:
+			args = append(args, m.row.DeletedAt.Arg())
+		}
+	}
+	return args
+}
+
+// TakeHead is Take's statement without its read, for the context
+// package to narrow with a composed one: the UPDATE … SET, what opens
+// and closes the read (the lock q holds spelled in the close), the
+// identity a statement built from them is cached under, and the values
+// m assigns. ok is false when m assigns nothing.
+func (m Mut) TakeHead(q Query) (head *runtime.Stmt, open, close string, key [5]runtime.Tok, args []any, ok bool) {
+	if m.dirty == 0 && m.expr == 0 {
+		return nil, "", "", key, nil, false
+	}
+	key[0], key[1] = runtime.Tok(m.dirty), runtime.Tok(m.dirty>>32)
+	key[2], key[3] = runtime.Tok(m.expr), runtime.Tok(m.expr>>32)
+	key[4] = runtime.Tok(q.lock)
+	return takeHead(m.key()), takeOpen, lockSuffix[q.lock] + `)` + updReturning, key, m.takeArgs(nil), true
+}
+
+var trimCache = runtime.NewTreeCache()
+
+// trimStmtFor compiles one (lock, read) pair, once.
+func trimStmtFor(lock uint8, toks []runtime.Tok) *runtime.Stmt {
+	var key [22]runtime.Tok
+	key[0] = runtime.Tok(lock)
+	n := 1 + copy(key[1:], toks)
+	if st := trimCache.Get(key[:n]); st != nil {
+		return st
+	}
+	suffix := limitSuffix + lockSuffix[lock] + `))`
+	return trimCache.Put(key[:n], runtime.SpliceTree(deletePrefix+` WHERE ctid = ANY(ARRAY(SELECT ctid FROM "connectors"`, toks, lowering, suffix))
+}
+
+// HardDeleteBatch removes the rows the query would read, marked deleted or not, —
+// its predicates, order, Limit and row lock all apply — in ONE
+// statement, and reports how many it removed:
+//
+//	for {
+//		n, err := New().Where(…).Limit(1000).HardDeleteBatch(ctx, ex)
+//		if err != nil || n < 1000 {
+//			break
+//		}
+//	}
+//
+// That is the bounded purge: each run holds its locks for one batch.
+// The query must have a predicate — runtime.ErrUnfilteredWrite
+// otherwise — and Offset is refused with runtime.ErrPagedWrite.
+func (q Query) HardDeleteBatch(ctx context.Context, ex runtime.Executor) (int64, error) {
+	if err := q.Err(); err != nil {
+		return 0, err
+	}
+	if q.nt == 0 {
+		return 0, runtime.ErrUnfilteredWrite
+	}
+	if q.offset != 0 {
+		return 0, runtime.ErrPagedWrite
+	}
+	var buf [21]runtime.Tok
+	st := trimStmtFor(q.lock, q.stream(&buf))
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	b := binders.Get()
+	defer putBinder(b)
+	return ex.Exec(ctx, st.SQL, q.bind(b))
 }
 
 // The step this table's UpdateAll is, and the statements written after
