@@ -5,7 +5,11 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
+
+	"time"
 
 	"github.com/gsoultan/metis/server/repositories/store/auditentry"
 	"github.com/gsoultan/metis/server/repositories/store/batchoperation"
@@ -15926,4 +15930,90 @@ func scanClaimTurn(rv [][]byte, r *model.ClaimTurn, sl *runtime.Slab) error {
 func scanOrganizationOf(rv [][]byte, r *model.OrganizationOf, sl *runtime.Slab) error {
 	copy(r.OrganizationID[:], rv[0])
 	return nil
+}
+
+const lockTimeoutSQL = "SELECT set_config('lock_timeout', $1, true)"
+
+// LockTimeout bounds how long each later statement of this transaction
+// waits for a lock: past it the statement fails rather than waits. Zero
+// or less waits for ever. It ends with the transaction, and outside one
+// with the statement, so it cannot leak onto a pooled connection.
+func LockTimeout(ctx context.Context, ex runtime.Executor, d time.Duration) error {
+	ms := d.Milliseconds()
+	if d > 0 && ms == 0 {
+		ms = 1 // a positive wait shorter than the unit is not "for ever"
+	}
+	if ms < 0 {
+		ms = 0
+	}
+	_, err := ex.Exec(ctx, lockTimeoutSQL, []any{strconv.FormatInt(ms, 10)})
+	return err
+}
+
+// Table names a table this context's model declares Lockable.
+type Table uint8
+
+const (
+	TableRetentionHold Table = iota + 1
+	TableRetentionPeriod
+)
+
+var tableIdents = [...]string{
+	"",
+	"\"retention_holds\"",
+	"\"retention_periods\"",
+}
+
+// TableLock is the mode LockTables takes, weakest first.
+type TableLock uint8
+
+const (
+	LockAccessShare TableLock = iota + 1
+	LockRowShare
+	LockRowExclusive
+	LockShareUpdateExclusive
+	LockShare
+	LockShareRowExclusive
+	LockExclusive
+	LockAccessExclusive
+)
+
+const (
+	lockTablesOpen = "LOCK TABLE "
+	lockTablesSep  = ", "
+)
+
+var tableLockModes = [...]string{
+	" IN ACCESS SHARE MODE",
+	" IN ROW SHARE MODE",
+	" IN ROW EXCLUSIVE MODE",
+	" IN SHARE UPDATE EXCLUSIVE MODE",
+	" IN SHARE MODE",
+	" IN SHARE ROW EXCLUSIVE MODE",
+	" IN EXCLUSIVE MODE",
+	" IN ACCESS EXCLUSIVE MODE",
+}
+
+var errLockTables = errors.New("storm: LockTables wants a mode and at least one table of this context")
+
+// LockTables locks each table in mode, in the order named, until the
+// transaction ends: it waits for every transaction holding a lock that
+// conflicts, and holds off every one that asks for one after it. Run it
+// inside a transaction; outside one the lock ends with the statement.
+func LockTables(ctx context.Context, ex runtime.Executor, mode TableLock, tables ...Table) error {
+	if mode == 0 || int(mode) > len(tableLockModes) || len(tables) == 0 {
+		return errLockTables
+	}
+	sql := lockTablesOpen
+	for i, t := range tables {
+		if t == 0 || int(t) >= len(tableIdents) {
+			return errLockTables
+		}
+		if i > 0 {
+			sql += lockTablesSep
+		}
+		sql += tableIdents[t]
+	}
+	_, err := ex.Exec(ctx, sql+tableLockModes[mode-1], nil)
+	return err
 }

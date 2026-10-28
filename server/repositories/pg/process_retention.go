@@ -12,24 +12,11 @@ import (
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/model"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store"
 	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 	"github.com/gsoultan/metis/server/repositories/store/retentionperiod"
 	"github.com/gsoultan/storm/runtime"
 )
-
-// lockRetentionHolds waits for every transaction that is placing or
-// releasing a hold, or changing a process's period, and keeps new ones
-// waiting until the batch commits.
-//
-// The batch reads the holds and the periods once, when its statement starts.
-// A hold placed after that and committed before the batch reached its
-// instance would not be seen, and the instance it was placed to keep would
-// go; so would the instances of a process whose period had just been made
-// longer. SHARE conflicts with the lock every insert and delete takes, and
-// not with itself, so sweeps on several replicas still run side by side. A
-// hold or a period is an administrator's act, and waits for one batch at
-// most.
-const lockRetentionHolds = `LOCK TABLE retention_holds, retention_periods IN SHARE MODE`
 
 // ForgetFinished deletes, a batch at a time, the instances that finished
 // longer ago than their period and that nothing still needs, with their
@@ -130,7 +117,7 @@ func (r *processRepository) forgetOneBatch(ctx context.Context, args []any) (int
 		if err != nil {
 			return err
 		}
-		if _, err := ex.Exec(ctx, lockRetentionHolds, nil); err != nil {
+		if err := lockRetentionHolds(ctx, ex); err != nil {
 			return fmt.Errorf("wait for the holds being placed: %w", err)
 		}
 		removed, err = model.ForgetFinishedInstances.Exec(ctx, ex, args...)
@@ -167,4 +154,20 @@ func (r *processRepository) Existing(ctx context.Context, ids []uuid.UUID) (map[
 		found[row.ID] = true
 	}
 	return found, nil
+}
+
+// lockRetentionHolds locks the holds and the periods: it waits for every transaction that is placing or
+// releasing a hold, or changing a process's period, and keeps new ones
+// waiting until the batch commits.
+//
+// The batch reads the holds and the periods once, when its statement starts.
+// A hold placed after that and committed before the batch reached its
+// instance would not be seen, and the instance it was placed to keep would
+// go; so would the instances of a process whose period had just been made
+// longer. SHARE conflicts with the lock every insert and delete takes, and
+// not with itself, so sweeps on several replicas still run side by side. A
+// hold or a period is an administrator's act, and waits for one batch at
+// most.
+func lockRetentionHolds(ctx context.Context, ex runtime.Executor) error {
+	return store.LockTables(ctx, ex, store.LockShare, store.TableRetentionHold, store.TableRetentionPeriod)
 }
