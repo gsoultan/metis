@@ -2,10 +2,12 @@ package instancemigration
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/incident"
 )
 
 // An instance's incidents are listed in full, and a migration that holds an
@@ -31,11 +33,16 @@ func TestAnInstancesIncidentsAreSeenPastTheFirstThousand(t *testing.T) {
 	}
 	instance := f.onlyInstance(t)
 
-	if err := f.db.WithContext(f.ctx).Exec(`
-		INSERT INTO incidents (id, created_at, updated_at, instance_id, node_id, error, status, resolved_at)
-		SELECT gen_random_uuid(), now() + interval '1 minute', now() + interval '1 minute', ?,
-		       'callPartner', 'the partner timed out', ?, now() + interval '2 minutes'
-		  FROM generate_series(1, ?) AS n`, instance.ID, string(models.IncidentResolved), storeReadCap).Error; err != nil {
+	later := time.Now().Add(time.Minute)
+	newer := make([]incident.Row, storeReadCap)
+	for i := range newer {
+		newer[i] = incident.Row{
+			ID: uuid.New(), CreatedAt: later, UpdatedAt: later, InstanceID: instance.ID,
+			NodeID: "callPartner", Error: "the partner timed out", Status: string(models.IncidentResolved),
+			ResolvedAt: some(later.Add(time.Minute)),
+		}
+	}
+	if _, err := incident.InsertAll(f.ctx, f.ex(), newer); err != nil {
 		t.Fatalf("seed %d newer incidents: %v", storeReadCap, err)
 	}
 
@@ -58,11 +65,9 @@ func TestAnInstancesIncidentsAreSeenPastTheFirstThousand(t *testing.T) {
 // openIncidentsOn counts in the database, not through the code under test.
 func (f *fixture) openIncidentsOn(t *testing.T, instanceID uuid.UUID, nodeID string) int {
 	t.Helper()
-	var n int
-	if err := f.db.WithContext(f.ctx).Raw(
-		`SELECT count(*) FROM incidents WHERE instance_id = ? AND node_id = ? AND status = ? AND deleted_at IS NULL`,
-		instanceID, nodeID, string(models.IncidentOpen)).Scan(&n).Error; err != nil {
+	n, err := incident.New().InstanceIDEq(instanceID).NodeIDEq(nodeID).StatusEq(string(models.IncidentOpen)).Count(f.ctx, f.ex())
+	if err != nil {
 		t.Fatalf("count the open incidents: %v", err)
 	}
-	return n
+	return int(n)
 }

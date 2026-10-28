@@ -5,6 +5,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/gsoultan/storm/schema"
+
 	"github.com/gsoultan/metis/server/repositories/db"
 	pgschema "github.com/gsoultan/storm/schema/pg"
 )
@@ -20,15 +22,7 @@ func EveryRow(t *testing.T, conn *db.Conn) map[string]string {
 	t.Helper()
 	ctx := t.Context()
 	pool := conn.Main()
-	one, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("borrow a connection: %v", err)
-	}
-	held, err := pgschema.Introspect(ctx, one.Conn(), db.Namespace(pool))
-	one.Release()
-	if err != nil {
-		t.Fatalf("list the tables: %v", err)
-	}
+	held := Held(t, conn)
 	if len(held.Tables) == 0 {
 		t.Fatal("the schema lists no tables, so comparing them would prove nothing")
 	}
@@ -56,4 +50,34 @@ func TablesThatDiffer(before, after map[string]string) []string {
 	}
 	slices.Sort(changed)
 	return changed
+}
+
+// Held is the schema conn's main database holds, read from the catalog: what a
+// test asks when the point is the table itself, not a row in it.
+func Held(t *testing.T, conn *db.Conn) *schema.Schema {
+	t.Helper()
+	pool := conn.Main()
+	one, err := pool.Acquire(t.Context())
+	if err != nil {
+		t.Fatalf("borrow a connection: %v", err)
+	}
+	defer one.Release()
+	held, err := pgschema.Introspect(t.Context(), one.Conn(), db.Namespace(pool))
+	if err != nil {
+		t.Fatalf("read the schema: %v", err)
+	}
+	return held
+}
+
+// RowsIn counts every row of table, marked deleted or not: what a test of a
+// purge asks, which no store read can — a store reads the live rows unless
+// its model lets call sites widen to the marked ones, and none widens only so
+// a test can look.
+func RowsIn(t *testing.T, conn *db.Conn, table string) int64 {
+	t.Helper()
+	var n int64
+	if err := conn.Main().QueryRow(t.Context(), fmt.Sprintf(`SELECT count(*) FROM %q`, table)).Scan(&n); err != nil {
+		t.Fatalf("count %s: %v", table, err)
+	}
+	return n
 }

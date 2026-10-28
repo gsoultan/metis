@@ -3,6 +3,10 @@ package tenant
 import (
 	"testing"
 
+	"github.com/gsoultan/metis/server/repositories/store/group"
+	"github.com/gsoultan/metis/server/repositories/store/organization"
+	"github.com/gsoultan/storm/runtime"
+
 	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
@@ -39,14 +43,20 @@ func seedDirectoryFixture(t *testing.T, db *db.Conn) directoryFixture {
 
 	repo := pg.NewUserRepository(db)
 	for i, org := range orgs {
-		if err := db.Create(&models.OrganizationModel{
-			Base: models.Base{ID: models.FromUUID(org)}, Name: "org " + names[i],
-		}).Error; err != nil {
+		ex := testutils.Executor(db)
+		o := organization.Create()
+		o.SetID(org)
+		o.SetName("org " + names[i])
+		if _, err := o.Insert(t.Context(), ex); err != nil {
 			t.Fatalf("seed organization: %v", err)
 		}
-		if err := db.Create(&models.GroupModel{
-			Base: models.Base{ID: models.FromUUID(groups[i])}, OrganizationID: models.FromUUID(org), Name: "approvers",
-		}).Error; err != nil {
+		g := group.Create()
+		g.SetID(groups[i])
+		g.SetOrganizationID(org)
+		g.SetName("approvers")
+		g.SetDescription("")
+		g.SetRoles(runtime.JSON("[]"))
+		if _, err := g.Insert(t.Context(), ex); err != nil {
 			t.Fatalf("seed group: %v", err)
 		}
 		user := models.UserModel{Base: models.Base{ID: models.FromUUID(users[i])}, Username: names[i]}

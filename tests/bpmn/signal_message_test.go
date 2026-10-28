@@ -28,7 +28,7 @@ type engineHarness struct {
 	repo   repositories.Repository
 	jobSvc servicecontracts.JobService
 	projID uuid.UUID
-	// db is the schema's GORM handle, for a check that has to count in the
+	// db is the schema's connection, for a check that has to count in the
 	// database rather than through the code under test.
 	db *db.Conn
 	// The tenant this harness acts inside. Tests take it with h.Ctx(t)

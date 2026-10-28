@@ -28,10 +28,7 @@ func TestATimerThatAlreadyFiredDoesNotStopAMigration(t *testing.T) {
 	instance := f.onlyInstance(t)
 	// The hour passes: the wait is over and the instance is at the step after
 	// it, which the new version keeps.
-	if err := f.db.WithContext(f.ctx).Exec(
-		`UPDATE jobs SET next_run_at = now() - interval '1 minute' WHERE instance_id = ?`, instance.ID).Error; err != nil {
-		t.Fatalf("bring the timer due: %v", err)
-	}
+	f.bringDue(t, instance.ID)
 	if err := f.svc.ProcessPendingJobs(f.ctx); err != nil {
 		t.Fatalf("process pending jobs: %v", err)
 	}

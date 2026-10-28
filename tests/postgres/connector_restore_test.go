@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/connector"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -21,13 +22,6 @@ func TestRestoringAConnectorBringsBackTheOneRemovedLast(t *testing.T) {
 	repo := repositories.NewRepository(db)
 	ctx := entities.WithSystemContext(t.Context())
 	connectors := repo.Connector()
-	// The key is unique among the live rows, as the model declares it; the
-	// harness still builds this table through GORM, which made it unique
-	// over every row.
-	if err := db.Exec(`DROP INDEX idx_connectors_key; CREATE UNIQUE INDEX uq_connectors_key ON connectors (key) WHERE deleted_at IS NULL`).Error; err != nil {
-		t.Fatalf("scope the key to live rows: %v", err)
-	}
-
 	if _, err := connectors.RestoreByKey(ctx, "ledger"); !errors.Is(err, apierr.ErrNotFound) {
 		t.Fatalf("restoring a key never used: %v, want not found", err)
 	}
@@ -49,7 +43,18 @@ func TestRestoringAConnectorBringsBackTheOneRemovedLast(t *testing.T) {
 		t.Fatalf("delete v2: %v", err)
 	}
 	// The marks are a second apart, whatever the clock did between the calls.
-	if err := db.Exec(`UPDATE connectors SET deleted_at = deleted_at - interval '1 second' WHERE id = ?`, uuid.UUID(first.ID)).Error; err != nil {
+	ex := testutils.Executor(db)
+	last, found, err := connector.New().WithDeleted().IDEq(uuid.UUID(second.ID)).One(ctx, ex)
+	if err != nil || !found {
+		t.Fatalf("read the second mark: %v (found=%v)", err, found)
+	}
+	// A marked row is written only by restoring it: mark it again, earlier.
+	if err := connector.Restore(ctx, ex, uuid.UUID(first.ID)); err != nil {
+		t.Fatalf("age the first mark: %v", err)
+	}
+	earlier := connector.MutateKey(uuid.UUID(first.ID))
+	earlier.SetDeletedAt(last.DeletedAt.V.Add(-time.Second))
+	if err := earlier.Update(ctx, ex); err != nil {
 		t.Fatalf("age the first mark: %v", err)
 	}
 

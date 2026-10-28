@@ -1,11 +1,15 @@
 package postgres_test
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/store/subscription"
 	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // templatedAhead is as many subscriptions as one read of the generated store
@@ -42,11 +46,18 @@ func TestTheCorrelationBackfillRepairsEveryTemplatedSubscription(t *testing.T) {
 
 	// More stranded subscriptions, in the shape the pre-fix code wrote, whose
 	// keys sort ahead of the one above.
-	if err := db.WithContext(ctx).Exec(`
-		INSERT INTO event_subscriptions (id, created_at, updated_at, project_id, instance_id, node_id, type, event_name, correlation_key)
-		SELECT ('00000000-0000-7000-8000-' || lpad(n::text, 12, '0'))::uuid, now(), now(), ?, ?,
-		       'await-payment', 'message', 'PaymentReceived', '${orderId}'
-		  FROM generate_series(1, ?) AS n`, projID, instanceID, templatedAhead).Error; err != nil {
+	now := time.Now()
+	stranded := make([]subscription.Row, templatedAhead)
+	for i := range stranded {
+		stranded[i] = subscription.Row{
+			ID:        uuid.MustParse(fmt.Sprintf("00000000-0000-7000-8000-%012d", i+1)),
+			CreatedAt: now, UpdatedAt: now,
+			ProjectID: projID, InstanceID: instanceID,
+			NodeID: "await-payment", Type: "message", EventName: "PaymentReceived",
+			CorrelationKey: runtime.Null[string]{V: "${orderId}", Valid: true},
+		}
+	}
+	if _, err := subscription.InsertAll(ctx, testutils.Executor(db), stranded); err != nil {
 		t.Fatalf("seed %d templated subscriptions: %v", templatedAhead, err)
 	}
 

@@ -159,11 +159,7 @@ func (h *simHarness) rowCounts(t *testing.T) map[string]int64 {
 	}
 	counts := map[string]int64{}
 	for _, table := range tables {
-		var n int64
-		if err := h.db.Table(table).Count(&n).Error; err != nil {
-			t.Fatalf("counting %s: %v — this test cannot prove isolation for a table it cannot read", table, err)
-		}
-		counts[table] = n
+		counts[table] = testutils.RowsIn(t, h.db, table)
 	}
 	return counts
 }
@@ -224,8 +220,7 @@ func TestSimulationCallsNothingOutside(t *testing.T) {
 	// No external task row was left for a worker to find either: a simulation
 	// that queued real work would have the outside world act on it later, which
 	// is the same leak arriving by a slower route.
-	var externalTasks int64
-	if err := h.db.Table("external_tasks").Count(&externalTasks).Error; err == nil && externalTasks != 0 {
+	if externalTasks := testutils.RowsIn(t, h.db, "external_tasks"); externalTasks != 0 {
 		t.Errorf("the simulation left %d external tasks for a real worker to pick up", externalTasks)
 	}
 

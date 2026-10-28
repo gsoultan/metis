@@ -1,7 +1,6 @@
 package deviation_test
 
 import (
-	"database/sql"
 	"testing"
 
 	"github.com/google/uuid"
@@ -22,11 +21,7 @@ func TestALiveRowHoldsItsVisitAndADecidedOneDoesNot(t *testing.T) {
 	}
 	liveKeyOf := func(id uuid.UUID) string {
 		t.Helper()
-		var live sql.NullString
-		if err := h.db.Raw(`SELECT live_visit_key FROM instance_deviations WHERE id = ?`, id).Row().Scan(&live); err != nil {
-			t.Fatalf("read the live key: %v", err)
-		}
-		return live.String
+		return h.ledgerRow(t, id).LiveVisitKey.V
 	}
 
 	for _, status := range []entities.DeviationStatus{entities.DeviationApplied, entities.DeviationPendingApproval} {

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/auditentry"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -167,11 +168,14 @@ func (e auditedEngine) runToTheEnd(t *testing.T) uuid.UUID {
 // test.
 func (e auditedEngine) reachedInIDOrder(t *testing.T, instanceID uuid.UUID) []string {
 	t.Helper()
-	var nodes []string
-	if err := e.db.WithContext(e.ctx).Raw(
-		`SELECT node_id FROM audit_logs WHERE instance_id = ? AND type = ? ORDER BY created_at, id`,
-		instanceID, entities.EventNodeReached).Scan(&nodes).Error; err != nil {
+	entries, err := auditentry.New().InstanceIDEq(instanceID).TypeEq(string(entities.EventNodeReached)).
+		Order(auditentry.CreatedAt.Asc(), auditentry.ID.Asc()).All(e.ctx, testutils.Executor(e.db), nil)
+	if err != nil {
 		t.Fatalf("read the steps in id order: %v", err)
+	}
+	var nodes []string
+	for _, entry := range entries {
+		nodes = append(nodes, entry.NodeID.V)
 	}
 	return nodes
 }
@@ -181,7 +185,8 @@ func (e auditedEngine) reachedInIDOrder(t *testing.T, instanceID uuid.UUID) []st
 // is stored.
 func (e auditedEngine) storeTheTrailInIDOrder(t *testing.T) {
 	t.Helper()
-	if err := e.db.WithContext(e.ctx).Exec(`CLUSTER audit_logs USING audit_logs_pkey`).Error; err != nil {
+	// Maintenance, not a query: kept as the statement an operator runs.
+	if _, err := e.db.Main().Exec(e.ctx, `CLUSTER audit_logs USING audit_logs_pkey`); err != nil {
 		t.Fatalf("cluster the audit table on its primary key: %v", err)
 	}
 }

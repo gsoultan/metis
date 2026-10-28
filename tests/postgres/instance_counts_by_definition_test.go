@@ -1,15 +1,16 @@
 package postgres_test
 
 import (
-	"github.com/gsoultan/metis/server/repositories/db"
 	"testing"
+
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // The version history shows each version's running, suspended and total
@@ -44,8 +45,7 @@ func TestEachVersionCountsItsOwnInstancesByState(t *testing.T) {
 	}
 	seed(project, first, models.ProcessActive, models.ProcessActive, models.ProcessSuspended, models.ProcessCompleted)
 	deleted := seed(project, second, models.ProcessActive, models.ProcessFailed)
-	if err := db.Model(&models.ProcessInstanceModel{}).Where("id = ?", models.FromUUID(deleted[0])).
-		Update("deleted_at", gorm.Expr("now()")).Error; err != nil {
+	if err := processinstance.Delete(t.Context(), testutils.Executor(db), deleted[0]); err != nil {
 		t.Fatalf("delete an instance: %v", err)
 	}
 	theirDefinition := seedDefinition(t, db, theirProject, 1)
@@ -71,12 +71,5 @@ func TestEachVersionCountsItsOwnInstancesByState(t *testing.T) {
 
 func seedDefinition(t *testing.T, db *db.Conn, project uuid.UUID, version int) uuid.UUID {
 	t.Helper()
-	id := uuid.Must(uuid.NewV7())
-	if err := db.Create(&models.ProcessDefinitionModel{
-		Base: models.Base{ID: models.FromUUID(id)}, ProjectID: models.FromUUID(project),
-		Key: "counted-" + id.String()[:8], Name: "counted", Version: version,
-	}).Error; err != nil {
-		t.Fatalf("seed a definition: %v", err)
-	}
-	return id
+	return testutils.SeedDefinitionVersion(t, db, project, "counted-"+uuid.NewString(), version)
 }

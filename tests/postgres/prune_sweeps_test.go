@@ -5,7 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/idempotencyrecord"
+	"github.com/gsoultan/metis/server/repositories/store/incident"
+	jobstore "github.com/gsoultan/metis/server/repositories/store/job"
+	"github.com/gsoultan/metis/server/repositories/store/variablesnapshot"
+	"github.com/gsoultan/metis/server/repositories/store/webhookdelivery"
+	"github.com/gsoultan/storm/runtime"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -19,15 +24,6 @@ import (
 // read of the table would select, so these pin the selection: the age, the
 // state, and, on a table that soft-deletes, the marked rows as well as the
 // live ones — a purge that left the marked rows would never finish them.
-
-func countRows(t *testing.T, db *db.Conn, table string) int64 {
-	t.Helper()
-	var n int64
-	if err := db.Raw("SELECT count(*) FROM " + table).Scan(&n).Error; err != nil {
-		t.Fatalf("count %s: %v", table, err)
-	}
-	return n
-}
 
 func TestTheIdempotencySweepRemovesOldAnswersAndAbandonedClaims(t *testing.T) {
 	db := testutils.SetupTestDB(t)
@@ -44,8 +40,14 @@ func TestTheIdempotencySweepRemovesOldAnswersAndAbandonedClaims(t *testing.T) {
 		{"running claim", false, 2 * ttl}, // past the TTL, not the day an abandoned one is given
 		{"abandoned claim", false, 30 * 24 * time.Hour},
 	} {
-		if err := db.Exec(`INSERT INTO idempotency_records (record_key, request_hash, completed, status_code, headers, created_at)
-			VALUES (?, 'h', ?, 200, '{}', ?)`, r.key, r.completed, now.Add(-r.age)).Error; err != nil {
+		claim := idempotencyrecord.Create()
+		claim.SetRecordKey(r.key)
+		claim.SetRequestHash("h")
+		claim.SetCompleted(r.completed)
+		claim.SetStatusCode(200)
+		claim.SetHeaders(runtime.JSON("{}"))
+		claim.SetCreatedAt(now.Add(-r.age))
+		if _, err := claim.Insert(t.Context(), testutils.Executor(db)); err != nil {
 			t.Fatalf("seed %s: %v", r.key, err)
 		}
 	}
@@ -53,9 +55,13 @@ func TestTheIdempotencySweepRemovesOldAnswersAndAbandonedClaims(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var left []string
-	if err := db.Raw("SELECT record_key FROM idempotency_records ORDER BY record_key").Scan(&left).Error; err != nil {
+	kept, err := idempotencyrecord.New().Order(idempotencyrecord.RecordKey.Asc()).All(t.Context(), testutils.Executor(db), nil)
+	if err != nil {
 		t.Fatal(err)
+	}
+	var left []string
+	for _, k := range kept {
+		left = append(left, k.RecordKey)
 	}
 	if removed != 2 || len(left) != 2 || left[0] != "recent answer" || left[1] != "running claim" {
 		t.Errorf("removed %d and left %q; want the old answer and the abandoned claim gone", removed, left)
@@ -78,12 +84,12 @@ func TestTheSnapshotSweepPurgesOldSnapshotsMarkedOrNot(t *testing.T) {
 		age     time.Duration
 		deleted bool
 	}{{48 * time.Hour, false}, {48 * time.Hour, true}, {time.Hour, false}, {time.Hour, true}} {
-		var deletedAt any
+		snapshot := variablesnapshot.Row{ID: uuid.Must(uuid.NewV7()), CreatedAt: now, UpdatedAt: now,
+			InstanceID: instance, Variables: runtime.JSON("{}"), CapturedAt: now.Add(-s.age)}
 		if s.deleted {
-			deletedAt = now
+			snapshot.DeletedAt = runtime.Null[time.Time]{V: now, Valid: true}
 		}
-		if err := db.Exec(`INSERT INTO variable_snapshots (id, created_at, updated_at, instance_id, variables, captured_at, deleted_at)
-			VALUES (?, now(), now(), ?, '{}', ?, ?)`, uuid.Must(uuid.NewV7()), instance, now.Add(-s.age), deletedAt).Error; err != nil {
+		if _, err := variablesnapshot.InsertAll(t.Context(), testutils.Executor(db), []variablesnapshot.Row{snapshot}); err != nil {
 			t.Fatalf("seed a snapshot: %v", err)
 		}
 	}
@@ -91,7 +97,7 @@ func TestTheSnapshotSweepPurgesOldSnapshotsMarkedOrNot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if left := countRows(t, db, "variable_snapshots"); removed != 2 || left != 2 {
+	if left := testutils.RowsIn(t, db, "variable_snapshots"); removed != 2 || left != 2 {
 		t.Errorf("removed %d and left %d; want both old snapshots gone, the marked one too, and both recent kept", removed, left)
 	}
 }
@@ -100,17 +106,21 @@ func TestTheDeliverySweepPurgesMarkedDeliveriesToo(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(db)
 	ctx := entities.WithSystemContext(t.Context())
-	if err := db.Exec(`
-		INSERT INTO webhook_deliveries (id, created_at, updated_at, deleted_at, webhook_id, delivery_id, received_at)
-		VALUES (gen_random_uuid(), now(), now(), now(), gen_random_uuid(), 'marked', now() - interval '30 days'),
-		       (gen_random_uuid(), now(), now(), NULL, gen_random_uuid(), 'live', now() - interval '30 days')`).Error; err != nil {
+	hook := testutils.SeedWebhook(t, db, testutils.SeedProject(t, db))
+	now := time.Now()
+	month := now.Add(-30 * 24 * time.Hour)
+	if _, err := webhookdelivery.InsertAll(ctx, testutils.Executor(db), []webhookdelivery.Row{
+		{ID: uuid.Must(uuid.NewV7()), CreatedAt: now, UpdatedAt: now, DeletedAt: runtime.Null[time.Time]{V: now, Valid: true},
+			WebhookID: hook, DeliveryID: "marked", ReceivedAt: month},
+		{ID: uuid.Must(uuid.NewV7()), CreatedAt: now, UpdatedAt: now, WebhookID: hook, DeliveryID: "live", ReceivedAt: month},
+	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	removed, err := repo.Webhook().ForgetDeliveriesBefore(ctx, time.Now().Add(-48*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if left := countRows(t, db, "webhook_deliveries"); removed != 2 || left != 0 {
+	if left := testutils.RowsIn(t, db, "webhook_deliveries"); removed != 2 || left != 0 {
 		t.Errorf("removed %d and left %d; want both gone", removed, left)
 	}
 }
@@ -131,25 +141,23 @@ func TestTheJobSweepKeepsWhatIsOwedAndWhatAnOpenIncidentNames(t *testing.T) {
 	job := func(name, status string, at time.Time, marked bool, incidents ...string) {
 		t.Helper()
 		id := uuid.Must(uuid.NewV7())
-		var deletedAt any
+		ex := testutils.Executor(db)
+		row := jobstore.Row{ID: id, CreatedAt: at, UpdatedAt: at, InstanceID: instance, DefinitionID: definition,
+			NodeID: name, Type: "timer", Status: status, Payload: runtime.JSON("{}"), NextRunAt: at}
 		if marked {
-			deletedAt = at
+			row.DeletedAt = runtime.Null[time.Time]{V: at, Valid: true}
 		}
-		if err := db.Exec(`INSERT INTO jobs (id, created_at, updated_at, deleted_at, instance_id, definition_id, node_id, type, status,
-			payload, retries, max_retries, repeats_remaining, next_run_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, 'timer', ?, '{}', 0, 0, 0, ?)`,
-			id, at, at, deletedAt, instance, definition, name, status, at).Error; err != nil {
+		if _, err := jobstore.InsertAll(t.Context(), ex, []jobstore.Row{row}); err != nil {
 			t.Fatalf("seed %s: %v", name, err)
 		}
-		for _, incident := range incidents {
-			var incidentDeleted any
-			status := incident
-			if incident == "open, marked" {
-				status, incidentDeleted = "open", at
+		for _, inc := range incidents {
+			stamp := time.Now()
+			row := incident.Row{ID: uuid.Must(uuid.NewV7()), CreatedAt: stamp, UpdatedAt: stamp, InstanceID: instance,
+				JobID: runtime.Null[[16]byte]{V: id, Valid: true}, NodeID: name, Error: "boom", Status: inc}
+			if inc == "open, marked" {
+				row.Status, row.DeletedAt = "open", runtime.Null[time.Time]{V: at, Valid: true}
 			}
-			if err := db.Exec(`INSERT INTO incidents (id, created_at, updated_at, deleted_at, instance_id, job_id, node_id, error, status)
-				VALUES (?, now(), now(), ?, ?, ?, ?, 'boom', ?)`,
-				uuid.Must(uuid.NewV7()), incidentDeleted, instance, id, name, status).Error; err != nil {
+			if _, err := incident.InsertAll(t.Context(), ex, []incident.Row{row}); err != nil {
 				t.Fatalf("seed %s's incident: %v", name, err)
 			}
 		}
@@ -168,12 +176,16 @@ func TestTheJobSweepKeepsWhatIsOwedAndWhatAnOpenIncidentNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var left []string
-	if err := db.Raw("SELECT node_id FROM jobs ORDER BY node_id").Scan(&left).Error; err != nil {
+	kept, err := jobstore.New().Order(jobstore.NodeID.Asc()).All(t.Context(), testutils.Executor(db), nil)
+	if err != nil {
 		t.Fatal(err)
 	}
+	var left []string
+	for _, k := range kept {
+		left = append(left, k.NodeID)
+	}
 	want := []string{"old failed, open incident", "old pending", "recent completed", "recent failed"}
-	if removed != 5 || !slices.Equal(left, want) {
+	if removed != 5 || !slices.Equal(left, want) || testutils.RowsIn(t, db, "jobs") != int64(len(want)) {
 		t.Errorf("removed %d and left %q; want %q", removed, left, want)
 	}
 }

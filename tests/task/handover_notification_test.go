@@ -5,16 +5,24 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/gsoultan/metis/server/repositories/store/notification"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // notificationTitles is every notification somebody has been sent, oldest
 // first, by its title.
 func (h *taskHarness) notificationTitles(t *testing.T, username string) []string {
 	t.Helper()
-	var titles []string
-	if err := h.db.Raw(`SELECT title FROM notifications WHERE user_id = ? ORDER BY created_at, id`, username).
-		Scan(&titles).Error; err != nil {
+	rows, err := notification.New().UserIDEq(username).
+		Order(notification.CreatedAt.Asc(), notification.ID.Asc()).
+		All(t.Context(), testutils.Executor(h.db), nil)
+	if err != nil {
 		t.Fatalf("read %s's notifications: %v", username, err)
+	}
+	titles := make([]string, 0, len(rows))
+	for _, r := range rows {
+		titles = append(titles, r.Title)
 	}
 	return titles
 }

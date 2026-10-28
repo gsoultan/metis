@@ -52,7 +52,7 @@ func TestAMigrationCanBeAskedAgainOnceItsRequestHasExpired(t *testing.T) {
 func TestAMigrationLeftApprovedByADeadProcessCanBeAskedAgain(t *testing.T) {
 	f := newFixture(t)
 	dita, v1, v2, dead := f.askToSkipOps(t)
-	f.leftApproved(t, dead, "2 hours")
+	f.leftApproved(t, dead, 2*time.Hour)
 
 	fresh, err := f.svc.RequestMigrationApproval(dita, v1, v2, nil, skipOps("the role was eliminated")...)
 	if err != nil || fresh.RequestID == dead || fresh.Status != entities.DeviationRequestPending {
@@ -84,7 +84,7 @@ func TestAMigrationLeftApprovedByADeadProcessCanBeAskedAgain(t *testing.T) {
 func TestAMigrationBeingAppliedIsNotAskedForAgain(t *testing.T) {
 	f := newFixture(t)
 	_, v1, v2, running := f.askToSkipOps(t)
-	f.leftApproved(t, running, "10 minutes")
+	f.leftApproved(t, running, 10*time.Minute)
 	for _, who := range []string{"dita", "pia"} {
 		_, err := f.svc.RequestMigrationApproval(adminAs(f.ctx, who), v1, v2, nil, skipOps("the role was eliminated")...)
 		if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), "approved by omar and is being applied now") ||

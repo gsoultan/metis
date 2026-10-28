@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
 )
 
 var everyRequestStatus = []entities.DeviationRequestStatus{
@@ -167,9 +168,7 @@ func TestARequestsStatusMovesOnlyTheWayTheClosedSetAllows(t *testing.T) {
 	// writes one, so it is made here by SQL — is closed by the sweep, which
 	// names nobody, and is not reported as applied without a time.
 	undated := h.requestAt(t, h.sampleMigration(t, "mf1-undated"), entities.DeviationRequestApproved)
-	if err := h.db.Exec(`UPDATE deviation_requests SET decided_at = NULL WHERE id = ?`, undated.ID).Error; err != nil {
-		t.Fatalf("take the time of the approval away: %v", err)
-	}
+	h.rewriteRequest(t, undated.ID, func(m *deviationrequest.Mut) { m.SetDecidedAtNull() })
 	report := repocontracts.DeviationRequestChange{Status: entities.DeviationRequestApplied, Outcome: map[string]any{"changed": float64(1)}}
 	if _, err := h.transition(h.tenantContext(), undated.ID, entities.DeviationRequestApproved, report); !isTheWritersMistake(err) {
 		t.Errorf("an approval with no time reported as applied: %v; want a plain server error", err)

@@ -22,6 +22,7 @@ func TestTheBacklogCountsWhatIsWaitingAndNothingElse(t *testing.T) {
 	now := time.Now().UTC()
 	oldest := now.Add(-10 * time.Minute)
 	expired, live := now.Add(-time.Minute), now.Add(time.Minute)
+	definition, instance := aCase(t, repo)
 
 	for _, j := range []models.JobModel{
 		{Status: models.JobPending, NextRunAt: oldest},                                          // due
@@ -33,13 +34,14 @@ func TestTheBacklogCountsWhatIsWaitingAndNothingElse(t *testing.T) {
 	} {
 		j.ID = models.UUID(uuid.New())
 		j.Type = "timer"
+		j.InstanceID, j.DefinitionID = models.UUID(instance), models.UUID(definition)
 		if _, err := repo.Job().Create(ctx, j); err != nil {
 			t.Fatalf("seed a job: %v", err)
 		}
 	}
 	for _, status := range []models.IncidentStatus{models.IncidentOpen, models.IncidentOpen, models.IncidentResolved} {
 		if _, err := repo.Incident().Create(ctx, models.IncidentModel{
-			Base: models.Base{ID: models.UUID(uuid.New())}, Status: status, Error: "a service task failed",
+			Base: models.Base{ID: models.UUID(uuid.New())}, InstanceID: models.UUID(instance), Status: status, Error: "a service task failed",
 		}); err != nil {
 			t.Fatalf("seed an incident: %v", err)
 		}

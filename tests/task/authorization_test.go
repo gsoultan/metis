@@ -85,6 +85,11 @@ func seedTask(t *testing.T, repo repositories.Repository, ctx context.Context, p
 	if task.ID == uuid.Nil {
 		task.ID = uuid.Must(uuid.NewV7())
 	}
+	if task.Instance == nil {
+		// A task is a step of a case; one with none is refused by the schema,
+		// as it is in production.
+		task.Instance = &entities.ProcessInstance{ID: seedInstance(t, repo, ctx, projectID)}
+	}
 	model := adapters.TaskModelAdapter{Task: task}.ToModel()
 	// Without the project the task belongs to nothing, and a scoped read
 	// cannot reach it — which is also true in production.
@@ -93,6 +98,32 @@ func seedTask(t *testing.T, repo repositories.Repository, ctx context.Context, p
 		t.Fatalf("seed task: %v", err)
 	}
 	return task.ID
+}
+
+// seedInstance starts nothing: it leaves a definition and an active instance of it
+// in the project, for a seeded task to belong to.
+func seedInstance(t *testing.T, repo repositories.Repository, ctx context.Context, projectID uuid.UUID) uuid.UUID {
+	t.Helper()
+	definitionID := uuid.Must(uuid.NewV7())
+	if err := repo.Definition().Create(ctx, models.ProcessDefinitionModel{
+		Base:      models.Base{ID: models.UUID(definitionID)},
+		ProjectID: models.UUID(projectID),
+		Key:       "seeded-" + definitionID.String(),
+		Name:      "Seeded",
+		Version:   1,
+	}); err != nil {
+		t.Fatalf("seed definition: %v", err)
+	}
+	instanceID, err := repo.Process().Create(ctx, models.ProcessInstanceModel{
+		Base:         models.Base{ID: models.UUID(uuid.Must(uuid.NewV7()))},
+		ProjectID:    models.UUID(projectID),
+		DefinitionID: models.UUID(definitionID),
+		Status:       models.ProcessActive,
+	})
+	if err != nil {
+		t.Fatalf("seed instance: %v", err)
+	}
+	return instanceID
 }
 
 func TestClaimTask_DeniesNonMemberWhenRestrictedByGroupOnly(t *testing.T) {

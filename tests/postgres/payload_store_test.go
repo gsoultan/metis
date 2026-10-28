@@ -16,6 +16,8 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/payloads"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	"github.com/gsoultan/metis/server/repositories/store/variablesnapshot"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -95,20 +97,21 @@ func TestALargeVariableIsKeptOnceOutsideTheInstanceRow(t *testing.T) {
 	}
 
 	// The row and every snapshot are small.
-	var rowBytes int64
-	if err := db.WithContext(context.Background()).
-		Raw("SELECT octet_length(variables) FROM process_instances WHERE id = ?", instanceID).
-		Row().Scan(&rowBytes); err != nil {
-		t.Fatalf("measure the row: %v", err)
+	ex := testutils.Executor(db)
+	row, found, err := processinstance.New().IDEq(instanceID).One(context.Background(), ex)
+	if err != nil || !found {
+		t.Fatalf("measure the row: %v (found=%v)", err, found)
 	}
-	if rowBytes > 4<<10 {
+	if rowBytes := len(row.Variables); rowBytes > 4<<10 {
 		t.Errorf("the instance's variables column is %d bytes, want the reference only", rowBytes)
 	}
-	var snapshots, largest int64
-	if err := db.WithContext(context.Background()).
-		Raw("SELECT count(*), coalesce(max(octet_length(variables::text)), 0) FROM variable_snapshots WHERE instance_id = ?", instanceID).
-		Row().Scan(&snapshots, &largest); err != nil {
+	kept, err := variablesnapshot.New().InstanceIDEq(instanceID).Unordered().All(context.Background(), ex, nil)
+	if err != nil {
 		t.Fatalf("measure the snapshots: %v", err)
+	}
+	snapshots, largest := len(kept), 0
+	for _, k := range kept {
+		largest = max(largest, len(k.Variables))
 	}
 	if snapshots == 0 || largest > 4<<10 {
 		t.Errorf("%d snapshots, the largest %d bytes: want each to refer to the document", snapshots, largest)

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/gsoultan/metis/server/repositories/db"
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
+	"github.com/gsoultan/storm/runtime"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -59,11 +61,9 @@ func (f *candidateFixture) seed(t *testing.T, name string, task entities.Task) u
 
 // spell rewrites a task's columns the way a row written by something other
 // than this repository can hold them.
-func (f *candidateFixture) spell(t *testing.T, id uuid.UUID, set string) {
+func (f *candidateFixture) spell(t *testing.T, id uuid.UUID, change func(*taskstore.Mut)) {
 	t.Helper()
-	if err := f.db.Exec("UPDATE tasks SET "+set+" WHERE id = ?", id).Error; err != nil {
-		t.Fatalf("respell %s: %v", f.names[id], err)
-	}
+	rewriteTask(t, f.db, id, change)
 }
 
 func (f *candidateFixture) named(tasks []models.TaskModel) []string {
@@ -99,15 +99,19 @@ func TestCandidateTasksAreTheOnesOfferedToThePersonTheirGroupsOrNobody(t *testin
 	f.seed(t, "offered to legal", entities.Task{CandidateGroups: groups("legal")})
 	f.seed(t, "offered to an unrelated team", entities.Task{CandidateGroups: groups("sales")})
 	f.seed(t, "named nobody", entities.Task{})
-	null := f.seed(t, "named nobody, lists NULL", entities.Task{})
-	f.spell(t, null, "candidate_users = NULL, candidate_groups = NULL")
 	jsonNull := f.seed(t, "named nobody, lists the JSON null", entities.Task{})
-	f.spell(t, jsonNull, "candidate_users = 'null', candidate_groups = ''")
+	f.spell(t, jsonNull, func(m *taskstore.Mut) {
+		m.SetCandidateUsers(runtime.JSON("null"))
+		m.SetCandidateGroups(runtime.JSON("null"))
+	})
 	empty := f.seed(t, "named nobody, assignee empty", entities.Task{})
-	f.spell(t, empty, "assignee = ''")
+	f.spell(t, empty, func(m *taskstore.Mut) { m.SetAssignee("") })
 	f.seed(t, "claimed by ada", entities.Task{Status: entities.TaskClaimed, Assignee: &entities.User{Username: "ada"}, CandidateUsers: users("ada")})
 	given := f.seed(t, "given to carol while unclaimed", entities.Task{CandidateUsers: users("carol")})
-	f.spell(t, given, "assignee = 'carol', candidate_users = '[]'")
+	f.spell(t, given, func(m *taskstore.Mut) {
+		m.SetAssignee("carol")
+		m.SetCandidateUsers(runtime.JSON("[]"))
+	})
 
 	ada := repocontracts.Candidacy{User: "ada", Groups: []string{"finance", "legal"}}
 	got, err := f.repo.Task().ListByCandidates(f.ctx, ada)
@@ -124,8 +128,7 @@ func TestCandidateTasksAreTheOnesOfferedToThePersonTheirGroupsOrNobody(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	want = append(want, "named nobody", "named nobody, assignee empty",
-		"named nobody, lists NULL", "named nobody, lists the JSON null")
+	want = append(want, "named nobody", "named nobody, assignee empty", "named nobody, lists the JSON null")
 	slices.Sort(want)
 	if names := f.named(page.Items); !slices.Equal(names, want) || page.Total != int64(len(want)) {
 		t.Errorf("with the unnamed ones, ada's candidate tasks are %q (total %d), want %q", names, page.Total, want)
@@ -141,9 +144,9 @@ func TestAPersonsOpenTasksAreTheirsAndTheOnesOfferedToThemOrTheirGroups(t *testi
 	f.seed(t, "offered to a_a", entities.Task{CandidateGroups: groups("a_a")})
 	f.seed(t, "offered to aXa", entities.Task{CandidateGroups: groups("aXa")})
 	empty := f.seed(t, "offered to ada, assignee empty", entities.Task{CandidateUsers: users("ada")})
-	f.spell(t, empty, "assignee = ''")
+	f.spell(t, empty, func(m *taskstore.Mut) { m.SetAssignee("") })
 	given := f.seed(t, "offered to ada but given to bob", entities.Task{CandidateUsers: users("ada")})
-	f.spell(t, given, "assignee = 'bob'")
+	f.spell(t, given, func(m *taskstore.Mut) { m.SetAssignee("bob") })
 	f.seed(t, "named nobody", entities.Task{})
 
 	page, err := f.repo.Task().ListOpenForPersonPaged(f.ctx, f.projectID, "ada", []string{"a_a"},

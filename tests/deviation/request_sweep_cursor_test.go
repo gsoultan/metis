@@ -7,12 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/metis/server/repositories/db"
-
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
+	"github.com/gsoultan/metis/server/repositories/store/instancedeviation"
+	"github.com/gsoultan/metis/tests/testutils"
 	stormruntime "github.com/gsoultan/storm/runtime"
 )
 
@@ -51,9 +52,7 @@ func TestTheSweepsReadsGoOnFromACursor(t *testing.T) {
 	}
 	base := now.Add(-10 * time.Hour).Truncate(time.Microsecond)
 	for i, minutes := range []int{0, 1, 2, 2, 3} {
-		if err := h.db.Exec(`UPDATE deviation_requests SET expires_at = ? WHERE id = ?`, base.Add(time.Duration(minutes)*time.Minute), overdue[i]).Error; err != nil {
-			t.Fatalf("set a deadline: %v", err)
-		}
+		h.rewriteRequest(t, overdue[i], func(m *deviationrequest.Mut) { m.SetExpiresAt(base.Add(time.Duration(minutes) * time.Minute)) })
 	}
 	if slices.Compare(overdue[2][:], overdue[3][:]) > 0 {
 		overdue[2], overdue[3] = overdue[3], overdue[2]
@@ -65,10 +64,10 @@ func TestTheSweepsReadsGoOnFromACursor(t *testing.T) {
 		unreported = append(unreported, approved.ID)
 	}
 	for i, id := range unreported {
-		if err := h.db.Exec(`UPDATE deviation_requests SET decided_at = ?, expires_at = ? WHERE id = ?`,
-			now.Add(-3*time.Hour), base.Add(time.Duration(10+i)*time.Minute), id).Error; err != nil {
-			t.Fatalf("let the run window close: %v", err)
-		}
+		h.rewriteRequest(t, id, func(m *deviationrequest.Mut) {
+			m.SetDecidedAt(now.Add(-3 * time.Hour))
+			m.SetExpiresAt(base.Add(time.Duration(10+i) * time.Minute))
+		})
 	}
 
 	// Two the clock has not closed, each standing after every request above
@@ -168,7 +167,7 @@ func TestTheSweepsReadsGoOnFromACursor(t *testing.T) {
 	}
 
 	// A row somebody holds is not answered; the pass reads the rest.
-	held := h.holdOpen(t, `SELECT id FROM deviation_requests WHERE id = ? FOR UPDATE`, overdue[1])
+	held := h.holdOpen(t, h.lockRequest(overdue[1]))
 	want := []uuid.UUID{overdue[0], overdue[2], overdue[3], overdue[4]}
 	if got := flat(paged(system, requests.ListOverdue, 1)); !slices.Equal(got, want) {
 		t.Errorf("with the second request held, a pass read %v; want the other four, %v", got, want)
@@ -261,9 +260,9 @@ func TestARequestIsReadAndHeldWithoutTheDocumentsThatNoLongerOpen(t *testing.T) 
 		t.Fatalf("holding a request outside a transaction: %v, want it refused", err)
 	}
 	free := func(id uuid.UUID) error {
-		return h.db.Transaction(func(tx *db.Conn) error {
-			return tx.Exec(`SELECT id FROM deviation_requests WHERE id = ? FOR UPDATE NOWAIT`, id).Error
-		})
+		tx := testutils.Begin(t, h.db)
+		_, err := deviationrequest.New().IDEq(id).ForUpdateNoWait().All(t.Context(), tx, nil)
+		return errors.Join(err, tx.Rollback(context.Background()))
 	}
 	for name, written := range map[string]entities.DeviationRequest{"whole": whole, "damaged": damaged} {
 		err := h.repo.UnitOfWork().Do(h.tenantContext(), func(tx context.Context) error {
@@ -335,7 +334,11 @@ func TestASweepsWaitForALockIsBounded(t *testing.T) {
 		})
 		return time.Since(began), err
 	}
-	held := h.holdOpen(t, `UPDATE instance_deviations SET status = status WHERE id = ?`, row.ID)
+	// The lock an UPDATE of the row takes.
+	held := h.holdOpen(t, func(ctx context.Context, ex stormruntime.Executor) error {
+		_, err := instancedeviation.New().IDEq(row.ID).ForNoKeyUpdate().All(ctx, ex, nil)
+		return err
+	})
 	took, err := decide(300 * time.Millisecond)
 	if !errors.Is(err, stormruntime.ErrLockNotAvailable) || errors.Is(err, repocontracts.ErrDeviationRowDecided) {
 		t.Fatalf("deciding a row somebody holds, with a bounded wait: %v; want the statement to give up on the lock", err)

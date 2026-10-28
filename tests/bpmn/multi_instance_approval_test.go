@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"testing"
 
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/tests/testutils"
@@ -113,10 +115,8 @@ func tokenIterationsOn(ctx context.Context, t *testing.T, h engineHarness, insta
 // status, in the database. A step reached twice shows up here as two.
 func tasksEverOn(t *testing.T, h engineHarness, instanceID uuid.UUID, nodeID string) int {
 	t.Helper()
-	var count int64
-	if err := h.db.Raw(`SELECT count(*) FROM tasks
-		 WHERE instance_id = ? AND node_id = ? AND deleted_at IS NULL`,
-		instanceID, nodeID).Scan(&count).Error; err != nil {
+	count, err := taskstore.New().InstanceIDEq(instanceID).NodeIDEq(nodeID).Count(h.Ctx(), h.ex())
+	if err != nil {
 		t.Fatalf("count tasks: %v", err)
 	}
 	return int(count)

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // shortcutDraft is the harness's expense process with the card charge taken
@@ -43,11 +44,7 @@ func approveAnswer() []entities.SimulationAnswer {
 
 func (h *simHarness) definitionCount(t *testing.T) int64 {
 	t.Helper()
-	var n int64
-	if err := h.db.Table("process_definitions").Count(&n).Error; err != nil {
-		t.Fatalf("counting process_definitions: %v", err)
-	}
-	return n
+	return testutils.RowsIn(t, h.db, "process_definitions")
 }
 
 // The draft is what runs — not the deployed version under the same key.

@@ -1,6 +1,7 @@
 package instancemigration
 
 import (
+	"bytes"
 	"fmt"
 	"maps"
 	"os"
@@ -16,6 +17,9 @@ import (
 	"github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/auditentry"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
 )
 
 // The query docs/upgrading.md gives an operator to find the tasks 0.4.0
@@ -55,38 +59,30 @@ func reopenedTaskQuery(t *testing.T) string {
 // listedAsReopened runs the document's query and returns its rows by task id.
 func (f *fixture) listedAsReopened(t *testing.T) map[string]map[string]string {
 	t.Helper()
-	sqlDB, err := f.db.DB()
-	if err != nil {
-		t.Fatalf("reach the database: %v", err)
-	}
-	// Not through a query builder: the text has question marks of its own.
-	rows, err := sqlDB.QueryContext(f.ctx, reopenedTaskQuery(t))
+	// The document's own text, as an operator pastes it: kept as SQL because
+	// it is the SQL under test, and run unchanged on the pool.
+	rows, err := f.db.Main().Query(f.ctx, reopenedTaskQuery(t))
 	if err != nil {
 		t.Fatalf("the document's query does not run: %v", err)
 	}
 	defer rows.Close()
-	columns, err := rows.Columns()
-	if err != nil {
-		t.Fatalf("read the columns: %v", err)
-	}
 	listed := map[string]map[string]string{}
 	for rows.Next() {
-		values := make([]any, len(columns))
-		for i := range values {
-			values[i] = new(any)
-		}
-		if err := rows.Scan(values...); err != nil {
+		values, err := rows.Values()
+		if err != nil {
 			t.Fatalf("read a row: %v", err)
 		}
 		row := map[string]string{}
-		for i, column := range columns {
-			switch value := (*values[i].(*any)).(type) {
+		for i, field := range rows.FieldDescriptions() {
+			switch value := values[i].(type) {
 			case nil:
-				row[column] = "<null>"
+				row[field.Name] = "<null>"
 			case []byte:
-				row[column] = string(value)
+				row[field.Name] = string(value)
+			case [16]byte:
+				row[field.Name] = uuid.UUID(value).String()
 			default:
-				row[column] = fmt.Sprint(value)
+				row[field.Name] = fmt.Sprint(value)
 			}
 		}
 		listed[row["task_id"]] = row
@@ -190,11 +186,14 @@ func migrateAs040(t *testing.T, f *fixture, repo repositories.Repository, instan
 // taskOn is the id of the instance's one task on a step.
 func (f *fixture) taskOn(t *testing.T, instanceID uuid.UUID, nodeID string) string {
 	t.Helper()
-	ids := f.rowsAsText(t, `SELECT id::text FROM tasks WHERE instance_id = ? AND node_id = ? AND deleted_at IS NULL`, instanceID, nodeID)
-	if len(ids) != 1 {
-		t.Fatalf("%d task(s) on %q, want one", len(ids), nodeID)
+	tasks, err := taskstore.New().InstanceIDEq(instanceID).NodeIDEq(nodeID).Unordered().All(f.ctx, f.ex(), nil)
+	if err != nil {
+		t.Fatalf("read the tasks on %q: %v", nodeID, err)
 	}
-	return ids[0]
+	if len(tasks) != 1 {
+		t.Fatalf("%d task(s) on %q, want one", len(tasks), nodeID)
+	}
+	return uuid.UUID(tasks[0].ID).String()
 }
 
 // putBack is the document's UPDATE with what the query listed filled in: the
@@ -207,12 +206,16 @@ func (f *fixture) putBack(t *testing.T, row map[string]string) {
 	}
 	// Who a withdrawn task had been with is not in the trail: its assignee is
 	// left as it is.
-	changed := f.db.WithContext(f.ctx).Exec(`
-		UPDATE tasks SET status = ?, node_id = ?, name = ?, assignee = CASE WHEN ? = '<null>' THEN assignee ELSE ? END
-		 WHERE id = ? AND status IN ('unclaimed', 'claimed', 'delegated', 'escalated')`,
-		row["it_was"], node, row["name_it_had"], row["by_whom"], row["by_whom"], row["task_id"])
-	if changed.Error != nil || changed.RowsAffected != 1 {
-		t.Fatalf("put the task back: %d row(s), err %v", changed.RowsAffected, changed.Error)
+	open := taskstore.New().IDEq(uuid.MustParse(row["task_id"])).StatusIn("unclaimed", "claimed", "delegated", "escalated")
+	if changed := f.rewriteTasks(t, open, func(m *taskstore.Mut) {
+		m.SetStatus(row["it_was"])
+		m.SetNodeID(node)
+		m.SetName(row["name_it_had"])
+		if row["by_whom"] != "<null>" {
+			m.SetAssignee(row["by_whom"])
+		}
+	}); changed != 1 {
+		t.Fatalf("put the task back: %d row(s)", changed)
 	}
 }
 
@@ -280,14 +283,15 @@ func TestTheUpgradingQueryFindsTheTasksAnEarlierReleaseReopened(t *testing.T) {
 		everyKindOfRow(f.project, "write", "pause", "verify", "signOff"))
 	_ = renamedFrom
 	var renamed uuid.UUID
-	for _, id := range f.rowsAsText(t, `SELECT id::text FROM process_instances WHERE definition_id = ?`, renamedFrom) {
-		renamed = uuid.MustParse(id)
+	onRenamed, err := processinstance.New().DefinitionIDEq(renamedFrom).Unordered().All(f.ctx, f.ex(), nil)
+	if err != nil {
+		t.Fatalf("read the instances on the renamed version: %v", err)
+	}
+	for _, instance := range onRenamed {
+		renamed = instance.ID
 	}
 	complete(renamed, "draft", "sam")
-	if err := f.db.WithContext(f.ctx).Exec(
-		`UPDATE jobs SET next_run_at = now() - interval '1 minute' WHERE instance_id = ?`, renamed).Error; err != nil {
-		t.Fatalf("bring the timer due: %v", err)
-	}
+	f.bringDue(t, renamed)
 	if err := f.svc.ProcessPendingJobs(f.ctx); err != nil {
 		t.Fatalf("process pending jobs: %v", err)
 	}
@@ -301,8 +305,15 @@ func TestTheUpgradingQueryFindsTheTasksAnEarlierReleaseReopened(t *testing.T) {
 
 	// The trail's data is not readable in SQL, which is why the query must
 	// not read it.
-	if kinds := f.rowsAsText(t, `SELECT DISTINCT jsonb_typeof(data::jsonb) FROM audit_logs WHERE type = 'instance_migrated'`); !slices.Equal(kinds, []string{"string"}) {
-		t.Fatalf("the migration entries' data is %v in the database; the test is not exercising a sealed column", kinds)
+	entries, err := auditentry.New().TypeEq("instance_migrated").Unordered().All(f.ctx, f.ex(), nil)
+	if err != nil {
+		t.Fatalf("read the migration entries: %v", err)
+	}
+	if len(entries) == 0 || slices.ContainsFunc(entries, func(e auditentry.Row) bool {
+		data := bytes.TrimSpace(e.Data)
+		return len(data) == 0 || data[0] != '"'
+	}) {
+		t.Fatalf("the migration entries' data is not a JSON string in the database; the test is not exercising a sealed column")
 	}
 
 	listed := f.listedAsReopened(t)

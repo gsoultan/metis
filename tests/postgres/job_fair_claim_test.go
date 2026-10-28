@@ -1,6 +1,7 @@
 package postgres_test
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -14,13 +15,31 @@ import (
 // queueJobs makes n jobs due for one organization, the first due at oldest and
 // each a second after the one before. A nil organization is a job made before
 // jobs carried one.
+// queued is the case each test's queued jobs belong to: one, since what a job
+// is claimed by is its organization, which is the job's own column.
+var queued sync.Map
+
+func queueCase(t *testing.T, repo repositories.Repository) (uuid.UUID, uuid.UUID) {
+	t.Helper()
+	if c, ok := queued.Load(t); ok {
+		pair := c.([2]uuid.UUID)
+		return pair[0], pair[1]
+	}
+	definition, instance := aCase(t, repo)
+	queued.Store(t, [2]uuid.UUID{definition, instance})
+	t.Cleanup(func() { queued.Delete(t) })
+	return definition, instance
+}
+
 func queueJobs(t *testing.T, repo repositories.Repository, organization *uuid.UUID, oldest time.Time, n int) map[uuid.UUID]bool {
 	t.Helper()
 	ctx := entities.WithSystemContext(t.Context())
 	made := map[uuid.UUID]bool{}
+	definition, instance := queueCase(t, repo)
 	for i := range n {
 		j := models.JobModel{
-			Base:      models.Base{ID: models.UUID(uuid.New())},
+			Base:       models.Base{ID: models.UUID(uuid.New())},
+			InstanceID: models.UUID(instance), DefinitionID: models.UUID(definition),
 			Type:      "timer",
 			Status:    models.JobPending,
 			NextRunAt: oldest.Add(time.Duration(i) * time.Second),
@@ -115,11 +134,13 @@ func TestAnAbandonedJobIsOfferedInItsOrganizationsTurn(t *testing.T) {
 	now := time.Now().UTC()
 	organization := models.UUID(uuid.New())
 	expired, live := now.Add(-time.Minute), now.Add(time.Minute)
+	definition, instance := aCase(t, repo)
 
 	park := func(status models.JobStatus, due time.Time, lease *time.Time) uuid.UUID {
 		t.Helper()
 		id, err := repo.Job().Create(ctx, models.JobModel{
 			Base: models.Base{ID: models.UUID(uuid.New())}, Type: "timer", Status: status,
+			InstanceID: models.UUID(instance), DefinitionID: models.UUID(definition),
 			NextRunAt: due, LockExpires: lease, OrganizationID: &organization,
 		})
 		if err != nil {
@@ -153,13 +174,7 @@ func TestAJobTakesItsOrganizationFromItsInstance(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(db)
 	ctx, organization, project := testutils.ScopedProject(t, repo)
-	definition := uuid.Must(uuid.NewV7())
-	if err := db.Create(&models.ProcessDefinitionModel{
-		Base: models.Base{ID: models.FromUUID(definition)}, ProjectID: models.FromUUID(project),
-		Key: "remind", Name: "remind", Version: 1,
-	}).Error; err != nil {
-		t.Fatalf("seed the definition: %v", err)
-	}
+	definition := testutils.SeedDefinition(t, db, project, "remind")
 	instance := uuid.Must(uuid.NewV7())
 	if _, err := repo.Process().Create(ctx, models.ProcessInstanceModel{
 		Base: models.Base{ID: models.FromUUID(instance)}, ProjectID: models.FromUUID(project),

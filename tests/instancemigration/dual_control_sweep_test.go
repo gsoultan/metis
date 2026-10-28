@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // leftApproved writes what a stop between an approval and its run's report
@@ -20,12 +22,14 @@ import (
 // stopped between the two. It is not made here by stopping a real approval
 // part-way: nothing in the service lets a test stop it there, and what the
 // row then holds is these four columns.
-func (f *fixture) leftApproved(t *testing.T, requestID uuid.UUID, ago string) {
+func (f *fixture) leftApproved(t *testing.T, requestID uuid.UUID, ago time.Duration) {
 	t.Helper()
-	if err := f.db.Exec(`UPDATE deviation_requests SET status = 'approved', decided_by = 'omar', decided_by_id = ?,
-		decided_at = now() - ?::interval WHERE id = ?`, accountOf("omar"), ago, requestID).Error; err != nil {
-		t.Fatalf("leave the request approved: %v", err)
-	}
+	f.rewriteRequest(t, requestID, func(m *deviationrequest.Mut) {
+		m.SetStatus("approved")
+		m.SetDecidedBy("omar")
+		m.SetDecidedByID(accountOf("omar"))
+		m.SetDecidedAt(time.Now().Add(-ago))
+	})
 }
 
 // sweep runs the server's sweep as the server does, at now.
@@ -59,7 +63,7 @@ func (f *fixture) askToSkipOps(t *testing.T) (dita context.Context, v1, v2 uuid.
 func TestAnApprovedRunThatNeverReportedIsMarkedInterrupted(t *testing.T) {
 	f := newFixture(t)
 	dita, v1, _, requestID := f.askToSkipOps(t)
-	f.leftApproved(t, requestID, "2 hours")
+	f.leftApproved(t, requestID, 2*time.Hour)
 
 	// Inside its hour the sweep leaves it: a run may still be going.
 	if n := f.sweep(t, time.Now().Add(-90*time.Minute)); n != 0 || f.storedStatus(t, requestID) != "approved" {
@@ -90,7 +94,7 @@ func TestAnApprovedRunThatNeverReportedIsMarkedInterrupted(t *testing.T) {
 func TestOneSweepClosesWhatExpiredAndWhatNeverReported(t *testing.T) {
 	f := newFixture(t)
 	dita, v1, v2, unreported := f.askToSkipOps(t)
-	f.leftApproved(t, unreported, "2 hours")
+	f.leftApproved(t, unreported, 2*time.Hour)
 	// Another migration of the same versions — the same step skipped for
 	// another reason — asked for and left past its deadline.
 	overdue, err := f.svc.RequestMigrationApproval(dita, v1, v2, nil, skipOps("another reason")...)
@@ -183,8 +187,11 @@ func TestARunsOwnReportWinsOverTheSweeps(t *testing.T) {
 		f, listing := newRacedFixture(t)
 		dita, _, _, requestID := f.askToSkipOps(t)
 		listing.atTheApprovedApplysListing(func() {
-			if err := f.db.Exec(`UPDATE deviation_requests SET status = 'interrupted', live_key = NULL,
-				outcome = '{"changed": 7, "passed_over": 2, "error": "an earlier report"}' WHERE id = ?`, requestID).Error; err != nil {
+			report := deviationrequest.MutateKey(requestID)
+			report.SetStatus("interrupted")
+			report.SetLiveKeyNull()
+			report.SetOutcome(runtime.JSON(`{"changed": 7, "passed_over": 2, "error": "an earlier report"}`))
+			if err := report.Update(f.ctx, f.ex()); err != nil {
 				t.Errorf("write the earlier report: %v", err)
 			}
 		})
@@ -212,7 +219,7 @@ func TestARunsOwnReportWinsOverTheSweeps(t *testing.T) {
 func TestAnApprovedRequestLeftPastItsDeadlineIsOutOfUse(t *testing.T) {
 	f := newFixture(t)
 	_, v1, _, requestID := f.askToSkipOps(t)
-	f.leftApproved(t, requestID, "10 minutes")
+	f.leftApproved(t, requestID, 10*time.Minute)
 	f.letTimePass(t, requestID, 1)
 	if n := f.sweep(t, time.Now()); n != 1 || f.storedStatus(t, requestID) != "interrupted" {
 		t.Fatalf("the sweep closed %d and left the request %s, want it interrupted", n, f.storedStatus(t, requestID))

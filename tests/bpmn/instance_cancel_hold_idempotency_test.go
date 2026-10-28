@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -16,6 +18,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // Review Focus 2, for a cancel. A double click, or a client retrying a
@@ -159,7 +162,7 @@ func TestTwoAppliesOfOnePreviewHoldOnce(t *testing.T) {
 	id := w.start(t, opsApproval(h.projID, "ops-hold-race"), nil)
 	cmd := w.previewed(t, deviationCommand(entities.DeviationHold, id, "opsApprove", nil))
 
-	busy := h.holding(t, `UPDATE process_instances SET status = status WHERE id = ?`, id)
+	busy := h.holdingTheInstance(t, id)
 	first := w.sendApply(cmd)
 	second := w.sendApply(cmd)
 	h.waitForWaiters(t, busy, 2, first.answered, second.answered)
@@ -213,7 +216,13 @@ func TestACancelRecordsWhoHeldTheWorkWhenItWasTaken(t *testing.T) {
 	}
 	cmd := w.previewed(t, deviationCommand(entities.DeviationCancel, id, "review", nil))
 
-	claim := h.holding(t, `UPDATE tasks SET status = 'claimed', assignee = 'carol' WHERE id = ?`, task.ID)
+	claim := h.holding(t, func(ctx context.Context, tx runtime.Executor) (int, error) {
+		var claimed taskstore.Mut
+		claimed.SetStatus("claimed")
+		claimed.SetAssignee("carol")
+		n, err := taskstore.New().IDEq(task.ID).UpdateAll(ctx, tx, claimed)
+		return int(n), err
+	})
 	apply := w.sendApply(cmd)
 	h.waitForWaiters(t, claim, 1, apply.answered)
 	claim.letGo(t, true)

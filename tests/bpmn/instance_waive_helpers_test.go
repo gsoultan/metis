@@ -8,15 +8,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/metis/server/repositories/db"
-
 	"github.com/google/uuid"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
 	observersimpl "github.com/gsoultan/metis/server/domains/observers/impl"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/pgstat"
+	"github.com/gsoultan/storm/runtime"
+	"github.com/gsoultan/storm/runtime/pgxdrv"
 )
 
 const waiveReason = "The operations manager is on leave; the CFO agreed by email, ticket FIN-2231."
@@ -348,34 +350,54 @@ const lockWait = 20 * time.Second
 // finished. What is sent while it is open waits for it, which is how a test
 // puts two requests in the order it is about, every time.
 type heldRows struct {
-	tx      *db.Conn
-	session int
+	tx      runtime.Tx
+	session int32
 	ended   bool
 }
 
-// holding opens a transaction, runs one statement in it and leaves it open.
-// The statement has to touch at least one row: a test that held nothing would
-// make nobody wait and prove nothing.
-func (h engineHarness) holding(t *testing.T, statement string, args ...any) *heldRows {
+// holding opens a transaction, runs hold in it and leaves it open. hold has
+// to touch at least one row: a test that held nothing would make nobody wait
+// and prove nothing.
+func (h engineHarness) holding(t *testing.T, hold func(ctx context.Context, tx runtime.Executor) (int, error)) *heldRows {
 	t.Helper()
-	tx := h.db.Begin()
-	if tx.Error != nil {
-		t.Fatalf("open the transaction that holds the rows: %v", tx.Error)
+	tx, err := pgxdrv.Pool{P: h.db.Main()}.StartTx(t.Context())
+	if err != nil {
+		t.Fatalf("open the transaction that holds the rows: %v", err)
 	}
 	held := &heldRows{tx: tx}
 	t.Cleanup(func() {
 		if !held.ended {
-			tx.Rollback()
+			_ = tx.Rollback(context.Background())
 		}
 	})
-	if err := tx.Raw("SELECT pg_backend_pid()").Scan(&held.session).Error; err != nil {
+	if held.session, _, err = pgstat.Backend(t.Context(), tx); err != nil {
 		t.Fatalf("read the holder's session: %v", err)
 	}
-	result := tx.Exec(statement, args...)
-	if result.Error != nil || result.RowsAffected == 0 {
-		t.Fatalf("hold the rows: %d row(s), %v", result.RowsAffected, result.Error)
+	if n, err := hold(t.Context(), tx); err != nil || n == 0 {
+		t.Fatalf("hold the rows: %d row(s), %v", n, err)
 	}
 	return held
+}
+
+// holdingTheInstance holds an instance's row as a write that changes no key
+// holds it.
+func (h engineHarness) holdingTheInstance(t *testing.T, id uuid.UUID) *heldRows {
+	t.Helper()
+	return h.holding(t, func(ctx context.Context, tx runtime.Executor) (int, error) {
+		return taken(processinstance.New().IDEq(id).ForNoKeyUpdate().All(ctx, tx, nil))
+	})
+}
+
+// nowait runs try in a transaction of its own, rolled back after: a read
+// that refuses to wait answers whether a row is free.
+func (h engineHarness) nowait(try func(ctx context.Context, tx runtime.Executor) error) error {
+	ctx := context.Background()
+	tx, err := pgxdrv.Pool{P: h.db.Main()}.StartTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	return try(ctx, tx)
 }
 
 // letGo ends the holder's transaction: kept, or undone as though it had never
@@ -387,7 +409,7 @@ func (r *heldRows) letGo(t *testing.T, keep bool) {
 	if keep {
 		end = r.tx.Commit
 	}
-	if err := end().Error; err != nil {
+	if err := end(context.Background()); err != nil {
 		t.Fatalf("let the rows go: %v", err)
 	}
 }
@@ -446,13 +468,6 @@ func (h engineHarness) waitForWaiters(t *testing.T, held *heldRows, count int, f
 	// package's migration test, waits for every transaction already open, the
 	// holder's among them, on its virtual transaction id. It is waiting for no
 	// row the holder holds, so it is not counted.
-	const waiting = `WITH RECURSIVE behind(pid) AS (
-		    SELECT pid FROM pg_stat_activity
-		     WHERE wait_event_type = 'Lock' AND wait_event <> 'virtualxid' AND ? = ANY(pg_blocking_pids(pid))
-		  UNION
-		    SELECT a.pid FROM pg_stat_activity a JOIN behind b
-		        ON a.wait_event_type = 'Lock' AND a.wait_event <> 'virtualxid' AND b.pid = ANY(pg_blocking_pids(a.pid)))
-		SELECT count(*) FROM behind`
 	seen := 0
 	for deadline := time.Now().Add(lockWait); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		for i, done := range finished {
@@ -460,9 +475,7 @@ func (h engineHarness) waitForWaiters(t *testing.T, held *heldRows, count int, f
 				t.Fatalf("request %d finished without waiting for the rows it was sent to wait for", i+1)
 			}
 		}
-		if err := h.db.Raw(waiting, held.session).Scan(&seen).Error; err != nil {
-			t.Fatalf("look for what is waiting for the held rows: %v", err)
-		}
+		seen = h.waitingBehind(t, held.session)
 		if seen == count {
 			return
 		}

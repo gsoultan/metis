@@ -3,6 +3,9 @@ package tenant
 import (
 	"testing"
 
+	"github.com/gsoultan/metis/server/repositories/store/form"
+	"github.com/gsoultan/metis/tests/testutils"
+
 	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
@@ -45,7 +48,7 @@ func TestStrictScope_DeniesAContextWithNoIdentity(t *testing.T) {
 			if err := pg.NewFormRepository(db).Delete(ctx, f.formA); !isNotFound(err) {
 				t.Errorf("delete: got %v, want a not-found", err)
 			}
-			if !rowExists(t, db, &models.FormModel{}, "forms", f.formA) {
+			if !stillThere(t)(form.New().IDEq(f.formA).One(t.Context(), testutils.Executor(db))) {
 				t.Fatal("the delete was refused but the row is gone")
 			}
 		})

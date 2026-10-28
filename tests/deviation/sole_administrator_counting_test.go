@@ -12,6 +12,8 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/platformadmins"
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/store/userorganization"
+	stormruntime "github.com/gsoultan/storm/runtime"
 )
 
 // candidate is an account that may or may not be "another administrator" of
@@ -257,7 +259,7 @@ func TestTheAdministratorsAreCountedWhenTheApprovalIsMade(t *testing.T) {
 		clerk, _ := h.enrol(t, "clerk", enrolled{global: []string{entities.RoleUser}, here: true})
 		requestID := h.askToWaive(t, boss, instanceID)
 
-		holder := h.holdOpen(t, `SELECT 1 FROM deviation_requests WHERE id = ? FOR UPDATE`, requestID)
+		holder := h.holdOpen(t, h.lockRequest(uuid.MustParse(requestID)))
 		var got posted
 		finished := make(chan error, 1)
 		go func() {
@@ -296,7 +298,11 @@ func TestTheAdministratorsAreCountedWhenTheApprovalIsMade(t *testing.T) {
 		clerk, clerkToken := h.enrol(t, "clerk", enrolled{global: []string{entities.RoleUser}, here: true})
 		requestID := h.askToWaive(t, boss, instanceID)
 
-		granting := h.holdOpen(t, `UPDATE user_organizations SET roles = '["ADMIN"]' WHERE user_id = ? AND organization_id = ?`, clerk, h.orgID)
+		granting := h.holdOpen(t, func(ctx context.Context, ex stormruntime.Executor) error {
+			admin := userorganization.MutateKey(clerk, h.orgID)
+			admin.SetRoles(stormruntime.JSON(`["ADMIN"]`))
+			return admin.Update(ctx, ex)
+		})
 		if status, _, raw := h.decide(t, clerkToken, requestID, "approve", ""); status != http.StatusForbidden {
 			t.Fatalf("the clerk approving on a grant not yet committed: %d (%s), want 403", status, raw)
 		}

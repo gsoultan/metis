@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
 )
 
 // A delegation in flight, where the tests beside this one race a claim.
@@ -46,34 +47,21 @@ func TestAWithdrawalRecordsTheDelegationItWaitedFor(t *testing.T) {
 			delegated := open[1].ID
 
 			// carol delegates the task to dave, written and not yet committed.
-			delegation := f.db.Begin()
-			if delegation.Error != nil {
-				t.Fatalf("open the transaction that holds the delegation: %v", delegation.Error)
-			}
-			committed := false
-			t.Cleanup(func() {
-				if !committed {
-					delegation.Rollback()
-				}
+			delegation := f.holdTask(t, delegated, func(m *taskstore.Mut) {
+				m.SetStatus("delegated")
+				m.SetAssignee("dave")
+				m.SetOwner("carol")
+				m.SetDelegationState("pending")
 			})
-			var session int
-			if err := delegation.Raw("SELECT pg_backend_pid()").Scan(&session).Error; err != nil {
-				t.Fatalf("read the delegation's session: %v", err)
-			}
-			written := delegation.Exec(`UPDATE tasks SET status = 'delegated', assignee = 'dave', owner = 'carol', delegation_state = 'pending'
-				 WHERE id = ?`, delegated)
-			if written.Error != nil || written.RowsAffected != 1 {
-				t.Fatalf("delegate the task: %d row(s), %v", written.RowsAffected, written.Error)
-			}
+			session := delegation.session
 
 			acted := make(chan error, 1)
 			go func() { acted <- f.migrateDecided(t, action.kind, v1, v2, nil, action.options()...) }()
 
 			f.waitUntilHeldBehind(t, session, acted)
-			if err := delegation.Commit().Error; err != nil {
+			if err := delegation.commit(); err != nil {
 				t.Fatalf("commit the delegation: %v", err)
 			}
-			committed = true
 
 			select {
 			case err := <-acted:

@@ -73,10 +73,7 @@ func TestABoundaryEventMayNotBeMappedOntoAStep(t *testing.T) {
 
 	// The three days pass, and the deadline does what the version it runs
 	// says: the approval is withdrawn and the escalation opens.
-	if err := f.db.WithContext(f.ctx).Exec(
-		`UPDATE jobs SET next_run_at = now() - interval '1 minute' WHERE instance_id = ?`, instance.ID).Error; err != nil {
-		t.Fatalf("bring the deadline due: %v", err)
-	}
+	f.bringDue(t, instance.ID)
 	if err := f.svc.ProcessPendingJobs(f.ctx); err != nil {
 		t.Fatalf("process pending jobs: %v", err)
 	}
@@ -164,10 +161,7 @@ func TestAnInstanceAtAStepWhoseDeadlineWasDroppedIsHeldAndMovedOnceItHasLeftTheS
 	f.assertNothingIsStranded(t)
 
 	// The three days pass: the timer finds no token and is dismissed.
-	if err := f.db.WithContext(f.ctx).Exec(
-		`UPDATE jobs SET next_run_at = now() - interval '1 minute' WHERE instance_id = ?`, instance.ID).Error; err != nil {
-		t.Fatalf("bring the deadline due: %v", err)
-	}
+	f.bringDue(t, instance.ID)
 	if err := f.svc.ProcessPendingJobs(f.ctx); err != nil {
 		t.Fatalf("process pending jobs: %v", err)
 	}

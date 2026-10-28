@@ -4,6 +4,11 @@ import (
 	"context"
 	"testing"
 
+	formstore "github.com/gsoultan/metis/server/repositories/store/form"
+	projectstore "github.com/gsoultan/metis/server/repositories/store/project"
+	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/runtime"
+
 	"github.com/gsoultan/metis/server/repositories/db"
 
 	"github.com/google/uuid"
@@ -100,7 +105,7 @@ func TestARequestsReusedScopeStillDeniesAnotherOrganization(t *testing.T) {
 				t.Errorf("%s: got %v, want a not-found", name, err)
 			}
 		}
-		if !rowExists(t, db, &models.FormModel{}, "forms", f.formB) {
+		if !stillThere(t)(formstore.New().IDEq(f.formB).One(t.Context(), testutils.Executor(db))) {
 			t.Fatal("the delete was refused but the other organization's form is gone")
 		}
 		if _, err := repo.Task().Get(ctx, f.taskA); err != nil {
@@ -180,13 +185,22 @@ func TestAProjectDeletedInARequestLeavesItsScopeAtOnce(t *testing.T) {
 		ctx := f.asRequestOfA(t)
 
 		doomed, form := uuid.New(), uuid.New()
-		for _, row := range []any{
-			&models.ProjectModel{Base: models.Base{ID: models.FromUUID(doomed)}, OrganizationID: models.FromUUID(f.orgA), Name: "Doomed"},
-			&models.FormModel{Base: models.Base{ID: models.FromUUID(form)}, ProjectID: models.FromUUID(doomed), Key: "doomed-form"},
-		} {
-			if err := db.Create(row).Error; err != nil {
-				t.Fatalf("seed %T: %v", row, err)
-			}
+		ex := testutils.Executor(db)
+		project := projectstore.Create()
+		project.SetID(doomed)
+		project.SetOrganizationID(f.orgA)
+		project.SetName("Doomed")
+		if _, err := project.Insert(t.Context(), ex); err != nil {
+			t.Fatalf("seed the project: %v", err)
+		}
+		doomedForm := formstore.Create()
+		doomedForm.SetID(form)
+		doomedForm.SetProjectID(doomed)
+		doomedForm.SetKey("doomed-form")
+		doomedForm.SetName("")
+		doomedForm.SetFields(runtime.JSON("{}"))
+		if _, err := doomedForm.Insert(t.Context(), ex); err != nil {
+			t.Fatalf("seed the form: %v", err)
 		}
 		if _, err := repo.Form().Get(ctx, form); err != nil {
 			t.Fatalf("the form is in scope before its project is deleted: %v", err)

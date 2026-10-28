@@ -10,6 +10,9 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
+	"github.com/gsoultan/metis/server/repositories/store/instancedeviation"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // saidOn is how a sentence writes a moment: the layout the service uses.
@@ -19,9 +22,9 @@ const saidOn = "2 January 2006 15:04 MST"
 // the state time passing creates.
 func letTimePass(t *testing.T, h engineHarness, requestID uuid.UUID, minutes int) {
 	t.Helper()
-	if err := h.db.Exec(`UPDATE deviation_requests SET expires_at = now() - make_interval(mins => ?) WHERE id = ?`, minutes, requestID).Error; err != nil {
-		t.Fatalf("let time pass: %v", err)
-	}
+	h.rewriteRequest(t, requestID, func(m *deviationrequest.Mut) {
+		m.SetExpiresAt(time.Now().Add(-time.Duration(minutes) * time.Minute))
+	})
 }
 
 // storedRequest is a request as its table holds it, whatever the clock says.
@@ -35,12 +38,11 @@ type storedRequest struct {
 
 func requestAsStored(t *testing.T, h engineHarness, requestID uuid.UUID) storedRequest {
 	t.Helper()
-	var stored storedRequest
-	if err := h.db.Raw(`SELECT status, live_key, decided_by, decided_at, expires_at FROM deviation_requests WHERE id = ?`, requestID).
-		Scan(&stored).Error; err != nil {
-		t.Fatalf("read the request as it is stored: %v", err)
+	row := h.requestRow(t, requestID)
+	return storedRequest{
+		Status: row.Status, LiveKey: row.LiveKey.Ptr(), DecidedBy: row.DecidedBy.Ptr(),
+		DecidedAt: row.DecidedAt.Ptr(), ExpiresAt: row.ExpiresAt,
 	}
-	return stored
 }
 
 // storedLedgerRow is the ledger row of a request as its table holds it.
@@ -52,12 +54,11 @@ type storedLedgerRow struct {
 
 func ledgerRowAsStored(t *testing.T, h engineHarness, requestID uuid.UUID) storedLedgerRow {
 	t.Helper()
-	var stored storedLedgerRow
-	if err := h.db.Raw(`SELECT status, live_visit_key, decided_at FROM instance_deviations WHERE request_id = ?`, requestID).
-		Scan(&stored).Error; err != nil {
-		t.Fatalf("read the ledger row as it is stored: %v", err)
+	row, found, err := instancedeviation.New().RequestIDEq(requestID).One(h.Ctx(), h.ex())
+	if err != nil || !found {
+		t.Fatalf("read the ledger row as it is stored: %v (found=%v)", err, found)
 	}
-	return stored
+	return storedLedgerRow{Status: row.Status, LiveVisitKey: row.LiveVisitKey.Ptr(), DecidedAt: row.DecidedAt.Ptr()}
 }
 
 // sweep runs the expiry as the server does: as system work, at a time the
@@ -102,14 +103,17 @@ func (w waiver) sendRejection(name string, requestID uuid.UUID) *sent[entities.D
 // a closing can be stopped while it holds its request.
 func (h engineHarness) holdingTheLedgerRow(t *testing.T, deviationID uuid.UUID) *heldRows {
 	t.Helper()
-	return h.holding(t, `UPDATE instance_deviations SET status = status WHERE id = ?`, deviationID)
+	return h.holding(t, func(ctx context.Context, tx runtime.Executor) (int, error) {
+		return taken(instancedeviation.New().IDEq(deviationID).ForNoKeyUpdate().All(ctx, tx, nil))
+	})
 }
 
 // holdingTheRequest holds a request's row FOR UPDATE, as a decision holds it.
 func (h engineHarness) holdingTheRequest(t *testing.T, requestID uuid.UUID) *heldRows {
 	t.Helper()
-	return h.holding(t, `WITH taken AS (SELECT id FROM deviation_requests WHERE id = ? FOR UPDATE)
-		UPDATE deviation_requests r SET status = r.status FROM taken WHERE r.id = taken.id`, requestID)
+	return h.holding(t, func(ctx context.Context, tx runtime.Executor) (int, error) {
+		return taken(deviationrequest.New().IDEq(requestID).ForUpdate().All(ctx, tx, nil))
+	})
 }
 
 // plainFailure reports whether err is the server's own failure: an error with

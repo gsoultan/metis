@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/metis/server/repositories/store/processdefinition"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories"
@@ -19,10 +21,11 @@ func TestTheSweepReadsEachProcesssNewestPeriod(t *testing.T) {
 	repo := repositories.NewRepository(db)
 	ctx, _, project := testutils.ScopedProject(t, repo)
 	definition := seedDefinition(t, db, project, 1)
-	var key string
-	if err := db.Raw(`SELECT key FROM process_definitions WHERE id = ?`, definition).Scan(&key).Error; err != nil {
-		t.Fatalf("read the key: %v", err)
+	stored, found, err := processdefinition.New().IDEq(definition).One(t.Context(), testutils.Executor(db))
+	if err != nil || !found {
+		t.Fatalf("read the key: %v (found=%v)", err, found)
 	}
+	key := stored.Key
 	for _, days := range []int{100, 1} {
 		if _, err := repo.RetentionPeriod().Set(ctx, entities.RetentionPeriod{
 			Project: &entities.Project{ID: project}, ProcessKey: key, Days: &days, Reason: "test", SetBy: "test",
@@ -37,9 +40,7 @@ func TestTheSweepReadsEachProcesssNewestPeriod(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed an instance: %v", err)
 	}
-	if err := db.Exec(`UPDATE process_instances SET updated_at = now() - interval '2 days' WHERE id = ?`, id).Error; err != nil {
-		t.Fatalf("age the instance: %v", err)
-	}
+	ageInstance(t, db, id, 2*24*time.Hour)
 
 	removed, err := repo.Process().ForgetFinished(entities.WithSystemContext(t.Context()), time.Now(), 0)
 	if err != nil {

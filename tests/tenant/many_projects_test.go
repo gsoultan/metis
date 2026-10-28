@@ -26,12 +26,7 @@ func TestAnOrganizationReachesEveryProjectPastTheFirstThousand(t *testing.T) {
 	repo := repositories.NewRepository(db)
 	ctx, orgID := testutils.ScopedContext(t, repo)
 
-	if err := db.WithContext(ctx).Exec(`
-		INSERT INTO projects (id, created_at, updated_at, organization_id, name)
-		SELECT gen_random_uuid(), now(), now(), ?, format('project-%s', lpad(n::text, 5, '0'))
-		  FROM generate_series(1, ?) AS n`, orgID, projectsAhead).Error; err != nil {
-		t.Fatalf("seed %d projects: %v", projectsAhead, err)
-	}
+	seedProjects(t, db, orgID, projectsAhead)
 	late := uuid.Must(uuid.NewV7())
 	if err := repo.Project().Create(entities.WithSystemContext(ctx), models.ProjectModel{
 		Base:           models.Base{ID: models.UUID(late)},

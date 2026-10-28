@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 )
@@ -89,11 +91,10 @@ func TestADeadlineWithdrawsEveryOpenTaskOfTheActivityItInterrupts(t *testing.T) 
 // order ties between tasks created in one transaction.
 func (h engineHarness) openTasksOn(t *testing.T, instanceID uuid.UUID, nodeID string) int {
 	t.Helper()
-	var open int64
-	if err := h.db.Raw(`SELECT count(*) FROM tasks
-		 WHERE instance_id = ? AND node_id = ? AND deleted_at IS NULL AND status IN (?, ?, ?)`,
-		instanceID, nodeID, entities.TaskUnclaimed, entities.TaskClaimed, entities.TaskDelegated).
-		Scan(&open).Error; err != nil {
+	open, err := taskstore.New().InstanceIDEq(instanceID).NodeIDEq(nodeID).
+		StatusIn(string(entities.TaskUnclaimed), string(entities.TaskClaimed), string(entities.TaskDelegated)).
+		Count(h.Ctx(), h.ex())
+	if err != nil {
 		t.Fatalf("count open tasks: %v", err)
 	}
 	return int(open)

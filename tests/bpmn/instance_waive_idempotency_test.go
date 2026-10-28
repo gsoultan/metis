@@ -8,11 +8,14 @@ import (
 	"sync"
 	"testing"
 
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // previewed is a command made ready to apply: it names the plan a preview of
@@ -39,7 +42,9 @@ func (w waiver) sendApply(cmd entities.DeviationCommand) *sent[entities.Deviatio
 // that has taken the task and not finished does.
 func (h engineHarness) holdingTheTask(t *testing.T, taskID uuid.UUID) *heldRows {
 	t.Helper()
-	return h.holding(t, `UPDATE tasks SET status = status WHERE id = ?`, taskID)
+	return h.holding(t, func(ctx context.Context, tx runtime.Executor) (int, error) {
+		return taken(taskstore.New().IDEq(taskID).ForNoKeyUpdate().All(ctx, tx, nil))
+	})
 }
 
 // skippedEntries is the node_skipped entries on an instance's trail.
@@ -461,7 +466,12 @@ func TestAWaiveRecordsWhoHeldTheWorkWhenItWasTaken(t *testing.T) {
 	cmd := w.previewed(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
 
 	// The hand-over, written and not yet committed.
-	handOver := h.holding(t, `UPDATE tasks SET assignee = 'carol' WHERE id = ?`, task.ID)
+	handOver := h.holding(t, func(ctx context.Context, tx runtime.Executor) (int, error) {
+		var carol taskstore.Mut
+		carol.SetAssignee("carol")
+		n, err := taskstore.New().IDEq(task.ID).UpdateAll(ctx, tx, carol)
+		return int(n), err
+	})
 	apply := w.sendApply(cmd)
 	h.waitForWaiters(t, handOver, 1, apply.answered)
 	handOver.letGo(t, true)

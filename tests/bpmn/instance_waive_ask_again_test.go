@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gsoultan/metis/server/repositories/db"
-
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // Nothing that blocks an act is found only by trying it. A preview of a waive
@@ -112,8 +112,9 @@ func TestTwoAsksAfterTheDeadlineCloseTheRequestOnceAndOneOfThemWaits(t *testing.
 	asks := map[string]*sent[entities.DeviationOutcome]{"ana": askAs("ana")}
 	h.waitForWaiters(t, held, 1, asks["ana"].answered)
 	// Waiting for the request's row, she holds no instance.
-	if err := h.db.Transaction(func(tx *db.Conn) error {
-		return tx.Exec(`SELECT id FROM process_instances WHERE id = ? FOR UPDATE NOWAIT`, id).Error
+	if err := h.nowait(func(ctx context.Context, tx runtime.Executor) error {
+		_, _, err := processinstance.New().IDEq(id).ForUpdateNoWait().One(ctx, tx)
+		return err
 	}); err != nil {
 		t.Fatalf("while an ask waits for the overdue request's row, the instance's row answers %v; want it free", err)
 	}

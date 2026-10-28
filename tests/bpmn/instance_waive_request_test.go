@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/metis/server/repositories/db"
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -18,17 +18,19 @@ import (
 	deviationendpoint "github.com/gsoultan/metis/server/endpoints/deviation"
 	"github.com/gsoultan/metis/server/repositories"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // requestCount is how many requests for a second administrator the test's
 // database holds.
 func requestCount(t *testing.T, h engineHarness) int {
 	t.Helper()
-	var n int
-	if err := h.db.Raw(`SELECT count(*) FROM deviation_requests`).Scan(&n).Error; err != nil {
+	n, err := deviationrequest.New().Count(h.Ctx(), h.ex())
+	if err != nil {
 		t.Fatalf("count the requests: %v", err)
 	}
-	return n
+	return int(n)
 }
 
 // D9 names a waive, and a migration that loosens a rule, and nothing else
@@ -190,8 +192,10 @@ func TestAnApprovalSetsWhatWasAskedAndRecordsTheInstanceAsItThenStood(t *testing
 
 	// While it waits the task changes hands and the instance's value changes:
 	// neither is what the visit is made of.
-	if err := h.db.Exec(`UPDATE tasks SET assignee = 'carol' WHERE id = ?`, task.ID).Error; err != nil {
-		t.Fatalf("hand the task to carol: %v", err)
+	var handOver taskstore.Mut
+	handOver.SetAssignee("carol")
+	if n, err := taskstore.New().IDEq(task.ID).UpdateAll(h.Ctx(), h.ex(), handOver); err != nil || n != 1 {
+		t.Fatalf("hand the task to carol: %d row(s), %v", n, err)
 	}
 	stored, err := h.repo.Process().Get(h.Ctx(), id)
 	if err != nil {
@@ -249,8 +253,7 @@ func TestAskingAgainNeverWaitsForTheRequestsRow(t *testing.T) {
 	request := first.PendingApproval.RequestID
 
 	// The request's row, taken FOR UPDATE as a decision takes it.
-	held := h.holding(t, `WITH taken AS (SELECT id FROM deviation_requests WHERE id = ? FOR UPDATE)
-		UPDATE deviation_requests r SET status = r.status FROM taken WHERE r.id = taken.id`, request)
+	held := h.holdingTheRequest(t, request)
 	for who, ctx := range map[string]context.Context{"the requester": w.ctx, "another administrator": w.as("budi")} {
 		asking := send(func() (entities.DeviationOutcome, error) {
 			inTime, stop := context.WithTimeout(ctx, lockWait)
@@ -291,15 +294,16 @@ func TestAnApprovalHoldsItsRequestWhileItWaitsForTheInstance(t *testing.T) {
 	asked := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
 	request := asked.PendingApproval.RequestID
 	free := func() error {
-		return h.db.Transaction(func(tx *db.Conn) error {
-			return tx.Exec(`SELECT id FROM deviation_requests WHERE id = ? FOR UPDATE NOWAIT`, request).Error
+		return h.nowait(func(ctx context.Context, tx runtime.Executor) error {
+			_, _, err := deviationrequest.New().IDEq(request).ForUpdateNoWait().One(ctx, tx)
+			return err
 		})
 	}
 	if err := free(); err != nil {
 		t.Fatalf("with nobody deciding it the request's row is held: %v", err)
 	}
 
-	held := h.holding(t, `UPDATE process_instances SET status = status WHERE id = ?`, id)
+	held := h.holdingTheInstance(t, id)
 	approval := w.sendApproval("budi", request)
 	h.waitForWaiters(t, held, 1, approval.answered)
 	if err := free(); err == nil || !strings.Contains(err.Error(), "55P03") && !strings.Contains(err.Error(), "could not obtain lock") {
@@ -476,9 +480,7 @@ func TestTheRequestsAnAdministratorReadsAreTheOnesThatStillWait(t *testing.T) {
 	if _, err := w.approve(asks[1]); err != nil {
 		t.Fatalf("budi approves the second: %v", err)
 	}
-	if err := h.db.Exec(`UPDATE deviation_requests SET expires_at = now() - interval '1 minute' WHERE id = ?`, overdue).Error; err != nil {
-		t.Fatalf("let time pass for the third: %v", err)
-	}
+	h.pastDue(t, overdue)
 
 	listed := func(status entities.DeviationRequestStatus) map[uuid.UUID]entities.DeviationRequestStatus {
 		t.Helper()

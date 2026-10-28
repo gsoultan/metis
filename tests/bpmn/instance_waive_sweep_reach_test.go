@@ -14,6 +14,7 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
 )
 
 // overdueRequests starts so many instances of a deployed process, asks for the
@@ -39,10 +40,8 @@ func overdueRequests(t *testing.T, h engineHarness, w waiver, key string, count 
 // would.
 func breakThePlanOf(t *testing.T, h engineHarness, requestID uuid.UUID) {
 	t.Helper()
-	if err := h.db.Exec(`UPDATE deviation_requests
-		SET plan = to_jsonb(left(plan #>> '{}', length(plan #>> '{}') - 8) || 'AAAAAAAA') WHERE id = ?`, requestID).Error; err != nil {
-		t.Fatalf("break the plan: %v", err)
-	}
+	broken := breakSealed(t, h.requestRow(t, requestID).Plan)
+	h.rewriteRequest(t, requestID, func(m *deviationrequest.Mut) { m.SetPlan(broken) })
 	if _, err := h.repo.DeviationRequest().Get(h.Ctx(), requestID); err == nil {
 		t.Fatal("a request whose plan was overwritten still reads whole; the fixture broke nothing")
 	}
@@ -61,9 +60,7 @@ func TestTheSweepReachesWhatIsBehindRequestsItCannotClose(t *testing.T) {
 	h.deploy(t, opsApproval(h.projID, "ops-sweep-reach"))
 	const broken = 25
 	instances, requests := overdueRequests(t, h, w, "ops-sweep-reach", broken+1)
-	if err := h.db.Exec(`UPDATE instance_deviations SET status = 'rejected', live_visit_key = NULL WHERE request_id IN ?`, requests[:broken]).Error; err != nil {
-		t.Fatalf("break the ledger rows of the first %d: %v", broken, err)
-	}
+	h.breakLedgerRows(t, requests[:broken]...)
 	healthy, healthyInstance := requests[broken], instances[broken]
 
 	n, err := w.sweep(h.Ctx(), time.Now())
@@ -254,9 +251,10 @@ func TestAnAskThatMeetsAnOverdueRequestIsMadeAgainOnceAndNoMore(t *testing.T) {
 	request := first.PendingApproval.RequestID
 	cmd := deviationCommand(entities.DeviationWaive, id, "opsApprove", nil)
 	cmd.VisitKey = first.Plan.VisitKey
-	if err := h.db.Exec(`UPDATE deviation_requests SET status = 'expired', live_key = NULL WHERE id = ?`, request).Error; err != nil {
-		t.Fatalf("close the request and leave its row waiting: %v", err)
-	}
+	h.rewriteRequest(t, request, func(m *deviationrequest.Mut) {
+		m.SetStatus("expired")
+		m.SetLiveKeyNull()
+	})
 
 	reads := &atomic.Int32{}
 	asking := serviceimpl.NewInstanceDeviationService(repositoryCountingVisits{h.repo, reads}, h.engine)

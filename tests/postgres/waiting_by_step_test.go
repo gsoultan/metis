@@ -5,6 +5,12 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/gsoultan/metis/server/repositories/store/processdefinition"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	projectstore "github.com/gsoultan/metis/server/repositories/store/project"
+	"github.com/gsoultan/storm/runtime"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/repositories"
@@ -24,35 +30,41 @@ func TestWaitingWorkIsCountedPerKeyAndStep(t *testing.T) {
 	ctx, _, project := testutils.ScopedProject(t, repo)
 	_, _, elsewhere := testutils.ScopedProject(t, repo)
 	sibling := uuid.Must(uuid.NewV7())
-	exec := func(sql string, args ...any) {
-		t.Helper()
-		if err := db.Exec(sql, args...).Error; err != nil {
-			t.Fatalf("%s: %v", sql, err)
-		}
+	ex := testutils.Executor(db)
+	home, found, err := projectstore.New().IDEq(project).One(ctx, ex)
+	if err != nil || !found {
+		t.Fatalf("read the organization: %v (found=%v)", err, found)
 	}
-	org := ""
-	if err := db.Raw(`SELECT organization_id::text FROM projects WHERE id = ?`, project).Scan(&org).Error; err != nil {
-		t.Fatalf("read the organization: %v", err)
+	sib := projectstore.Create()
+	sib.SetID(sibling)
+	sib.SetOrganizationID(home.OrganizationID)
+	sib.SetName("Sibling")
+	if _, err := sib.Insert(ctx, ex); err != nil {
+		t.Fatalf("seed the sibling project: %v", err)
 	}
-	exec(`INSERT INTO projects (id, created_at, updated_at, organization_id, name) VALUES (?, now(), now(), ?, 'Sibling')`, sibling, org)
 
 	def := func(project uuid.UUID, key, name string, version int) uuid.UUID {
 		t.Helper()
-		id := uuid.Must(uuid.NewV7())
-		exec(`INSERT INTO process_definitions (id, created_at, updated_at, project_id, key, name, version, nodes, flows)
-		      VALUES (?, now(), now(), ?, ?, ?, ?, '[]', '[]')`, id, project, key, name, version)
+		id := testutils.SeedDefinitionVersion(t, db, project, key, version)
+		rename := processdefinition.MutateKey(id)
+		rename.SetName(name)
+		if err := rename.Update(ctx, ex); err != nil {
+			t.Fatalf("name %s v%d: %v", key, version, err)
+		}
 		return id
 	}
 	inst := func(project, def uuid.UUID, status, tokens string, gone bool) {
 		t.Helper()
-		deleted := "NULL"
+		now := time.Now()
+		row := processinstance.Row{ID: uuid.Must(uuid.NewV7()), CreatedAt: now, UpdatedAt: now, ProjectID: project,
+			DefinitionID: def, Status: status, Tokens: runtime.JSON(tokens), CompletedNodes: runtime.JSON("[]"),
+			CompensatedNodes: runtime.JSON("[]"), MultiInstance: runtime.JSON("{}"), Joins: runtime.JSON("{}")}
 		if gone {
-			deleted = "now()"
+			row.DeletedAt = runtime.Null[time.Time]{V: now, Valid: true}
 		}
-		exec(`INSERT INTO process_instances (id, created_at, updated_at, project_id, definition_id, status, variables,
-		                                     tokens, completed_nodes, compensated_nodes, multi_instance, joins, deleted_at)
-		      VALUES (gen_random_uuid(), now(), now(), ?, ?, ?, '', ?, '[]', '[]', '{}', '{}', `+deleted+`)`,
-			project, def, status, tokens)
+		if _, err := processinstance.InsertAll(ctx, ex, []processinstance.Row{row}); err != nil {
+			t.Fatalf("seed an instance: %v", err)
+		}
 	}
 	k1v1, k1v2 := def(project, "k1", "K one", 1), def(project, "k1", "K two", 2)
 	k2 := def(project, "k2", "Two", 1)

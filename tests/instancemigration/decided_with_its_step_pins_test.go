@@ -89,10 +89,7 @@ func TestPinADecisionNamingAStepAndTheDeadlineOnIt(t *testing.T) {
 			// Skipped and moved, the deadline's timer is left behind. When the
 			// three days pass it is dismissed, and the signature is still to give.
 			instance := f.onlyInstance(t)
-			if err := f.db.WithContext(f.ctx).Exec(
-				`UPDATE jobs SET next_run_at = now() - interval '1 minute' WHERE instance_id = ?`, instance.ID).Error; err != nil {
-				t.Fatalf("bring the deadline due: %v", err)
-			}
+			f.bringDue(t, instance.ID)
 			if err := f.svc.ProcessPendingJobs(f.ctx); err != nil {
 				t.Fatalf("process pending jobs: %v", err)
 			}

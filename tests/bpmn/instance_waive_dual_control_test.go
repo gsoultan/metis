@@ -440,9 +440,7 @@ func TestAnExpiredWaiveRequestCannotBeApproved(t *testing.T) {
 	w := newWaiver(h)
 	id := w.start(t, opsApproval(h.projID, "ops-expired"), nil)
 	asked := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
-	if err := h.db.Exec(`UPDATE deviation_requests SET expires_at = now() - interval '1 minute' WHERE id = ?`, asked.PendingApproval.RequestID).Error; err != nil {
-		t.Fatalf("let time pass: %v", err)
-	}
+	h.pastDue(t, asked.PendingApproval.RequestID)
 	// The requester is refused as the requester, and records nothing: who may
 	// decide is asked before the clock is.
 	before := everyRow(t, h)
@@ -463,10 +461,8 @@ func TestAnExpiredWaiveRequestCannotBeApproved(t *testing.T) {
 		t.Fatalf("after a refused late approval: request %q", got.Status)
 	}
 	// Written down, not only read off the clock; and once.
-	var stored string
-	if err := h.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, asked.PendingApproval.RequestID).Scan(&stored).Error; err != nil ||
-		stored != string(entities.DeviationRequestExpired) {
-		t.Fatalf("the request is stored as %q (%v), want expired", stored, err)
+	if stored := h.requestRow(t, asked.PendingApproval.RequestID).Status; stored != string(entities.DeviationRequestExpired) {
+		t.Fatalf("the request is stored as %q, want expired", stored)
 	}
 	if expired := entriesOfType(t, h, id, serviceimpl.EventDeviationExpired); len(expired) != 1 {
 		t.Fatalf("the trail says the request expired %d times, want once", len(expired))
@@ -850,9 +846,7 @@ func TestAWaiveCanBeAskedAgainOnceItsRequestHasExpired(t *testing.T) {
 	w := newWaiver(h)
 	id := w.start(t, opsApproval(h.projID, "ops-ask-after-expiry"), nil)
 	first := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
-	if err := h.db.Exec(`UPDATE deviation_requests SET expires_at = now() - interval '1 minute' WHERE id = ?`, first.PendingApproval.RequestID).Error; err != nil {
-		t.Fatalf("let time pass: %v", err)
-	}
+	h.pastDue(t, first.PendingApproval.RequestID)
 	second := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
 	if second.PendingApproval.RequestID == first.PendingApproval.RequestID || second.Replayed {
 		t.Fatal("asking again after the deadline answered with the expired request")
@@ -887,9 +881,7 @@ func TestTheSweepAndAnAskAgainCloseAnOverdueRequestOnce(t *testing.T) {
 				t.Fatalf("round %d: start: %v", round, err)
 			}
 			first := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
-			if err := h.db.Exec(`UPDATE deviation_requests SET expires_at = now() - interval '1 minute' WHERE id = ?`, first.PendingApproval.RequestID).Error; err != nil {
-				t.Fatalf("round %d: let time pass: %v", round, err)
-			}
+			h.pastDue(t, first.PendingApproval.RequestID)
 			again := w.previewed(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
 
 			var start sync.WaitGroup
@@ -953,7 +945,7 @@ func TestAnOverdueRequestReadsAsExpiredBeforeTheSweep(t *testing.T) {
 	w := newWaiver(h)
 	id := w.start(t, opsApproval(h.projID, "ops-overdue"), nil)
 	asked := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
-	h.db.Exec(`UPDATE deviation_requests SET expires_at = now() - interval '1 minute' WHERE id = ?`, asked.PendingApproval.RequestID)
+	h.pastDue(t, asked.PendingApproval.RequestID)
 	pending, total, err := w.approvals.ListDeviationRequests(w.ctx, entities.DeviationRequestQuery{Status: entities.DeviationRequestPending})
 	if err != nil || total != 0 || len(pending) != 0 {
 		t.Fatalf("the pending queue lists %d overdue request(s) (err %v)", total, err)

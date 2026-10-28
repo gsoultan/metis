@@ -25,13 +25,15 @@ func TestAnExternalTaskAtZeroRetriesIsOfferedAgainUnlessAnIncidentHoldsIt(t *tes
 	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	ctx := entities.WithSystemContext(t.Context())
 
+	_, _, project := testutils.ScopedProject(t, repo)
 	park := func(retries int) uuid.UUID {
 		t.Helper()
+		definition, instance := caseIn(t, repo, project)
 		task := &models.ExternalTaskModel{
 			Base:                models.Base{ID: models.UUID(uuid.New())},
-			ProjectID:           models.UUID(uuid.New()),
-			ProcessInstanceID:   models.UUID(uuid.New()),
-			ProcessDefinitionID: models.UUID(uuid.New()),
+			ProjectID:           models.UUID(project),
+			ProcessInstanceID:   models.UUID(instance),
+			ProcessDefinitionID: models.UUID(definition),
 			NodeID:              "ship",
 			Topic:               "shipping",
 			Retries:             retries,

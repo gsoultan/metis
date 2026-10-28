@@ -46,11 +46,8 @@ func (h *deviationHarness) mustWrite(t *testing.T, d entities.Deviation) entitie
 // liveVisitKeyOf is what a ledger row holds its visit with, if anything.
 func (h *deviationHarness) liveVisitKeyOf(t *testing.T, id uuid.UUID) sql.NullString {
 	t.Helper()
-	var live sql.NullString
-	if err := h.db.Raw(`SELECT live_visit_key FROM instance_deviations WHERE id = ?`, id).Row().Scan(&live); err != nil {
-		t.Fatalf("read the live key: %v", err)
-	}
-	return live
+	live := h.ledgerRow(t, id).LiveVisitKey
+	return sql.NullString{String: live.V, Valid: live.Valid}
 }
 
 // theRow reads one ledger row back through the ledger's own read.
@@ -191,11 +188,8 @@ func TestADecisionWritesWhatItNamesAndLeavesTheRest(t *testing.T) {
 			t.Errorf("%s: the decision changed what was asked: %+v", what, got)
 		}
 	}
-	var before, after, details string
-	if err := h.db.Raw(`SELECT before::text, after::text, details::text FROM instance_deviations WHERE id = ?`, written.ID).
-		Row().Scan(&before, &after, &details); err != nil {
-		t.Fatalf("read the stored row: %v", err)
-	}
+	stored := h.ledgerRow(t, written.ID)
+	before, after, details := text(stored.Before), text(stored.After), text(stored.Details)
 	if strings.Contains(before, "thousand") || strings.Contains(after, "thousand") {
 		t.Errorf("a decision stored business values in clear: before=%s after=%s", before, after)
 	}

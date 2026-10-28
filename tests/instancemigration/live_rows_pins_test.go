@@ -50,35 +50,6 @@ func (f *fixture) toldWithItsRows(t *testing.T, v1, v2 uuid.UUID, plan entities.
 	return named(out.String(), map[string]string{v1.String(): "v1", v2.String(): "v2"})
 }
 
-// jobRows is an instance's timers and queued calls as the database holds
-// them, oldest first: which version and step each names, and how it stands.
-func (f *fixture) jobRows(t *testing.T, instanceID uuid.UUID) []string {
-	t.Helper()
-	return f.rowsAsText(t, `
-		SELECT 'definition=' || definition_id || ' node=' || node_id || ' type=' || type || ' status=' || status
-		  FROM jobs WHERE instance_id = ? AND deleted_at IS NULL ORDER BY created_at, id`, instanceID)
-}
-
-// waitingEventRows is the messages and signals an instance waits for, as the
-// database holds them.
-func (f *fixture) waitingEventRows(t *testing.T, instanceID uuid.UUID) []string {
-	t.Helper()
-	return f.rowsAsText(t, `
-		SELECT 'node=' || node_id || ' type=' || type || ' event=' || event_name
-		  FROM event_subscriptions WHERE instance_id = ? AND deleted_at IS NULL ORDER BY node_id, event_name`, instanceID)
-}
-
-// rowsAsText reads one text column, asked of the database and not of the code
-// under test.
-func (f *fixture) rowsAsText(t *testing.T, query string, args ...any) []string {
-	t.Helper()
-	var rows []string
-	if err := f.db.WithContext(f.ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
-		t.Fatalf("read the rows: %v", err)
-	}
-	return rows
-}
-
 // coolingOff is start → a one-hour wait → a step → end, and start → the step →
 // end when withWait is false: a version that dropped the wait.
 func coolingOff(projectID uuid.UUID, waitID, workID string, withWait bool) *entities.ProcessDefinition {
@@ -185,10 +156,7 @@ func TestPinASkipOfATimerWaitMovesTheInstanceAndItsTimerIsDismissedWhenDue(t *te
 
 	// The hour passes.
 	instance := f.onlyInstance(t)
-	if err := f.db.WithContext(f.ctx).Exec(
-		`UPDATE jobs SET next_run_at = now() - interval '1 minute' WHERE instance_id = ?`, instance.ID).Error; err != nil {
-		t.Fatalf("bring the timer due: %v", err)
-	}
+	f.bringDue(t, instance.ID)
 	if err := f.svc.ProcessPendingJobs(f.ctx); err != nil {
 		t.Fatalf("process pending jobs: %v", err)
 	}

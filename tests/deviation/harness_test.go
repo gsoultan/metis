@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/instancedeviation"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/app"
@@ -234,9 +235,9 @@ func (h *deviationHarness) sample(instanceID uuid.UUID) entities.Deviation {
 // rowCount is how many ledger rows instanceID has, read straight from the table.
 func (h *deviationHarness) rowCount(t *testing.T, instanceID uuid.UUID) int {
 	t.Helper()
-	var n int
-	if err := h.db.Raw(`SELECT count(*) FROM instance_deviations WHERE instance_id = ?`, instanceID).Row().Scan(&n); err != nil {
+	n, err := instancedeviation.New().InstanceIDEq(instanceID).Count(t.Context(), h.ex())
+	if err != nil {
 		t.Fatalf("count the ledger rows: %v", err)
 	}
-	return n
+	return int(n)
 }

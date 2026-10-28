@@ -11,9 +11,27 @@ package tenant
 import (
 	"context"
 	"errors"
-	"github.com/gsoultan/metis/server/repositories/db"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/auditentry"
+	"github.com/gsoultan/metis/server/repositories/store/connector"
+	"github.com/gsoultan/metis/server/repositories/store/connectorinstance"
+	"github.com/gsoultan/metis/server/repositories/store/decisiondefinition"
+	"github.com/gsoultan/metis/server/repositories/store/decisionrelease"
+	"github.com/gsoultan/metis/server/repositories/store/deployment"
+	"github.com/gsoultan/metis/server/repositories/store/externaltask"
+	"github.com/gsoultan/metis/server/repositories/store/form"
+	"github.com/gsoultan/metis/server/repositories/store/notification"
+	"github.com/gsoultan/metis/server/repositories/store/organization"
+	"github.com/gsoultan/metis/server/repositories/store/processdefinition"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	projectstore "github.com/gsoultan/metis/server/repositories/store/project"
+	"github.com/gsoultan/metis/server/repositories/store/resource"
+	"github.com/gsoultan/metis/server/repositories/store/subscription"
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
+	"github.com/gsoultan/storm/runtime"
 
 	"github.com/gsoultan/metis/internal/pkg/features"
 
@@ -24,7 +42,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/pg"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 const (
@@ -120,63 +137,97 @@ func seedTenantFixture(t *testing.T, db *db.Conn) tenantFixture {
 		taskA: uuid.New(), taskB: uuid.New(),
 	}
 
-	id := func(v uuid.UUID) models.Base { return models.Base{ID: models.FromUUID(v)} }
-
-	seed := []any{
-		&models.OrganizationModel{Base: id(f.orgA), Name: "Org A"},
-		&models.OrganizationModel{Base: id(f.orgB), Name: "Org B"},
-		&models.ProjectModel{Base: id(f.projectA), OrganizationID: models.FromUUID(f.orgA), Name: "Project A"},
-		&models.ProjectModel{Base: id(f.projectB), OrganizationID: models.FromUUID(f.orgB), Name: "Project B"},
-		&models.Connector{Base: id(f.connectorID), Key: sharedConnKey, Name: "Shared template"},
-
-		&models.AuditModel{Base: id(f.auditA), ProjectID: models.FromUUID(f.projectA), InstanceID: models.FromUUID(f.instanceA), Message: "a"},
-		&models.AuditModel{Base: id(f.auditB), ProjectID: models.FromUUID(f.projectB), InstanceID: models.FromUUID(f.instanceB), Message: "b"},
-
-		&models.FormModel{Base: id(f.formA), ProjectID: models.FromUUID(f.projectA), Key: sharedFormKey},
-		&models.FormModel{Base: id(f.formB), ProjectID: models.FromUUID(f.projectB), Key: sharedFormKey},
-
-		&models.DeploymentModel{Base: id(f.deploymentA), ProjectID: models.FromUUID(f.projectA), Name: "dep A"},
-		&models.DeploymentModel{Base: id(f.deploymentB), ProjectID: models.FromUUID(f.projectB), Name: "dep B"},
-		&models.ResourceModel{Base: id(f.resourceA), DeploymentID: models.FromUUID(f.deploymentA), Name: "res A"},
-		&models.ResourceModel{Base: id(f.resourceB), DeploymentID: models.FromUUID(f.deploymentB), Name: "res B"},
-
-		&models.Subscription{Base: id(f.subscriptionA), ProjectID: models.FromUUID(f.projectA), InstanceID: models.FromUUID(f.instanceA), Type: models.SubscriptionSignal, EventName: sharedSignal},
-		&models.Subscription{Base: id(f.subB), ProjectID: models.FromUUID(f.projectB), InstanceID: models.FromUUID(f.instanceB), Type: models.SubscriptionSignal, EventName: sharedSignal},
-
-		&models.ExternalTaskModel{Base: id(f.externalTaskA), ProjectID: models.FromUUID(f.projectA), ProcessInstanceID: models.FromUUID(f.instanceA), Topic: sharedTopic, Retries: 3},
-		&models.ExternalTaskModel{Base: id(f.extB), ProjectID: models.FromUUID(f.projectB), ProcessInstanceID: models.FromUUID(f.instanceB), Topic: sharedTopic, Retries: 3},
-
-		&models.ConnectorInstance{Base: id(f.connectorInstA), ProjectID: models.FromUUID(f.projectA), ConnectorID: models.FromUUID(f.connectorID), Name: "conn A"},
-		&models.ConnectorInstance{Base: id(f.connInstB), ProjectID: models.FromUUID(f.projectB), ConnectorID: models.FromUUID(f.connectorID), Name: "conn B"},
-
-		// Definitions and decisions share a key across organizations, which
-		// nothing prevents — key is unique per project, not globally.
-		&models.ProcessDefinitionModel{Base: id(f.definitionA), ProjectID: models.FromUUID(f.projectA), Key: sharedDefinitionKey, Name: "def A", Version: 1},
-		&models.ProcessDefinitionModel{Base: id(f.definitionB), ProjectID: models.FromUUID(f.projectB), Key: sharedDefinitionKey, Name: "def B", Version: 2},
-		&models.DecisionDefinitionModel{Base: id(f.decisionA), ProjectID: models.FromUUID(f.projectA), Key: sharedDecisionKey, Name: "dec A", Version: 1},
-		&models.DecisionDefinitionModel{Base: id(f.decisionB), ProjectID: models.FromUUID(f.projectB), Key: sharedDecisionKey, Name: "dec B", Version: 2},
-		// Each is its key's live version, so a live lookup has an answer in
-		// both organizations to get wrong.
-		&models.DecisionReleaseModel{Base: id(uuid.New()), ProjectID: models.FromUUID(f.projectA), DecisionKey: sharedDecisionKey, Version: 1, ActivateAt: time.Now().Add(-time.Hour)},
-		&models.DecisionReleaseModel{Base: id(uuid.New()), ProjectID: models.FromUUID(f.projectB), DecisionKey: sharedDecisionKey, Version: 2, ActivateAt: time.Now().Add(-time.Hour)},
-
-		&models.ProcessInstanceModel{Base: id(f.instanceA), ProjectID: models.FromUUID(f.projectA), DefinitionID: models.FromUUID(f.definitionA), Status: models.ProcessActive},
-		&models.ProcessInstanceModel{Base: id(f.instanceB), ProjectID: models.FromUUID(f.projectB), DefinitionID: models.FromUUID(f.definitionB), Status: models.ProcessActive},
-
-		&models.TaskModel{Base: id(f.taskA), ProjectID: models.FromUUID(f.projectA), InstanceID: models.FromUUID(f.instanceA), Name: "task A", Status: models.TaskUnclaimed},
-		&models.TaskModel{Base: id(f.taskB), ProjectID: models.FromUUID(f.projectB), InstanceID: models.FromUUID(f.instanceB), Name: "task B", Status: models.TaskUnclaimed},
-
-		// Both organizations address a notification to the same user id, plus
-		// one system notification that belongs to no project at all.
-		&models.NotificationModel{Base: id(f.notificationA), UserID: sharedUserID, ProjectID: models.FromUUIDPtr(&f.projectA), Title: "a"},
-		&models.NotificationModel{Base: id(f.notifB), UserID: sharedUserID, ProjectID: models.FromUUIDPtr(&f.projectB), Title: "b"},
-		&models.NotificationModel{Base: id(f.systemNotification), UserID: sharedUserID, Title: "system"},
-	}
-	for _, row := range seed {
-		if err := db.Create(row).Error; err != nil {
-			t.Fatalf("seed %T: %v", row, err)
+	ctx, ex := t.Context(), testutils.Executor(db)
+	now := time.Now()
+	insert := func(_ int64, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("seed: %v", err)
 		}
 	}
+	project := func(v uuid.UUID) runtime.Null[[16]byte] { return runtime.Null[[16]byte]{V: v, Valid: true} }
+	empty, none := runtime.JSON("[]"), runtime.JSON("{}")
+
+	insert(organization.InsertAll(ctx, ex, []organization.Row{
+		{ID: f.orgA, CreatedAt: now, UpdatedAt: now, Name: "Org A"},
+		{ID: f.orgB, CreatedAt: now, UpdatedAt: now, Name: "Org B"},
+	}))
+	insert(projectstore.InsertAll(ctx, ex, []projectstore.Row{
+		{ID: f.projectA, CreatedAt: now, UpdatedAt: now, OrganizationID: f.orgA, Name: "Project A"},
+		{ID: f.projectB, CreatedAt: now, UpdatedAt: now, OrganizationID: f.orgB, Name: "Project B"},
+	}))
+	insert(connector.InsertAll(ctx, ex, []connector.Row{
+		{ID: f.connectorID, CreatedAt: now, UpdatedAt: now, Key: sharedConnKey, Name: "Shared template", Properties: empty},
+	}))
+
+	// Definitions and decisions share a key across organizations, which
+	// nothing prevents — key is unique per project, not globally.
+	insert(processdefinition.InsertAll(ctx, ex, []processdefinition.Row{
+		{ID: f.definitionA, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectA, Key: sharedDefinitionKey, Name: "def A", Version: 1, Nodes: empty, Flows: empty},
+		{ID: f.definitionB, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectB, Key: sharedDefinitionKey, Name: "def B", Version: 2, Nodes: empty, Flows: empty},
+	}))
+	decision := func(id, project uuid.UUID, name string, version int64) decisiondefinition.Row {
+		return decisiondefinition.Row{ID: id, CreatedAt: now, UpdatedAt: now, ProjectID: project, Key: sharedDecisionKey, Name: name, Version: version,
+			RequiredDecisions: empty, Inputs: empty, Outputs: empty, Rules: empty, Tests: empty}
+	}
+	insert(decisiondefinition.InsertAll(ctx, ex, []decisiondefinition.Row{
+		decision(f.decisionA, f.projectA, "dec A", 1),
+		decision(f.decisionB, f.projectB, "dec B", 2),
+	}))
+	// Each is its key's live version, so a live lookup has an answer in
+	// both organizations to get wrong.
+	insert(decisionrelease.InsertAll(ctx, ex, []decisionrelease.Row{
+		{ID: uuid.New(), CreatedAt: now, UpdatedAt: now, ProjectID: f.projectA, DecisionKey: sharedDecisionKey, Version: 1, ActivateAt: now.Add(-time.Hour)},
+		{ID: uuid.New(), CreatedAt: now, UpdatedAt: now, ProjectID: f.projectB, DecisionKey: sharedDecisionKey, Version: 2, ActivateAt: now.Add(-time.Hour)},
+	}))
+	instance := func(id, project, definition uuid.UUID) processinstance.Row {
+		return processinstance.Row{ID: id, CreatedAt: now, UpdatedAt: now, ProjectID: project, DefinitionID: definition,
+			Status: string(models.ProcessActive), Tokens: empty, CompletedNodes: empty, CompensatedNodes: empty, MultiInstance: none, Joins: none}
+	}
+	insert(processinstance.InsertAll(ctx, ex, []processinstance.Row{
+		instance(f.instanceA, f.projectA, f.definitionA),
+		instance(f.instanceB, f.projectB, f.definitionB),
+	}))
+
+	insert(auditentry.InsertAll(ctx, ex, []auditentry.Row{
+		{ID: f.auditA, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectA, InstanceID: f.instanceA, Message: "a", Data: none},
+		{ID: f.auditB, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectB, InstanceID: f.instanceB, Message: "b", Data: none},
+	}))
+	insert(form.InsertAll(ctx, ex, []form.Row{
+		{ID: f.formA, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectA, Key: sharedFormKey, Fields: none},
+		{ID: f.formB, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectB, Key: sharedFormKey, Fields: none},
+	}))
+	insert(deployment.InsertAll(ctx, ex, []deployment.Row{
+		{ID: f.deploymentA, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectA, Name: "dep A"},
+		{ID: f.deploymentB, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectB, Name: "dep B"},
+	}))
+	insert(resource.InsertAll(ctx, ex, []resource.Row{
+		{ID: f.resourceA, CreatedAt: now, UpdatedAt: now, DeploymentID: f.deploymentA, Name: "res A"},
+		{ID: f.resourceB, CreatedAt: now, UpdatedAt: now, DeploymentID: f.deploymentB, Name: "res B"},
+	}))
+	insert(subscription.InsertAll(ctx, ex, []subscription.Row{
+		{ID: f.subscriptionA, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectA, InstanceID: f.instanceA, Type: string(models.SubscriptionSignal), EventName: sharedSignal},
+		{ID: f.subB, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectB, InstanceID: f.instanceB, Type: string(models.SubscriptionSignal), EventName: sharedSignal},
+	}))
+	insert(externaltask.InsertAll(ctx, ex, []externaltask.Row{
+		{ID: f.externalTaskA, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectA, InstanceID: f.instanceA, DefinitionID: f.definitionA, Topic: sharedTopic, Retries: 3, Variables: none},
+		{ID: f.extB, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectB, InstanceID: f.instanceB, DefinitionID: f.definitionB, Topic: sharedTopic, Retries: 3, Variables: none},
+	}))
+	insert(connectorinstance.InsertAll(ctx, ex, []connectorinstance.Row{
+		{ID: f.connectorInstA, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectA, ConnectorID: f.connectorID, Name: "conn A"},
+		{ID: f.connInstB, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectB, ConnectorID: f.connectorID, Name: "conn B"},
+	}))
+	insert(taskstore.InsertAll(ctx, ex, []taskstore.Row{
+		{ID: f.taskA, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectA, InstanceID: f.instanceA, Name: "task A", Status: string(models.TaskUnclaimed), CandidateUsers: empty, CandidateGroups: empty},
+		{ID: f.taskB, CreatedAt: now, UpdatedAt: now, ProjectID: f.projectB, InstanceID: f.instanceB, Name: "task B", Status: string(models.TaskUnclaimed), CandidateUsers: empty, CandidateGroups: empty},
+	}))
+	// Both organizations address a notification to the same user id, plus
+	// one system notification that belongs to no project at all.
+	insert(notification.InsertAll(ctx, ex, []notification.Row{
+		{ID: f.notificationA, CreatedAt: now, UpdatedAt: now, UserID: sharedUserID, ProjectID: project(f.projectA), Title: "a"},
+		{ID: f.notifB, CreatedAt: now, UpdatedAt: now, UserID: sharedUserID, ProjectID: project(f.projectB), Title: "b"},
+		{ID: f.systemNotification, CreatedAt: now, UpdatedAt: now, UserID: sharedUserID, Title: "system"},
+	}))
 	return f
 }
 
@@ -498,21 +549,21 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 				name:  "delete another tenant's form",
 				write: func() error { return pg.NewFormRepository(db).Delete(ctx, f.formB) },
 				unchanged: func() bool {
-					return rowExists(t, db, &models.FormModel{}, "forms", f.formB)
+					return stillThere(t)(form.New().IDEq(f.formB).One(t.Context(), testutils.Executor(db)))
 				},
 			},
 			{
 				name:  "delete another tenant's definition",
 				write: func() error { return pg.NewDefinitionRepository(db).Delete(ctx, f.definitionB) },
 				unchanged: func() bool {
-					return rowExists(t, db, &models.ProcessDefinitionModel{}, "process_definitions", f.definitionB)
+					return stillThere(t)(processdefinition.New().IDEq(f.definitionB).One(t.Context(), testutils.Executor(db)))
 				},
 			},
 			{
 				name:  "delete another tenant's decision",
 				write: func() error { return pg.NewDecisionRepository(db).Delete(ctx, f.decisionB) },
 				unchanged: func() bool {
-					return rowExists(t, db, &models.DecisionDefinitionModel{}, "decision_definitions", f.decisionB)
+					return stillThere(t)(decisiondefinition.New().IDEq(f.decisionB).One(t.Context(), testutils.Executor(db)))
 				},
 			},
 			{
@@ -521,7 +572,7 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 					return pg.NewConnectorInstanceRepository(db).Delete(ctx, f.connInstB)
 				},
 				unchanged: func() bool {
-					return rowExists(t, db, &models.ConnectorInstance{}, "connector_instances", f.connInstB)
+					return stillThere(t)(connectorinstance.New().IDEq(f.connInstB).One(t.Context(), testutils.Executor(db)))
 				},
 			},
 			{
@@ -534,10 +585,7 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 					})
 				},
 				unchanged: func() bool {
-					var m models.ConnectorInstance
-					if err := db.First(&m, "id = ?", models.FromUUID(f.connInstB)).Error; err != nil {
-						t.Fatalf("reload connector instance: %v", err)
-					}
+					m := reload[connectorinstance.Row](t)(connectorinstance.New().IDEq(f.connInstB).One(t.Context(), testutils.Executor(db)))
 					return m.Name == "conn B" && uuid.UUID(m.ProjectID) == f.projectB
 				},
 			},
@@ -548,7 +596,7 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 					return pg.NewNotificationRepository(db).Delete(ctx, f.notifB, sharedUserID)
 				},
 				unchanged: func() bool {
-					return rowExists(t, db, &models.NotificationModel{}, "notifications", f.notifB)
+					return stillThere(t)(notification.New().IDEq(f.notifB).One(t.Context(), testutils.Executor(db)))
 				},
 			},
 			{
@@ -558,10 +606,7 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 					return pg.NewNotificationRepository(db).MarkAsRead(ctx, f.notifB, sharedUserID)
 				},
 				unchanged: func() bool {
-					var m models.NotificationModel
-					if err := db.First(&m, "id = ?", models.FromUUID(f.notifB)).Error; err != nil {
-						t.Fatalf("reload notification: %v", err)
-					}
+					m := reload[notification.Row](t)(notification.New().IDEq(f.notifB).One(t.Context(), testutils.Executor(db)))
 					return !m.IsRead
 				},
 			},
@@ -569,7 +614,7 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 				name:  "delete another tenant's subscription",
 				write: func() error { return pg.NewSubscriptionRepository(db).Delete(ctx, f.subB) },
 				unchanged: func() bool {
-					return rowExists(t, db, &models.Subscription{}, "event_subscriptions", f.subB)
+					return stillThere(t)(subscription.New().IDEq(f.subB).One(t.Context(), testutils.Executor(db)))
 				},
 			},
 			{
@@ -578,11 +623,8 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 					return pg.NewSubscriptionRepository(db).UpdateCorrelationKey(ctx, f.subB, "hijacked")
 				},
 				unchanged: func() bool {
-					var m models.Subscription
-					if err := db.First(&m, "id = ?", models.FromUUID(f.subB)).Error; err != nil {
-						t.Fatalf("reload subscription: %v", err)
-					}
-					return m.CorrelationKey != "hijacked"
+					m := reload[subscription.Row](t)(subscription.New().IDEq(f.subB).One(t.Context(), testutils.Executor(db)))
+					return m.CorrelationKey.V != "hijacked"
 				},
 			},
 			{
@@ -595,10 +637,7 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 					})
 				},
 				unchanged: func() bool {
-					var m models.ExternalTaskModel
-					if err := db.First(&m, "id = ?", models.FromUUID(f.extB)).Error; err != nil {
-						t.Fatalf("reload external task: %v", err)
-					}
+					m := reload[externaltask.Row](t)(externaltask.New().IDEq(f.extB).One(t.Context(), testutils.Executor(db)))
 					return m.Topic == sharedTopic && uuid.UUID(m.ProjectID) == f.projectB
 				},
 			},
@@ -606,7 +645,7 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 				name:  "delete another tenant's external task",
 				write: func() error { return pg.NewExternalTaskRepository(db).Delete(ctx, f.extB) },
 				unchanged: func() bool {
-					return rowExists(t, db, &models.ExternalTaskModel{}, "external_tasks", f.extB)
+					return stillThere(t)(externaltask.New().IDEq(f.extB).One(t.Context(), testutils.Executor(db)))
 				},
 			},
 			{
@@ -615,11 +654,8 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 					return pg.NewTaskRepository(db).UpdateStatus(ctx, f.taskB, models.TaskCompleted)
 				},
 				unchanged: func() bool {
-					var m models.TaskModel
-					if err := db.First(&m, "id = ?", models.FromUUID(f.taskB)).Error; err != nil {
-						t.Fatalf("reload task: %v", err)
-					}
-					return m.Status == models.TaskUnclaimed
+					m := reload[taskstore.Row](t)(taskstore.New().IDEq(f.taskB).One(t.Context(), testutils.Executor(db)))
+					return m.Status == string(models.TaskUnclaimed)
 				},
 			},
 			{
@@ -632,10 +668,7 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 					})
 				},
 				unchanged: func() bool {
-					var m models.TaskModel
-					if err := db.First(&m, "id = ?", models.FromUUID(f.taskB)).Error; err != nil {
-						t.Fatalf("reload task: %v", err)
-					}
+					m := reload[taskstore.Row](t)(taskstore.New().IDEq(f.taskB).One(t.Context(), testutils.Executor(db)))
 					return m.Name == "task B" && uuid.UUID(m.ProjectID) == f.projectB
 				},
 			},
@@ -649,11 +682,8 @@ func TestTenantIsolation_WritesDenyOtherTenants(t *testing.T) {
 					})
 				},
 				unchanged: func() bool {
-					var m models.ProcessInstanceModel
-					if err := db.First(&m, "id = ?", models.FromUUID(f.instanceB)).Error; err != nil {
-						t.Fatalf("reload instance: %v", err)
-					}
-					return m.Status == models.ProcessActive && uuid.UUID(m.ProjectID) == f.projectB
+					m := reload[processinstance.Row](t)(processinstance.New().IDEq(f.instanceB).One(t.Context(), testutils.Executor(db)))
+					return m.Status == string(models.ProcessActive) && uuid.UUID(m.ProjectID) == f.projectB
 				},
 			},
 		}
@@ -724,10 +754,7 @@ func TestTenantIsolation_OwnWritesStillSucceed(t *testing.T) {
 
 		// Marking the whole inbox read must not have reached the other tenant's
 		// notification, which shares the user id.
-		var other models.NotificationModel
-		if err := db.First(&other, "id = ?", models.FromUUID(f.notifB)).Error; err != nil {
-			t.Fatalf("reload other tenant's notification: %v", err)
-		}
+		other := reload[notification.Row](t)(notification.New().IDEq(f.notifB).One(t.Context(), testutils.Executor(db)))
 		if other.IsRead {
 			t.Error("MarkAllAsRead crossed into the other tenant's inbox")
 		}
@@ -778,7 +805,7 @@ func TestTenantIsolation_ProjectsAreScoped(t *testing.T) {
 			if err := repo.Delete(ctx, f.projectB); !errors.Is(err, apierr.ErrNotFound) {
 				t.Errorf("got %v, want %v", err, apierr.ErrNotFound)
 			}
-			if !rowExists(t, db, &models.ProjectModel{}, "projects", f.projectB) {
+			if !stillThere(t)(projectstore.New().IDEq(f.projectB).One(t.Context(), testutils.Executor(db))) {
 				t.Fatal("the delete was refused but the project is gone")
 			}
 		})
@@ -868,22 +895,35 @@ func TestTenantIsolation_CreateIntoOwnProjectSucceeds(t *testing.T) {
 			t.Errorf("create into own project: %v", err)
 		}
 		if err := pg.NewTaskRepository(db).Create(ctx, models.TaskModel{
-			Base: models.Base{ID: models.FromUUID(uuid.New())}, ProjectID: own, Name: "mine",
+			Base: models.Base{ID: models.FromUUID(uuid.New())}, ProjectID: own, InstanceID: models.FromUUID(f.instanceA), Name: "mine",
 		}); err != nil {
 			t.Errorf("create task into own project: %v", err)
 		}
 	})
 }
 
-// rowExists reports whether a row is still present, ignoring the tenant scope —
-// these assertions check the database, not the repository.
-func rowExists(t *testing.T, db *db.Conn, model any, table string, id uuid.UUID) bool {
-	t.Helper()
-	var count int64
-	if err := db.Model(model).Where(table+".id = ?", models.FromUUID(id)).Count(&count).Error; err != nil {
-		t.Fatalf("existence check on %s: %v", table, err)
+// stillThere reports whether a store's read found the row, not deleted. The
+// store is read outside the tenant scope — these assertions check the database,
+// not the repository.
+func stillThere(t *testing.T) func(any, bool, error) bool {
+	return func(_ any, found bool, err error) bool {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("existence check: %v", err)
+		}
+		return found
 	}
-	return count == 1
+}
+
+// reload is the row a store's read found, which must be there.
+func reload[R any](t *testing.T) func(R, bool, error) R {
+	return func(row R, found bool, err error) R {
+		t.Helper()
+		if err != nil || !found {
+			t.Fatalf("reload: %v (found=%v)", err, found)
+		}
+		return row
+	}
 }
 
 // TestTenantIsolation_OwnRowsStillReadable guards the other direction: the scope
@@ -1069,13 +1109,8 @@ func assertSameIDs(t *testing.T, got, want []uuid.UUID) {
 	}
 }
 
-// isNotFound accepts either sentinel a repository may answer a denial with.
-//
-// The GORM repositories return gorm.ErrRecordNotFound; the storm ones return
-// apierr.ErrNotFound, which is what every repository will return once the port
-// finishes — a persistence contract that leaks its ORM's sentinel is one of the
-// things the port removes. Accepting both is temporary and deliberate: the
-// property under test is that the row is denied, not which package named it.
+// isNotFound reports the answer a repository gives a row it will not show:
+// apierr.ErrNotFound, whether the row is missing or another tenant's.
 func isNotFound(err error) bool {
-	return errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, apierr.ErrNotFound)
+	return errors.Is(err, apierr.ErrNotFound)
 }

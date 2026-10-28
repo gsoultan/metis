@@ -18,8 +18,9 @@ func TestTheLockCountsOnlyATakeover(t *testing.T) {
 	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	ctx := entities.WithSystemContext(t.Context())
 	jobs := repo.Job()
+	definition, instance := aCase(t, repo)
 	id, err := jobs.Create(ctx, models.JobModel{
-		Base: models.Base{ID: models.UUID(uuid.New())},
+		Base: models.Base{ID: models.UUID(uuid.New())}, InstanceID: models.UUID(instance), DefinitionID: models.UUID(definition),
 		Type: "timer", Status: models.JobPending, NextRunAt: time.Now().UTC(),
 	})
 	if err != nil {

@@ -6,6 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/metis/server/repositories/store/decisiondefinition"
+	"github.com/gsoultan/metis/server/repositories/store/decisionrelease"
+	projectstore "github.com/gsoultan/metis/server/repositories/store/project"
+	"github.com/gsoultan/storm/runtime"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/contracts"
@@ -23,39 +28,47 @@ func TestDecisionKeysShowTheLiveVersionOrTheNewest(t *testing.T) {
 	ctx, _, project := testutils.ScopedProject(t, repo)
 	_, _, elsewhere := testutils.ScopedProject(t, repo)
 	sibling := uuid.Must(uuid.NewV7())
-	exec := func(sql string, args ...any) {
-		t.Helper()
-		if err := db.Exec(sql, args...).Error; err != nil {
-			t.Fatalf("%s: %v", sql, err)
-		}
+	ex := testutils.Executor(db)
+	home, found, err := projectstore.New().IDEq(project).One(ctx, ex)
+	if err != nil || !found {
+		t.Fatalf("read the organization: %v (found=%v)", err, found)
 	}
-	org := ""
-	if err := db.Raw(`SELECT organization_id::text FROM projects WHERE id = ?`, project).Scan(&org).Error; err != nil {
-		t.Fatalf("read the organization: %v", err)
+	sib := projectstore.Create()
+	sib.SetID(sibling)
+	sib.SetOrganizationID(home.OrganizationID)
+	sib.SetName("Sibling")
+	if _, err := sib.Insert(ctx, ex); err != nil {
+		t.Fatalf("seed the sibling project: %v", err)
 	}
-	exec(`INSERT INTO projects (id, created_at, updated_at, organization_id, name) VALUES (?, now(), now(), ?, 'Sibling')`, sibling, org)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	saved := now.Add(-3 * time.Hour)
+	empty := runtime.JSON("[]")
 	def := func(project uuid.UUID, key string, version int, required string, gone bool) {
 		t.Helper()
-		var deleted any
-		if gone {
-			deleted = now
+		row := decisiondefinition.Row{
+			ID: uuid.Must(uuid.NewV7()), CreatedAt: saved.Add(time.Duration(version) * time.Minute), UpdatedAt: saved,
+			ProjectID: project, Key: key, Name: fmt.Sprintf("%s v%d", key, version), Version: int64(version), HitPolicy: "FIRST",
+			RequiredDecisions: runtime.JSON(required), Inputs: empty, Outputs: empty, Rules: empty, Tests: empty,
 		}
-		exec(`INSERT INTO decision_definitions (id, created_at, updated_at, project_id, key, name, version, hit_policy,
-		                                      required_decisions, inputs, outputs, rules, tests, deleted_at)
-		      VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, 'FIRST', ?, '[]', '[]', '[]', '[]', ?)`,
-			saved.Add(time.Duration(version)*time.Minute), saved, project, key, fmt.Sprintf("%s v%d", key, version), version, required, deleted)
+		if gone {
+			row.DeletedAt = runtime.Null[time.Time]{V: now, Valid: true}
+		}
+		if _, err := decisiondefinition.InsertAll(ctx, ex, []decisiondefinition.Row{row}); err != nil {
+			t.Fatalf("seed %s v%d: %v", key, version, err)
+		}
 	}
 	release := func(project uuid.UUID, key string, version int, at time.Time, gone bool) {
 		t.Helper()
-		var deleted any
+		stamp := time.Now()
+		row := decisionrelease.Row{ID: uuid.Must(uuid.NewV7()), CreatedAt: stamp, UpdatedAt: stamp,
+			ProjectID: project, DecisionKey: key, ActivateAt: at, Version: int64(version)}
 		if gone {
-			deleted = now
+			row.DeletedAt = runtime.Null[time.Time]{V: now, Valid: true}
 		}
-		exec(`INSERT INTO decision_releases (id, created_at, updated_at, project_id, decision_key, activate_at, version, deleted_at)
-		      VALUES (gen_random_uuid(), now(), now(), ?, ?, ?, ?, ?)`, project, key, at, version, deleted)
+		if _, err := decisionrelease.InsertAll(ctx, ex, []decisionrelease.Row{row}); err != nil {
+			t.Fatalf("seed the release of %s v%d: %v", key, version, err)
+		}
 	}
 	def(project, "alpha", 1, `[]`, false)
 	def(project, "alpha", 2, `["beta"]`, false)

@@ -38,15 +38,7 @@ func (h engineHarness) startWaiting(t *testing.T, key string) uuid.UUID {
 // started after it; parent names the instance that called them, if any.
 func (h engineHarness) seedInstances(t *testing.T, like uuid.UUID, parent *uuid.UUID, n int) {
 	t.Helper()
-	if err := h.db.WithContext(h.Ctx()).Exec(`
-		INSERT INTO process_instances (id, created_at, updated_at, project_id, definition_id, parent_instance_id,
-		                               status, variables, tokens, completed_nodes, compensated_nodes, multi_instance, joins)
-		SELECT gen_random_uuid(), now() + interval '1 minute', now() + interval '1 minute', ?,
-		       (SELECT definition_id FROM process_instances WHERE id = ?), ?,
-		       'active', '', '[]', '[]', '[]', '{}', '{}'
-		  FROM generate_series(1, ?) AS n`, h.projID, like, parent, n).Error; err != nil {
-		t.Fatalf("seed %d instances: %v", n, err)
-	}
+	h.seedInstancesLike(h.Ctx(), t, like, parent, "active", n)
 }
 
 // Every sub-process an instance started is listed under it.

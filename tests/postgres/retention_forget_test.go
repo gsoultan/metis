@@ -4,6 +4,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
+	"github.com/gsoultan/metis/server/repositories/store/incident"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	"github.com/gsoultan/storm/runtime"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories"
@@ -20,12 +25,7 @@ func TestTheSweepKeepsWhatAFinishedInstanceIsStillNeededFor(t *testing.T) {
 	repo := repositories.NewRepository(db)
 	ctx, _, project := testutils.ScopedProject(t, repo)
 	definition := seedDefinition(t, db, project, 1)
-	exec := func(sql string, args ...any) {
-		t.Helper()
-		if err := db.Exec(sql, args...).Error; err != nil {
-			t.Fatalf("%s: %v", sql, err)
-		}
-	}
+	ex := testutils.Executor(db)
 	instances := map[string]uuid.UUID{}
 	instance := func(name string, status models.ProcessStatus, parent uuid.UUID) uuid.UUID {
 		t.Helper()
@@ -36,9 +36,9 @@ func TestTheSweepKeepsWhatAFinishedInstanceIsStillNeededFor(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("seed the %s instance: %v", name, err)
 		}
-		exec(`UPDATE process_instances SET updated_at = now() - interval '60 days' WHERE id = ?`, id)
+		ageInstance(t, db, id, 60*24*time.Hour)
 		if parent != uuid.Nil {
-			exec(`UPDATE process_instances SET parent_instance_id = ? WHERE id = ?`, parent, id)
+			rewriteInstance(t, db, id, func(m *processinstance.Mut) { m.SetParentInstanceID(parent) })
 		}
 		instances[name] = id
 		return id
@@ -49,13 +49,26 @@ func TestTheSweepKeepsWhatAFinishedInstanceIsStillNeededFor(t *testing.T) {
 	parent := instance("parent of a running child", models.ProcessCompleted, uuid.Nil)
 	instance("running child", models.ProcessActive, parent)
 	asked := instance("deviation asked for", models.ProcessCompleted, uuid.Nil)
-	exec(`INSERT INTO deviation_requests (id, project_id, kind, status, instance_id, requested_by, requested_by_id, reason, command, plan, fingerprint, approved_instances, outcome, expires_at)
-	      VALUES (gen_random_uuid(), ?, 'waive', 'pending', ?, 'ada', gen_random_uuid(), 'test', '{}', '{}', 'f', '[]', '{}', now() + interval '1 day')`, project, asked)
+	now := time.Now()
+	if _, err := deviationrequest.InsertAll(t.Context(), ex, []deviationrequest.Row{{
+		ID: uuid.Must(uuid.NewV7()), CreatedAt: now, UpdatedAt: now, ProjectID: project, Kind: "waive", Status: "pending",
+		InstanceID: runtime.Null[[16]byte]{V: asked, Valid: true}, RequestedBy: "ada", RequestedByID: uuid.New(), Reason: "test",
+		Command: runtime.JSON("{}"), Plan: runtime.JSON("{}"), Fingerprint: "f", ApprovedInstances: runtime.JSON("[]"),
+		Outcome: runtime.JSON("{}"), ExpiresAt: now.Add(24 * time.Hour),
+	}}); err != nil {
+		t.Fatalf("seed the deviation request: %v", err)
+	}
 	faulted := instance("incident open, marked removed", models.ProcessCompleted, uuid.Nil)
-	exec(`INSERT INTO incidents (id, instance_id, node_id, error, status, deleted_at) VALUES (gen_random_uuid(), ?, 'charge', 'declined', ?, now())`,
-		faulted, string(models.IncidentOpen))
+	if _, err := incident.InsertAll(t.Context(), ex, []incident.Row{{
+		ID: uuid.Must(uuid.NewV7()), CreatedAt: now, UpdatedAt: now, DeletedAt: runtime.Null[time.Time]{V: now, Valid: true},
+		InstanceID: faulted, NodeID: "charge", Error: "declined", Status: string(models.IncidentOpen),
+	}}); err != nil {
+		t.Fatalf("seed the incident: %v", err)
+	}
 	marked := instance("marked removed", models.ProcessCompleted, uuid.Nil)
-	exec(`UPDATE process_instances SET deleted_at = now() WHERE id = ?`, marked)
+	if err := processinstance.Delete(t.Context(), ex, marked); err != nil {
+		t.Fatalf("mark the instance removed: %v", err)
+	}
 	instance("plain", models.ProcessCompleted, uuid.Nil)
 
 	if _, err := repo.Process().ForgetFinished(entities.WithSystemContext(t.Context()), time.Now(), 30*24*time.Hour); err != nil {
@@ -63,8 +76,8 @@ func TestTheSweepKeepsWhatAFinishedInstanceIsStillNeededFor(t *testing.T) {
 	}
 	gone := map[string]bool{"marked removed": true, "plain": true}
 	for name, id := range instances {
-		var left int64
-		if err := db.Raw(`SELECT count(*) FROM process_instances WHERE id = ?`, id).Scan(&left).Error; err != nil {
+		left, err := processinstance.New().WithDeleted().IDEq(id).Count(t.Context(), ex)
+		if err != nil {
 			t.Fatalf("read the %s instance: %v", name, err)
 		}
 		if (left == 0) != gone[name] {

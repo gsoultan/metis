@@ -10,6 +10,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/auditentry"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -38,13 +39,25 @@ func TestNodeVisitsAreInTheOrderTheTrailFirstReachedThem(t *testing.T) {
 	at := time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)
 	entry := func(inst uuid.UUID, kind string, node any, seq any, when time.Time, removed bool) {
 		t.Helper()
-		var deleted any
-		if removed {
-			deleted = when
+		row := auditentry.Create()
+		row.SetCreatedAt(when)
+		row.SetUpdatedAt(when)
+		row.SetProjectID(project)
+		row.SetInstanceID(inst)
+		row.SetType(kind)
+		row.SetMessage("test")
+		row.SetData(nil)
+		if node, ok := node.(string); ok {
+			row.SetNodeID(node)
 		}
-		if err := db.Exec(`INSERT INTO audit_logs (id, created_at, updated_at, project_id, instance_id, type, node_id, message, seq, deleted_at)
-			VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, 'test', ?, ?)`,
-			when, when, project, inst, kind, node, seq, deleted).Error; err != nil {
+		// An entry written before entries were numbered reads as 0.
+		if seq, ok := seq.(int); ok {
+			row.SetSeq(int64(seq))
+		}
+		if removed {
+			row.SetDeletedAt(when)
+		}
+		if _, err := row.Insert(t.Context(), testutils.Executor(db)); err != nil {
 			t.Fatalf("seed an entry: %v", err)
 		}
 	}

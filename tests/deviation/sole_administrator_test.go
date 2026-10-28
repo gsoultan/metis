@@ -325,10 +325,11 @@ func TestASoleAdministratorApprovesTheirOwnRequestAndTheRecordSaysNobodyElseDid(
 
 	// The request, as stored and as read again: decided by the account that
 	// asked.
-	var requestedBy, decidedBy, stored, reason string
-	if err := h.db.Raw(`SELECT requested_by_id::text, decided_by_id::text, status, decision_reason FROM deviation_requests WHERE id = ?`, requestID).
-		Row().Scan(&requestedBy, &decidedBy, &stored, &reason); err != nil {
-		t.Fatalf("read the request: %v", err)
+	request := h.requestRow(t, uuid.MustParse(requestID))
+	requestedBy, stored, reason := uuid.UUID(request.RequestedByID).String(), request.Status, request.DecisionReason.V
+	decidedBy := ""
+	if request.DecidedByID.Valid {
+		decidedBy = uuid.UUID(request.DecidedByID.V).String()
 	}
 	if stored != "applied" || decidedBy != requestedBy || decidedBy != h.accountID(t, "boss").String() || reason != why {
 		t.Fatalf("the request is stored %s, asked by %s and decided by %s for %q; want applied, by boss's account both times", stored, requestedBy, decidedBy, reason)

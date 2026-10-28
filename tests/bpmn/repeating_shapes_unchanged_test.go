@@ -1,6 +1,8 @@
 package bpmn_test
 
 import (
+	"cmp"
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,8 +14,15 @@ import (
 	"testing"
 	"time"
 
+	jobstore "github.com/gsoultan/metis/server/repositories/store/job"
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
+	"github.com/gsoultan/storm/runtime"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/externaltask"
+	"github.com/gsoultan/metis/server/repositories/store/incident"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -76,14 +85,22 @@ type shapeCount struct {
 	N      int
 }
 
-func (r *shapeRun) counts(query string) string {
+func (r *shapeRun) counts(rows []shapeCount) string {
 	r.t.Helper()
-	var rows []shapeCount
-	if err := r.h.db.Raw(query, r.id).Scan(&rows).Error; err != nil {
-		r.t.Fatalf("count: %v", err)
-	}
-	parts := make([]string, 0, len(rows))
+	slices.SortFunc(rows, func(a, b shapeCount) int {
+		return cmp.Or(cmp.Compare(a.NodeID, b.NodeID), cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.Status, b.Status))
+	})
+	var grouped []shapeCount
 	for _, row := range rows {
+		if n := len(grouped); n > 0 && grouped[n-1].NodeID == row.NodeID && grouped[n-1].Kind == row.Kind && grouped[n-1].Status == row.Status {
+			grouped[n-1].N++
+			continue
+		}
+		row.N = 1
+		grouped = append(grouped, row)
+	}
+	parts := make([]string, 0, len(grouped))
+	for _, row := range grouped {
 		label := row.NodeID
 		if row.Kind != "" {
 			label += ":" + row.Kind
@@ -94,6 +111,21 @@ func (r *shapeRun) counts(query string) string {
 		parts = append(parts, fmt.Sprintf("%s×%d", strings.TrimPrefix(label, ":"), row.N))
 	}
 	return "[" + strings.Join(parts, " ") + "]"
+}
+
+// rowsOf reads every row of the instance's a query asks for, each as its
+// shape counts it.
+func rowsOf[R any](r *shapeRun, what string, read func(context.Context, runtime.Executor, []R) ([]R, error), shape func(R) shapeCount) []shapeCount {
+	r.t.Helper()
+	rows, err := read(r.h.Ctx(), r.h.ex(), nil)
+	if err != nil {
+		r.t.Fatalf("count %s: %v", what, err)
+	}
+	shaped := make([]shapeCount, 0, len(rows))
+	for _, row := range rows {
+		shaped = append(shaped, shape(row))
+	}
+	return shaped
 }
 
 // state is everything about the instance that a different engine rule could
@@ -125,16 +157,18 @@ func (r *shapeRun) state() string {
 
 	state := fmt.Sprintf("status=%s tokens=%v counting=%v tasks=%s parked=%s jobs=%s incidents=%s called=%s",
 		instance.Status, tokens, counting,
-		r.counts(`SELECT node_id, status, count(*) AS n FROM tasks
-			WHERE instance_id = ? AND deleted_at IS NULL GROUP BY 1, 2 ORDER BY 1, 2`),
-		r.counts(`SELECT node_id, count(*) AS n FROM external_tasks
-			WHERE instance_id = ? AND deleted_at IS NULL GROUP BY 1 ORDER BY 1`),
-		r.counts(`SELECT node_id, type AS kind, status, count(*) AS n FROM jobs
-			WHERE instance_id = ? AND deleted_at IS NULL GROUP BY 1, 2, 3 ORDER BY 1, 2, 3`),
-		r.counts(`SELECT status, count(*) AS n FROM incidents
-			WHERE instance_id = ? AND deleted_at IS NULL GROUP BY 1 ORDER BY 1`),
-		r.counts(`SELECT status, count(*) AS n FROM process_instances
-			WHERE parent_instance_id = ? AND deleted_at IS NULL GROUP BY 1 ORDER BY 1`))
+		r.counts(rowsOf(r, "tasks", taskstore.New().InstanceIDEq(r.id).Unordered().All,
+			func(row taskstore.Row) shapeCount { return shapeCount{NodeID: row.NodeID, Status: row.Status} })),
+		r.counts(rowsOf(r, "parked work", externaltask.New().InstanceIDEq(r.id).Unordered().All,
+			func(row externaltask.Row) shapeCount { return shapeCount{NodeID: row.NodeID} })),
+		r.counts(rowsOf(r, "jobs", jobstore.New().InstanceIDEq(r.id).Unordered().All,
+			func(row jobstore.Row) shapeCount {
+				return shapeCount{NodeID: row.NodeID, Kind: row.Type, Status: row.Status}
+			})),
+		r.counts(rowsOf(r, "incidents", incident.New().InstanceIDEq(r.id).Unordered().All,
+			func(row incident.Row) shapeCount { return shapeCount{Status: row.Status} })),
+		r.counts(rowsOf(r, "called processes", processinstance.New().ParentInstanceIDEq(r.id).Unordered().All,
+			func(row processinstance.Row) shapeCount { return shapeCount{Status: row.Status} })))
 	if r.calls != nil {
 		state += fmt.Sprintf(" calls=%d", r.calls.Load())
 	}
@@ -244,14 +278,14 @@ func (r *shapeRun) runJob(nodeID string) string {
 // called lists the processes the instance has called, oldest first.
 func (r *shapeRun) called() []uuid.UUID {
 	r.t.Helper()
-	var ids []string
-	if err := r.h.db.Raw(`SELECT id::text FROM process_instances
-		WHERE parent_instance_id = ? AND deleted_at IS NULL ORDER BY created_at, id`, r.id).Scan(&ids).Error; err != nil {
+	rows, err := processinstance.New().ParentInstanceIDEq(r.id).
+		Order(processinstance.CreatedAt.Asc(), processinstance.ID.Asc()).All(r.h.Ctx(), r.h.ex(), nil)
+	if err != nil {
 		r.t.Fatalf("list called processes: %v", err)
 	}
-	children := make([]uuid.UUID, 0, len(ids))
-	for _, id := range ids {
-		children = append(children, uuid.MustParse(id))
+	children := make([]uuid.UUID, 0, len(rows))
+	for _, row := range rows {
+		children = append(children, row.ID)
 	}
 	return children
 }
@@ -294,9 +328,7 @@ func (r *shapeRun) emptyTheList() {
 	if err := r.h.engine.UpdateInstance(ctx, instance); err != nil {
 		r.t.Fatalf("stage: %v", err)
 	}
-	if err := r.h.db.Exec(`UPDATE tasks SET iteration_id = NULL WHERE instance_id = ?`, r.id).Error; err != nil {
-		r.t.Fatalf("stage: %v", err)
-	}
+	r.h.forgetIterations(r.t, r.id)
 }
 
 // countingCalls stands up a partner endpoint and counts the calls the instance
@@ -1006,8 +1038,9 @@ func TestAReportWithoutTheLockIsAnsweredAsBefore(t *testing.T) {
 	r.pin("another worker reports", plain(h.svc.Complete(ctx, fetched[0].ID, "worker-2", nil)))
 	r.pin("another worker gives up", plain(h.svc.HandleFailure(ctx, fetched[0].ID, "worker-2", "no", "", 0, 0)))
 	r.pin("a report on work that does not exist", plain(h.svc.Complete(ctx, uuid.New(), "worker-1", nil)))
-	if err := h.db.Exec(`UPDATE external_tasks SET lock_expiration = now() - interval '1 minute' WHERE id = ?`,
-		fetched[0].ID).Error; err != nil {
+	runOut := externaltask.MutateKey(fetched[0].ID)
+	runOut.SetLockExpiration(time.Now().Add(-time.Minute))
+	if err := runOut.Update(h.Ctx(), h.ex()); err != nil {
 		t.Fatalf("let the lock run out: %v", err)
 	}
 	r.pin("a report after the lock ran out", r.report(fetched[0]))

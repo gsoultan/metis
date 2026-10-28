@@ -7,10 +7,13 @@ import (
 	"strings"
 	"testing"
 
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // staleMark leaves alice's claimed task the way a pod on the release before
@@ -19,9 +22,7 @@ import (
 func (h *taskHarness) staleMark(t *testing.T) string {
 	t.Helper()
 	taskID := h.openTask(t, heldByAlice())
-	if err := h.db.Exec(`UPDATE tasks SET owner = 'mallory', delegation_state = 'pending' WHERE id = ?`, taskID).Error; err != nil {
-		t.Fatalf("leave the row as an old pod would: %v", err)
-	}
+	h.markStale(t, taskID)
 	return taskID
 }
 
@@ -184,9 +185,7 @@ func TestAStalePendingMarkIsNotSentToAClient(t *testing.T) {
 	// Withdrawn while it was with its delegate, as the engine withdraws: the
 	// status alone.
 	withdrawn := h.delegatedToMallory(t)
-	if err := h.db.Exec(`UPDATE tasks SET status = 'canceled' WHERE id = ?`, withdrawn).Error; err != nil {
-		t.Fatalf("withdraw the task as the engine does: %v", err)
-	}
+	h.withdraw(t, withdrawn)
 	if _, owner, state := h.delegation(t, withdrawn); owner != "" || state != "" {
 		t.Fatalf("a withdrawn task is sent as owned by %q, %q; want no delegation", owner, state)
 	}
@@ -208,10 +207,9 @@ func TestAStalePendingMarkIsNotSentToAClient(t *testing.T) {
 // what is kept, which is not always what a client is sent.
 func (h *taskHarness) storedDelegation(t *testing.T, id string) (string, string) {
 	t.Helper()
-	var row struct{ Owner, DelegationState string }
-	if err := h.db.Raw(`SELECT COALESCE(owner, '') AS owner, COALESCE(delegation_state, '') AS delegation_state
-		FROM tasks WHERE id = ?`, id).Scan(&row).Error; err != nil {
-		t.Fatalf("read the task's row: %v", err)
+	row, found, err := taskstore.New().IDEq(uuid.MustParse(id)).One(t.Context(), testutils.Executor(h.db))
+	if err != nil || !found {
+		t.Fatalf("read the task's row: %v (found=%v)", err, found)
 	}
-	return row.Owner, row.DelegationState
+	return row.Owner.V, row.DelegationState.V
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -25,7 +26,7 @@ func TestExistingSeesRemovedInstancesToo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start process: %v", err)
 	}
-	if err := db.Exec(`UPDATE process_instances SET deleted_at = now() WHERE id = ?`, removed).Error; err != nil {
+	if err := processinstance.Delete(ctx, testutils.Executor(db), removed); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 	never := uuid.New()

@@ -17,11 +17,12 @@ import (
 // waitingOn parks a task on topic in project, on offer to any worker.
 func waitingOn(t *testing.T, repo repositories.Repository, project uuid.UUID, topic string) {
 	t.Helper()
+	definition, instance := caseIn(t, repo, project)
 	if err := repo.ExternalTask().Create(entities.WithSystemContext(t.Context()), &models.ExternalTaskModel{
 		Base:                models.Base{ID: models.UUID(uuid.New())},
 		ProjectID:           models.UUID(project),
-		ProcessInstanceID:   models.UUID(uuid.New()),
-		ProcessDefinitionID: models.UUID(uuid.New()),
+		ProcessInstanceID:   models.UUID(instance),
+		ProcessDefinitionID: models.UUID(definition),
 		NodeID:              "ship",
 		Topic:               topic,
 		Retries:             3,
@@ -166,11 +167,12 @@ func TestATopicCountsWhatIsOnOfferAndWhatEachWorkerHolds(t *testing.T) {
 	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	ctx, _, project := testutils.ScopedProject(t, repo)
 	now := time.Now().UTC()
+	definition, instance := caseIn(t, repo, project)
 	park := func(worker string, lock time.Duration, retries int) {
 		t.Helper()
 		m := &models.ExternalTaskModel{
 			Base: models.Base{ID: models.UUID(uuid.New())}, ProjectID: models.UUID(project),
-			ProcessInstanceID: models.UUID(uuid.New()), ProcessDefinitionID: models.UUID(uuid.New()),
+			ProcessInstanceID: models.UUID(instance), ProcessDefinitionID: models.UUID(definition),
 			NodeID: "ship", Topic: "shipping", Retries: retries,
 		}
 		if worker != "" {
