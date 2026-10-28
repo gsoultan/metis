@@ -335,6 +335,21 @@ func _assertIncidentShape(m m0.Incident) {
 	}
 }
 
+// _assertInstallationSettingShape fails to compile if m0.InstallationSetting gains, loses, renames or
+// reorders a field. Regenerate: `storm generate`.
+func _assertInstallationSettingShape(m m0.InstallationSetting) {
+	type shape m0.InstallationSetting
+	_ = shape{
+		m.Model,
+		m.Name,
+		m.Value,
+		m.Sealed,
+		m.Reason,
+		m.SetBy,
+		m.SetByUser,
+	}
+}
+
 // _assertInstanceDeviationShape fails to compile if m0.InstanceDeviation gains, loses, renames or
 // reorders a field. Regenerate: `storm generate`.
 func _assertInstanceDeviationShape(m m0.InstanceDeviation) {
