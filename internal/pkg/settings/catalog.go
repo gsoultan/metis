@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	day  = 24 * time.Hour
+	day = 24 * time.Hour
 	// maxDays is the longest retention the server reads, in days.
 	maxDays = 36_500
 	// maxWorkers bounds a worker count: the server ignores more than this.
