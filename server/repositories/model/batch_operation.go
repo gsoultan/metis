@@ -65,6 +65,10 @@ func (b *BatchOperation) Schema(t *storm.Table) {
 	// the size of what is running rather than of the history. Spelled as
 	// PostgreSQL prints it back, as the outgoing webhooks' is.
 	t.Index(&b.CreatedAt).Where("((status)::text = 'running'::text)").Named("ix_batch_operations_running")
+	// A worker claims a running operation by taking it, and an instance's
+	// result moves the operation's counts in the statement that records it.
+	t.Takes()
+	t.Tallies()
 }
 
 // BatchOperationItem is one instance of a batch operation and what came of
@@ -93,4 +97,7 @@ func (i *BatchOperationItem) Schema(t *storm.Table) {
 	// and by the list of results, which narrows by status.
 	t.Index(&i.BatchOperation, &i.Instance).Unique().Named("ux_batch_operation_items_instance")
 	t.Index(&i.BatchOperation, &i.Status, &i.Instance).Named("ix_batch_operation_items_status")
+	// An operation's items are copied from the instances its filter
+	// matches, in one statement, without reading them.
+	t.InsertsPer(&i.Instance)
 }

@@ -53,6 +53,11 @@ type ProcessInstance struct {
 	Joins         storm.JSON
 
 	DeletedAt *time.Time
+
+	// Incidents is the inverse of Incident.Instance: no column here. It is
+	// what lets a read of instances ask which have an open incident, in the
+	// same statement.
+	Incidents []Incident
 }
 
 func (i *ProcessInstance) Schema(t *storm.Table) {
