@@ -85,6 +85,9 @@ func (i *ProcessInstance) Schema(t *storm.Table) {
 // a row is there.
 func (i *ProcessInstance) Projections(p *storm.Projections) {
 	p.Named("Ref", &i.ID)
+	// Lineage is where an instance sits in its case: the instance it was
+	// called from, for the walk the retention holds take.
+	p.Named("Lineage", &i.ID, &i.ParentInstance)
 }
 
 // Aggregates are the counts the instance list and the version history show.
@@ -100,6 +103,12 @@ func (i *ProcessInstance) Aggregates(a *storm.Aggregates) {
 	byDefinition := a.Named("ByDefinitionAndStatus")
 	byDefinition.By(&i.Definition, &i.Status)
 	byDefinition.Count("Total")
+
+	// How many children each instance called, removed ones included: the
+	// finished-instance purge keeps an instance with a child still running.
+	childrenByParent := a.Named("ChildrenByParent").AcrossDeleted()
+	childrenByParent.By(&i.ParentInstance)
+	childrenByParent.Count("Total")
 }
 
 // Joins declares Organization: whose work an instance is, through its

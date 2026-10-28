@@ -2279,6 +2279,103 @@ var errByInstanceLocked = errors.New(
 var errByInstanceOrdered = errors.New(
 	"storm: Order() on an aggregation — its rows are groups, not table rows, and incidents.ByInstance is already ordered by its grouping columns; sort the returned slice if you need another order")
 
+// AnyByInstanceRow is the "AnyByInstance" aggregation over incidents.
+//
+// One row per group. The grouping columns come first, in declaration
+// order, and the result is ordered by them: PostgreSQL promises no
+// order for a GROUP BY, and an unordered report shuffles between
+// requests for no reason anyone can see.
+type AnyByInstanceRow struct {
+	InstanceID [16]byte
+	Total      int64
+}
+
+const anyByInstancePrefix = `SELECT "instance_id" AS "instance_id", count(*) AS "total" FROM "incidents"`
+const anyByInstanceSuffix = ` GROUP BY "instance_id" ORDER BY "instance_id"`
+
+var (
+	anyByInstanceCache       = runtime.NewTreeCache()
+	anyByInstanceOffsetCache = runtime.NewTreeCache()
+)
+
+func anyByInstanceStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := anyByInstanceCache, anyByInstanceSuffix+limitSuffix
+	if withOffset {
+		c, suffix = anyByInstanceOffsetCache, anyByInstanceSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	// Declared AcrossDeleted: the marked rows are counted too.
+	return c.Put(toks, runtime.SpliceTree(anyByInstancePrefix, toks, lowering, suffix))
+}
+
+func scanAnyByInstance(rv [][]byte, r *AnyByInstanceRow, sl *runtime.Slab) error {
+	copy(r.InstanceID[:], rv[0])
+	r.Total = runtime.Int8(rv[1])
+	return nil
+}
+
+// AllAnyByInstance runs the "AnyByInstance" aggregation. Predicates compose exactly as on All —
+// they filter the rows that go INTO the groups, which is the WHERE clause
+// and not a HAVING. Limit and offset page the groups.
+func (q Query) AllAnyByInstance(ctx context.Context, ex runtime.Executor) ([]AnyByInstanceRow, error) {
+	var sl runtime.Slab
+	return q.AllAnyByInstanceInto(ctx, ex, nil, &sl)
+}
+
+// AllAnyByInstanceInto lets the caller own the output slice and the arena.
+func (q Query) AllAnyByInstanceInto(ctx context.Context, ex runtime.Executor, dst []AnyByInstanceRow, sl *runtime.Slab) ([]AnyByInstanceRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errAnyByInstanceOrdered
+	}
+	if q.lock != 0 {
+		return dst, errAnyByInstanceLocked
+	}
+	var buf [21]runtime.Tok
+	st := anyByInstanceStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, AnyByInstanceRow{})
+		if err := scanAnyByInstance(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// AnyByInstancePieces is the "AnyByInstance" aggregation's statement around its
+// predicates, for the context package to splice a composed read into:
+// the SELECT … FROM, and the GROUP BY, ORDER BY and LIMIT after it.
+func AnyByInstancePieces() (prefix, suffix string) {
+	return anyByInstancePrefix, anyByInstanceSuffix + limitSuffix
+}
+
+// ScanAnyByInstance decodes one row of the "AnyByInstance" aggregation.
+func ScanAnyByInstance(rv [][]byte, r *AnyByInstanceRow, sl *runtime.Slab) error {
+	return scanAnyByInstance(rv, r, sl)
+}
+
+var errAnyByInstanceLocked = errors.New(
+	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
+
+var errAnyByInstanceOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and incidents.AnyByInstance is already ordered by its grouping columns; sort the returned slice if you need another order")
+
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
 const insertSQL = `INSERT INTO "incidents" ("id", "created_at", "updated_at", "instance_id", "job_id", "definition_id", "node_id", "error", "status", "resolved_at", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING "id", "created_at", "updated_at", "instance_id", "job_id", "definition_id", "node_id", "error", "status", "resolved_at", "deleted_at"`

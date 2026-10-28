@@ -13470,6 +13470,53 @@ func (h IncidentInstanceProbeQuery) AllByInstance(ctx context.Context, ex runtim
 	return out, rows.Err()
 }
 
+var incidentInstanceProbeQueryAnyByInstanceCache = runtime.NewTreeCache()
+
+// AllAnyByInstance is the incident package's aggregation of that name over this
+// semi-join: the predicates and probes filter the rows that go into
+// the groups, and Limit pages the groups. An Order, a row lock or an
+// Offset is refused, as on the table's own.
+func (h IncidentInstanceProbeQuery) AllAnyByInstance(ctx context.Context, ex runtime.Executor) ([]incident.AnyByInstanceRow, error) {
+	if err := h.err(); err != nil {
+		return nil, err
+	}
+	if h.q.Ordered() || h.q.Locked() || h.q.Paged() {
+		return nil, runtime.ErrGroupedRead
+	}
+	var buf [44]runtime.Tok
+	toks := h.tokens(buf[:0], true)
+	st := incidentInstanceProbeQueryAnyByInstanceCache.Get(toks)
+	if st == nil {
+		prefix, suffix := incident.AnyByInstancePieces()
+		st = incidentInstanceProbeQueryAnyByInstanceCache.Put(toks, runtime.SpliceTree(prefix, toks, incidentInstanceProbeQueryLowering, suffix))
+	}
+	if st.Err != nil {
+		return nil, st.Err
+	}
+	pb := incident.GetBinder()
+	defer incident.PutBinder(pb)
+	args, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			processinstance.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	var out []incident.AnyByInstanceRow
+	for rows.Next() {
+		out = append(out, incident.AnyByInstanceRow{})
+		if err := incident.ScanAnyByInstance(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
+}
+
 // JobIncidentsProbeQuery is a parent query with one or more existence probes against
 // incidents, combined with AND. Build it with JobHavingIncidents or
 // JobNotHavingIncidents and extend it with AndHaving/AndNotHaving.
@@ -15014,6 +15061,53 @@ func (h ProcessInstanceIncidentsProbeQuery) AllByDefinitionAndStatus(ctx context
 	return out, rows.Err()
 }
 
+var processInstanceIncidentsProbeQueryChildrenByParentCache = runtime.NewTreeCache()
+
+// AllChildrenByParent is the processinstance package's aggregation of that name over this
+// semi-join: the predicates and probes filter the rows that go into
+// the groups, and Limit pages the groups. An Order, a row lock or an
+// Offset is refused, as on the table's own.
+func (h ProcessInstanceIncidentsProbeQuery) AllChildrenByParent(ctx context.Context, ex runtime.Executor) ([]processinstance.ChildrenByParentRow, error) {
+	if err := h.err(); err != nil {
+		return nil, err
+	}
+	if h.q.Ordered() || h.q.Locked() || h.q.Paged() {
+		return nil, runtime.ErrGroupedRead
+	}
+	var buf [44]runtime.Tok
+	toks := h.tokens(buf[:0], true)
+	st := processInstanceIncidentsProbeQueryChildrenByParentCache.Get(toks)
+	if st == nil {
+		prefix, suffix := processinstance.ChildrenByParentPieces()
+		st = processInstanceIncidentsProbeQueryChildrenByParentCache.Put(toks, runtime.SpliceTree(prefix, toks, processInstanceIncidentsProbeQueryLowering, suffix))
+	}
+	if st.Err != nil {
+		return nil, st.Err
+	}
+	pb := processinstance.GetBinder()
+	defer processinstance.PutBinder(pb)
+	args, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			incident.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	var out []processinstance.ChildrenByParentRow
+	for rows.Next() {
+		out = append(out, processinstance.ChildrenByParentRow{})
+		if err := processinstance.ScanChildrenByParent(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
+}
+
 var processInstanceIncidentsProbeQueryInsertBatchOperationItemPerInstanceCache = runtime.NewTreeCache()
 
 // InsertBatchOperationItemPerInstance is the package function of that name over this
@@ -15873,54 +15967,6 @@ func (h WorkflowUserGroupsProbeQuery) UpdateAll(ctx context.Context, ex runtime.
 // statements listed here run; see storm.RegisterStatement.
 func init() {
 	storm.RegisterScanner(scanClaimTurn)
-	storm.RegisterStatement(`WITH RECURSIVE held_up AS (
-	SELECT h.instance_id AS id FROM retention_holds h
-	UNION
-	SELECT p.parent_instance_id FROM process_instances p JOIN held_up u ON p.id = u.id
-	 WHERE p.parent_instance_id IS NOT NULL
-), held AS (
-	SELECT id FROM held_up
-	UNION
-	SELECT c.id FROM process_instances c JOIN held t ON c.parent_instance_id = t.id
-), doomed AS (
-	SELECT pi.id FROM process_instances pi
-	 WHERE pi.status = ANY($1) AND pi.updated_at < $2
-	   AND pi.updated_at < $5::timestamptz - make_interval(days => COALESCE((
-	         SELECT rp.days FROM retention_periods rp
-	           JOIN process_definitions d ON d.id = pi.definition_id
-	          WHERE rp.project_id = pi.project_id AND rp.process_key = d.key
-	          ORDER BY rp.created_at DESC, rp.id DESC
-	          LIMIT 1), $6::int))
-	   AND NOT EXISTS (SELECT 1 FROM held WHERE held.id = pi.id)
-	   AND NOT EXISTS (SELECT 1 FROM instance_deviations d WHERE d.instance_id = pi.id)
-	   AND NOT EXISTS (SELECT 1 FROM deviation_requests r WHERE r.instance_id = pi.id)
-	   AND NOT EXISTS (SELECT 1 FROM incidents i WHERE i.instance_id = pi.id AND i.status <> $3)
-	   AND NOT EXISTS (SELECT 1 FROM process_instances c
-	                    WHERE c.parent_instance_id = pi.id AND NOT (c.status = ANY($1)))
-	   AND NOT EXISTS (SELECT 1 FROM process_instances p
-	                    WHERE p.id = pi.parent_instance_id AND NOT (p.status = ANY($1)))
-	 LIMIT $4
-	 FOR UPDATE SKIP LOCKED
-), tasks_gone AS (
-	DELETE FROM tasks WHERE instance_id IN (SELECT id FROM doomed)
-), jobs_gone AS (
-	DELETE FROM jobs WHERE instance_id IN (SELECT id FROM doomed)
-), external_tasks_gone AS (
-	DELETE FROM external_tasks WHERE instance_id IN (SELECT id FROM doomed)
-), service_calls_gone AS (
-	DELETE FROM service_calls WHERE instance_id IN (SELECT id FROM doomed)
-), incidents_gone AS (
-	DELETE FROM incidents WHERE instance_id IN (SELECT id FROM doomed)
-), subscriptions_gone AS (
-	DELETE FROM event_subscriptions WHERE instance_id IN (SELECT id FROM doomed)
-), compensations_gone AS (
-	DELETE FROM compensatable_activities WHERE instance_id IN (SELECT id FROM doomed)
-), snapshots_gone AS (
-	DELETE FROM variable_snapshots WHERE instance_id IN (SELECT id FROM doomed)
-), notifications_gone AS (
-	DELETE FROM notifications WHERE instance_id IN (SELECT id FROM doomed)
-)
-DELETE FROM process_instances WHERE id IN (SELECT id FROM doomed)`)
 	storm.RegisterStatement(`WITH RECURSIVE onward(id, n) AS (
   (SELECT organization_id, 1 FROM jobs
     WHERE status = $1 AND organization_id >= $4

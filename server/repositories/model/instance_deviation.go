@@ -89,3 +89,11 @@ func (d *InstanceDeviation) Schema(t *storm.Table) {
 	t.Index(&d.Instance, &d.LiveVisitKey).Unique().Named("ux_instance_deviations_live_visit")
 	t.Index(&d.Instance, &d.VisitKey).Named("ix_instance_deviations_visit")
 }
+
+// Aggregates declares ByInstance: how many ledger rows each instance has. The
+// finished-instance purge keeps every instance with one.
+func (d *InstanceDeviation) Aggregates(a *storm.Aggregates) {
+	byInstance := a.Named("ByInstance")
+	byInstance.By(&d.Instance)
+	byInstance.Count("Total")
+}

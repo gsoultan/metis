@@ -2627,6 +2627,107 @@ func (q Query) OneRef(ctx context.Context, ex runtime.Executor) (RefRow, bool, e
 	return out[0], true, nil
 }
 
+// LineageRow is the "Lineage" projection: the same read, 2 column(s) instead of
+// the whole row. Narrower tuples, no TOAST fetch for what nobody asked,
+// and an index-only scan becomes POSSIBLE — the full-row read forecloses
+// it by construction.
+type LineageRow struct {
+	ID               [16]byte
+	ParentInstanceID runtime.Null[[16]byte]
+}
+
+const lineagePrefix = `SELECT "id", "parent_instance_id" FROM "process_instances"`
+
+var (
+	lineageCache       = runtime.NewTreeCache()
+	lineageOffsetCache = runtime.NewTreeCache()
+)
+
+func lineageStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := lineageCache, limitSuffix
+	if withOffset {
+		c, suffix = lineageOffsetCache, limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(lineagePrefix, softDeleteWhere, toks, lowering, suffix))
+}
+
+var lineageDeletedCaches = [2]*runtime.TreeCache{runtime.NewTreeCache(), runtime.NewTreeCache()}
+
+// lineageDeletedStmtFor is lineageStmtFor under WithDeleted: no soft-delete
+// predicate, because the model let this table's call sites ask for that.
+func lineageDeletedStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	i, suffix := 0, limitSuffix
+	if withOffset {
+		i, suffix = 1, limitOffsetSuffix
+	}
+	c := lineageDeletedCaches[i]
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTree(lineagePrefix, toks, lowering, suffix))
+}
+
+func scanLineage(rv [][]byte, r *LineageRow, sl *runtime.Slab) error {
+	copy(r.ID[:], rv[0])
+	r.ParentInstanceID = runtime.Nullable(rv[1], runtime.UUID)
+	return nil
+}
+
+// AllLineage runs the query projected to LineageRow. Predicates, ordering, limit,
+// offset and keyset all apply exactly as on All — a projection changes
+// what a row CARRIES, never which rows qualify. (After takes the full Row;
+// populate its ordering columns and the cursor works unchanged.)
+func (q Query) AllLineage(ctx context.Context, ex runtime.Executor) ([]LineageRow, error) {
+	var sl runtime.Slab
+	return q.AllLineageInto(ctx, ex, nil, &sl)
+}
+
+// AllLineageInto lets the caller own the output slice and the arena, exactly
+// as AllInto does — a projection's terminals mirror the full read's, so a
+// hot loop reuses both and a benchmark compares like with like.
+func (q Query) AllLineageInto(ctx context.Context, ex runtime.Executor, dst []LineageRow, sl *runtime.Slab) ([]LineageRow, error) {
+	if err := q.readErr(); err != nil {
+		return dst, err
+	}
+	var buf [21]runtime.Tok
+	pick := lineageStmtFor
+	if q.deleted {
+		pick = lineageDeletedStmtFor
+	}
+	st := pick(q.stream(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, LineageRow{})
+		if err := scanLineage(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// OneLineage is AllLineage stopped at one row.
+func (q Query) OneLineage(ctx context.Context, ex runtime.Executor) (LineageRow, bool, error) {
+	out, err := q.Limit(1).AllLineage(ctx, ex)
+	if err != nil || len(out) == 0 {
+		return LineageRow{}, false, err
+	}
+	return out[0], true, nil
+}
+
 // ByStatusRow is the "ByStatus" aggregation over process_instances.
 //
 // One row per group. The grouping columns come first, in declaration
@@ -2818,6 +2919,103 @@ var errByDefinitionAndStatusLocked = errors.New(
 
 var errByDefinitionAndStatusOrdered = errors.New(
 	"storm: Order() on an aggregation — its rows are groups, not table rows, and process_instances.ByDefinitionAndStatus is already ordered by its grouping columns; sort the returned slice if you need another order")
+
+// ChildrenByParentRow is the "ChildrenByParent" aggregation over process_instances.
+//
+// One row per group. The grouping columns come first, in declaration
+// order, and the result is ordered by them: PostgreSQL promises no
+// order for a GROUP BY, and an unordered report shuffles between
+// requests for no reason anyone can see.
+type ChildrenByParentRow struct {
+	ParentInstanceID runtime.Null[[16]byte]
+	Total            int64
+}
+
+const childrenByParentPrefix = `SELECT "parent_instance_id" AS "parent_instance_id", count(*) AS "total" FROM "process_instances"`
+const childrenByParentSuffix = ` GROUP BY "parent_instance_id" ORDER BY "parent_instance_id"`
+
+var (
+	childrenByParentCache       = runtime.NewTreeCache()
+	childrenByParentOffsetCache = runtime.NewTreeCache()
+)
+
+func childrenByParentStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := childrenByParentCache, childrenByParentSuffix+limitSuffix
+	if withOffset {
+		c, suffix = childrenByParentOffsetCache, childrenByParentSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	// Declared AcrossDeleted: the marked rows are counted too.
+	return c.Put(toks, runtime.SpliceTree(childrenByParentPrefix, toks, lowering, suffix))
+}
+
+func scanChildrenByParent(rv [][]byte, r *ChildrenByParentRow, sl *runtime.Slab) error {
+	r.ParentInstanceID = runtime.Nullable(rv[0], runtime.UUID)
+	r.Total = runtime.Int8(rv[1])
+	return nil
+}
+
+// AllChildrenByParent runs the "ChildrenByParent" aggregation. Predicates compose exactly as on All —
+// they filter the rows that go INTO the groups, which is the WHERE clause
+// and not a HAVING. Limit and offset page the groups.
+func (q Query) AllChildrenByParent(ctx context.Context, ex runtime.Executor) ([]ChildrenByParentRow, error) {
+	var sl runtime.Slab
+	return q.AllChildrenByParentInto(ctx, ex, nil, &sl)
+}
+
+// AllChildrenByParentInto lets the caller own the output slice and the arena.
+func (q Query) AllChildrenByParentInto(ctx context.Context, ex runtime.Executor, dst []ChildrenByParentRow, sl *runtime.Slab) ([]ChildrenByParentRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errChildrenByParentOrdered
+	}
+	if q.lock != 0 {
+		return dst, errChildrenByParentLocked
+	}
+	var buf [21]runtime.Tok
+	st := childrenByParentStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, ChildrenByParentRow{})
+		if err := scanChildrenByParent(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// ChildrenByParentPieces is the "ChildrenByParent" aggregation's statement around its
+// predicates, for the context package to splice a composed read into:
+// the SELECT … FROM, and the GROUP BY, ORDER BY and LIMIT after it.
+func ChildrenByParentPieces() (prefix, suffix string) {
+	return childrenByParentPrefix, childrenByParentSuffix + limitSuffix
+}
+
+// ScanChildrenByParent decodes one row of the "ChildrenByParent" aggregation.
+func ScanChildrenByParent(rv [][]byte, r *ChildrenByParentRow, sl *runtime.Slab) error {
+	return scanChildrenByParent(rv, r, sl)
+}
+
+var errChildrenByParentLocked = errors.New(
+	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
+
+var errChildrenByParentOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and process_instances.ChildrenByParent is already ordered by its grouping columns; sort the returned slice if you need another order")
 
 // joinFragTable is fragTable for a join: every column named with its table.
 var joinFragTable = [17][31]runtime.Frag{

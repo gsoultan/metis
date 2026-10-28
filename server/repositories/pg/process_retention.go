@@ -10,7 +10,6 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/db"
-	"github.com/gsoultan/metis/server/repositories/model"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/store"
 	"github.com/gsoultan/metis/server/repositories/store/processinstance"
@@ -45,7 +44,7 @@ func (r *processRepository) ForgetFinished(ctx context.Context, now time.Time, f
 	if err != nil {
 		return 0, err
 	}
-	var fallbackDays any // null: the installation keeps instances for ever
+	var fallbackDays int64 // zero: the installation keeps instances for ever
 	if days := int64(fallback / (24 * time.Hour)); days > 0 {
 		fallbackDays = days
 		if shortest == 0 || days < shortest {
@@ -56,15 +55,19 @@ func (r *processRepository) ForgetFinished(ctx context.Context, now time.Time, f
 		return 0, nil // no period anywhere: nothing can qualify
 	}
 	now = now.UTC()
-	finished := []string{string(models.ProcessCompleted), string(models.ProcessCancelled)}
-	earliest := now.Add(-time.Duration(shortest) * 24 * time.Hour)
-	args := []any{finished, earliest, string(models.IncidentResolved), db.PruneBatch, now, fallbackDays}
+	batch := forgetBatch{
+		finished: []string{string(models.ProcessCompleted), string(models.ProcessCancelled)},
+		earliest: now.Add(-time.Duration(shortest) * 24 * time.Hour),
+		now:      now,
+		fallback: fallbackDays,
+		size:     db.PruneBatch,
+	}
 	var total int64
 	for {
 		if err := ctx.Err(); err != nil {
 			return total, err
 		}
-		removed, err := r.forgetOneBatch(ctx, args)
+		removed, err := r.forgetOneBatch(ctx, batch)
 		total += removed
 		if err != nil {
 			return total, fmt.Errorf("could not forget finished instances: %w", err)
@@ -77,40 +80,61 @@ func (r *processRepository) ForgetFinished(ctx context.Context, now time.Time, f
 
 // shortestPeriod is the shortest period any process has now, in days: the
 // least of each process's newest row; zero when no process has one.
-//
-// A page at a time, by offset, because a keyset cursor cannot follow an order
-// that mixes directions; there is a row per process that has a period, so
-// there is rarely a second page.
 func (r *processRepository) shortestPeriod(ctx context.Context) (int64, error) {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return 0, err
 	}
+	periods, err := newestPeriods(ctx, ex)
+	if err != nil {
+		return 0, err
+	}
+	var shortest runtime.Null[int32]
+	for _, days := range periods {
+		if days.Valid && (!shortest.Valid || days.V < shortest.V) {
+			shortest = days
+		}
+	}
+	return int64(shortest.V), nil
+}
+
+// processKey names a process, every version of it, inside its project.
+type processKey struct {
+	project [16]byte
+	key     string
+}
+
+// newestPeriods is each process's newest retention period row: its days, or
+// null where the newest row returned the process to the installation's.
+//
+// A page at a time, by offset, because a keyset cursor cannot follow an order
+// that mixes directions; there is a row per process that has a period, so
+// there is rarely a second page.
+func newestPeriods(ctx context.Context, ex runtime.Executor) (map[processKey]runtime.Null[int32], error) {
 	newest := retentionperiod.New().
 		Order(retentionperiod.ProjectID.Asc(), retentionperiod.ProcessKey.Asc(),
 			retentionperiod.CreatedAt.Desc(), retentionperiod.ID.Desc()).
 		Limit(db.PruneBatch)
-	var shortest runtime.Null[int32]
+	periods := map[processKey]runtime.Null[int32]{}
 	var rows []retentionperiod.Row
 	for offset := int64(0); ; offset += db.PruneBatch {
+		var err error
 		rows, err = newest.Offset(offset).AllDistinctOn(ctx, ex, 2, rows[:0])
 		if err != nil {
-			return 0, fmt.Errorf("could not read the processes' retention periods: %w", err)
+			return nil, fmt.Errorf("could not read the processes' retention periods: %w", err)
 		}
 		for _, p := range rows {
-			if p.Days.Valid && (!shortest.Valid || p.Days.V < shortest.V) {
-				shortest = p.Days
-			}
+			periods[processKey{p.ProjectID, p.ProcessKey}] = p.Days
 		}
 		if len(rows) < db.PruneBatch {
-			return int64(shortest.V), nil
+			return periods, nil
 		}
 	}
 }
 
 // forgetOneBatch removes one batch, with the holds and the periods held
 // still for as long as it takes.
-func (r *processRepository) forgetOneBatch(ctx context.Context, args []any) (int64, error) {
+func (r *processRepository) forgetOneBatch(ctx context.Context, batch forgetBatch) (int64, error) {
 	var removed int64
 	err := r.conn.conn.Transact(ctx, func(ctx context.Context) error {
 		ex, err := r.conn.conn.Executor(ctx)
@@ -120,7 +144,11 @@ func (r *processRepository) forgetOneBatch(ctx context.Context, args []any) (int
 		if err := lockRetentionHolds(ctx, ex); err != nil {
 			return fmt.Errorf("wait for the holds being placed: %w", err)
 		}
-		removed, err = model.ForgetFinishedInstances.Exec(ctx, ex, args...)
+		doomed, err := batch.doomed(ctx, ex)
+		if err != nil || len(doomed) == 0 {
+			return err
+		}
+		removed, err = forgetInstances(ctx, ex, doomed)
 		return err
 	})
 	if err != nil {

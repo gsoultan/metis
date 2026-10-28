@@ -54,4 +54,9 @@ func (i *Incident) Aggregates(a *storm.Aggregates) {
 	byInstance := a.Named("ByInstance")
 	byInstance.By(&i.Instance)
 	byInstance.Count("Total")
+	// Any incident, removed or not: the finished-instance purge keeps an
+	// instance while one of its incidents is still open, marked or not.
+	anyByInstance := a.Named("AnyByInstance").AcrossDeleted()
+	anyByInstance.By(&i.Instance)
+	anyByInstance.Count("Total")
 }

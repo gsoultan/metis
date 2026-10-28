@@ -18,7 +18,6 @@ import (
 func Queries() []storm.RawDecl {
 	return []storm.RawDecl{
 		FairClaimableJobs,
-		ForgetFinishedInstances,
 	}
 }
 
@@ -85,83 +84,3 @@ var FairClaimableJobs = storm.SQL[ClaimTurn](`WITH RECURSIVE onward(id, n) AS (
      LIMIT $3) AS unowned
 )
 SELECT id, turn FROM queued ORDER BY turn, next_run_at, id LIMIT $3`)
-
-// ForgetFinishedInstances deletes one batch of finished instances and the
-// rows that exist only to run them, in one statement so a batch goes whole or
-// not at all. $1 the finished states, $2 the earliest any period ends, $3
-// resolved, $4 the batch, $5 now, $6 the installation's period in days or
-// null.
-//
-// An instance qualifies when it completed or was cancelled longer ago than
-// its period, and nothing still needs it: no deviation was recorded or asked
-// for on it (those are compliance records, kept with what they are about), no
-// incident on it is open, its parent has finished too, and so have its
-// children, and no retention hold keeps it.
-//
-// Its period is the one an administrator last gave its process (by key, for
-// every version), and the installation's where the process has none, or was
-// returned to the installation's. An instance whose process has no period
-// while the installation has none either is kept: $6 is then null, and so is
-// the cutoff it would be compared with. $2 is the earliest any period ends,
-// so the scan starts from the instances that could qualify at all.
-//
-// A hold keeps the whole case the instance it names belongs to: the instance
-// that started the chain of calls it is part of, and every instance started
-// from that one, at any depth. Somebody reading a held case finds the
-// instance it was called from and the ones it called. The walk up to the
-// first instance and back down starts from the holds, which are few, and not
-// from the instances.
-//
-// The audit trail is not touched: it is the record of who did what, and is
-// kept for as long as the installation is.
-//
-// SQL because storm has no recursive CTE of the caller's own and no
-// data-modifying CTE.
-var ForgetFinishedInstances = storm.SQLExec(`WITH RECURSIVE held_up AS (
-	SELECT h.instance_id AS id FROM retention_holds h
-	UNION
-	SELECT p.parent_instance_id FROM process_instances p JOIN held_up u ON p.id = u.id
-	 WHERE p.parent_instance_id IS NOT NULL
-), held AS (
-	SELECT id FROM held_up
-	UNION
-	SELECT c.id FROM process_instances c JOIN held t ON c.parent_instance_id = t.id
-), doomed AS (
-	SELECT pi.id FROM process_instances pi
-	 WHERE pi.status = ANY($1) AND pi.updated_at < $2
-	   AND pi.updated_at < $5::timestamptz - make_interval(days => COALESCE((
-	         SELECT rp.days FROM retention_periods rp
-	           JOIN process_definitions d ON d.id = pi.definition_id
-	          WHERE rp.project_id = pi.project_id AND rp.process_key = d.key
-	          ORDER BY rp.created_at DESC, rp.id DESC
-	          LIMIT 1), $6::int))
-	   AND NOT EXISTS (SELECT 1 FROM held WHERE held.id = pi.id)
-	   AND NOT EXISTS (SELECT 1 FROM instance_deviations d WHERE d.instance_id = pi.id)
-	   AND NOT EXISTS (SELECT 1 FROM deviation_requests r WHERE r.instance_id = pi.id)
-	   AND NOT EXISTS (SELECT 1 FROM incidents i WHERE i.instance_id = pi.id AND i.status <> $3)
-	   AND NOT EXISTS (SELECT 1 FROM process_instances c
-	                    WHERE c.parent_instance_id = pi.id AND NOT (c.status = ANY($1)))
-	   AND NOT EXISTS (SELECT 1 FROM process_instances p
-	                    WHERE p.id = pi.parent_instance_id AND NOT (p.status = ANY($1)))
-	 LIMIT $4
-	 FOR UPDATE SKIP LOCKED
-), tasks_gone AS (
-	DELETE FROM tasks WHERE instance_id IN (SELECT id FROM doomed)
-), jobs_gone AS (
-	DELETE FROM jobs WHERE instance_id IN (SELECT id FROM doomed)
-), external_tasks_gone AS (
-	DELETE FROM external_tasks WHERE instance_id IN (SELECT id FROM doomed)
-), service_calls_gone AS (
-	DELETE FROM service_calls WHERE instance_id IN (SELECT id FROM doomed)
-), incidents_gone AS (
-	DELETE FROM incidents WHERE instance_id IN (SELECT id FROM doomed)
-), subscriptions_gone AS (
-	DELETE FROM event_subscriptions WHERE instance_id IN (SELECT id FROM doomed)
-), compensations_gone AS (
-	DELETE FROM compensatable_activities WHERE instance_id IN (SELECT id FROM doomed)
-), snapshots_gone AS (
-	DELETE FROM variable_snapshots WHERE instance_id IN (SELECT id FROM doomed)
-), notifications_gone AS (
-	DELETE FROM notifications WHERE instance_id IN (SELECT id FROM doomed)
-)
-DELETE FROM process_instances WHERE id IN (SELECT id FROM doomed)`)
