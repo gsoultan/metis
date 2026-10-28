@@ -225,9 +225,10 @@ func (r *externalTaskWorkerRepository) ForgetIdle(ctx context.Context, before ti
 	if err != nil {
 		return 0, err
 	}
-	removed, err := db.DeleteInBatches(ctx, ex,
-		`DELETE FROM external_task_workers WHERE id = ANY(ARRAY(
-		     SELECT id FROM external_task_workers WHERE last_seen_at < $1 LIMIT $2))`, before.UTC())
+	idle := externaltaskworker.New().Where(externaltaskworker.LastSeenAt.Lt(before.UTC()))
+	removed, err := db.PruneInBatches(ctx, func(limit int64) (int64, error) {
+		return idle.Limit(limit).DeleteBatch(ctx, ex)
+	})
 	if err != nil {
 		return removed, fmt.Errorf("could not forget idle workers: %w", err)
 	}

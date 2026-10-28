@@ -97,8 +97,8 @@ func (r *variableSnapshotRepository) ListByInstance(ctx context.Context, instanc
 }
 
 // ForgetCapturedBefore deletes, a batch at a time, the snapshots captured
-// before cutoff. Raw SQL, as every sweep is; captured_at is indexed, so each
-// batch is a range of it.
+// before cutoff, marked deleted or not; captured_at is indexed, so each batch
+// is a range of it.
 func (r *variableSnapshotRepository) ForgetCapturedBefore(ctx context.Context, cutoff time.Time) (int64, error) {
 	if !entities.IsSystemContext(ctx) {
 		return 0, fmt.Errorf("%w: forgetting variable snapshots spans every tenant", apierr.ErrForbidden)
@@ -107,9 +107,10 @@ func (r *variableSnapshotRepository) ForgetCapturedBefore(ctx context.Context, c
 	if err != nil {
 		return 0, err
 	}
-	removed, err := db.DeleteInBatches(ctx, ex,
-		`DELETE FROM variable_snapshots WHERE ctid = ANY(ARRAY(
-		     SELECT ctid FROM variable_snapshots WHERE captured_at < $1 LIMIT $2))`, cutoff.UTC())
+	old := variablesnapshot.New().Where(variablesnapshot.CapturedAt.Lt(cutoff.UTC()))
+	removed, err := db.PruneInBatches(ctx, func(limit int64) (int64, error) {
+		return old.Limit(limit).HardDeleteBatch(ctx, ex)
+	})
 	if err != nil {
 		return removed, fmt.Errorf("could not forget old variable snapshots: %w", err)
 	}

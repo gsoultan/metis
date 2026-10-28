@@ -38,4 +38,6 @@ func (i *IdempotencyRecord) Schema(t *storm.Table) {
 	t.Col(&i.RequestHash).Size(64)
 	t.Col(&i.Completed).Index()
 	t.Col(&i.CreatedAt).Index()
+	// The sweep removes expired records a batch at a time (DeleteBatch).
+	t.Takes()
 }

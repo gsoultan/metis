@@ -294,11 +294,12 @@ func ForgetIdempotencyRecords(ctx context.Context, conn *db.Conn, ttl time.Durat
 	if err != nil {
 		return 0, err
 	}
-	removed, err := db.DeleteInBatches(ctx, ex,
-		`DELETE FROM idempotency_records WHERE ctid = ANY(ARRAY(
-		     SELECT ctid FROM idempotency_records
-		      WHERE created_at < $1 AND (completed OR created_at < $2) LIMIT $3))`,
-		now.Add(-ttl).UTC(), now.Add(-abandonedClaimAge).UTC())
+	unusable := idempotencyrecord.New().
+		Where(idempotencyrecord.CreatedAt.Lt(now.Add(-ttl).UTC())).
+		Any(idempotencyrecord.Completed.Eq(true), idempotencyrecord.CreatedAt.Lt(now.Add(-abandonedClaimAge).UTC()))
+	removed, err := db.PruneInBatches(ctx, func(limit int64) (int64, error) {
+		return unusable.Limit(limit).DeleteBatch(ctx, ex)
+	})
 	if err != nil {
 		return removed, fmt.Errorf("forget idempotency records: %w", err)
 	}

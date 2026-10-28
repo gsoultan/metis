@@ -37,4 +37,6 @@ func (w *ExternalTaskWorker) Schema(t *storm.Table) {
 	t.Index(&w.Organization, &w.Topic, &w.WorkerID).Unique().Named("ux_external_task_workers_worker")
 	// The sweep that forgets workers not heard from in a week.
 	t.Col(&w.LastSeenAt).Index()
+	// Which removes a batch at a time (DeleteBatch).
+	t.Takes()
 }

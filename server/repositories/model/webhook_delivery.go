@@ -33,4 +33,6 @@ func (d *WebhookDelivery) Schema(t *storm.Table) {
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&d.DeletedAt)
+	// Old deliveries are purged a batch at a time (HardDeleteBatch).
+	t.Takes()
 }

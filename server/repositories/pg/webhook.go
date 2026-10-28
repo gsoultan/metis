@@ -231,9 +231,10 @@ func (r *webhookRepository) ForgetDeliveriesBefore(ctx context.Context, cutoff t
 	if err != nil {
 		return 0, err
 	}
-	removed, err := db.DeleteInBatches(ctx, ex,
-		`DELETE FROM webhook_deliveries WHERE ctid = ANY(ARRAY(
-		     SELECT ctid FROM webhook_deliveries WHERE received_at < $1 LIMIT $2))`, cutoff.UTC())
+	old := webhookdelivery.New().Where(webhookdelivery.ReceivedAt.Lt(cutoff.UTC()))
+	removed, err := db.PruneInBatches(ctx, func(limit int64) (int64, error) {
+		return old.Limit(limit).HardDeleteBatch(ctx, ex)
+	})
 	if err != nil {
 		return removed, fmt.Errorf("could not forget old deliveries: %w", err)
 	}

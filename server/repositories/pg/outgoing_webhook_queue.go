@@ -263,9 +263,10 @@ func (q *outgoingWebhookQueue) ForgetBefore(ctx context.Context, cutoff time.Tim
 	if err != nil {
 		return 0, err
 	}
-	removed, err := db.DeleteInBatches(ctx, ex,
-		`DELETE FROM outgoing_webhook_deliveries WHERE ctid = ANY(ARRAY(
-		     SELECT ctid FROM outgoing_webhook_deliveries WHERE created_at < $1 LIMIT $2))`, cutoff.UTC())
+	old := outgoingwebhookdelivery.New().Where(outgoingwebhookdelivery.CreatedAt.Lt(cutoff.UTC()))
+	removed, err := db.PruneInBatches(ctx, func(limit int64) (int64, error) {
+		return old.Limit(limit).DeleteBatch(ctx, ex)
+	})
 	if err != nil {
 		return removed, fmt.Errorf("could not forget old outgoing webhook deliveries: %w", err)
 	}

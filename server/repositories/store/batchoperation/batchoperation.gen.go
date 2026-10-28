@@ -4717,6 +4717,54 @@ func (q Query) Take(ctx context.Context, ex runtime.Executor, m Mut, dst []Row) 
 	return dst, rows.Err()
 }
 
+var trimCache = runtime.NewTreeCache()
+
+// trimStmtFor compiles one (lock, read) pair, once.
+func trimStmtFor(lock uint8, toks []runtime.Tok) *runtime.Stmt {
+	var key [22]runtime.Tok
+	key[0] = runtime.Tok(lock)
+	n := 1 + copy(key[1:], toks)
+	if st := trimCache.Get(key[:n]); st != nil {
+		return st
+	}
+	suffix := limitSuffix + lockSuffix[lock] + `))`
+	return trimCache.Put(key[:n], runtime.SpliceTree(deletePrefix+` WHERE ctid = ANY(ARRAY(SELECT ctid FROM "batch_operations"`, toks, lowering, suffix))
+}
+
+// DeleteBatch removes the rows the query would read —
+// its predicates, order, Limit and row lock all apply — in ONE
+// statement, and reports how many it removed:
+//
+//	for {
+//		n, err := New().Where(…).Limit(1000).DeleteBatch(ctx, ex)
+//		if err != nil || n < 1000 {
+//			break
+//		}
+//	}
+//
+// That is the bounded purge: each run holds its locks for one batch.
+// The query must have a predicate — runtime.ErrUnfilteredWrite
+// otherwise — and Offset is refused with runtime.ErrPagedWrite.
+func (q Query) DeleteBatch(ctx context.Context, ex runtime.Executor) (int64, error) {
+	if err := q.Err(); err != nil {
+		return 0, err
+	}
+	if q.nt == 0 {
+		return 0, runtime.ErrUnfilteredWrite
+	}
+	if q.offset != 0 {
+		return 0, runtime.ErrPagedWrite
+	}
+	var buf [21]runtime.Tok
+	st := trimStmtFor(q.lock, q.stream(&buf))
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	b := binders.Get()
+	defer putBinder(b)
+	return ex.Exec(ctx, st.SQL, q.bind(b))
+}
+
 // The step this table's UpdateAll is, and the statements written after
 // another table's step.
 var updStepCache = runtime.NewTreeCache()
