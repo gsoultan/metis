@@ -127,6 +127,11 @@ type App struct {
 	// (liveKeyFillFor). Written once, before the loop that reads it starts;
 	// zero in a process that never started them.
 	sweepsBegan time.Time
+
+	// bootSettings is what was saved on the Settings page when this process
+	// started: what a setting that applies at restart runs with until the
+	// next one. Written once, before anything reads it.
+	bootSettings map[string]string
 }
 
 const (
@@ -288,18 +293,9 @@ func (a *App) Run() error {
 	// 0. Initialize Logger
 	logger.Init()
 
-	// Tracing before anything that might be worth tracing. It is off unless an
-	// OTLP endpoint is configured, and the shutdown function is safe to call
-	// either way, so there is no conditional cleanup to get wrong.
 	// The liveness probe reports the build, so "which version is running" has an
 	// answer that does not depend on finding the startup log.
 	health.SetBuildVersion(version)
-
-	shutdownTracing, err := tracing.Init(ctx, version)
-	if err != nil {
-		return fmt.Errorf("failed to start tracing: %w", err)
-	}
-	defer shutdownTracing(context.Background())
 
 	a.initDBOnce()
 
@@ -350,6 +346,23 @@ func (a *App) Run() error {
 		return err
 	}
 
+	// 2c. What administrators set on the Settings page, under the
+	//     environment. Before anything below reads a setting: the services,
+	//     the workers and the listeners all read theirs as they are built.
+	if err := a.loadSavedSettings(ctx); err != nil {
+		return err
+	}
+
+	// Tracing once its settings can be read, which is after the database: an
+	// OTLP endpoint set on the Settings page is otherwise never seen. Off
+	// unless an endpoint is configured, and the shutdown function is safe to
+	// call either way, so there is no conditional cleanup to get wrong.
+	shutdownTracing, err := tracing.Init(ctx, version)
+	if err != nil {
+		return fmt.Errorf("failed to start tracing: %w", err)
+	}
+	defer shutdownTracing(context.Background())
+
 	// 3. Initialize Domain
 	if err := a.setupService(ctx); err != nil {
 		return err
@@ -383,6 +396,10 @@ func (a *App) Run() error {
 
 	// 4. Setup Transports
 	a.setupAuth(ctx)
+
+	// 4a. On a fresh installation, the one line that says how to open the
+	//     wizard — the setup token nobody else has.
+	a.svc.AnnounceSetupToken(ctx)
 
 	// 5. Start Servers using errgroup
 	return a.runServers(ctx)
@@ -877,6 +894,7 @@ func (a *App) startBackgroundWork(ctx context.Context) {
 	a.startSSEFanout(ctx)
 	a.startSharedLimits(ctx)
 	a.startRetentionSweeps(ctx)
+	go a.reloadSavedSettings(ctx)
 	// Off unless configured. Each starts in the background, so a broker, a
 	// project or a connection that is not there yet does not hold up the boot.
 	a.startRabbitMQ(ctx)

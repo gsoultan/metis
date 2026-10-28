@@ -29,6 +29,12 @@ export function SetupComplete({ fromEnvironment, onComplete }: { fromEnvironment
           restarts, this server keeps the database and keys it started with, so your new account may not work yet.
         </Text>
       )}
+      {/* Not a wizard step: setup is anonymous, and every saved setting names
+          the administrator who chose it and why. */}
+      <Text ta="center" size="sm" c="dimmed">
+        Once you are signed in, set up email, single sign-on and retention under{' '}
+        <strong>Settings → Server settings</strong>.
+      </Text>
       <Button size="lg" mt="md" onClick={onComplete} rightSection={<Rocket size={18} />}>
         {fromEnvironment ? 'Get Started' : 'Go to sign-in'}
       </Button>

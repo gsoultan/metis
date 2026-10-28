@@ -626,6 +626,8 @@ export interface SetupRequest {
   admin_email: string;
   organization_name: string;
   project_name: string;
+  /** The one-time token the server prints in its log on a fresh install. */
+  setup_token: string;
 }
 
 

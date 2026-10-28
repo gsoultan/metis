@@ -40,6 +40,7 @@ import (
 	"github.com/gsoultan/metis/server/transports/https/retentionholds"
 	"github.com/gsoultan/metis/server/transports/https/retentionperiods"
 	"github.com/gsoultan/metis/server/transports/https/roles"
+	"github.com/gsoultan/metis/server/transports/https/serversettings"
 	"github.com/gsoultan/metis/server/transports/https/setup"
 	"github.com/gsoultan/metis/server/transports/https/simulationcases"
 	"github.com/gsoultan/metis/server/transports/https/simulations"
@@ -94,6 +95,7 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 	batchoperations.RegisterHandlers(m, eps.BatchOperation, options)
 	operationlog.RegisterHandlers(m, eps.OperationLog, options)
 	retentionperiods.RegisterHandlers(m, eps.RetentionPeriod, options)
+	serversettings.RegisterHandlers(m, eps.ServerSetting, options)
 	notification.RegisterHandlers(m, eps.Notification, options)
 	decisions.RegisterHandlers(m, eps.Decision, options)
 	connectors.RegisterHandlers(m, eps.Connector, options)

@@ -27,6 +27,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/retentionhold"
 	"github.com/gsoultan/metis/server/endpoints/retentionperiod"
 	"github.com/gsoultan/metis/server/endpoints/role"
+	"github.com/gsoultan/metis/server/endpoints/serversetting"
 	"github.com/gsoultan/metis/server/endpoints/setup"
 	"github.com/gsoultan/metis/server/endpoints/simulation"
 	"github.com/gsoultan/metis/server/endpoints/simulationcase"
@@ -55,6 +56,7 @@ type Endpoints struct {
 	BatchOperation    batchoperation.Endpoints
 	OperationLog      operationlog.Endpoints
 	RetentionPeriod   retentionperiod.Endpoints
+	ServerSetting     serversetting.Endpoints
 	Organization      organization.Endpoints
 	Process           process.Endpoints
 	Project           project.Endpoints
@@ -354,6 +356,15 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	periodEndpoints.ListRetentionPeriods = protected("ListRetentionPeriods")(periodEndpoints.ListRetentionPeriods)
 	periodEndpoints.RetentionPeriodHistory = protected("RetentionPeriodHistory")(periodEndpoints.RetentionPeriodHistory)
 
+	// The server's settings are every organization's: a mail server, a
+	// retention period, a worker count. So reading and changing them is a
+	// platform administrator's, reading included, since the page also shows
+	// what the environment sets. The service asks again who is calling.
+	serverSettingEndpoints := serversetting.MakeEndpoints(s)
+	serverSettingEndpoints.ListServerSettings = platformAdmin("ListServerSettings")(serverSettingEndpoints.ListServerSettings)
+	serverSettingEndpoints.ChangeServerSetting = platformAdmin("ChangeServerSetting")(serverSettingEndpoints.ChangeServerSetting)
+	serverSettingEndpoints.ServerSettingHistory = platformAdmin("ServerSettingHistory")(serverSettingEndpoints.ServerSettingHistory)
+
 	// Retrying or cancelling many instances at once runs the organization
 	// day to day, as resolving one incident does. The service asks again who
 	// is calling, and refuses a cancel to anybody but an administrator, as a
@@ -563,6 +574,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		BatchOperation:    batchEndpoints,
 		OperationLog:      operationLogEndpoints,
 		RetentionPeriod:   periodEndpoints,
+		ServerSetting:     serverSettingEndpoints,
 		Organization:      organizationEndpoints,
 		Process:           processEndpoints,
 		Project:           projectEndpoints,

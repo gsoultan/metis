@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/server/domains/handlers/impl"
 	observercontracts "github.com/gsoultan/metis/server/domains/observers/contracts"
 	observerimpl "github.com/gsoultan/metis/server/domains/observers/impl"
@@ -48,6 +49,7 @@ type service struct {
 	contracts.DeviationService
 	contracts.RetentionHoldService
 	contracts.RetentionPeriodService
+	contracts.InstallationSettingService
 	contracts.BatchOperationService
 	contracts.OperationLogService
 }
@@ -87,8 +89,10 @@ type ServiceParams struct {
 	DeviationService       contracts.DeviationService
 	RetentionHoldService   contracts.RetentionHoldService
 	RetentionPeriodService contracts.RetentionPeriodService
-	BatchOperationService  contracts.BatchOperationService
-	OperationLogService    contracts.OperationLogService
+	// InstallationSettingService is the Settings page's server settings.
+	InstallationSettingService contracts.InstallationSettingService
+	BatchOperationService      contracts.BatchOperationService
+	OperationLogService        contracts.OperationLogService
 }
 
 func NewService(p ServiceParams) ServiceFacade {
@@ -104,6 +108,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	}
 	if p.RetentionPeriodService == nil {
 		p.RetentionPeriodService = serviceimpl.NewUnavailableRetentionPeriodService()
+	}
+	if p.InstallationSettingService == nil {
+		p.InstallationSettingService = serviceimpl.NewUnavailableInstallationSettingService()
 	}
 	if p.BatchOperationService == nil {
 		p.BatchOperationService = serviceimpl.NewUnavailableBatchOperationService()
@@ -131,42 +138,43 @@ func NewService(p ServiceParams) ServiceFacade {
 		p.SimulationCaseService = serviceimpl.NewUnavailableSimulationCaseService()
 	}
 	return &service{
-		OrganizationService:      p.OrganizationService,
-		ProjectService:           p.ProjectService,
-		DefinitionService:        p.DefinitionService,
-		EnvironmentService:       p.EnvironmentService,
-		WorkflowUserService:      p.WorkflowUserService,
-		ParticipantSyncService:   p.ParticipantSyncService,
-		PlatformUserService:      p.PlatformUserService,
-		PeopleSignInService:      p.PeopleSignInService,
-		TaskService:              p.TaskService,
-		PeopleTaskService:        p.PeopleTaskService,
-		TaskLinkService:          p.TaskLinkService,
-		PeopleSwitchOverService:  p.PeopleSwitchOver,
-		PersonAPIKeyService:      p.PersonAPIKeys,
-		ExecutionEngine:          p.ExecutionEngine,
-		JobService:               p.JobService,
-		ExternalTaskService:      p.ExternalTaskService,
-		DecisionService:          p.DecisionService,
-		MigrationService:         p.MigrationService,
-		ConnectorService:         p.ConnectorService,
-		CollaborationService:     p.CollaborationService,
-		MessagingService:         p.MessagingService,
-		WebhookService:           p.WebhookService,
-		OutgoingWebhookService:   p.OutgoingWebhooks,
-		OutgoingWebhookDeliverer: p.OutgoingDeliveries,
-		AdHocActivator:           p.AdHocActivator,
-		UserService:              p.UserService,
-		GroupService:             p.GroupService,
-		SetupService:             p.SetupService,
-		NotificationService:      p.NotificationService,
-		SimulationService:        p.SimulationService,
-		SimulationCaseService:    p.SimulationCaseService,
-		DeviationService:         p.DeviationService,
-		RetentionHoldService:     p.RetentionHoldService,
-		RetentionPeriodService:   p.RetentionPeriodService,
-		BatchOperationService:    p.BatchOperationService,
-		OperationLogService:      p.OperationLogService,
+		OrganizationService:        p.OrganizationService,
+		ProjectService:             p.ProjectService,
+		DefinitionService:          p.DefinitionService,
+		EnvironmentService:         p.EnvironmentService,
+		WorkflowUserService:        p.WorkflowUserService,
+		ParticipantSyncService:     p.ParticipantSyncService,
+		PlatformUserService:        p.PlatformUserService,
+		PeopleSignInService:        p.PeopleSignInService,
+		TaskService:                p.TaskService,
+		PeopleTaskService:          p.PeopleTaskService,
+		TaskLinkService:            p.TaskLinkService,
+		PeopleSwitchOverService:    p.PeopleSwitchOver,
+		PersonAPIKeyService:        p.PersonAPIKeys,
+		ExecutionEngine:            p.ExecutionEngine,
+		JobService:                 p.JobService,
+		ExternalTaskService:        p.ExternalTaskService,
+		DecisionService:            p.DecisionService,
+		MigrationService:           p.MigrationService,
+		ConnectorService:           p.ConnectorService,
+		CollaborationService:       p.CollaborationService,
+		MessagingService:           p.MessagingService,
+		WebhookService:             p.WebhookService,
+		OutgoingWebhookService:     p.OutgoingWebhooks,
+		OutgoingWebhookDeliverer:   p.OutgoingDeliveries,
+		AdHocActivator:             p.AdHocActivator,
+		UserService:                p.UserService,
+		GroupService:               p.GroupService,
+		SetupService:               p.SetupService,
+		NotificationService:        p.NotificationService,
+		SimulationService:          p.SimulationService,
+		SimulationCaseService:      p.SimulationCaseService,
+		DeviationService:           p.DeviationService,
+		RetentionHoldService:       p.RetentionHoldService,
+		RetentionPeriodService:     p.RetentionPeriodService,
+		InstallationSettingService: p.InstallationSettingService,
+		BatchOperationService:      p.BatchOperationService,
+		OperationLogService:        p.OperationLogService,
 	}
 }
 
@@ -266,7 +274,7 @@ func NewServiceFacade(
 	messagingSvc := serviceimpl.NewMessagingService(engine, externalTaskSvc)
 	webhookSvc := serviceimpl.NewWebhookService(repo, engine)
 	adHocActivator := serviceimpl.NewAdHocActivator(engine, repo)
-	setupSvc := serviceimpl.NewSetupService(repo.User())
+	setupSvc := serviceimpl.NewSetupService(repo.User(), envvar.Get(serviceimpl.EnvSetupToken))
 	notificationSvc := serviceimpl.NewNotificationService(repo.Notification())
 
 	// Resolve circular collaborators via functional options so the wiring is
@@ -361,8 +369,9 @@ func NewServiceFacade(
 			instanceDeviator,
 			serviceimpl.NewDeviationRequestService(repo, engine,
 				serviceimpl.WithSoleAdministratorOrganizations(settings.soleAdministratorOrganizations))),
-		RetentionHoldService:   serviceimpl.NewRetentionHoldService(repo, auditWriter),
-		RetentionPeriodService: serviceimpl.NewRetentionPeriodService(repo),
+		RetentionHoldService:       serviceimpl.NewRetentionHoldService(repo, auditWriter),
+		RetentionPeriodService:     serviceimpl.NewRetentionPeriodService(repo),
+		InstallationSettingService: serviceimpl.NewInstallationSettingService(repo.InstallationSetting()),
 		BatchOperationService: serviceimpl.NewBatchOperationService(repo, instanceDeviator, jobSvc,
 			serviceimpl.AccountLoader(userSvc), serviceimpl.DefaultBatchOperationSettings()),
 		OperationLogService: serviceimpl.NewOperationLogService(repo),

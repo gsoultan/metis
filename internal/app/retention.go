@@ -72,13 +72,20 @@ const payloadSweepGrace = time.Hour
 // electing a single sweeper.
 func (a *App) startRetentionSweeps(ctx context.Context) {
 	ctx = entities.WithSystemContext(ctx)
-	keep := resolveOptInRetention()
-	keep.announce()
 	a.sweepsBegan = time.Now()
 	go func() {
 		ticker := time.NewTicker(retentionSweepEvery)
 		defer ticker.Stop()
-		for {
+		var announced optInRetention
+		for i := 0; ; i++ {
+			// Read again each pass: the periods can be changed on the Settings
+			// page, and a new one should not wait for a restart. Said again
+			// whenever it changes, because each one deletes rows.
+			keep := resolveOptInRetention()
+			if i == 0 || keep != announced {
+				keep.announce()
+				announced = keep
+			}
 			a.sweepRetention(ctx, time.Now(), keep)
 			select {
 			case <-ctx.Done():

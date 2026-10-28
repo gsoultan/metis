@@ -21,10 +21,10 @@ func TestSetupRefusesAShortAdministratorPassword(t *testing.T) {
 	t.Setenv("JWT_SECRET", strongSecret(t))
 	t.Chdir(t.TempDir())
 
-	err := impl.NewSetupService(heldInstallation(false)).Setup(t.Context(), contracts.SetupRequest{
+	err := impl.NewSetupService(heldInstallation(false), testSetupToken).Setup(t.Context(), contracts.SetupRequest{
 		AdminUsername: "admin", AdminPassword: "a",
 		AdminFullName: "Admin", AdminPublicName: "Admin", AdminEmail: "admin@example.invalid",
-		OrganizationName: "Example Co",
+		OrganizationName: "Example Co", SetupToken: testSetupToken,
 	})
 	if !errors.Is(err, apierr.ErrInvalidArgument) {
 		t.Fatalf("setup with a one-character administrator password: got %v, want an invalid argument", err)

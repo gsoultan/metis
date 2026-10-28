@@ -141,8 +141,14 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
       admin_email: '',
       organization_name: '',
       project_name: 'Default Project',
+      setup_token: '',
     },
     validate: (values) => {
+      // Asked on whichever step comes first: nothing the wizard does is
+      // answered without it.
+      if (step === firstStep && !values.setup_token.trim()) {
+        return { setup_token: "Enter the setup token from the server's log" };
+      }
       if (step === SETUP_STEPS.database) {
         if (!values.database_driver) {
           return { database_driver: 'Database driver is required' };
@@ -222,6 +228,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
         db_password: form.values.db_password,
         db_name: form.values.db_name,
         db_ssl_enabled: form.values.db_ssl_enabled,
+        setup_token: form.values.setup_token,
       });
       setConnectionResult(result);
     } catch (err: unknown) {
@@ -289,6 +296,17 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                 </div>
               </Group>
             </Center>
+
+            {step < SETUP_STEPS.done && (
+              <PasswordInput
+                label="Setup token"
+                description="Printed in the server's log when Metis starts without an administrator, or the value of METIS_SETUP_TOKEN. It proves you run this server."
+                placeholder="Paste the setup token"
+                autoComplete="off"
+                required
+                {...form.getInputProps('setup_token')}
+              />
+            )}
 
             <Stepper
               active={step}

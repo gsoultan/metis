@@ -19,6 +19,7 @@ const everything: SetupRequest = {
   admin_email: 'ada@example.com',
   organization_name: 'Acme',
   project_name: 'Finance',
+  setup_token: 'the-token-from-the-log',
 };
 
 describe('firstSetupStep', () => {
@@ -43,6 +44,8 @@ describe('setupRequestFor', () => {
         'admin_username',
         'organization_name',
         'project_name',
+        // Without it the server refuses: the wizard is the operator's.
+        'setup_token',
       ].sort(),
     );
     // The secrets the form generated on the way in stay in the browser.

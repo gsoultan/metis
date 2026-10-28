@@ -13,6 +13,7 @@ type repository struct {
 	deviationDecider      contracts.DeviationDecider
 	retentionHold         contracts.RetentionHoldRepository
 	retentionPeriod       contracts.RetentionPeriodRepository
+	installationSetting   contracts.InstallationSettingRepository
 	simulationCase        contracts.SimulationCaseRepository
 	batchOperation        contracts.BatchOperationRepository
 	broadcast             contracts.BroadcastRepository
@@ -70,6 +71,7 @@ func NewRepository(conn *stormdb.Conn) Repository {
 		deviationDecider:      pg.NewDeviationDecider(conn),
 		retentionHold:         pg.NewRetentionHoldRepository(conn),
 		retentionPeriod:       pg.NewRetentionPeriodRepository(conn),
+		installationSetting:   pg.NewInstallationSettingRepository(conn),
 		simulationCase:        pg.NewSimulationCaseRepository(conn),
 		batchOperation:        pg.NewBatchOperationRepository(conn),
 		broadcast:             pg.NewBroadcastRepository(conn),
@@ -117,6 +119,10 @@ func (r *repository) RetentionHold() contracts.RetentionHoldRepository {
 }
 func (r *repository) RetentionPeriod() contracts.RetentionPeriodRepository {
 	return r.retentionPeriod
+}
+
+func (r *repository) InstallationSetting() contracts.InstallationSettingRepository {
+	return r.installationSetting
 }
 func (r *repository) BatchOperation() contracts.BatchOperationRepository {
 	return r.batchOperation

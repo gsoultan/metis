@@ -142,6 +142,15 @@ does not undo a migration.
 
 ### Security
 
+- **The setup wizard asks for a setup token.** Setup is anonymous by
+  necessity, so whoever reached a fresh installation first became its
+  administrator, and its connection test answered anyone's network probes. A
+  server with no administrator now prints a one-time token in its log, or takes
+  `METIS_SETUP_TOKEN`, and refuses setup and the connection test without it.
+  Ten wrong tokens a minute stop it comparing. `scripts/dev.sh` chooses the
+  token and passes it to `scripts/seed-sample.sh`; run the seed script on its
+  own with `METIS_SETUP_TOKEN` set.
+
 - **A new account needs a password it can sign in with.** Creating an account
   through the API, Connect or the SDK took any password, an empty one
   included, and the account then signed in with it; only the UI's form
@@ -449,6 +458,16 @@ does not undo a migration.
 
 ### Added
 
+- **Server settings can be changed on the Settings page.** A platform
+  administrator sees every setting the server reads, grouped (email, sign-in,
+  retention, workers, limits, caches, observability), where its value comes
+  from, and changes one with a reason. Every change is kept with who made it
+  and why (migration 49); a secret such as the mail password is stored sealed
+  and never sent back to the browser. A value set in the environment still
+  wins and is shown locked. Retention periods and execution limits apply
+  without a restart; the rest say they wait for one. The database, keys,
+  listen addresses and guardrails stay environment-only and are listed
+  read-only with the reason.
 - **An administrator can set a colleague's password.** Editing an account
   on Platform access now has a *New password* field: left empty, the
   password stays as it is; filled in, it replaces it and signs the account

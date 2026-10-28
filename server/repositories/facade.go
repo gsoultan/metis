@@ -23,6 +23,9 @@ type Repository interface {
 	RetentionHold() contracts.RetentionHoldRepository
 	// RetentionPeriod is the periods processes are given, a row per change.
 	RetentionPeriod() contracts.RetentionPeriodRepository
+	// InstallationSetting is the server settings set from the Settings page,
+	// a row per change.
+	InstallationSetting() contracts.InstallationSettingRepository
 	// SimulationCase is the simulation test cases each process keeps.
 	SimulationCase() contracts.SimulationCaseRepository
 	// BatchOperation is the acts asked for on many instances at once, and
