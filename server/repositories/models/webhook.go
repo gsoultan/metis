@@ -17,41 +17,41 @@ import "time"
 type WebhookModel struct {
 	Base
 
-	ProjectID UUID   `gorm:"index" json:"project_id,omitzero"`
-	Name      string `gorm:"size:255" json:"name"`
+	ProjectID UUID   `json:"project_id,omitzero"`
+	Name      string `json:"name"`
 
 	// Token appears in the URL and identifies the webhook. It is not a
 	// credential: it travels in request paths, which are logged by every proxy
 	// between the sender and here, so it is treated as public. Knowing it lets
 	// someone address this webhook and nothing more.
-	Token string `gorm:"size:64;uniqueIndex" json:"token"`
+	Token string `json:"token"`
 
 	// Secret is the shared key the signature is computed with, encrypted at
 	// rest like every other credential: the repository seals it on write and
 	// opens it on read, and migration 42 sealed the ones written before it
 	// did. This is the part that authenticates, and it is never returned by
 	// any read path.
-	Secret string `gorm:"size:512" json:"-"`
+	Secret string `json:"-"`
 
 	// SignatureHeader is where the sender puts the signature. There is no
 	// standard: GitHub uses X-Hub-Signature-256, Stripe uses Stripe-Signature,
 	// others invent their own. Naming it per webhook is the difference between
 	// supporting one sender and supporting any.
-	SignatureHeader string `gorm:"size:128" json:"signature_header"`
+	SignatureHeader string `json:"signature_header"`
 
 	// MessageName is the BPMN message this delivery becomes.
-	MessageName string `gorm:"size:255" json:"message_name"`
+	MessageName string `json:"message_name"`
 
 	// CorrelationExpression picks the value that says which instance is waiting,
 	// as a FEEL expression over the delivered payload — `order.id`,
 	// `data.object.customer`. Empty means the message is not correlated to one
 	// instance, which is how a message start event works.
-	CorrelationExpression string `gorm:"size:512" json:"correlation_expression,omitzero"`
+	CorrelationExpression string `json:"correlation_expression,omitzero"`
 
 	// Enabled is the switch. A webhook that is misbehaving needs to be stopped
 	// without deleting it, because deleting it loses the token and the sender
 	// has to be reconfigured.
-	Enabled bool `gorm:"default:true" json:"enabled"`
+	Enabled bool `json:"enabled"`
 
 	// LegacySignaturesUntil is when this webhook stops accepting v1 signatures —
 	// an HMAC of the body alone, which a captured delivery can be replayed
@@ -80,15 +80,15 @@ func (WebhookModel) TableName() string {
 type WebhookDeliveryModel struct {
 	Base
 
-	WebhookID UUID `gorm:"index;uniqueIndex:ux_webhook_deliveries_identity,priority:1" json:"webhook_id,omitzero"`
+	WebhookID UUID `json:"webhook_id,omitzero"`
 
 	// DeliveryID is the sender's ID for this event.
-	DeliveryID string `gorm:"size:191;uniqueIndex:ux_webhook_deliveries_identity,priority:2" json:"delivery_id"`
+	DeliveryID string `json:"delivery_id"`
 
 	// ReceivedAt is what the retention sweep works from: these rows exist to
 	// answer "have I seen this?" for as long as a sender might retry, and are
 	// worthless after that.
-	ReceivedAt time.Time `gorm:"index;not null" json:"received_at"`
+	ReceivedAt time.Time `json:"received_at"`
 }
 
 // TableName overrides the table name for WebhookDeliveryModel.

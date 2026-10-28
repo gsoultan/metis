@@ -1,6 +1,7 @@
 package environment_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -10,7 +11,6 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/config"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/db"
-	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/migrations"
 	"github.com/gsoultan/metis/server/repositories/store/organization"
 	"github.com/gsoultan/storm/runtime/pgxdrv"
@@ -131,20 +131,17 @@ func TestTheRegistryTracksConnectionsPerEnvironment(t *testing.T) {
 
 // A database that is not there fails at open, not at the first request.
 //
-// Opening in GORM does not contact the server, so without an explicit ping a
-// misconfigured environment would register as ready and fail later, away from
-// whoever was watching the boot.
+// Opening a pool does not contact the server, so without the ping the
+// environment boot makes a misconfigured environment would register as ready
+// and fail later, away from whoever was watching the boot.
 func TestAnUnreachableDatabaseIsRefusedAtOpen(t *testing.T) {
-	db, err := gorms.Open("postgres", "host=127.0.0.1 port=1 user=nobody password=x dbname=nothing sslmode=disable")
+	ctx := t.Context()
+	pool, err := db.NewPool(ctx, config.PostgresURL("host=127.0.0.1 port=1 user=nobody password=x dbname=nothing sslmode=disable"))
 	if err != nil {
 		return // refused already, which is also correct
 	}
-	t.Cleanup(func() {
-		if sqlDB, dbErr := db.DB(); dbErr == nil {
-			_ = sqlDB.Close()
-		}
-	})
-	if err := gorms.Ping(db); err == nil {
+	t.Cleanup(pool.Close)
+	if err := pool.Ping(ctx); err == nil {
 		t.Fatal("a database on a closed port should not answer")
 	}
 }
@@ -164,18 +161,17 @@ func environmentDSN(t *testing.T) string {
 	}
 
 	namespace := "env_" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
-	admin, err := gorms.Open("postgres", base)
+	admin, err := db.NewPool(t.Context(), config.PostgresURL(base))
 	if err != nil {
 		t.Fatalf("open the admin connection: %v", err)
 	}
-	if err := admin.Exec("CREATE SCHEMA " + namespace).Error; err != nil {
+	// Schema DDL, which no store writes: kept as the harness's own SQL.
+	if _, err := admin.Exec(t.Context(), "CREATE SCHEMA "+namespace); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = admin.Exec("DROP SCHEMA IF EXISTS " + namespace + " CASCADE").Error
-		if sqlDB, err := admin.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
+		_, _ = admin.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+namespace+" CASCADE")
+		admin.Close()
 	})
 	return fmt.Sprintf("%s search_path=%s", base, namespace)
 }

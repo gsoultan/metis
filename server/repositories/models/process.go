@@ -64,25 +64,25 @@ type Token struct {
 // ProcessInstanceModel represents the GORM model for process instances.
 type ProcessInstanceModel struct {
 	Base
-	ProjectID        UUID                   `gorm:"index" json:"project_id,omitzero"`
-	Project          ProjectModel           `gorm:"foreignKey:ProjectID" json:"project,omitzero"`
-	DefinitionID     UUID                   `gorm:"index" json:"definition_id,omitzero"`
-	Definition       ProcessDefinitionModel `gorm:"foreignKey:DefinitionID" json:"definition,omitzero"`
-	ParentInstanceID *UUID                  `gorm:"index" json:"parent_instance_id,omitzero"`
+	ProjectID        UUID                   `json:"project_id,omitzero"`
+	Project          ProjectModel           `json:"project,omitzero"`
+	DefinitionID     UUID                   `json:"definition_id,omitzero"`
+	Definition       ProcessDefinitionModel `json:"definition,omitzero"`
+	ParentInstanceID *UUID                  `json:"parent_instance_id,omitzero"`
 	ParentNodeID     string                 `json:"parent_node_id,omitzero"`
-	Status           ProcessStatus          `gorm:"index" json:"status"`
-	BusinessKey      string                 `gorm:"size:255" json:"business_key,omitzero"`
-	Variables        EncryptedMap           `gorm:"type:text" json:"variables,omitzero"`
-	Tokens           []Token                `gorm:"type:text;serializer:json" json:"tokens,omitzero"`
-	CompletedNodes   []string               `gorm:"type:text;serializer:json" json:"completed_nodes,omitzero"`
-	CompensatedNodes []string               `gorm:"type:text;serializer:json" json:"compensated_nodes,omitzero"`
+	Status           ProcessStatus          `json:"status"`
+	BusinessKey      string                 `json:"business_key,omitzero"`
+	Variables        EncryptedMap           `json:"variables,omitzero"`
+	Tokens           []Token                `json:"tokens,omitzero"`
+	CompletedNodes   []string               `json:"completed_nodes,omitzero"`
+	CompensatedNodes []string               `json:"compensated_nodes,omitzero"`
 	// MultiInstance is engine bookkeeping for nodes that run once per item. It
 	// has its own column so it cannot collide with business variables or reach
 	// the audit trail through them.
-	MultiInstance map[string]MultiInstanceStateModel `gorm:"type:text;serializer:json" json:"multi_instance,omitzero"`
+	MultiInstance map[string]MultiInstanceStateModel `json:"multi_instance,omitzero"`
 	// Joins counts the branches that have reached each waiting gateway. Its own
 	// column for the same reason as MultiInstance.
-	Joins map[string]int `gorm:"type:text;serializer:json" json:"joins,omitzero"`
+	Joins map[string]int `json:"joins,omitzero"`
 }
 
 // TableName overrides the table name for ProcessInstanceModel.

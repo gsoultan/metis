@@ -2,14 +2,15 @@ package impl
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"hash/fnv"
 	"sync"
 	"time"
 
 	"github.com/gsoultan/metis/internal/pkg/clamp"
-
+	"github.com/gsoultan/storm/pglock"
+	"github.com/gsoultan/storm/runtime/pgxdrv"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 )
 
@@ -18,7 +19,7 @@ import (
 // owner across engine replicas.
 //
 // **It pins a connection per held lock, and that is not an optimisation.**
-// Advisory locks are *session*-scoped, while a *sql.DB is a pool: a naive
+// Advisory locks are *session*-scoped, while a pgxpool.Pool is a pool: a naive
 // implementation acquires on whichever connection the pool hands out and
 // releases on whichever it hands out next. When those differ,
 // pg_advisory_unlock runs on a session that holds nothing — it returns false
@@ -38,31 +39,31 @@ import (
 // Callers must pair every successful TryAcquire with exactly one Release, or
 // the pinned connection is withheld from the pool until the process exits.
 type PostgresLocker struct {
-	db *sql.DB
+	pool *pgxpool.Pool
 
 	// mu guards held. Locks are taken from several worker goroutines, so the
 	// map from key to its pinned session needs the same protection the
 	// underlying pool already gives itself.
 	mu   sync.Mutex
-	held map[string]*sql.Conn
+	held map[string]*pgxpool.Conn
 }
 
-// NewPostgresLocker creates a new PostgresLocker backed by the given *sql.DB.
-func NewPostgresLocker(db *sql.DB) *PostgresLocker {
-	return &PostgresLocker{db: db, held: make(map[string]*sql.Conn)}
+// NewPostgresLocker creates a new PostgresLocker backed by the given pool.
+func NewPostgresLocker(pool *pgxpool.Pool) *PostgresLocker {
+	return &PostgresLocker{pool: pool, held: make(map[string]*pgxpool.Conn)}
 }
 
 // TryAcquire attempts a non-blocking advisory lock via pg_try_advisory_lock,
 // pinning the session that takes it so Release can run on that same session.
 // The key is hashed to the 64-bit integer the advisory lock functions take.
 func (l *PostgresLocker) TryAcquire(ctx context.Context, key string, _ time.Duration) (bool, error) {
-	conn, err := l.db.Conn(ctx)
+	conn, err := l.pool.Acquire(ctx)
 	if err != nil {
 		return false, fmt.Errorf("postgres advisory lock %q: reserve a connection: %w", key, err)
 	}
 
-	var acquired bool
-	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", hashKey(key)).Scan(&acquired); err != nil {
+	acquired, err := pglock.TryLock(ctx, pgxdrv.Conn{C: conn}, hashKey(key))
+	if err != nil {
 		releaseConn(conn, key, "after a failed acquire")
 		return false, fmt.Errorf("postgres advisory lock acquire %q: %w", key, err)
 	}
@@ -84,7 +85,7 @@ func (l *PostgresLocker) TryAcquire(ctx context.Context, key string, _ time.Dura
 		// displaced is better than leaking it silently — and saying so, because
 		// reaching here means an assumption above is wrong.
 		log.Warn().Str("key", key).Msg("Displaced an existing advisory lock session for the same key")
-		if _, err := previous.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", hashKey(key)); err != nil {
+		if _, err := pglock.Unlock(ctx, pgxdrv.Conn{C: previous}, hashKey(key)); err != nil {
 			log.Warn().Err(err).Str("key", key).Msg("Could not unlock the displaced advisory lock session")
 		}
 		releaseConn(previous, key, "after displacing a duplicate holder")
@@ -109,14 +110,14 @@ func (l *PostgresLocker) Release(ctx context.Context, key string) error {
 		return nil
 	}
 
-	// Close returns the session to the pool; it does not end it, so the unlock
+	// Release returns the session to the pool; it does not end it, so the unlock
 	// has to be explicit. Closing regardless of the unlock's outcome is
 	// deliberate — a session we can no longer unlock on is one we must not keep
 	// reserved, and Postgres frees its locks when that session finally ends.
 	defer releaseConn(conn, key, "after releasing")
 
-	var released bool
-	if err := conn.QueryRowContext(ctx, "SELECT pg_advisory_unlock($1)", hashKey(key)).Scan(&released); err != nil {
+	released, err := pglock.Unlock(ctx, pgxdrv.Conn{C: conn}, hashKey(key))
+	if err != nil {
 		return fmt.Errorf("postgres advisory lock release %q: %w", key, err)
 	}
 	if !released {
@@ -130,14 +131,14 @@ func (l *PostgresLocker) Release(ctx context.Context, key string) error {
 
 // releaseConn returns a reserved session to the pool.
 //
-// A failure here is not the caller's problem to handle — the lock outcome is
-// already decided — but it must not be discarded either: it means a connection
-// is going back to the pool in an unknown state, and a run of them is how a
-// pool quietly shrinks to nothing.
-func releaseConn(conn *sql.Conn, key, when string) {
-	if err := conn.Close(); err != nil {
-		log.Warn().Err(err).Str("key", key).Str("when", when).Msg("Could not return the advisory lock connection to the pool")
+// A connection that failed mid-statement is closed rather than returned:
+// pgxpool checks what it is handed back, so a broken session is not lent out
+// again, and Postgres frees whatever locks it held when it ends.
+func releaseConn(conn *pgxpool.Conn, key, when string) {
+	if conn.Conn().IsClosed() {
+		log.Warn().Str("key", key).Str("when", when).Msg("The advisory lock connection was lost; its locks went with it")
 	}
+	conn.Release()
 }
 
 // hashKey converts an arbitrary string key into a stable int64 for advisory lock IDs.

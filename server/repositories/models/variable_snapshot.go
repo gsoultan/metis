@@ -7,10 +7,10 @@ import (
 // VariableSnapshotModel is the GORM persistence model for a process variable snapshot.
 type VariableSnapshotModel struct {
 	Base
-	InstanceID UUID           `gorm:"index"           json:"instance_id"`
+	InstanceID UUID           `json:"instance_id"`
 	NodeID     string         `json:"node_id,omitzero"`
-	Variables  map[string]any `gorm:"type:text;serializer:json" json:"variables,omitzero"`
-	CapturedAt time.Time      `gorm:"index;not null"            json:"captured_at"`
+	Variables  map[string]any `json:"variables,omitzero"`
+	CapturedAt time.Time      `json:"captured_at"`
 }
 
 func (VariableSnapshotModel) TableName() string {

@@ -54,8 +54,7 @@ func brokerChannel(t *testing.T, url string) *amqp.Channel {
 // the real messaging service.
 func realRabbitMQApp(t *testing.T) *App {
 	t.Helper()
-	gormDB := testutils.SetupTestDB(t)
-	conn := gormDB
+	conn := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
 	facade := services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "rabbitmq-broker-test", nil, nil, nil)

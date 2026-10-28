@@ -5,9 +5,8 @@
 // right one: the transaction they are already inside, or their environment's
 // database, or the main one.
 //
-// It replaces gorms.GetTx, which did the same job for GORM. The shape is kept
-// deliberately: every read and write goes through a single resolver, so the
-// choice is a property of the request rather than something each of the thirty
+// Every read and write goes through this single resolver, so the choice is a
+// property of the request rather than something each of the thirty
 // repositories has to remember.
 package db
 
@@ -86,7 +85,7 @@ func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	// will notice until it is used.
 	config.MaxConnLifetime = 30 * time.Minute
 
-	// Sized by the same setting as the GORM pool. It was left to pgx's default
+	// Sized by METIS_DB_MAX_OPEN_CONNS. It was left to pgx's default
 	// — the larger of 4 and the machine's CPU count — so the pool carrying most
 	// of the engine's queries ignored METIS_DB_MAX_OPEN_CONNS, and on a large
 	// node each replica could open far more connections than anyone had

@@ -5,7 +5,7 @@ import "time"
 // UserModel represents the GORM model for users.
 type UserModel struct {
 	Base
-	Username     string `gorm:"size:255;uniqueIndex" json:"username"`
+	Username     string `json:"username"`
 	PasswordHash string `json:"-"`
 
 	// TokensValidFrom is when this account's credentials last changed. Tokens
@@ -24,15 +24,15 @@ type UserModel struct {
 	DisplayName     string     `json:"display_name"`
 	Organization    string     `json:"organization"`
 	Email           string     `json:"email"`
-	Roles           []string   `gorm:"type:text;serializer:json" json:"roles,omitzero"`
+	Roles           []string   `json:"roles,omitzero"`
 
 	// IdentityIssuer and IdentitySubject link the account to the identity
 	// provider that signs it in, and are nil for a local account. Unique over
 	// the live rows, under the name the storm model gives the index, so the two
 	// layers describe one index rather than two. Migration 27 adds both to an
 	// installation that predates them.
-	IdentityIssuer  *string `gorm:"uniqueIndex:uq_users_identity_issuer_identity_subject,where:deleted_at IS NULL" json:"-"`
-	IdentitySubject *string `gorm:"uniqueIndex:uq_users_identity_issuer_identity_subject,where:deleted_at IS NULL" json:"-"`
+	IdentityIssuer  *string `json:"-"`
+	IdentitySubject *string `json:"-"`
 
 	// Loaded by the repository, not by the ORM. These were a GORM many-to-many,
 	// which derived the join columns from the Go type names — user_model_id,
@@ -42,13 +42,13 @@ type UserModel struct {
 	//
 	// The join tables belong to the storm model now (UserOrganization,
 	// UserProject) and these are plain fields the repository fills.
-	Organizations []OrganizationModel `gorm:"-" json:"organizations,omitzero"`
-	Projects      []ProjectModel      `gorm:"-" json:"projects,omitzero"`
+	Organizations []OrganizationModel `json:"organizations,omitzero"`
+	Projects      []ProjectModel      `json:"projects,omitzero"`
 
 	// RolesByOrganization are the roles the account holds in one organization
 	// alone, by organization, read from the same membership rows as
 	// Organizations. An organization it holds nothing in has no entry.
-	RolesByOrganization map[UUID][]string `gorm:"-" json:"-"`
+	RolesByOrganization map[UUID][]string `json:"-"`
 }
 
 // TableName overrides the table name for UserModel.

@@ -16,15 +16,15 @@ import "time"
 // version whatever this table says.
 type DecisionReleaseModel struct {
 	Base
-	ProjectID UUID `gorm:"index:idx_decision_release_timeline,unique,priority:2" json:"project_id,omitzero"`
+	ProjectID UUID `json:"project_id,omitzero"`
 	// Leads the unique index for the reason ProcessKey leads the process one:
 	// the hot lookup filters on the key first. As long as the key it names.
-	DecisionKey string `gorm:"size:255;index:idx_decision_release_timeline,unique,priority:1" json:"decision_key"`
+	DecisionKey string `json:"decision_key"`
 	// ActivateAt is when this entry took over, in UTC. Part of the unique key,
 	// so making a version live again is a new entry rather than an overwrite
 	// of when the last change happened.
-	ActivateAt time.Time `gorm:"index:idx_decision_release_timeline,unique,priority:3;not null" json:"activate_at"`
-	Version    int       `gorm:"not null;default:0" json:"version"`
+	ActivateAt time.Time `json:"activate_at"`
+	Version    int       `json:"version"`
 }
 
 // TableName overrides the table name for DecisionReleaseModel.

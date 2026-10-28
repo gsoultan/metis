@@ -3,14 +3,14 @@ package models
 // Connector is the GORM model for Connector templates.
 type Connector struct {
 	Base
-	Key         string `gorm:"size:255;uniqueIndex" json:"key"`
+	Key         string `json:"key"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitzero"`
 	Icon        string `json:"icon,omitzero"`
 	Type        string `json:"type"`
 	// column:properties — see FormModel.Schema for why the column and the Go
 	// field disagree here.
-	Schema []ConnectorProperty `gorm:"column:properties;type:text;serializer:json" json:"schema,omitzero"`
+	Schema []ConnectorProperty `json:"schema,omitzero"`
 }
 
 // ConnectorProperty defines the schema for a connector's configuration in the database.
@@ -27,8 +27,8 @@ type ConnectorProperty struct {
 // ConnectorInstance is the GORM model for ConnectorInstance.
 type ConnectorInstance struct {
 	Base
-	ProjectID   UUID   `gorm:"index" json:"project_id,omitzero"`
-	ConnectorID UUID   `gorm:"index" json:"connector_id,omitzero"`
+	ProjectID   UUID   `json:"project_id,omitzero"`
+	ConnectorID UUID   `json:"connector_id,omitzero"`
 	Name        string `json:"name"`
 	// Encrypted at rest. This map holds whatever a connector needs to
 	// authenticate — a bearer token, an SMTP password, a signing secret — and it
@@ -36,5 +36,5 @@ type ConnectorInstance struct {
 	// replica had every third-party credential in the installation. EncryptedMap
 	// reads a row written before this change as cleartext and re-persists it
 	// encrypted on the next write, so no migration is needed.
-	Config EncryptedMap `gorm:"type:text" json:"config,omitzero"`
+	Config EncryptedMap `json:"config,omitzero"`
 }

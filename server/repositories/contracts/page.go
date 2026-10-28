@@ -59,9 +59,8 @@ func (p Pagination) Offset() int {
 	return (n.Page - 1) * n.PageSize
 }
 
-// The repositories build their own LIMIT and OFFSET from Normalize and Offset.
-// This carried an Apply(*gorm.DB) helper, which is what made a persistence-
-// agnostic contract import an ORM.
+// The repositories build their own LIMIT and OFFSET from Normalize and Offset,
+// so this contract imports no persistence package.
 
 // Page is one slice of a larger result set, with enough context for a caller
 // to render "showing 51–100 of 1,234" and decide whether to offer a next page.

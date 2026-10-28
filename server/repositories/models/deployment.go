@@ -2,9 +2,9 @@ package models
 
 type DeploymentModel struct {
 	Base
-	ProjectID UUID            `gorm:"index" json:"project_id,omitzero"`
+	ProjectID UUID            `json:"project_id,omitzero"`
 	Name      string          `json:"name"`
-	Resources []ResourceModel `gorm:"foreignKey:DeploymentID" json:"resources,omitzero"`
+	Resources []ResourceModel `json:"resources,omitzero"`
 }
 
 func (DeploymentModel) TableName() string {
@@ -13,7 +13,7 @@ func (DeploymentModel) TableName() string {
 
 type ResourceModel struct {
 	Base
-	DeploymentID UUID   `gorm:"index" json:"deployment_id,omitzero"`
+	DeploymentID UUID   `json:"deployment_id,omitzero"`
 	Name         string `json:"name"`
 	Content      []byte `json:"content,omitzero"`
 	Type         string `json:"type"`

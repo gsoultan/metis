@@ -12,7 +12,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/transports/https/common"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // The gap this closes: the manifest executor was correct and tested, and
@@ -441,7 +440,6 @@ func TestABrokenManifestIsRefusedAtInstall(t *testing.T) {
 }
 
 var _ = errors.Is
-var _ = gorm.ErrRecordNotFound
 
 // A document that is not a connector is the sender's mistake, and a 400 says
 // so. It was a 500: that pages somebody over a typo, and spends the error

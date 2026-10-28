@@ -14,20 +14,20 @@ type ConnectorManifestModel struct {
 	// Key is what a node names, and is unique across the installation for the
 	// same reason a built-in connector's key is: a node says "salesforce.create-lead"
 	// and exactly one thing must answer.
-	Key string `gorm:"size:191;uniqueIndex" json:"key"`
+	Key string `json:"key"`
 
-	Name    string `gorm:"size:255" json:"name"`
-	Version int    `gorm:"not null;default:0" json:"version"`
+	Name    string `json:"name"`
+	Version int    `json:"version"`
 
 	// Document is the manifest as its author wrote it, YAML or JSON. Stored
 	// verbatim rather than as parsed fields so that what an operator reads back
 	// is what they installed, comments and all.
-	Document string `gorm:"type:text" json:"document"`
+	Document string `json:"document"`
 
 	// Enabled is the switch. A connector calling a partner that has asked us to
 	// stop needs to be stoppable without deleting it, because deleting loses
 	// the document.
-	Enabled bool `gorm:"default:true" json:"enabled"`
+	Enabled bool `json:"enabled"`
 }
 
 // TableName overrides the table name for ConnectorManifestModel.

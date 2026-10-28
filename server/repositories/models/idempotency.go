@@ -19,29 +19,26 @@ type IdempotencyRecordModel struct {
 	// every dialect's index limit.
 	//
 	// The column is `record_key`, not `key`: **`key` is reserved in MySQL**, so
-	// any query naming it in a raw condition fails with a syntax error there and
-	// nowhere else. The repository layer works around that with map conditions
-	// (see gorms.ByKey), but this table is new and has no data, so it can simply
-	// avoid the word instead of working around it at every call site.
-	Key string `gorm:"primaryKey;size:64;column:record_key" json:"key"`
+	// the table avoids the word rather than quoting it at every call site.
+	Key string `json:"key"`
 
 	// RequestHash detects a key reused for a different request, which is a
 	// client bug worth refusing rather than serving the wrong cached answer to.
-	RequestHash string `gorm:"size:64" json:"request_hash"`
+	RequestHash string `json:"request_hash"`
 
 	// Completed separates "somebody is running this right now" from "here is
 	// the answer". A claimed-but-incomplete row is what makes a second caller
 	// wait rather than execute.
-	Completed bool `gorm:"index" json:"completed"`
+	Completed bool `json:"completed"`
 
-	StatusCode int                 `gorm:"not null;default:0" json:"status_code,omitzero"`
-	Headers    map[string][]string `gorm:"type:text;serializer:json" json:"headers,omitzero"`
+	StatusCode int                 `json:"status_code,omitzero"`
+	Headers    map[string][]string `json:"headers,omitzero"`
 	Body       []byte              `json:"body,omitzero"`
 
 	// CreatedAt is what the retention sweep works from. These rows answer "have
 	// I already done this?" for as long as a client might retry, and are
 	// worthless after that.
-	CreatedAt   time.Time  `gorm:"index;not null" json:"created_at"`
+	CreatedAt   time.Time  `json:"created_at"`
 	CompletedAt *time.Time `json:"completed_at,omitzero"`
 }
 
