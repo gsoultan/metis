@@ -2158,6 +2158,358 @@ var assignFor = map[string]string{
 
 func assignExcluded(c string) string { return assignFor[c] }
 
+// guardFragTable is fragTable with every column named with its table,
+// for UpsertWhere's WHERE, where EXCLUDED carries the same names.
+var guardFragTable = [8][31]runtime.Frag{
+	{ // id
+		{}, // opNone
+		{A: "\"external_task_workers\".\"id\" = $", B: ""},
+		{A: "\"external_task_workers\".\"id\" <> $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"external_task_workers\".\"id\" = ANY($", B: ")"},
+		{A: "\"external_task_workers\".\"id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // created_at
+		{}, // opNone
+		{A: "\"external_task_workers\".\"created_at\" = $", B: ""},
+		{A: "\"external_task_workers\".\"created_at\" <> $", B: ""},
+		{A: "\"external_task_workers\".\"created_at\" > $", B: ""},
+		{A: "\"external_task_workers\".\"created_at\" >= $", B: ""},
+		{A: "\"external_task_workers\".\"created_at\" < $", B: ""},
+		{A: "\"external_task_workers\".\"created_at\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // updated_at
+		{}, // opNone
+		{A: "\"external_task_workers\".\"updated_at\" = $", B: ""},
+		{A: "\"external_task_workers\".\"updated_at\" <> $", B: ""},
+		{A: "\"external_task_workers\".\"updated_at\" > $", B: ""},
+		{A: "\"external_task_workers\".\"updated_at\" >= $", B: ""},
+		{A: "\"external_task_workers\".\"updated_at\" < $", B: ""},
+		{A: "\"external_task_workers\".\"updated_at\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // organization_id
+		{}, // opNone
+		{A: "\"external_task_workers\".\"organization_id\" = $", B: ""},
+		{A: "\"external_task_workers\".\"organization_id\" <> $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"external_task_workers\".\"organization_id\" = ANY($", B: ")"},
+		{A: "\"external_task_workers\".\"organization_id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // topic
+		{}, // opNone
+		{A: "\"external_task_workers\".\"topic\" = $", B: ""},
+		{A: "\"external_task_workers\".\"topic\" <> $", B: ""},
+		{A: "\"external_task_workers\".\"topic\" > $", B: ""},
+		{A: "\"external_task_workers\".\"topic\" >= $", B: ""},
+		{A: "\"external_task_workers\".\"topic\" < $", B: ""},
+		{A: "\"external_task_workers\".\"topic\" <= $", B: ""},
+		{A: "lower(\"external_task_workers\".\"topic\") = lower($", B: ")"},
+		{A: "\"external_task_workers\".\"topic\" LIKE $", B: ""},
+		{A: "\"external_task_workers\".\"topic\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"external_task_workers\".\"topic\" = ANY($", B: ")"},
+		{A: "\"external_task_workers\".\"topic\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // worker_id
+		{}, // opNone
+		{A: "\"external_task_workers\".\"worker_id\" = $", B: ""},
+		{A: "\"external_task_workers\".\"worker_id\" <> $", B: ""},
+		{A: "\"external_task_workers\".\"worker_id\" > $", B: ""},
+		{A: "\"external_task_workers\".\"worker_id\" >= $", B: ""},
+		{A: "\"external_task_workers\".\"worker_id\" < $", B: ""},
+		{A: "\"external_task_workers\".\"worker_id\" <= $", B: ""},
+		{A: "lower(\"external_task_workers\".\"worker_id\") = lower($", B: ")"},
+		{A: "\"external_task_workers\".\"worker_id\" LIKE $", B: ""},
+		{A: "\"external_task_workers\".\"worker_id\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"external_task_workers\".\"worker_id\" = ANY($", B: ")"},
+		{A: "\"external_task_workers\".\"worker_id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // version
+		{}, // opNone
+		{A: "\"external_task_workers\".\"version\" = $", B: ""},
+		{A: "\"external_task_workers\".\"version\" <> $", B: ""},
+		{A: "\"external_task_workers\".\"version\" > $", B: ""},
+		{A: "\"external_task_workers\".\"version\" >= $", B: ""},
+		{A: "\"external_task_workers\".\"version\" < $", B: ""},
+		{A: "\"external_task_workers\".\"version\" <= $", B: ""},
+		{A: "lower(\"external_task_workers\".\"version\") = lower($", B: ")"},
+		{A: "\"external_task_workers\".\"version\" LIKE $", B: ""},
+		{A: "\"external_task_workers\".\"version\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"external_task_workers\".\"version\" = ANY($", B: ")"},
+		{A: "\"external_task_workers\".\"version\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"external_task_workers\".\"version\" IS NULL", B: ""},
+		{A: "\"external_task_workers\".\"version\" IS NOT NULL", B: ""},
+		{},
+		{A: "COALESCE(\"external_task_workers\".\"version\", '') = ''", B: ""},
+		{},
+		{},
+	},
+	{ // last_seen_at
+		{}, // opNone
+		{A: "\"external_task_workers\".\"last_seen_at\" = $", B: ""},
+		{A: "\"external_task_workers\".\"last_seen_at\" <> $", B: ""},
+		{A: "\"external_task_workers\".\"last_seen_at\" > $", B: ""},
+		{A: "\"external_task_workers\".\"last_seen_at\" >= $", B: ""},
+		{A: "\"external_task_workers\".\"last_seen_at\" < $", B: ""},
+		{A: "\"external_task_workers\".\"last_seen_at\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+}
+
+func guardFragOf(op, col uint32) runtime.Frag {
+	if int(col) >= len(guardFragTable) || int(op) >= len(guardFragTable[0]) {
+		return runtime.Frag{}
+	}
+	return guardFragTable[col][op]
+}
+
+var guardLowering = func() runtime.Lowering {
+	l := lowering
+	l.Frag = guardFragOf
+	return l
+}()
+
+var guardedUpsertCache = runtime.NewTreeCache()
+
+var errUnguardedUpsert = errors.New("storm: UpsertWhere guards the update of an upsert: name its unique key with OnConflict…, without DoNothing, and pass a query with no Limit, Offset or lock")
+
+// UpsertWhere inserts the row or, on a conflict on the key OnConflict…
+// named, updates the row already there only when q matches it, and
+// otherwise leaves it alone. It reports the rows written: one inserted
+// or updated, or none.
+//
+//	n.OnConflictWorker().UpsertWhere(ctx, ex, New().Any(LastSeenAt.Lt(stale), Version.NotEq(v)))
+//
+// q's predicates read the row already there; ordering is ignored.
+func (n *Ins) UpsertWhere(ctx context.Context, ex runtime.Executor, q Query) (int64, error) {
+	if n.set == 0 {
+		return 0, runtime.ErrNothingAssigned
+	}
+	if n.conflict < 2 || n.conflict%2 == 1 || q.Shaped() {
+		return 0, errUnguardedUpsert
+	}
+	if err := q.Err(); err != nil {
+		return 0, err
+	}
+	var buf [21]runtime.Tok
+	toks := q.preds(&buf)
+	if len(assignable((n.conflict-2)/2, n.set)) == 0 {
+		toks = nil // DO NOTHING: there is no update to guard
+	}
+	var kb [25]runtime.Tok
+	key := kb[:4+copy(kb[4:], toks)]
+	key[0], key[1], key[2], key[3] = runtime.Tok(n.set), runtime.Tok(n.set>>32), runtime.Tok(n.conflict), 0
+	st := guardedUpsertCache.Get(key)
+	if st == nil {
+		head := stmtForInsertNoReturn(n.set, n.conflict)
+		st = guardedUpsertCache.Put(key, runtime.SpliceTreeFrom(head.SQL, toks, guardLowering, "", head.NArg))
+	}
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	b := binders.Get()
+	defer putBinder(b)
+	args := make([]any, 0, st.NArg)
+	for i := 0; i < nInsertable; i++ {
+		if n.set&(1<<uint(i)) == 0 {
+			continue
+		}
+		switch i {
+		case 0:
+			args = append(args, n.row.ID)
+		case 1:
+			args = append(args, n.row.CreatedAt)
+		case 2:
+			args = append(args, n.row.UpdatedAt)
+		case 3:
+			args = append(args, n.row.OrganizationID)
+		case 4:
+			args = append(args, n.row.Topic)
+		case 5:
+			args = append(args, n.row.WorkerID)
+		case 6:
+			args = append(args, n.row.Version.Arg())
+		case 7:
+			args = append(args, n.row.LastSeenAt)
+		}
+	}
+	if toks != nil {
+		args = append(args, q.bindPreds(b)...)
+	}
+	return ex.Exec(ctx, st.SQL, args)
+}
+
 func stmtForInsert(mask uint64, conflict uint8) *runtime.Stmt {
 	// The conflict clause is part of the statement, so it must be part of
 	// the key. Packing it above the column bits keeps one cache for both.

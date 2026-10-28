@@ -32,15 +32,8 @@ const workerSeenEvery = 10 * time.Second
 // reads. An organization with more is answered from its most recently seen.
 const workersListed = 1_000
 
-// seenWorker writes a worker's row, or brings it up to date when the one
-// there is older than workerSeenEvery or says another version.
-const seenWorker = `INSERT INTO external_task_workers (organization_id, topic, worker_id, version, last_seen_at)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (organization_id, topic, worker_id) DO UPDATE
-SET last_seen_at = EXCLUDED.last_seen_at, version = EXCLUDED.version, updated_at = EXCLUDED.last_seen_at
-WHERE external_task_workers.last_seen_at < $6
-   OR external_task_workers.version IS DISTINCT FROM EXCLUDED.version`
-
+// Seen writes a worker's row, or brings it up to date when the one there is
+// older than workerSeenEvery or says another version.
 func (r *externalTaskWorkerRepository) Seen(ctx context.Context, topic, workerID, version string, at time.Time) error {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
@@ -53,12 +46,25 @@ func (r *externalTaskWorkerRepository) Seen(ctx context.Context, topic, workerID
 	if err != nil {
 		return err
 	}
-	var said any
-	if version != "" {
-		said = version
-	}
 	at = at.UTC()
-	if _, err := ex.Exec(ctx, seenWorker, []any{scope.organization, topic, workerID, said, at, at.Add(-workerSeenEvery)}); err != nil {
+	n := externaltaskworker.Create()
+	n.SetOrganizationID(scope.organization)
+	n.SetTopic(topic)
+	n.SetWorkerID(workerID)
+	n.SetLastSeenAt(at)
+	n.SetUpdatedAt(at)
+	// The row says another version than the worker: a different one, none
+	// where the worker gives one, or one where it gives none.
+	changed := []externaltaskworker.Pred{externaltaskworker.Version.IsNotNull()}
+	if version != "" {
+		n.SetVersion(version)
+		changed = []externaltaskworker.Pred{externaltaskworker.Version.IsNull(), externaltaskworker.Version.NotEq(version)}
+	} else {
+		n.SetVersionNull()
+	}
+	n.OnConflictOrganizationIDTopicWorkerID()
+	stale := externaltaskworker.New().Any(append(changed, externaltaskworker.LastSeenAt.Lt(at.Add(-workerSeenEvery)))...)
+	if _, err := n.UpsertWhere(ctx, ex, stale); err != nil {
 		return fmt.Errorf("could not record the worker: %w", err)
 	}
 	return nil

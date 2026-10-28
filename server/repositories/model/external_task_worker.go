@@ -35,6 +35,9 @@ func (w *ExternalTaskWorker) Schema(t *storm.Table) {
 	t.Col(&w.Version).Size(64)
 	// One row per worker on a topic, which a fetch updates in place.
 	t.Index(&w.Organization, &w.Topic, &w.WorkerID).Unique().Named("ux_external_task_workers_worker")
+	// Which is rewritten only when it is stale or says another version
+	// (UpsertWhere).
+	t.GuardsUpsert()
 	// The sweep that forgets workers not heard from in a week.
 	t.Col(&w.LastSeenAt).Index()
 	// Which removes a batch at a time (DeleteBatch).
