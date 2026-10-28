@@ -13,10 +13,11 @@ import (
 // An engine this no longer runs on is refused by name, at the wizard, rather
 // than at the first query.
 func TestTestConnection_RetiredDriverIsRefused(t *testing.T) {
-	svc := impl.NewSetupService(nil)
+	svc := impl.NewSetupService(nil, testSetupToken)
 
 	for _, driver := range []string{"sqlite", "mysql", "sqlserver"} {
 		result := svc.TestConnection(t.Context(), contracts.TestConnectionRequest{
+			SetupToken:     testSetupToken,
 			DatabaseDriver: driver,
 			DBName:         "metis",
 		})
@@ -30,9 +31,10 @@ func TestTestConnection_RetiredDriverIsRefused(t *testing.T) {
 }
 
 func TestTestConnection_EmptyDriver(t *testing.T) {
-	svc := impl.NewSetupService(nil)
+	svc := impl.NewSetupService(nil, testSetupToken)
 
 	result := svc.TestConnection(t.Context(), contracts.TestConnectionRequest{
+		SetupToken:     testSetupToken,
 		DatabaseDriver: "",
 	})
 
@@ -45,9 +47,10 @@ func TestTestConnection_EmptyDriver(t *testing.T) {
 }
 
 func TestTestConnection_InvalidHost(t *testing.T) {
-	svc := impl.NewSetupService(nil)
+	svc := impl.NewSetupService(nil, testSetupToken)
 
 	result := svc.TestConnection(t.Context(), contracts.TestConnectionRequest{
+		SetupToken:     testSetupToken,
 		DatabaseDriver: "postgres",
 		DBHost:         "invalid-host-that-does-not-exist.local",
 		DBPort:         5432,
@@ -75,8 +78,9 @@ func TestTheConnectionTestClosesOnceConfigured(t *testing.T) {
 		t.Fatalf("chdir: %v", err)
 	}
 
-	svc := impl.NewSetupService(nil)
+	svc := impl.NewSetupService(nil, testSetupToken)
 	probe := contracts.TestConnectionRequest{
+		SetupToken:     testSetupToken,
 		DatabaseDriver: "postgres",
 		DBHost:         "127.0.0.1",
 		DBPort:         1,

@@ -12,6 +12,7 @@ export { notificationService } from "./notificationService";
 export { organizationService } from "./organizationService";
 export { processRuntimeService } from "./processRuntimeService";
 export { projectService } from "./projectService";
+export { serverSettingsService } from "./serverSettingsService";
 export { setupService } from "./setupService";
 export { signalService } from "./signalService";
 export { taskService } from "./taskService";

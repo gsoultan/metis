@@ -47,7 +47,7 @@ func TestBPMNFlow(t *testing.T) {
 
 	messagingSvc := service_impl2.NewMessagingService(engine, externalTaskSvc)
 	userSvc := service_impl2.NewUserService(repo, "test-jwt-secret")
-	setupSvc := service_impl2.NewSetupService(nil)
+	setupSvc := service_impl2.NewSetupService(nil, "")
 	svc := services.NewService(services.ServiceParams{
 		OrganizationService:  orgSvc,
 		ProjectService:       projectSvc,
@@ -166,7 +166,7 @@ func TestExclusiveGatewayFlow(t *testing.T) {
 
 	messagingSvc := service_impl2.NewMessagingService(engine, externalTaskSvc)
 	userSvc := service_impl2.NewUserService(repo, "test-jwt-secret")
-	setupSvc := service_impl2.NewSetupService(nil)
+	setupSvc := service_impl2.NewSetupService(nil, "")
 	svc := services.NewService(services.ServiceParams{
 		OrganizationService:  orgSvc,
 		ProjectService:       projectSvc,
@@ -281,7 +281,7 @@ func TestParallelGatewayJoin(t *testing.T) {
 
 	messagingSvc := service_impl2.NewMessagingService(engine, externalTaskSvc)
 	userSvc := service_impl2.NewUserService(repo, "test-jwt-secret")
-	setupSvc := service_impl2.NewSetupService(nil)
+	setupSvc := service_impl2.NewSetupService(nil, "")
 	svc := services.NewService(services.ServiceParams{
 		OrganizationService:  orgSvc,
 		ProjectService:       projectSvc,
@@ -397,7 +397,7 @@ func TestParallelGatewayFlow(t *testing.T) {
 
 	messagingSvc := service_impl2.NewMessagingService(engine, externalTaskSvc)
 	userSvc := service_impl2.NewUserService(repo, "test-jwt-secret")
-	setupSvc := service_impl2.NewSetupService(nil)
+	setupSvc := service_impl2.NewSetupService(nil, "")
 	svc := services.NewService(services.ServiceParams{
 		OrganizationService:  orgSvc,
 		ProjectService:       projectSvc,
@@ -480,7 +480,7 @@ func TestTaskServiceEnhancements(t *testing.T) {
 
 	messagingSvc := service_impl2.NewMessagingService(engine, externalTaskSvc)
 	userSvc := service_impl2.NewUserService(repo, "test-jwt-secret")
-	setupSvc := service_impl2.NewSetupService(nil)
+	setupSvc := service_impl2.NewSetupService(nil, "")
 	svc := services.NewService(services.ServiceParams{
 		OrganizationService:  orgSvc,
 		ProjectService:       projectSvc,
@@ -607,7 +607,7 @@ func TestExecutionEnhancements(t *testing.T) {
 
 	messagingSvc := service_impl2.NewMessagingService(engine, externalTaskSvc)
 	userSvc := service_impl2.NewUserService(repo, "test-jwt-secret")
-	setupSvc := service_impl2.NewSetupService(nil)
+	setupSvc := service_impl2.NewSetupService(nil, "")
 	svc := services.NewService(services.ServiceParams{
 		OrganizationService:  orgSvc,
 		ProjectService:       projectSvc,

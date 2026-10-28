@@ -46,7 +46,7 @@ export const setupService = {
     return { err: raiseIfRefused(data).err };
   },
 
-  async testConnection(req: Pick<SetupRequest, 'database_driver' | 'db_host' | 'db_port' | 'db_username' | 'db_password' | 'db_name' | 'db_ssl_enabled'>, signal?: AbortSignal) {
+  async testConnection(req: Pick<SetupRequest, 'database_driver' | 'db_host' | 'db_port' | 'db_username' | 'db_password' | 'db_name' | 'db_ssl_enabled' | 'setup_token'>, signal?: AbortSignal) {
     const data = await requestJSON<{ success: boolean; message: string }>("/setup/test-connection", {
       method: "POST",
       body: req,

@@ -15,9 +15,11 @@
 package envvar
 
 import (
+	"maps"
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/rs/zerolog/log"
 )
@@ -37,12 +39,44 @@ const (
 // line per read would bury the message it exists to deliver.
 var warned sync.Map
 
-// Lookup returns the value of name, falling back to its pre-rename spelling.
+// saved is what administrators set on the Settings page, installed by the
+// server once its database is open. Nil until then, and always nil in a
+// process that has no database.
+//
+// A process-wide value because the readers are: every setting is read through
+// this package from wherever it is used, and threading a settings object to
+// each of them would change fifty call sites to say nothing new. It is
+// replaced whole and never mutated, so a reader sees one consistent set.
+var saved atomic.Pointer[map[string]string]
+
+// UseSaved installs the values set on the Settings page. The environment
+// still wins wherever it sets a variable: an operator's deployment is the
+// last word, and the page shows such a setting as locked.
+func UseSaved(values map[string]string) {
+	installed := maps.Clone(values)
+	saved.Store(&installed)
+}
+
+// Lookup returns the value of name: from the environment, under its current
+// or its pre-rename spelling, or else as saved on the Settings page.
 //
 // name is always the current METIS_ spelling; callers do not know the old one.
 // The boolean distinguishes "set to empty" from "not set", which several
 // callers depend on to tell a deliberate blank from an absent setting.
 func Lookup(name string) (string, bool) {
+	if value, ok := FromEnvironment(name); ok {
+		return value, true
+	}
+	if values := saved.Load(); values != nil {
+		value, ok := (*values)[name]
+		return value, ok
+	}
+	return "", false
+}
+
+// FromEnvironment returns the value the environment gives name, under its
+// current or its pre-rename spelling, ignoring what was saved.
+func FromEnvironment(name string) (string, bool) {
 	if value, ok := os.LookupEnv(name); ok {
 		return value, true
 	}

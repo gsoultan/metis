@@ -834,6 +834,27 @@ To move an installation over:
 instance is changed by either, because a task keeps its names and only who
 may act on them changes.
 
+## Migration 49: server settings saved on the Settings page
+
+Migration 49 creates `installation_settings`, one row per change a platform
+administrator makes under **Settings → Server settings**: the setting, its
+new value (sealed with `ENCRYPTION_KEY` when it is a secret, such as the mail
+password), who changed it and why. The newest row per setting is the value;
+the rows before it are its history. It is new and empty and holds no lock on
+any existing table.
+
+A variable set in the server's environment always wins over a saved value, so
+an installation that configures everything through its environment runs
+exactly as before. Database, keys, listen addresses and the guardrails (the
+`METIS_ALLOW_*` flags, allow-lists, platform administrators) stay
+environment-only and are shown read-only on the page with the reason.
+
+`metis --reseal` reseals saved secrets with the rest when `ENCRYPTION_KEY` is
+rotated.
+
+**Rolling back** leaves the table in place. The previous release does not read
+it, so settings saved there stop applying; set them in the environment first.
+
 ## Migration 48: personal API keys
 
 Migration 48 creates `person_api_keys`, one row per key a person in the

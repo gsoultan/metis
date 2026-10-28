@@ -129,3 +129,26 @@ func TestAnUnprefixedNameIsReadAsGiven(t *testing.T) {
 		t.Fatalf("warned about an unprefixed variable: %s", logs.String())
 	}
 }
+
+// A value saved on the Settings page is read where the environment says
+// nothing, and the environment wins where it does: an operator's deployment is
+// the last word.
+func TestSavedValuesAreReadUnderTheEnvironment(t *testing.T) {
+	const fromPage, fromEnv = "METIS_SAVED_ONLY_FOR_TEST", "METIS_SAVED_AND_SET_FOR_TEST"
+	t.Cleanup(func() { saved.Store(nil) })
+	t.Setenv(fromEnv, "from the environment")
+
+	values := map[string]string{fromPage: "from the page", fromEnv: "from the page"}
+	UseSaved(values)
+	values[fromPage] = "changed after it was installed"
+
+	if got := Get(fromPage); got != "from the page" {
+		t.Fatalf("a saved value was not read, or was changed through the caller's map: %q", got)
+	}
+	if got := Get(fromEnv); got != "from the environment" {
+		t.Fatalf("the environment must win over a saved value, got %q", got)
+	}
+	if _, ok := FromEnvironment(fromPage); ok {
+		t.Fatal("FromEnvironment reported a value the environment does not set")
+	}
+}

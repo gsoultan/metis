@@ -34,4 +34,12 @@ describe('SetupComplete', () => {
     expect(text).toContain('You can now log in with your administrator account');
     expect(text).not.toContain('Restart');
   });
+
+  // Email, sign-on and retention are not asked for here: setup is anonymous,
+  // and a saved setting records which administrator chose it.
+  it('points to where the server settings are changed', () => {
+    for (const fromEnvironment of [true, false]) {
+      expect(rendered(fromEnvironment)).toContain('Settings → Server settings');
+    }
+  });
 });

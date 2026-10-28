@@ -99,6 +99,10 @@ ensure_configured() {
     return 0
   fi
 
+  # The wizard only answers whoever has the server's setup token. scripts/dev.sh
+  # chooses it and starts this script with it; run on its own, pass the token
+  # the server printed.
+  [[ -n "${METIS_SETUP_TOKEN:-}" ]] || die "not set up yet: set METIS_SETUP_TOKEN to the setup token in the server's log"
   info "Running the setup wizard"
   local key secret payload
   key="$(python3 -c 'import secrets,base64; print(base64.b64encode(secrets.token_bytes(32)).decode())')"
@@ -117,9 +121,11 @@ print(json.dumps({
     "db_host": sys.argv[5], "db_port": int(sys.argv[6]),
     "db_username": sys.argv[7], "db_password": sys.argv[8], "db_name": sys.argv[9],
     "encryption_key": sys.argv[3], "jwt_secret": sys.argv[4],
+    "setup_token": sys.argv[10],
 }))' "$ADMIN_USER" "$ADMIN_PASS" "$key" "$secret" \
        "${DB_HOST:-127.0.0.1}" "${DB_PORT:-5473}" \
-       "${DB_USER:-metis}" "${DB_PASSWORD:-metis}" "${DB_NAME:-metis_dev}")"
+       "${DB_USER:-metis}" "${DB_PASSWORD:-metis}" "${DB_NAME:-metis_dev}" \
+       "$METIS_SETUP_TOKEN")"
 
   local err
   err="$(api POST /setup "$payload" | json "d.get('error')")"
