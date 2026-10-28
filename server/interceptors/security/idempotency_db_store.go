@@ -157,11 +157,13 @@ func (s *dbIdempotencyStore) Complete(ctx context.Context, key string, response 
 	now := s.now()
 	// Conditional on still being incomplete, so a late writer cannot overwrite
 	// an answer somebody has already been given.
-	if _, err := ex.Exec(ctx,
-		`UPDATE idempotency_records
-		    SET completed = true, status_code = $1, headers = $2, body = $3, completed_at = $4
-		  WHERE record_key = $5 AND completed = false`,
-		[]any{int64(response.StatusCode), headers, body, now, storageKeyHash(key)}); err != nil {
+	var answer idempotencyrecord.Mut
+	answer.SetCompleted(true)
+	answer.SetStatusCode(int64(response.StatusCode))
+	answer.SetHeaders(headers)
+	answer.SetBody(body)
+	answer.SetCompletedAt(now)
+	if _, err := claimed(key).UpdateAll(ctx, ex, answer); err != nil {
 		return fmt.Errorf("record idempotency response: %w", err)
 	}
 	return nil
@@ -174,12 +176,17 @@ func (s *dbIdempotencyStore) Abandon(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := ex.Exec(ctx,
-		"DELETE FROM idempotency_records WHERE record_key = $1 AND completed = false",
-		[]any{storageKeyHash(key)}); err != nil {
+	if _, err := claimed(key).DeleteAll(ctx, ex); err != nil {
 		return fmt.Errorf("abandon idempotency claim: %w", err)
 	}
 	return nil
+}
+
+// claimed is key's record while it has no answer yet.
+func claimed(key string) idempotencyrecord.Query {
+	return idempotencyrecord.New().Where(
+		idempotencyrecord.RecordKey.Eq(storageKeyHash(key)),
+		idempotencyrecord.Completed.Eq(false))
 }
 
 // Await waits for whoever owns the claim to finish.
