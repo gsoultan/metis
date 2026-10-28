@@ -12770,6 +12770,100 @@ func (h ExternalTaskStepIncidentsProbeQuery) UpdateAll(ctx context.Context, ex r
 	return ex.Exec(ctx, st.SQL, append(args, read...))
 }
 
+var externalTaskStepIncidentsProbeQueryWaitingByTopicCache = runtime.NewTreeCache()
+
+// AllWaitingByTopic is the externaltask package's aggregation of that name over this
+// semi-join: the predicates and probes filter the rows that go into
+// the groups, and Limit pages the groups. An Order, a row lock or an
+// Offset is refused, as on the table's own.
+func (h ExternalTaskStepIncidentsProbeQuery) AllWaitingByTopic(ctx context.Context, ex runtime.Executor) ([]externaltask.WaitingByTopicRow, error) {
+	if err := h.err(); err != nil {
+		return nil, err
+	}
+	if h.q.Ordered() || h.q.Locked() || h.q.Paged() {
+		return nil, runtime.ErrGroupedRead
+	}
+	var buf [44]runtime.Tok
+	toks := h.tokens(buf[:0], true)
+	st := externalTaskStepIncidentsProbeQueryWaitingByTopicCache.Get(toks)
+	if st == nil {
+		prefix, suffix := externaltask.WaitingByTopicPieces()
+		st = externalTaskStepIncidentsProbeQueryWaitingByTopicCache.Put(toks, runtime.SpliceTreeWhere(prefix, `"deleted_at" IS NULL`, toks, externalTaskStepIncidentsProbeQueryLowering, suffix))
+	}
+	if st.Err != nil {
+		return nil, st.Err
+	}
+	pb := externaltask.GetBinder()
+	defer externaltask.PutBinder(pb)
+	args, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			incident.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	var out []externaltask.WaitingByTopicRow
+	for rows.Next() {
+		out = append(out, externaltask.WaitingByTopicRow{})
+		if err := externaltask.ScanWaitingByTopic(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
+}
+
+var externalTaskStepIncidentsProbeQueryHeldByWorkerCache = runtime.NewTreeCache()
+
+// AllHeldByWorker is the externaltask package's aggregation of that name over this
+// semi-join: the predicates and probes filter the rows that go into
+// the groups, and Limit pages the groups. An Order, a row lock or an
+// Offset is refused, as on the table's own.
+func (h ExternalTaskStepIncidentsProbeQuery) AllHeldByWorker(ctx context.Context, ex runtime.Executor) ([]externaltask.HeldByWorkerRow, error) {
+	if err := h.err(); err != nil {
+		return nil, err
+	}
+	if h.q.Ordered() || h.q.Locked() || h.q.Paged() {
+		return nil, runtime.ErrGroupedRead
+	}
+	var buf [44]runtime.Tok
+	toks := h.tokens(buf[:0], true)
+	st := externalTaskStepIncidentsProbeQueryHeldByWorkerCache.Get(toks)
+	if st == nil {
+		prefix, suffix := externaltask.HeldByWorkerPieces()
+		st = externalTaskStepIncidentsProbeQueryHeldByWorkerCache.Put(toks, runtime.SpliceTreeWhere(prefix, `"deleted_at" IS NULL`, toks, externalTaskStepIncidentsProbeQueryLowering, suffix))
+	}
+	if st.Err != nil {
+		return nil, st.Err
+	}
+	pb := externaltask.GetBinder()
+	defer externaltask.PutBinder(pb)
+	args, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			incident.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	var out []externaltask.HeldByWorkerRow
+	for rows.Next() {
+		out = append(out, externaltask.HeldByWorkerRow{})
+		if err := externaltask.ScanHeldByWorker(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
+}
+
 // GroupMembersProbeQuery is a parent query with one or more existence probes against
 // memberships, combined with AND. Build it with GroupHavingMembers or
 // GroupNotHavingMembers and extend it with AndHaving/AndNotHaving.

@@ -50,3 +50,14 @@ func (e *ExternalTask) Schema(t *storm.Table) {
 	var i Incident
 	t.ProbesOn("StepIncidents", &i, &e.Instance, &i.Instance, &e.NodeID, &i.NodeID)
 }
+
+// Aggregates declares the topic list's counts: the tasks on offer by topic,
+// and the tasks under a live lock by topic and the worker holding them.
+func (e *ExternalTask) Aggregates(a *storm.Aggregates) {
+	waiting := a.Named("WaitingByTopic")
+	waiting.By(&e.Topic)
+	waiting.Count("Total")
+	held := a.Named("HeldByWorker")
+	held.By(&e.Topic, &e.WorkerID)
+	held.Count("Total")
+}

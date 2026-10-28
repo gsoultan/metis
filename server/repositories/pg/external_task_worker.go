@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/externaltask"
 	"github.com/gsoultan/metis/server/repositories/store/externaltaskworker"
 )
 
@@ -63,20 +64,6 @@ func (r *externalTaskWorkerRepository) Seen(ctx context.Context, topic, workerID
 	return nil
 }
 
-// openTasksByWorker counts the open tasks of a set of projects by topic and by
-// the worker holding them: those on offer under no worker, those locked under
-// the worker that holds them. A task waiting out a retry, or with no tries
-// left, is neither. Only open tasks are in the table, since completing one
-// deletes it, so the statement reads little.
-const openTasksByWorker = `SELECT topic, CASE WHEN lock_expiration > $1 THEN worker_id END AS holder,
-       count(*) FILTER (WHERE (lock_expiration IS NULL OR lock_expiration <= $1) AND retries > 0) AS waiting,
-       count(*) FILTER (WHERE lock_expiration > $1 AND worker_id IS NOT NULL) AS locked
-FROM external_tasks
-WHERE deleted_at IS NULL AND project_id = ANY($2)
-GROUP BY 1, 2
-ORDER BY 1, 2
-LIMIT $3`
-
 func (r *externalTaskWorkerRepository) Topics(ctx context.Context, now time.Time) ([]entities.ExternalTaskTopic, error) {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
@@ -110,7 +97,7 @@ func (r *externalTaskWorkerRepository) Topics(ctx context.Context, now time.Time
 	}
 	// By index, not by pointer: a holder appended below can move a topic's
 	// workers to a new array.
-	held := map[[2]string]int{}
+	heldBy := map[[2]string]int{}
 	for _, row := range workers {
 		seen := row.LastSeenAt
 		topic := topicOf(row.Topic)
@@ -123,46 +110,46 @@ func (r *externalTaskWorkerRepository) Topics(ctx context.Context, now time.Time
 	}
 	for _, topic := range topics {
 		for i := range topic.Workers {
-			held[[2]string{topic.Topic, topic.Workers[i].WorkerID}] = i
+			heldBy[[2]string{topic.Topic, topic.Workers[i].WorkerID}] = i
 		}
 	}
 
+	// The open tasks of the scope's projects: those on offer under no worker,
+	// and those locked under the worker that holds them. A task waiting out a
+	// retry, or with no tries left, is neither. Only open tasks are in the
+	// table, since completing one deletes it, so both reads are small.
 	if len(scope.projects) > 0 {
-		rows, err := ex.Query(ctx, openTasksByWorker, []any{now, uuidsToRaw(scope.projects), int64(workersListed)})
+		projects := externaltask.ProjectID.In(uuidsToRaw(scope.projects)...)
+		waiting, err := externaltask.New().
+			Where(projects, externaltask.Retries.Gt(0)).
+			Any(externaltask.LockExpiration.IsNull(), externaltask.LockExpiration.Lte(now)).
+			Limit(workersListed).
+			AllWaitingByTopic(ctx, ex)
 		if err != nil {
 			return nil, fmt.Errorf("could not count the open external tasks: %w", err)
 		}
-		defer rows.Close()
-		for rows.Next() {
-			values := rows.RawValues()
-			if len(values) < 4 {
-				return nil, fmt.Errorf("could not count the open external tasks: %d columns", len(values))
-			}
-			var waiting, locked int64
-			if err := scanInt(values[2:3], &waiting); err != nil {
-				return nil, err
-			}
-			if err := scanInt(values[3:4], &locked); err != nil {
-				return nil, err
-			}
-			topic := topicOf(string(values[0]))
-			topic.Waiting += waiting
-			topic.Locked += locked
-			if values[1] == nil || locked == 0 {
-				continue
-			}
-			holder := string(values[1])
-			if i, ok := held[[2]string{topic.Topic, holder}]; ok {
-				topic.Workers[i].Locked += locked
+		for _, row := range waiting {
+			topicOf(row.Topic).Waiting += row.Total
+		}
+		held, err := externaltask.New().
+			Where(projects, externaltask.LockExpiration.Gt(now), externaltask.WorkerID.IsNotNull()).
+			Limit(workersListed).
+			AllHeldByWorker(ctx, ex)
+		if err != nil {
+			return nil, fmt.Errorf("could not count the open external tasks: %w", err)
+		}
+		for _, row := range held {
+			topic := topicOf(row.Topic)
+			topic.Locked += row.Total
+			holder := row.WorkerID.V
+			if i, ok := heldBy[[2]string{topic.Topic, holder}]; ok {
+				topic.Workers[i].Locked += row.Total
 				continue
 			}
 			// A lock taken before this worker was first recorded, or by a
 			// worker since forgotten: it is serving the topic now all the same.
-			held[[2]string{topic.Topic, holder}] = len(topic.Workers)
-			topic.Workers = append(topic.Workers, entities.ExternalTaskWorker{WorkerID: holder, Locked: locked})
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("could not count the open external tasks: %w", err)
+			heldBy[[2]string{topic.Topic, holder}] = len(topic.Workers)
+			topic.Workers = append(topic.Workers, entities.ExternalTaskWorker{WorkerID: holder, Locked: row.Total})
 		}
 	}
 

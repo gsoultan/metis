@@ -2444,6 +2444,200 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 	return q.readStmt(q.stream(&buf)).SQL, q.bind(b)
 }
 
+// WaitingByTopicRow is the "WaitingByTopic" aggregation over external_tasks.
+//
+// One row per group. The grouping columns come first, in declaration
+// order, and the result is ordered by them: PostgreSQL promises no
+// order for a GROUP BY, and an unordered report shuffles between
+// requests for no reason anyone can see.
+type WaitingByTopicRow struct {
+	Topic string
+	Total int64
+}
+
+const waitingByTopicPrefix = `SELECT "topic" AS "topic", count(*) AS "total" FROM "external_tasks"`
+const waitingByTopicSuffix = ` GROUP BY "topic" ORDER BY "topic"`
+
+var (
+	waitingByTopicCache       = runtime.NewTreeCache()
+	waitingByTopicOffsetCache = runtime.NewTreeCache()
+)
+
+func waitingByTopicStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := waitingByTopicCache, waitingByTopicSuffix+limitSuffix
+	if withOffset {
+		c, suffix = waitingByTopicOffsetCache, waitingByTopicSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(waitingByTopicPrefix, softDeleteWhere, toks, lowering, suffix))
+}
+
+func scanWaitingByTopic(rv [][]byte, r *WaitingByTopicRow, sl *runtime.Slab) error {
+	r.Topic = sl.Str(rv[0])
+	r.Total = runtime.Int8(rv[1])
+	return nil
+}
+
+// AllWaitingByTopic runs the "WaitingByTopic" aggregation. Predicates compose exactly as on All —
+// they filter the rows that go INTO the groups, which is the WHERE clause
+// and not a HAVING. Limit and offset page the groups.
+func (q Query) AllWaitingByTopic(ctx context.Context, ex runtime.Executor) ([]WaitingByTopicRow, error) {
+	var sl runtime.Slab
+	return q.AllWaitingByTopicInto(ctx, ex, nil, &sl)
+}
+
+// AllWaitingByTopicInto lets the caller own the output slice and the arena.
+func (q Query) AllWaitingByTopicInto(ctx context.Context, ex runtime.Executor, dst []WaitingByTopicRow, sl *runtime.Slab) ([]WaitingByTopicRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errWaitingByTopicOrdered
+	}
+	if q.lock != 0 {
+		return dst, errWaitingByTopicLocked
+	}
+	var buf [21]runtime.Tok
+	st := waitingByTopicStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, WaitingByTopicRow{})
+		if err := scanWaitingByTopic(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// WaitingByTopicPieces is the "WaitingByTopic" aggregation's statement around its
+// predicates, for the context package to splice a composed read into:
+// the SELECT … FROM, and the GROUP BY, ORDER BY and LIMIT after it.
+func WaitingByTopicPieces() (prefix, suffix string) {
+	return waitingByTopicPrefix, waitingByTopicSuffix + limitSuffix
+}
+
+// ScanWaitingByTopic decodes one row of the "WaitingByTopic" aggregation.
+func ScanWaitingByTopic(rv [][]byte, r *WaitingByTopicRow, sl *runtime.Slab) error {
+	return scanWaitingByTopic(rv, r, sl)
+}
+
+var errWaitingByTopicLocked = errors.New(
+	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
+
+var errWaitingByTopicOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and external_tasks.WaitingByTopic is already ordered by its grouping columns; sort the returned slice if you need another order")
+
+// HeldByWorkerRow is the "HeldByWorker" aggregation over external_tasks.
+//
+// One row per group. The grouping columns come first, in declaration
+// order, and the result is ordered by them: PostgreSQL promises no
+// order for a GROUP BY, and an unordered report shuffles between
+// requests for no reason anyone can see.
+type HeldByWorkerRow struct {
+	Topic    string
+	WorkerID runtime.Null[string]
+	Total    int64
+}
+
+const heldByWorkerPrefix = `SELECT "topic" AS "topic", "worker_id" AS "worker_id", count(*) AS "total" FROM "external_tasks"`
+const heldByWorkerSuffix = ` GROUP BY "topic", "worker_id" ORDER BY "topic", "worker_id"`
+
+var (
+	heldByWorkerCache       = runtime.NewTreeCache()
+	heldByWorkerOffsetCache = runtime.NewTreeCache()
+)
+
+func heldByWorkerStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := heldByWorkerCache, heldByWorkerSuffix+limitSuffix
+	if withOffset {
+		c, suffix = heldByWorkerOffsetCache, heldByWorkerSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(heldByWorkerPrefix, softDeleteWhere, toks, lowering, suffix))
+}
+
+func scanHeldByWorker(rv [][]byte, r *HeldByWorkerRow, sl *runtime.Slab) error {
+	r.Topic = sl.Str(rv[0])
+	r.WorkerID = runtime.NullText(rv[1], sl)
+	r.Total = runtime.Int8(rv[2])
+	return nil
+}
+
+// AllHeldByWorker runs the "HeldByWorker" aggregation. Predicates compose exactly as on All —
+// they filter the rows that go INTO the groups, which is the WHERE clause
+// and not a HAVING. Limit and offset page the groups.
+func (q Query) AllHeldByWorker(ctx context.Context, ex runtime.Executor) ([]HeldByWorkerRow, error) {
+	var sl runtime.Slab
+	return q.AllHeldByWorkerInto(ctx, ex, nil, &sl)
+}
+
+// AllHeldByWorkerInto lets the caller own the output slice and the arena.
+func (q Query) AllHeldByWorkerInto(ctx context.Context, ex runtime.Executor, dst []HeldByWorkerRow, sl *runtime.Slab) ([]HeldByWorkerRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errHeldByWorkerOrdered
+	}
+	if q.lock != 0 {
+		return dst, errHeldByWorkerLocked
+	}
+	var buf [21]runtime.Tok
+	st := heldByWorkerStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, HeldByWorkerRow{})
+		if err := scanHeldByWorker(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// HeldByWorkerPieces is the "HeldByWorker" aggregation's statement around its
+// predicates, for the context package to splice a composed read into:
+// the SELECT … FROM, and the GROUP BY, ORDER BY and LIMIT after it.
+func HeldByWorkerPieces() (prefix, suffix string) {
+	return heldByWorkerPrefix, heldByWorkerSuffix + limitSuffix
+}
+
+// ScanHeldByWorker decodes one row of the "HeldByWorker" aggregation.
+func ScanHeldByWorker(rv [][]byte, r *HeldByWorkerRow, sl *runtime.Slab) error {
+	return scanHeldByWorker(rv, r, sl)
+}
+
+var errHeldByWorkerLocked = errors.New(
+	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
+
+var errHeldByWorkerOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and external_tasks.HeldByWorker is already ordered by its grouping columns; sort the returned slice if you need another order")
+
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
 const insertSQL = `INSERT INTO "external_tasks" ("id", "created_at", "updated_at", "project_id", "instance_id", "definition_id", "node_id", "topic", "worker_id", "lock_expiration", "retries", "retry_timeout", "error_message", "error_details", "variables", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING "id", "created_at", "updated_at", "project_id", "instance_id", "definition_id", "node_id", "topic", "worker_id", "lock_expiration", "retries", "retry_timeout", "error_message", "error_details", "variables", "deleted_at"`

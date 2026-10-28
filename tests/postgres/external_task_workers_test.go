@@ -157,3 +157,52 @@ func TestIdleWorkersAreForgottenAndOnlyBySystemWork(t *testing.T) {
 	}
 	workerOn(t, repo, ctx, "shipping", "here")
 }
+
+// A topic counts its tasks on offer — no lock, or one run out, and tries left —
+// and its tasks under a live lock, each under the worker holding it, listed
+// even when that worker was never recorded. A task with no tries left is
+// neither.
+func TestATopicCountsWhatIsOnOfferAndWhatEachWorkerHolds(t *testing.T) {
+	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	ctx, _, project := testutils.ScopedProject(t, repo)
+	now := time.Now().UTC()
+	park := func(worker string, lock time.Duration, retries int) {
+		t.Helper()
+		m := &models.ExternalTaskModel{
+			Base: models.Base{ID: models.UUID(uuid.New())}, ProjectID: models.UUID(project),
+			ProcessInstanceID: models.UUID(uuid.New()), ProcessDefinitionID: models.UUID(uuid.New()),
+			NodeID: "ship", Topic: "shipping", Retries: retries,
+		}
+		if worker != "" {
+			w, until := worker, now.Add(lock)
+			m.WorkerID, m.LockExpiration = w, &until
+		}
+		if err := repo.ExternalTask().Create(entities.WithSystemContext(t.Context()), m); err != nil {
+			t.Fatalf("park a task: %v", err)
+		}
+	}
+	park("", 0, 3)                 // on offer
+	park("gone", -time.Minute, 3)  // its lock ran out: on offer
+	park("packer-1", time.Hour, 3) // held
+	park("packer-1", time.Hour, 3) // held
+	park("loader-9", time.Hour, 1) // held, by a worker never recorded
+	park("", 0, 0)                 // no tries left
+	if err := repo.ExternalTaskWorker().Seen(ctx, "shipping", "packer-1", "", now); err != nil {
+		t.Fatalf("record a worker: %v", err)
+	}
+
+	topics, err := repo.ExternalTaskWorker().Topics(ctx, now)
+	if err != nil {
+		t.Fatalf("list the topics: %v", err)
+	}
+	if len(topics) != 1 || topics[0].Waiting != 2 || topics[0].Locked != 3 {
+		t.Fatalf("topics are %+v; want shipping with 2 on offer and 3 held", topics)
+	}
+	held := map[string]int64{}
+	for _, w := range topics[0].Workers {
+		held[w.WorkerID] = w.Locked
+	}
+	if len(held) != 2 || held["packer-1"] != 2 || held["loader-9"] != 1 {
+		t.Errorf("workers hold %v; want packer-1 two and loader-9 one", held)
+	}
+}
