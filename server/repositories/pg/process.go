@@ -13,6 +13,8 @@ import (
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/payloads"
+	"github.com/gsoultan/metis/server/repositories/store"
+	"github.com/gsoultan/metis/server/repositories/store/incident"
 	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 	"github.com/gsoultan/storm/runtime"
 )
@@ -347,39 +349,20 @@ func (r *processRepository) OpenIncidentsByInstance(ctx context.Context, instanc
 		return nil, err
 	}
 
-	query := `SELECT i.instance_id, COUNT(*) AS total
-	            FROM incidents i
-	            JOIN process_instances p ON p.id = i.instance_id
-	           WHERE i.status = $1
-	             AND i.deleted_at IS NULL
-	             AND p.deleted_at IS NULL
-	             AND i.instance_id = ANY($2)`
-	args := []any{string(models.IncidentOpen), uuidsToRaw(instanceIDs)}
+	var scope []processinstance.Pred
 	if scoped != nil {
-		query, args = rawInProjects(query, args, "p.project_id", scoped)
+		scope = append(scope, instanceInProjects(scoped))
 	}
-	query += " GROUP BY i.instance_id"
-
-	rows, err := ex.Query(ctx, query, args)
+	open := incident.New().Where(
+		incident.Status.Eq(string(models.IncidentOpen)),
+		incident.InstanceID.In(uuidsToRaw(instanceIDs)...),
+	).Limit(int64(len(instanceIDs))) // a group per instance at most
+	groups, err := store.IncidentHavingInstance(open, scope...).AllByInstance(ctx, ex)
 	if err != nil {
 		return nil, fmt.Errorf("could not count open incidents: %w", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		values := rows.RawValues()
-		if len(values) < 2 {
-			continue
-		}
-		var instanceID uuid.UUID
-		copy(instanceID[:], values[0])
-		var total int64
-		if err := scanInt(values[1:], &total); err != nil {
-			return nil, err
-		}
-		counts[instanceID] += total
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("could not count open incidents: %w", err)
+	for _, g := range groups {
+		counts[uuid.UUID(g.InstanceID)] += g.Total
 	}
 	return counts, nil
 }

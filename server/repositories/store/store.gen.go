@@ -12688,6 +12688,266 @@ func (h GroupMembersProbeQuery) Count(ctx context.Context, ex runtime.Executor) 
 	return runtime.Int8(rows.RawValues()[0]), rows.Err()
 }
 
+// IncidentInstanceProbeQuery is a parent query with one or more existence probes against
+// process_instances, combined with AND. Build it with IncidentHavingInstance or
+// IncidentNotHavingInstance and extend it with AndHaving/AndNotHaving.
+type IncidentInstanceProbeQuery struct {
+	q incident.Query
+	p []incidentInstanceProbeQueryProbe
+}
+
+type incidentInstanceProbeQueryProbe struct {
+	c   processinstance.Query
+	neg bool
+}
+
+// IncidentHavingInstance narrows q to rows with at least one matching process_instances row —
+// the filtered semi-join, in one statement. The child predicates are
+// typed by the child's own package; ids and values meet only here.
+func IncidentHavingInstance(q incident.Query, ps ...processinstance.Pred) IncidentInstanceProbeQuery {
+	return IncidentInstanceProbeQuery{q: q}.AndHaving(ps...)
+}
+
+// IncidentNotHavingInstance narrows q to rows with NO matching process_instances row — the
+// filtered anti-join.
+//
+// Read the predicates carefully: this is "has no process_instances row matching
+// these", not "has a process_instances row that does not match". With no predicates
+// at all it is "has none". The two questions have different answers
+// whenever a parent has several children, and SQL spells them the same
+// way round.
+func IncidentNotHavingInstance(q incident.Query, ps ...processinstance.Pred) IncidentInstanceProbeQuery {
+	return IncidentInstanceProbeQuery{q: q}.AndNotHaving(ps...)
+}
+
+// AndHaving adds another EXISTS probe against process_instances, ANDed with the
+// ones already there.
+func (h IncidentInstanceProbeQuery) AndHaving(ps ...processinstance.Pred) IncidentInstanceProbeQuery {
+	return h.probe(false, ps...)
+}
+
+// AndNotHaving adds a NOT EXISTS probe against process_instances. This is how
+// "has one of these but none of those" is one statement:
+//
+//	IncidentHavingInstance(q, bought).AndNotHaving(alsoBought)
+func (h IncidentInstanceProbeQuery) AndNotHaving(ps ...processinstance.Pred) IncidentInstanceProbeQuery {
+	return h.probe(true, ps...)
+}
+
+func (h IncidentInstanceProbeQuery) probe(neg bool, ps ...processinstance.Pred) IncidentInstanceProbeQuery {
+	// Copied rather than appended in place: a composer is a value, and
+	// two chains branching from one base must not share a backing array.
+	p := make([]incidentInstanceProbeQueryProbe, len(h.p), len(h.p)+1)
+	copy(p, h.p)
+	h.p = append(p, incidentInstanceProbeQueryProbe{c: processinstance.New().Unordered().Where(ps...), neg: neg})
+	return h
+}
+
+var incidentInstanceProbeQueryLowering = func() runtime.Lowering {
+	lw := incident.Lowering()
+	parentFrag := lw.Frag
+	lw.Frag = func(op, col uint32) runtime.Frag {
+		if col >= runtime.ChildColBase {
+			return processinstance.FragOf(op, col-runtime.ChildColBase)
+		}
+		return parentFrag(op, col)
+	}
+	// The token's relation id picks the header: 0 positive, 1 negated.
+	// Both probes are the same relation, so only the polarity varies.
+	lw.Exists = func(rel uint32) string {
+		if rel == 1 {
+			return "NOT EXISTS (SELECT 1 FROM \"process_instances\" AS \"_storm_e\" WHERE \"_storm_e\".\"id\" = \"incidents\".\"instance_id\" AND \"_storm_e\".\"deleted_at\" IS NULL"
+		}
+		return "EXISTS (SELECT 1 FROM \"process_instances\" AS \"_storm_e\" WHERE \"_storm_e\".\"id\" = \"incidents\".\"instance_id\" AND \"_storm_e\".\"deleted_at\" IS NULL"
+	}
+	return lw
+}()
+
+var incidentInstanceProbeQueryCache = runtime.NewTreeCache()
+
+func (h IncidentInstanceProbeQuery) stmt(count bool) (*runtime.Stmt, []runtime.Tok) {
+	var buf [44]runtime.Tok
+	toks := h.tokens(buf[:0], count)
+	sel, cnt, limitSfx := incident.StmtPieces()
+	prefix, suffix := sel, limitSfx
+	if count {
+		prefix, suffix = cnt, ""
+	}
+	if st := incidentInstanceProbeQueryCache.Get(toks); st != nil {
+		return st, toks
+	}
+	return incidentInstanceProbeQueryCache.Put(toks, runtime.SpliceTreeWhere(prefix, `"deleted_at" IS NULL`, toks, incidentInstanceProbeQueryLowering, suffix)), toks
+}
+
+// tokens appends the composed stream to dst: the parent's predicates,
+// each probe, and — unless count — the parent's ordering.
+func (h IncidentInstanceProbeQuery) tokens(dst []runtime.Tok, count bool) []runtime.Tok {
+	toks := h.q.PredToks(dst)
+	stack := 0
+	if len(toks) > 0 {
+		stack = 1
+	}
+	for _, pr := range h.p {
+		child := pr.c.PredToks(nil)
+		toks = runtime.OffsetCols(toks, child, runtime.ChildColBase)
+		arity := uint32(0)
+		if len(child) > 0 {
+			arity = 1 // the child stream reduces to one stack entry
+		}
+		rel := uint32(0)
+		if pr.neg {
+			rel = 1
+		}
+		toks = append(toks, runtime.MakeExists(rel, arity))
+		stack++
+	}
+	if stack > 1 {
+		toks = append(toks, runtime.MakeGroup(runtime.KAnd, uint32(stack)))
+	}
+	if !count {
+		toks = h.q.OrderToks(toks)
+	}
+	return toks
+}
+
+// bind returns the arguments in STREAM order: parent predicates, then
+// each probe's, then the parent's paging. Each probe takes its own
+// binder — bindPreds resets the arenas it fills, so two probes sharing
+// one binder would have the second silently overwrite the first.
+func (h IncidentInstanceProbeQuery) bind(pb *incident.Binder, paging bool) ([]any, []*processinstance.Binder) {
+	args := h.q.BindPreds(pb, nil)
+	cbs := make([]*processinstance.Binder, 0, len(h.p))
+	for _, pr := range h.p {
+		cb := processinstance.GetBinder()
+		cbs = append(cbs, cb)
+		args = pr.c.BindPreds(cb, args)
+	}
+	if paging {
+		args = h.q.BindPaging(pb, args)
+	}
+	return args, cbs
+}
+
+func (h IncidentInstanceProbeQuery) err() error {
+	if err := h.q.Err(); err != nil {
+		return err
+	}
+	for _, pr := range h.p {
+		if err := pr.c.Err(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// All runs the composed statement.
+func (h IncidentInstanceProbeQuery) All(ctx context.Context, ex runtime.Executor) ([]incident.Row, error) {
+	if err := h.err(); err != nil {
+		return nil, err
+	}
+	st, _ := h.stmt(false)
+	if st.Err != nil {
+		return nil, st.Err
+	}
+	pb := incident.GetBinder()
+	defer incident.PutBinder(pb)
+	args, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			processinstance.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	var out []incident.Row
+	for rows.Next() {
+		out = append(out, incident.Row{})
+		if err := incident.Scan(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
+}
+
+// Count runs the composed count: no ordering, no paging.
+func (h IncidentInstanceProbeQuery) Count(ctx context.Context, ex runtime.Executor) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	st, _ := h.stmt(true)
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := incident.GetBinder()
+	defer incident.PutBinder(pb)
+	args, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			processinstance.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return 0, rows.Err()
+	}
+	return runtime.Int8(rows.RawValues()[0]), rows.Err()
+}
+
+var incidentInstanceProbeQueryByInstanceCache = runtime.NewTreeCache()
+
+// AllByInstance is the incident package's aggregation of that name over this
+// semi-join: the predicates and probes filter the rows that go into
+// the groups, and Limit pages the groups. An Order, a row lock or an
+// Offset is refused, as on the table's own.
+func (h IncidentInstanceProbeQuery) AllByInstance(ctx context.Context, ex runtime.Executor) ([]incident.ByInstanceRow, error) {
+	if err := h.err(); err != nil {
+		return nil, err
+	}
+	if h.q.Ordered() || h.q.Locked() || h.q.Paged() {
+		return nil, runtime.ErrGroupedRead
+	}
+	var buf [44]runtime.Tok
+	toks := h.tokens(buf[:0], true)
+	st := incidentInstanceProbeQueryByInstanceCache.Get(toks)
+	if st == nil {
+		prefix, suffix := incident.ByInstancePieces()
+		st = incidentInstanceProbeQueryByInstanceCache.Put(toks, runtime.SpliceTreeWhere(prefix, `"deleted_at" IS NULL`, toks, incidentInstanceProbeQueryLowering, suffix))
+	}
+	if st.Err != nil {
+		return nil, st.Err
+	}
+	pb := incident.GetBinder()
+	defer incident.PutBinder(pb)
+	args, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			processinstance.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	var out []incident.ByInstanceRow
+	for rows.Next() {
+		out = append(out, incident.ByInstanceRow{})
+		if err := incident.ScanByInstance(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
+}
+
 // JobIncidentsProbeQuery is a parent query with one or more existence probes against
 // incidents, combined with AND. Build it with JobHavingIncidents or
 // JobNotHavingIncidents and extend it with AndHaving/AndNotHaving.
@@ -13933,6 +14193,100 @@ func (h ProcessInstanceIncidentsProbeQuery) Count(ctx context.Context, ex runtim
 	return runtime.Int8(rows.RawValues()[0]), rows.Err()
 }
 
+var processInstanceIncidentsProbeQueryByStatusCache = runtime.NewTreeCache()
+
+// AllByStatus is the processinstance package's aggregation of that name over this
+// semi-join: the predicates and probes filter the rows that go into
+// the groups, and Limit pages the groups. An Order, a row lock or an
+// Offset is refused, as on the table's own.
+func (h ProcessInstanceIncidentsProbeQuery) AllByStatus(ctx context.Context, ex runtime.Executor) ([]processinstance.ByStatusRow, error) {
+	if err := h.err(); err != nil {
+		return nil, err
+	}
+	if h.q.Ordered() || h.q.Locked() || h.q.Paged() {
+		return nil, runtime.ErrGroupedRead
+	}
+	var buf [44]runtime.Tok
+	toks := h.tokens(buf[:0], true)
+	st := processInstanceIncidentsProbeQueryByStatusCache.Get(toks)
+	if st == nil {
+		prefix, suffix := processinstance.ByStatusPieces()
+		st = processInstanceIncidentsProbeQueryByStatusCache.Put(toks, runtime.SpliceTreeWhere(prefix, `"deleted_at" IS NULL`, toks, processInstanceIncidentsProbeQueryLowering, suffix))
+	}
+	if st.Err != nil {
+		return nil, st.Err
+	}
+	pb := processinstance.GetBinder()
+	defer processinstance.PutBinder(pb)
+	args, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			incident.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	var out []processinstance.ByStatusRow
+	for rows.Next() {
+		out = append(out, processinstance.ByStatusRow{})
+		if err := processinstance.ScanByStatus(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
+}
+
+var processInstanceIncidentsProbeQueryByDefinitionAndStatusCache = runtime.NewTreeCache()
+
+// AllByDefinitionAndStatus is the processinstance package's aggregation of that name over this
+// semi-join: the predicates and probes filter the rows that go into
+// the groups, and Limit pages the groups. An Order, a row lock or an
+// Offset is refused, as on the table's own.
+func (h ProcessInstanceIncidentsProbeQuery) AllByDefinitionAndStatus(ctx context.Context, ex runtime.Executor) ([]processinstance.ByDefinitionAndStatusRow, error) {
+	if err := h.err(); err != nil {
+		return nil, err
+	}
+	if h.q.Ordered() || h.q.Locked() || h.q.Paged() {
+		return nil, runtime.ErrGroupedRead
+	}
+	var buf [44]runtime.Tok
+	toks := h.tokens(buf[:0], true)
+	st := processInstanceIncidentsProbeQueryByDefinitionAndStatusCache.Get(toks)
+	if st == nil {
+		prefix, suffix := processinstance.ByDefinitionAndStatusPieces()
+		st = processInstanceIncidentsProbeQueryByDefinitionAndStatusCache.Put(toks, runtime.SpliceTreeWhere(prefix, `"deleted_at" IS NULL`, toks, processInstanceIncidentsProbeQueryLowering, suffix))
+	}
+	if st.Err != nil {
+		return nil, st.Err
+	}
+	pb := processinstance.GetBinder()
+	defer processinstance.PutBinder(pb)
+	args, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			incident.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	var out []processinstance.ByDefinitionAndStatusRow
+	for rows.Next() {
+		out = append(out, processinstance.ByDefinitionAndStatusRow{})
+		if err := processinstance.ScanByDefinitionAndStatus(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
+}
+
 var processInstanceIncidentsProbeQueryInsertBatchOperationItemPerInstanceCache = runtime.NewTreeCache()
 
 // InsertBatchOperationItemPerInstance is the package function of that name over this
@@ -14184,6 +14538,53 @@ func (h UserOrganizationsProbeQuery) Count(ctx context.Context, ex runtime.Execu
 		return 0, rows.Err()
 	}
 	return runtime.Int8(rows.RawValues()[0]), rows.Err()
+}
+
+var userOrganizationsProbeQueryEverCache = runtime.NewTreeCache()
+
+// AllEver is the user package's aggregation of that name over this
+// semi-join: the predicates and probes filter the rows that go into
+// the groups, and Limit pages the groups. An Order, a row lock or an
+// Offset is refused, as on the table's own.
+func (h UserOrganizationsProbeQuery) AllEver(ctx context.Context, ex runtime.Executor) ([]user.EverRow, error) {
+	if err := h.err(); err != nil {
+		return nil, err
+	}
+	if h.q.Ordered() || h.q.Locked() || h.q.Paged() {
+		return nil, runtime.ErrGroupedRead
+	}
+	var buf [44]runtime.Tok
+	toks := h.tokens(buf[:0], true)
+	st := userOrganizationsProbeQueryEverCache.Get(toks)
+	if st == nil {
+		prefix, suffix := user.EverPieces()
+		st = userOrganizationsProbeQueryEverCache.Put(toks, runtime.SpliceTree(prefix, toks, userOrganizationsProbeQueryLowering, suffix))
+	}
+	if st.Err != nil {
+		return nil, st.Err
+	}
+	pb := user.GetBinder()
+	defer user.PutBinder(pb)
+	args, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			userorganization.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	var out []user.EverRow
+	for rows.Next() {
+		out = append(out, user.EverRow{})
+		if err := user.ScanEver(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
 }
 
 // WorkflowGroupMembersProbeQuery is a parent query with one or more existence probes against

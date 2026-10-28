@@ -1545,6 +1545,10 @@ func (q Query) OrderToks(dst []runtime.Tok) []runtime.Tok {
 func (q Query) Locked() bool { return q.lock != 0 }
 func (q Query) Paged() bool  { return q.offset != 0 }
 
+// Ordered reports an Order(), which a grouped read composed around this
+// query's predicates has no place for.
+func (q Query) Ordered() bool { return q.no > 0 }
+
 // BindPreds binds this query's predicate values into b, appending to v.
 func (q Query) BindPreds(b *Binder, v []any) []any {
 	return append(v, q.bindPreds(b)...)
@@ -2086,6 +2090,102 @@ func batchTopByJobIDLateralSQL(order []Sort) string {
 	sql := runtime.SpliceOrder("SELECT \"_storm_c\".\"id\", \"_storm_c\".\"created_at\", \"_storm_c\".\"updated_at\", \"_storm_c\".\"instance_id\", \"_storm_c\".\"job_id\", \"_storm_c\".\"definition_id\", \"_storm_c\".\"node_id\", \"_storm_c\".\"error\", \"_storm_c\".\"status\", \"_storm_c\".\"resolved_at\", \"_storm_c\".\"deleted_at\" FROM unnest($1::uuid[]) AS \"_storm_p\"(\"_storm_k\") CROSS JOIN LATERAL (SELECT \"id\", \"created_at\", \"updated_at\", \"instance_id\", \"job_id\", \"definition_id\", \"node_id\", \"error\", \"status\", \"resolved_at\", \"deleted_at\" FROM \"incidents\" WHERE \"job_id\" = \"_storm_p\".\"_storm_k\" AND \"deleted_at\" IS NULL\x00order\x00 LIMIT $2) \"_storm_c\"", terms, " ORDER BY ", ", ")
 	return batchTopByJobIDLateralCache.Put(toks, &runtime.Stmt{SQL: sql, NArg: 2}).SQL
 }
+
+// ByInstanceRow is the "ByInstance" aggregation over incidents.
+//
+// One row per group. The grouping columns come first, in declaration
+// order, and the result is ordered by them: PostgreSQL promises no
+// order for a GROUP BY, and an unordered report shuffles between
+// requests for no reason anyone can see.
+type ByInstanceRow struct {
+	InstanceID [16]byte
+	Total      int64
+}
+
+const byInstancePrefix = `SELECT "instance_id" AS "instance_id", count(*) AS "total" FROM "incidents"`
+const byInstanceSuffix = ` GROUP BY "instance_id" ORDER BY "instance_id"`
+
+var (
+	byInstanceCache       = runtime.NewTreeCache()
+	byInstanceOffsetCache = runtime.NewTreeCache()
+)
+
+func byInstanceStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := byInstanceCache, byInstanceSuffix+limitSuffix
+	if withOffset {
+		c, suffix = byInstanceOffsetCache, byInstanceSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(byInstancePrefix, softDeleteWhere, toks, lowering, suffix))
+}
+
+func scanByInstance(rv [][]byte, r *ByInstanceRow, sl *runtime.Slab) error {
+	copy(r.InstanceID[:], rv[0])
+	r.Total = runtime.Int8(rv[1])
+	return nil
+}
+
+// AllByInstance runs the "ByInstance" aggregation. Predicates compose exactly as on All —
+// they filter the rows that go INTO the groups, which is the WHERE clause
+// and not a HAVING. Limit and offset page the groups.
+func (q Query) AllByInstance(ctx context.Context, ex runtime.Executor) ([]ByInstanceRow, error) {
+	var sl runtime.Slab
+	return q.AllByInstanceInto(ctx, ex, nil, &sl)
+}
+
+// AllByInstanceInto lets the caller own the output slice and the arena.
+func (q Query) AllByInstanceInto(ctx context.Context, ex runtime.Executor, dst []ByInstanceRow, sl *runtime.Slab) ([]ByInstanceRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errByInstanceOrdered
+	}
+	if q.lock != 0 {
+		return dst, errByInstanceLocked
+	}
+	var buf [21]runtime.Tok
+	st := byInstanceStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, ByInstanceRow{})
+		if err := scanByInstance(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// ByInstancePieces is the "ByInstance" aggregation's statement around its
+// predicates, for the context package to splice a composed read into:
+// the SELECT … FROM, and the GROUP BY, ORDER BY and LIMIT after it.
+func ByInstancePieces() (prefix, suffix string) {
+	return byInstancePrefix, byInstanceSuffix + limitSuffix
+}
+
+// ScanByInstance decodes one row of the "ByInstance" aggregation.
+func ScanByInstance(rv [][]byte, r *ByInstanceRow, sl *runtime.Slab) error {
+	return scanByInstance(rv, r, sl)
+}
+
+var errByInstanceLocked = errors.New(
+	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
+
+var errByInstanceOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and incidents.ByInstance is already ordered by its grouping columns; sort the returned slice if you need another order")
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.

@@ -43,4 +43,15 @@ func (i *Incident) Schema(t *storm.Table) {
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&i.DeletedAt)
+	// The instance list asks which instances on a page hold an open incident,
+	// through the instance so its scope and soft delete apply.
+	t.Probes(&i.Instance)
+}
+
+// Aggregates declares ByInstance: how many incidents each instance holds,
+// for the instance list's attention marker.
+func (i *Incident) Aggregates(a *storm.Aggregates) {
+	byInstance := a.Named("ByInstance")
+	byInstance.By(&i.Instance)
+	byInstance.Count("Total")
 }

@@ -379,6 +379,35 @@ func TestInstanceAttention_IsNotTheStatusColumn(t *testing.T) {
 		if total != 0 {
 			t.Errorf("needing attention = %d after the incident was resolved, want 0", total)
 		}
+		counts, err := repo.Process().OpenIncidentsByInstance(ctx, []uuid.UUID{broken})
+		if err != nil {
+			t.Fatalf("open incidents after resolving: %v", err)
+		}
+		if counts[broken] != 0 {
+			t.Errorf("a resolved incident still marks its row: %d", counts[broken])
+		}
+	})
+
+	t.Run("a deleted instance is not marked", func(t *testing.T) {
+		gone := uuid.UUID(page.Items[2].ID)
+		seedIncident(t, db, gone, definitionID)
+		seedIncident(t, db, gone, definitionID)
+		counts, err := repo.Process().OpenIncidentsByInstance(ctx, []uuid.UUID{gone})
+		if err != nil {
+			t.Fatalf("open incidents: %v", err)
+		}
+		if counts[gone] != 2 {
+			t.Fatalf("the instance with two incidents reports %d", counts[gone])
+		}
+		if err := db.Exec(`UPDATE process_instances SET deleted_at = now() WHERE id = ?`, models.FromUUID(gone)).Error; err != nil {
+			t.Fatalf("delete: %v", err)
+		}
+		if counts, err = repo.Process().OpenIncidentsByInstance(ctx, []uuid.UUID{gone}); err != nil {
+			t.Fatalf("open incidents after deleting: %v", err)
+		}
+		if counts[gone] != 0 {
+			t.Errorf("a deleted instance still reports %d open incidents", counts[gone])
+		}
 	})
 }
 

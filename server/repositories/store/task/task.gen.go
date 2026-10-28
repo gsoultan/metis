@@ -2443,6 +2443,10 @@ func (q Query) OrderToks(dst []runtime.Tok) []runtime.Tok {
 func (q Query) Locked() bool { return q.lock != 0 }
 func (q Query) Paged() bool  { return q.offset != 0 }
 
+// Ordered reports an Order(), which a grouped read composed around this
+// query's predicates has no place for.
+func (q Query) Ordered() bool { return q.no > 0 }
+
 // BindPreds binds this query's predicate values into b, appending to v.
 func (q Query) BindPreds(b *Binder, v []any) []any {
 	return append(v, q.bindPreds(b)...)
@@ -2950,6 +2954,16 @@ func (q Query) AllDeadlinesInto(ctx context.Context, ex runtime.Executor, dst []
 	}
 	st.ObserveSlab(sl.Size())
 	return dst, rows.Err()
+}
+
+// DeadlinesPieces is the "Deadlines" aggregation's statement around its
+// predicates, for the context package to splice a composed read into:
+// the SELECT … FROM, and the GROUP BY, ORDER BY and LIMIT after it.
+func DeadlinesPieces() (prefix, suffix string) { return deadlinesPrefix, deadlinesSuffix + limitSuffix }
+
+// ScanDeadlines decodes one row of the "Deadlines" aggregation.
+func ScanDeadlines(rv [][]byte, r *DeadlinesRow, sl *runtime.Slab) error {
+	return scanDeadlines(rv, r, sl)
 }
 
 var errDeadlinesLocked = errors.New(

@@ -2000,6 +2000,10 @@ func (q Query) OrderToks(dst []runtime.Tok) []runtime.Tok {
 func (q Query) Locked() bool { return q.lock != 0 }
 func (q Query) Paged() bool  { return q.offset != 0 }
 
+// Ordered reports an Order(), which a grouped read composed around this
+// query's predicates has no place for.
+func (q Query) Ordered() bool { return q.no > 0 }
+
 // BindPreds binds this query's predicate values into b, appending to v.
 func (q Query) BindPreds(b *Binder, v []any) []any {
 	return append(v, q.bindPreds(b)...)
@@ -2456,6 +2460,16 @@ func (q Query) AllByStatusInto(ctx context.Context, ex runtime.Executor, dst []B
 	return dst, rows.Err()
 }
 
+// ByStatusPieces is the "ByStatus" aggregation's statement around its
+// predicates, for the context package to splice a composed read into:
+// the SELECT … FROM, and the GROUP BY, ORDER BY and LIMIT after it.
+func ByStatusPieces() (prefix, suffix string) { return byStatusPrefix, byStatusSuffix + limitSuffix }
+
+// ScanByStatus decodes one row of the "ByStatus" aggregation.
+func ScanByStatus(rv [][]byte, r *ByStatusRow, sl *runtime.Slab) error {
+	return scanByStatus(rv, r, sl)
+}
+
 var errByStatusLocked = errors.New(
 	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
 
@@ -2540,6 +2554,18 @@ func (q Query) AllByDefinitionAndStatusInto(ctx context.Context, ex runtime.Exec
 	}
 	st.ObserveSlab(sl.Size())
 	return dst, rows.Err()
+}
+
+// ByDefinitionAndStatusPieces is the "ByDefinitionAndStatus" aggregation's statement around its
+// predicates, for the context package to splice a composed read into:
+// the SELECT … FROM, and the GROUP BY, ORDER BY and LIMIT after it.
+func ByDefinitionAndStatusPieces() (prefix, suffix string) {
+	return byDefinitionAndStatusPrefix, byDefinitionAndStatusSuffix + limitSuffix
+}
+
+// ScanByDefinitionAndStatus decodes one row of the "ByDefinitionAndStatus" aggregation.
+func ScanByDefinitionAndStatus(rv [][]byte, r *ByDefinitionAndStatusRow, sl *runtime.Slab) error {
+	return scanByDefinitionAndStatus(rv, r, sl)
 }
 
 var errByDefinitionAndStatusLocked = errors.New(

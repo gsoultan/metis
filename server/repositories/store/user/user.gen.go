@@ -1856,6 +1856,10 @@ func (q Query) OrderToks(dst []runtime.Tok) []runtime.Tok {
 func (q Query) Locked() bool { return q.lock != 0 }
 func (q Query) Paged() bool  { return q.offset != 0 }
 
+// Ordered reports an Order(), which a grouped read composed around this
+// query's predicates has no place for.
+func (q Query) Ordered() bool { return q.no > 0 }
+
 // BindPreds binds this query's predicate values into b, appending to v.
 func (q Query) BindPreds(b *Binder, v []any) []any {
 	return append(v, q.bindPreds(b)...)
@@ -2286,6 +2290,14 @@ func (q Query) AllEverInto(ctx context.Context, ex runtime.Executor, dst []EverR
 	st.ObserveSlab(sl.Size())
 	return dst, rows.Err()
 }
+
+// EverPieces is the "Ever" aggregation's statement around its
+// predicates, for the context package to splice a composed read into:
+// the SELECT … FROM, and the GROUP BY, ORDER BY and LIMIT after it.
+func EverPieces() (prefix, suffix string) { return everPrefix, everSuffix + limitSuffix }
+
+// ScanEver decodes one row of the "Ever" aggregation.
+func ScanEver(rv [][]byte, r *EverRow, sl *runtime.Slab) error { return scanEver(rv, r, sl) }
 
 var errEverLocked = errors.New(
 	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
