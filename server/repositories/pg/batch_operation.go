@@ -11,8 +11,11 @@ import (
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store"
 	"github.com/gsoultan/metis/server/repositories/store/batchoperation"
 	"github.com/gsoultan/metis/server/repositories/store/batchoperationitem"
+	"github.com/gsoultan/metis/server/repositories/store/incident"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 	"github.com/gsoultan/storm/runtime"
 )
 
@@ -24,37 +27,27 @@ func NewBatchOperationRepository(c *db.Conn) contracts.BatchOperationRepository 
 	return &batchOperationRepository{conn{conn: c}}
 }
 
-// matchingInstances is the FROM and WHERE of the instances of a project a
-// filter matches, with the arguments it binds, numbered from first.
-//
-// Raw SQL because the instances are counted, and copied into an operation's
-// items, without being read: the store has no INSERT … SELECT, and reading ten
-// thousand instances — variables and all — to write their ids back would be
-// the whole cost of asking. Every value is a bound argument. The soft-delete
-// predicates the store adds to every read are written out.
-func matchingInstances(projectID uuid.UUID, filter entities.BatchOperationFilter, first int) (string, []any) {
-	args := []any{projectID}
-	where := fmt.Sprintf(`FROM process_instances p
-	 WHERE p.project_id = $%d AND p.deleted_at IS NULL`, first)
-	next := func(v any) string {
-		args = append(args, v)
-		return fmt.Sprintf("$%d", first+len(args)-1)
-	}
+// matching is the instances of a project a filter matches, as a read of the
+// instance table, and whether the filter asks for only the ones that need
+// attention: those are the ones with an open incident, a semi-join the read
+// is narrowed by where it is used.
+func matching(projectID uuid.UUID, filter entities.BatchOperationFilter) (processinstance.Query, bool) {
+	q := processinstance.New().Where(processinstance.ProjectID.Eq(projectID))
 	if filter.Status != "" {
-		where += " AND p.status = " + next(filter.Status)
+		q = q.Where(processinstance.Status.Eq(filter.Status))
 	}
 	if filter.DefinitionID != uuid.Nil {
-		where += " AND p.definition_id = " + next(filter.DefinitionID)
+		q = q.Where(processinstance.DefinitionID.Eq(filter.DefinitionID))
 	}
 	if filter.BusinessKey != "" {
-		where += " AND p.business_key = " + next(filter.BusinessKey)
+		q = q.Where(processinstance.BusinessKey.Eq(filter.BusinessKey))
 	}
-	if filter.NeedsAttention {
-		where += ` AND EXISTS (SELECT 1 FROM incidents i
-		              WHERE i.instance_id = p.id AND i.status = ` + next(string(models.IncidentOpen)) + `
-		                AND i.deleted_at IS NULL)`
-	}
-	return where, args
+	return q, filter.NeedsAttention
+}
+
+// needingAttention narrows q to the instances with an open incident.
+func needingAttention(q processinstance.Query) store.ProcessInstanceIncidentsProbeQuery {
+	return store.ProcessInstanceHavingIncidents(q, incident.Status.Eq(string(models.IncidentOpen)))
 }
 
 func (r *batchOperationRepository) CountMatching(ctx context.Context, projectID uuid.UUID, filter entities.BatchOperationFilter) (int64, error) {
@@ -65,19 +58,14 @@ func (r *batchOperationRepository) CountMatching(ctx context.Context, projectID 
 	if err != nil {
 		return 0, err
 	}
-	where, args := matchingInstances(projectID, filter, 1)
-	rows, err := ex.Query(ctx, "SELECT count(*) "+where, args)
-	if err != nil {
-		return 0, fmt.Errorf("could not count the instances the filter matches: %w", err)
-	}
-	defer rows.Close()
+	q, attention := matching(projectID, filter)
 	var count int64
-	for rows.Next() {
-		if err := scanInt(rows.RawValues(), &count); err != nil {
-			return 0, err
-		}
+	if attention {
+		count, err = needingAttention(q).Count(ctx, ex)
+	} else {
+		count, err = q.Count(ctx, ex)
 	}
-	if err := rows.Err(); err != nil {
+	if err != nil {
 		return 0, fmt.Errorf("could not count the instances the filter matches: %w", err)
 	}
 	return count, nil
@@ -122,12 +110,18 @@ func (r *batchOperationRepository) Create(ctx context.Context, operation entitie
 	if err != nil {
 		return entities.BatchOperation{}, fmt.Errorf("could not record the batch operation: %w", err)
 	}
-	where, args := matchingInstances(operation.ProjectID, operation.Filter, 4)
-	insert := `INSERT INTO batch_operation_items (batch_operation_id, instance_id, status, detail)
-	           SELECT $1, p.id, $2, '' ` + where + `
-	            ORDER BY p.created_at, p.id
-	            LIMIT $3`
-	total, err := ex.Exec(ctx, insert, append([]any{uuid.UUID(row.ID), string(entities.BatchItemPending), int64(limit)}, args...))
+	items := batchoperationitem.Create()
+	items.SetBatchOperationID(row.ID)
+	items.SetStatus(string(entities.BatchItemPending))
+	items.SetDetail("")
+	q, attention := matching(operation.ProjectID, operation.Filter)
+	q = q.Order(processinstance.CreatedAt.Asc(), processinstance.ID.Asc()).Limit(int64(limit))
+	var total int64
+	if attention {
+		total, err = needingAttention(q).InsertBatchOperationItemPerInstance(ctx, ex, items)
+	} else {
+		total, err = store.InsertBatchOperationItemPerInstance(ctx, ex, items, q)
+	}
 	if err != nil {
 		return entities.BatchOperation{}, fmt.Errorf("could not record the batch operation's instances: %w", err)
 	}
@@ -216,20 +210,10 @@ func (r *batchOperationRepository) Items(ctx context.Context, id uuid.UUID, stat
 	return contracts.NewPage(items, total, page), nil
 }
 
-// stopBatchSQL skips every instance a running operation has not reached and
-// marks it stopped, counting what it skipped, in one statement: an instance
-// the worker settles at the same moment is either settled or skipped, never
-// both, because both take its row.
-const stopBatchSQL = `WITH skipped AS (
-    UPDATE batch_operation_items
-       SET status = $5, detail = $3, settled_at = $4, updated_at = $4
-     WHERE batch_operation_id = $1 AND status = $6
- RETURNING 1)
-UPDATE batch_operations
-   SET status = $7, stopped_by = $2, stop_reason = $3, finished_at = $4, updated_at = $4,
-       lease_expires = NULL, skipped = skipped + (SELECT count(*) FROM skipped)
- WHERE id = $1 AND status = $8`
-
+// Stop skips every instance a running operation has not reached and marks it
+// stopped, counting what it skipped, in one statement: an instance the worker
+// settles at the same moment is either settled or skipped, never both,
+// because both take its row.
 func (r *batchOperationRepository) Stop(ctx context.Context, id uuid.UUID, by, reason string, now time.Time) (entities.BatchOperation, error) {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
@@ -239,28 +223,38 @@ func (r *batchOperationRepository) Stop(ctx context.Context, id uuid.UUID, by, r
 		return entities.BatchOperation{}, err
 	}
 	now = now.UTC()
-	if _, err := ex.Exec(ctx, stopBatchSQL, []any{
-		id, by, reason, now,
-		string(entities.BatchItemSkipped), string(entities.BatchItemPending),
-		string(entities.BatchStopped), string(entities.BatchRunning),
-	}); err != nil {
+	var skip batchoperationitem.Mut
+	skip.SetStatus(string(entities.BatchItemSkipped))
+	skip.SetDetail(reason)
+	skip.SetSettledAt(now)
+	skip.SetUpdatedAt(now)
+	var stop batchoperation.Mut
+	stop.SetStatus(string(entities.BatchStopped))
+	stop.SetStoppedBy(by)
+	stop.SetStopReason(reason)
+	stop.SetFinishedAt(now)
+	stop.SetUpdatedAt(now)
+	stop.SetLeaseExpiresNull()
+	var skipped batchoperation.Tally
+	skipped.AddSkipped()
+	if _, err := batchoperation.New().
+		Where(batchoperation.ID.Eq(id), batchoperation.Status.Eq(string(entities.BatchRunning))).
+		UpdateAllAfter(ctx, ex, pendingItems(id).UpdateAllStep(skip), stop, skipped); err != nil {
 		return entities.BatchOperation{}, fmt.Errorf("could not stop the batch operation: %w", err)
 	}
 	return r.read(ctx, ex, id)
 }
 
-// claimBatchSQL takes the oldest running operation whose lease is free. SKIP
+// pendingItems is the instances an operation has not reached yet.
+func pendingItems(id uuid.UUID) batchoperationitem.Query {
+	return batchoperationitem.New().Where(
+		batchoperationitem.BatchOperationID.Eq(id),
+		batchoperationitem.Status.Eq(string(entities.BatchItemPending)))
+}
+
+// ClaimRunning takes the oldest running operation whose lease is free. SKIP
 // LOCKED, so two workers asking at once take two operations, or one each
 // finds nothing, and neither waits.
-const claimBatchSQL = `UPDATE batch_operations SET lease_expires = $1
- WHERE id = (
-    SELECT id FROM batch_operations
-     WHERE status = $3 AND (lease_expires IS NULL OR lease_expires < $2)
-     ORDER BY created_at
-     LIMIT 1
-       FOR UPDATE SKIP LOCKED)
- RETURNING id`
-
 func (r *batchOperationRepository) ClaimRunning(ctx context.Context, now time.Time, lease time.Duration) (entities.BatchOperation, bool, error) {
 	if !entities.IsSystemContext(ctx) {
 		return entities.BatchOperation{}, false, fmt.Errorf("%w: claiming a batch operation spans every tenant", apierr.ErrForbidden)
@@ -270,32 +264,22 @@ func (r *batchOperationRepository) ClaimRunning(ctx context.Context, now time.Ti
 		return entities.BatchOperation{}, false, err
 	}
 	now = now.UTC()
-	rows, err := ex.Query(ctx, claimBatchSQL, []any{now.Add(lease), now, string(entities.BatchRunning)})
+	var leased batchoperation.Mut
+	leased.SetLeaseExpires(now.Add(lease))
+	rows, err := batchoperation.New().
+		Where(batchoperation.Status.Eq(string(entities.BatchRunning))).
+		Any(batchoperation.LeaseExpires.IsNull(), batchoperation.LeaseExpires.Lt(now)).
+		Order(batchoperation.CreatedAt.Asc()).
+		Limit(1).
+		ForUpdateSkipLocked().
+		Take(ctx, ex, leased, nil)
 	if err != nil {
 		return entities.BatchOperation{}, false, fmt.Errorf("could not claim a batch operation: %w", err)
 	}
-	var id [16]byte
-	found := false
-	for rows.Next() {
-		values := rows.RawValues()
-		if len(values) == 0 || len(values[0]) != len(id) {
-			rows.Close()
-			return entities.BatchOperation{}, false, fmt.Errorf("could not read a claimed batch operation's id")
-		}
-		id, found = [16]byte(values[0]), true
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return entities.BatchOperation{}, false, fmt.Errorf("could not claim a batch operation: %w", err)
-	}
-	if !found {
+	if len(rows) == 0 {
 		return entities.BatchOperation{}, false, nil
 	}
-	row, found, err := batchoperation.New().Where(batchoperation.ID.Eq(id)).One(ctx, ex)
-	if err != nil || !found {
-		return entities.BatchOperation{}, false, err
-	}
-	return batchOperationFrom(row), true, nil
+	return batchOperationFrom(rows[0]), true, nil
 }
 
 func (r *batchOperationRepository) PendingInstances(ctx context.Context, id uuid.UUID, limit int) ([]uuid.UUID, error) {
@@ -321,33 +305,18 @@ func (r *batchOperationRepository) PendingInstances(ctx context.Context, id uuid
 	return ids, nil
 }
 
-// settleBatchItemSQL records one instance's result and counts it under its
-// status, in one statement, and only once: over an instance still pending, or
-// one already skipped when the act did something. The second is a stop that
-// came while the instance was being acted on — the stop skips every pending
-// instance, this one included, but it was cancelled or retried all the same,
-// and the record says what was done rather than that it was not reached. A
-// skip never replaces anything, and nothing replaces a success or a failure,
-// so no instance is counted twice.
-const settleBatchItemSQL = `WITH prior AS (
-    SELECT id, status FROM batch_operation_items
-     WHERE batch_operation_id = $1 AND instance_id = $2
-       AND (status = $6 OR (status = $9 AND $3::text <> $9::text))
-       FOR UPDATE),
-settled AS (
-    UPDATE batch_operation_items i
-       SET status = $3, detail = $4, settled_at = $5, updated_at = $5
-      FROM prior
-     WHERE i.id = prior.id
- RETURNING prior.status AS was, i.status)
-UPDATE batch_operations
-   SET succeeded = succeeded + (SELECT count(*) FROM settled WHERE status = $7),
-       failed    = failed    + (SELECT count(*) FROM settled WHERE status = $8),
-       skipped   = skipped   + (SELECT count(*) FROM settled WHERE status = $9)
-                             - (SELECT count(*) FROM settled WHERE was = $9),
-       updated_at = $5
- WHERE id = $1 AND EXISTS (SELECT 1 FROM settled)`
-
+// Settle records one instance's result and counts it under its status, and
+// only once: over an instance still pending, or one already skipped when the
+// act did something. The second is a stop that came while the instance was
+// being acted on — the stop skips every pending instance, this one included,
+// but it was cancelled or retried all the same, and the record says what was
+// done rather than that it was not reached. A skip never replaces anything,
+// and nothing replaces a success or a failure, so no instance is counted
+// twice.
+//
+// Each attempt is one statement that records the result and moves the
+// operation's counts together. The second runs only when the first found the
+// instance no longer pending, which is the race with a stop.
 func (r *batchOperationRepository) Settle(ctx context.Context, id uuid.UUID, item entities.BatchItem) (bool, error) {
 	if !entities.IsSystemContext(ctx) {
 		return false, fmt.Errorf("%w: working through a batch operation spans every tenant", apierr.ErrForbidden)
@@ -360,28 +329,50 @@ func (r *batchOperationRepository) Settle(ctx context.Context, id uuid.UUID, ite
 	if item.SettledAt != nil {
 		at = item.SettledAt.UTC()
 	}
-	settled, err := ex.Exec(ctx, settleBatchItemSQL, []any{
-		id, item.InstanceID, string(item.Status), item.Detail, at, string(entities.BatchItemPending),
-		string(entities.BatchItemSucceeded), string(entities.BatchItemFailed), string(entities.BatchItemSkipped),
-	})
+	settled, err := settleItem(ctx, ex, id, item, at, entities.BatchItemPending)
+	if err == nil && settled == 0 && item.Status != entities.BatchItemSkipped {
+		settled, err = settleItem(ctx, ex, id, item, at, entities.BatchItemSkipped)
+	}
 	if err != nil {
 		return false, fmt.Errorf("could not record what came of an instance of the batch operation: %w", err)
 	}
 	return settled > 0, nil
 }
 
-const finishBatchSQL = `UPDATE batch_operations
-   SET status = CASE WHEN EXISTS (
-                    SELECT 1 FROM batch_operation_items
-                     WHERE batch_operation_id = $1 AND status = $3)
-                 THEN status ELSE $4 END,
-       finished_at = CASE WHEN EXISTS (
-                    SELECT 1 FROM batch_operation_items
-                     WHERE batch_operation_id = $1 AND status = $3)
-                 THEN finished_at ELSE $2 END,
-       lease_expires = NULL, updated_at = $2
- WHERE id = $1 AND status = $5`
+// settleItem records item over an instance that is still in status was, and
+// moves the operation's counts by what it recorded: one more under the
+// item's status, and one fewer skipped when it was skipped before.
+func settleItem(ctx context.Context, ex runtime.Executor, id uuid.UUID, item entities.BatchItem, at time.Time, was entities.BatchItemStatus) (int64, error) {
+	var result batchoperationitem.Mut
+	result.SetStatus(string(item.Status))
+	result.SetDetail(item.Detail)
+	result.SetSettledAt(at)
+	result.SetUpdatedAt(at)
+	var touched batchoperation.Mut
+	touched.SetUpdatedAt(at)
+	var counts batchoperation.Tally
+	switch item.Status {
+	case entities.BatchItemSucceeded:
+		counts.AddSucceeded()
+	case entities.BatchItemFailed:
+		counts.AddFailed()
+	case entities.BatchItemSkipped:
+		counts.AddSkipped()
+	}
+	if was == entities.BatchItemSkipped {
+		counts.SubtractSkipped()
+	}
+	counts.OnlyIfAny()
+	step := batchoperationitem.New().Where(
+		batchoperationitem.BatchOperationID.Eq(id),
+		batchoperationitem.InstanceID.Eq(item.InstanceID),
+		batchoperationitem.Status.Eq(string(was))).
+		UpdateAllStep(result)
+	return batchoperation.New().Where(batchoperation.ID.Eq(id)).UpdateAllAfter(ctx, ex, step, touched, counts)
+}
 
+// Finish releases a running operation's lease and, when none of its
+// instances is pending any more, completes it, in one statement.
 func (r *batchOperationRepository) Finish(ctx context.Context, id uuid.UUID, now time.Time) error {
 	if !entities.IsSystemContext(ctx) {
 		return fmt.Errorf("%w: working through a batch operation spans every tenant", apierr.ErrForbidden)
@@ -390,9 +381,16 @@ func (r *batchOperationRepository) Finish(ctx context.Context, id uuid.UUID, now
 	if err != nil {
 		return err
 	}
-	if _, err := ex.Exec(ctx, finishBatchSQL, []any{
-		id, now.UTC(), string(entities.BatchItemPending), string(entities.BatchCompleted), string(entities.BatchRunning),
-	}); err != nil {
+	now = now.UTC()
+	var released batchoperation.Mut
+	released.SetLeaseExpiresNull()
+	released.SetUpdatedAt(now)
+	var done batchoperation.Tally
+	done.SetStatusIfNone(string(entities.BatchCompleted))
+	done.SetFinishedAtIfNone(now)
+	if _, err := batchoperation.New().
+		Where(batchoperation.ID.Eq(id), batchoperation.Status.Eq(string(entities.BatchRunning))).
+		UpdateAllAfter(ctx, ex, pendingItems(id).ExistsStep(), released, done); err != nil {
 		return fmt.Errorf("could not finish the batch operation: %w", err)
 	}
 	return nil
