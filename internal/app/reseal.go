@@ -10,7 +10,10 @@ import (
 
 	"github.com/gsoultan/metis/internal/pkg/config"
 	"github.com/gsoultan/metis/internal/pkg/crypto"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/payloads"
+	"github.com/gsoultan/storm/schema"
+	pgschema "github.com/gsoultan/storm/schema/pg"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
@@ -149,26 +152,37 @@ func resealDatabase(ctx context.Context, pool *pgxpool.Pool, check bool) (map[st
 	return counts, nil
 }
 
-// candidateColumns lists every column of the current schema that can hold a
-// sealed value.
+// candidateColumns lists every column of the pool's schema that can hold a
+// sealed value, read from the catalog through storm's introspection.
 func candidateColumns(ctx context.Context, pool *pgxpool.Pool) ([]candidateColumn, error) {
-	rows, err := pool.Query(ctx, `
-		SELECT c.table_name, c.column_name, c.data_type
-		  FROM information_schema.columns c
-		  JOIN information_schema.tables t
-		    ON t.table_schema = c.table_schema AND t.table_name = c.table_name
-		 WHERE c.table_schema = current_schema()
-		   AND t.table_type = 'BASE TABLE'
-		   AND c.data_type IN ('text', 'character varying', 'json', 'jsonb', 'bytea')
-		 ORDER BY c.table_name, c.column_name`)
+	one, err := pool.Acquire(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list the columns: %w", err)
 	}
-	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (candidateColumn, error) {
-		var column candidateColumn
-		err := row.Scan(&column.table, &column.column, &column.dataType)
-		return column, err
+	defer one.Release()
+	held, err := pgschema.Introspect(ctx, one.Conn(), db.Namespace(pool))
+	if err != nil {
+		return nil, fmt.Errorf("list the columns: %w", err)
+	}
+	var columns []candidateColumn
+	for _, table := range held.Tables {
+		for _, column := range table.Columns {
+			if column.Type.Array {
+				continue
+			}
+			switch column.Type.Name {
+			case schema.TypeText, schema.TypeVarchar, schema.TypeJSON, schema.TypeJSONB, schema.TypeBytea:
+				columns = append(columns, candidateColumn{table: table.Name, column: column.Name, dataType: column.Type.Name})
+			}
+		}
+	}
+	sort.Slice(columns, func(i, j int) bool {
+		if columns[i].table != columns[j].table {
+			return columns[i].table < columns[j].table
+		}
+		return columns[i].column < columns[j].column
 	})
+	return columns, nil
 }
 
 // resealColumn moves one column's sealed values, a batch at a time, in ctid
@@ -182,13 +196,13 @@ func resealColumn(ctx context.Context, pool *pgxpool.Pool, column candidateColum
 	// write text back in the column's own form.
 	var match, read, write string
 	switch column.dataType {
-	case "jsonb":
+	case schema.TypeJSONB:
 		match = fmt.Sprintf("jsonb_typeof(%[1]s) = 'string' AND %[1]s #>> '{}' LIKE 'gcm1:%%'", name)
 		read, write = name+" #>> '{}'", "to_jsonb($2::text)"
-	case "json":
+	case schema.TypeJSON:
 		match = fmt.Sprintf("json_typeof(%[1]s) = 'string' AND %[1]s #>> '{}' LIKE 'gcm1:%%'", name)
 		read, write = name+" #>> '{}'", "to_json($2::text)"
-	case "bytea":
+	case schema.TypeBytea:
 		match = fmt.Sprintf("substring(%s from 1 for 5) = 'gcm1:'::bytea", name)
 		read, write = fmt.Sprintf("convert_from(%s, 'UTF8')", name), "convert_to($2::text, 'UTF8')"
 	default:

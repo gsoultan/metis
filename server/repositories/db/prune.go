@@ -3,9 +3,6 @@ package db
 import (
 	"context"
 	"fmt"
-
-	"github.com/gsoultan/storm"
-	"github.com/gsoultan/storm/runtime"
 )
 
 // PruneBatch is the most rows one statement of a retention sweep deletes.
@@ -28,24 +25,12 @@ const PruneBatch = 5000
 // a transaction, each batch commits on its own. That is the point, so a sweep
 // must not be started inside a unit of work.
 func PruneInBatches(ctx context.Context, batch func(limit int64) (int64, error)) (int64, error) {
-	return deleteInBatches(ctx, func([]any) (int64, error) { return batch(PruneBatch) }, nil)
-}
-
-// DeleteDeclaredInBatches runs a statement declared in the model, which the
-// generator PREPAREd against it, until a run deletes fewer than PruneBatch
-// rows. stmt deletes at most its last parameter's worth of rows, which is
-// passed PruneBatch, picked by ctid for the reason PruneInBatches gives.
-func DeleteDeclaredInBatches(ctx context.Context, ex runtime.Executor, stmt *storm.SQLStmt, args ...any) (int64, error) {
-	return deleteInBatches(ctx, func(args []any) (int64, error) { return stmt.Exec(ctx, ex, args...) }, append(args, PruneBatch))
-}
-
-func deleteInBatches(ctx context.Context, exec func([]any) (int64, error), args []any) (int64, error) {
 	var total int64
 	for {
 		if err := ctx.Err(); err != nil {
 			return total, err
 		}
-		removed, err := exec(args)
+		removed, err := batch(PruneBatch)
 		if err != nil {
 			return total, fmt.Errorf("delete in batches: %w", err)
 		}
