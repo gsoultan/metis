@@ -39,7 +39,7 @@ func reviewProcess(projectID uuid.UUID, key, name string) *entities.ProcessDefin
 // the page. It is counted on the server now, across all of it.
 func TestWaitingWorkIsCountedPerProcessAcrossAllOfIt(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
 		"waiting-test", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)

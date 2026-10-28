@@ -27,7 +27,7 @@ const tasksAhead = 1000
 // resolved and the task stayed off offer until a sweep came round to it.
 func TestResolvingAnIncidentOffersItsExternalTaskAgainPastAThousand(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx := entities.WithSystemContext(t.Context())
 	engine := serviceimpl.NewExecutionEngine(repo, observersimpl.NewEventDispatcher())
 	jobs := serviceimpl.NewJobService(repo, engine, serviceimpl.NewConnectorService(repo),

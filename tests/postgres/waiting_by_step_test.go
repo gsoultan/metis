@@ -20,7 +20,7 @@ import (
 // counted.
 func TestWaitingWorkIsCountedPerKeyAndStep(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, _, project := testutils.ScopedProject(t, repo)
 	_, _, elsewhere := testutils.ScopedProject(t, repo)
 	sibling := uuid.Must(uuid.NewV7())

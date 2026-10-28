@@ -1,6 +1,7 @@
 package outage
 
 import (
+	"github.com/gsoultan/metis/server/repositories/db"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -20,7 +21,7 @@ import (
 
 // rowHolder is the test's transaction holding the rows the worker will need.
 type rowHolder struct {
-	tx  *gorm.DB
+	tx  *db.Conn
 	pid int64
 }
 

@@ -17,7 +17,7 @@ import (
 // batch per interval growing anyway.
 func TestASweepRemovesMoreThanOneBatch(t *testing.T) {
 	gormDB := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(gormDB))
+	repo := repositories.NewRepository(gormDB)
 	ctx := entities.WithSystemContext(t.Context())
 
 	old := db.PruneBatch*2 + 1

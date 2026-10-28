@@ -15,7 +15,7 @@ import (
 // rolls back or only a savepoint inside it does.
 func TestWorkAfterACommitFollowsTheTransactionItWasScheduledIn(t *testing.T) {
 	db := testutils.SetupPostgresDB(t, 4)
-	uow := repositories.NewRepository(testutils.StormConn(db)).UnitOfWork()
+	uow := repositories.NewRepository(db).UnitOfWork()
 	ctx := entities.WithSystemContext(t.Context())
 
 	var ran []string

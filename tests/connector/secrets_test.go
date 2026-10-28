@@ -34,7 +34,7 @@ type secretFixture struct {
 func newSecretFixture(t *testing.T) *secretFixture {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := services.NewServiceFacade(repo, nil, nil, "connector-secret-test", nil, nil, nil)
 	eps := connector.MakeEndpoints(svc)
 
@@ -171,7 +171,7 @@ func TestATypedReplacementIsSaved(t *testing.T) {
 // over every credential in the installation.
 func TestTheStoredConfigIsNotReadableAsPlainText(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := serviceimpl.NewConnectorService(repo)
 	// A real project, and a context that names its organization: an instance
 	// hangs off a project and a scoped read joins through it.

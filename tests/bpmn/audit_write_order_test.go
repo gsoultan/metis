@@ -2,6 +2,7 @@ package bpmn_test
 
 import (
 	"context"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"slices"
 	"testing"
 
@@ -19,7 +20,7 @@ import (
 // describes.
 type auditedEngine struct {
 	svc       services.ServiceFacade
-	db        *gorm.DB
+	db        *db.Conn
 	ctx       context.Context
 	projectID uuid.UUID
 }
@@ -27,7 +28,7 @@ type auditedEngine struct {
 func newAuditedEngine(t *testing.T, name string) auditedEngine {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := observersimpl.NewEventDispatcher()
 	dispatcher.Register(observersimpl.NewAuditLogObserver(repo.Audit()))
 	svc := services.NewServiceFacade(repo, dispatcher, observersimpl.NewSSEObserver(), name, nil, nil, nil)

@@ -24,7 +24,7 @@ func TestResetPasswordRefusesAnAccountLinkedToAnIdentityProvider(t *testing.T) {
 		chosen = "a-password-the-provider-never-sees"
 	)
 	gormDB := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(gormDB))
+	repo := repositories.NewRepository(gormDB)
 	a := &App{repo: repo, svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), impl.NewSSEObserver(),
 		"reset-password-test-secret", nil, nil, nil)}
 	ctx := t.Context()
@@ -59,7 +59,7 @@ func TestResetPasswordRefusesAnAccountLinkedToAnIdentityProvider(t *testing.T) {
 func TestResetPasswordStillResetsALocalAccount(t *testing.T) {
 	const chosen = "the-break-glass-password"
 	gormDB := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(gormDB))
+	repo := repositories.NewRepository(gormDB)
 	a := &App{repo: repo, svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), impl.NewSSEObserver(),
 		"reset-password-test-secret", nil, nil, nil)}
 	ctx := t.Context()

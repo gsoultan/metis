@@ -58,6 +58,11 @@ func (a *AuditEntry) Schema(t *storm.Table) {
 	t.Col(&a.Actor).Size(255)
 	t.Col(&a.Seq).Serial().FillNulls("0")
 	t.Col(&a.DeletedAt).Index()
+	// The trail outlives the instance it is the record of: the finished-
+	// instance sweep removes an instance and everything that existed only to
+	// run it, and keeps this. A key would refuse the sweep, or take the trail
+	// with it.
+	t.Col(&a.Instance).AcknowledgeNoFK("the audit trail outlives the instance it records")
 	// The audit log: the entries that name somebody, newest first, and one
 	// person's. Partial, so they are the size of what people did rather than
 	// of everything the engine wrote. Spelled as PostgreSQL prints it back.

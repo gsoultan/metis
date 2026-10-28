@@ -2,6 +2,7 @@ package replicas
 
 import (
 	"context"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"strings"
 	"testing"
 	"time"
@@ -28,8 +29,8 @@ var replicaScope = entities.SSEScope{Organization: uuid.MustParse("00000000-0000
 // the list simply stopped changing, which is the worst way for a feature to
 // fail, because it looks like nothing happened rather than like a bug.
 func TestAnEventOnOneReplicaReachesABrowserOnAnother(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		repo := repositories.NewRepository(testutils.StormConn(db))
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
+		repo := repositories.NewRepository(db)
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 
@@ -56,8 +57,8 @@ func TestAnEventOnOneReplicaReachesABrowserOnAnother(t *testing.T) {
 // off the bus — a browser would see every local event twice, and the UI turns
 // each one into a refetch.
 func TestAReplicaDoesNotRedeliverItsOwnEvents(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		repo := repositories.NewRepository(testutils.StormConn(db))
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
+		repo := repositories.NewRepository(db)
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 
@@ -87,8 +88,8 @@ func TestAReplicaDoesNotRedeliverItsOwnEvents(t *testing.T) {
 // floods every connected browser with invalidations for work that finished
 // before it arrived — a thundering herd of refetches triggered by a deploy.
 func TestAReplicaStartingUpDoesNotReplayHistory(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		repo := repositories.NewRepository(testutils.StormConn(db))
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
+		repo := repositories.NewRepository(db)
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 
@@ -112,8 +113,8 @@ func TestAReplicaStartingUpDoesNotReplayHistory(t *testing.T) {
 // Pruning keeps the bus a bus. It is not an audit log — that exists separately
 // — so a row that every live replica has moved past has no readers left.
 func TestThePruneSweepsDeliveredEvents(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		repo := repositories.NewRepository(testutils.StormConn(db))
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
+		repo := repositories.NewRepository(db)
 		ctx := t.Context()
 
 		if err := repo.Broadcast().Publish(ctx, "replica-a", replicaScope, `{"type":"TaskCreated"}`); err != nil {

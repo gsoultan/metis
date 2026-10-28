@@ -11,9 +11,10 @@ import (
 	"github.com/gsoultan/metis/server/domains/observers/impl"
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // heldSweep is an app with the finished-instance sweep on, over a project of
@@ -21,7 +22,7 @@ import (
 type heldSweep struct {
 	t          *testing.T
 	app        *App
-	db         *gorm.DB
+	db         *db.Conn
 	repo       repositories.Repository
 	project    uuid.UUID
 	definition uuid.UUID
@@ -31,8 +32,7 @@ type heldSweep struct {
 
 func newHeldSweep(t *testing.T) heldSweep {
 	t.Helper()
-	gormDB := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(gormDB)
+	conn := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
 	a := &App{storm: conn, repo: repo, sse: sse,
@@ -46,7 +46,7 @@ func newHeldSweep(t *testing.T) heldSweep {
 		t.Fatalf("seed the definition: %v", err)
 	}
 	t.Setenv(envRetainFinishedInstancesDays, "30")
-	return heldSweep{t: t, app: a, db: gormDB, repo: repo, project: projectID, definition: definitionID,
+	return heldSweep{t: t, app: a, db: conn, repo: repo, project: projectID, definition: definitionID,
 		tenant: tenant, keep: resolveOptInRetention()}
 }
 
@@ -61,17 +61,21 @@ func (h heldSweep) finished(parent uuid.UUID) uuid.UUID {
 	}); err != nil {
 		h.t.Fatalf("seed an instance: %v", err)
 	}
-	h.exec(`UPDATE process_instances SET updated_at = ? WHERE id = ?`, time.Now().Add(-longAgo), id)
-	if parent != uuid.Nil {
-		h.exec(`UPDATE process_instances SET parent_instance_id = ? WHERE id = ?`, parent, id)
-	}
+	h.finishedAt(id, time.Now().Add(-longAgo), parent)
 	return id
 }
 
-func (h heldSweep) exec(stmt string, args ...any) {
+// finishedAt says instance last changed at, called from parent when parent is
+// not uuid.Nil.
+func (h heldSweep) finishedAt(instance uuid.UUID, at time.Time, parent uuid.UUID) {
 	h.t.Helper()
-	if err := h.db.WithContext(h.t.Context()).Exec(stmt, args...).Error; err != nil {
-		h.t.Fatalf("%s: %v", stmt, err)
+	dated := processinstance.MutateKey(instance)
+	dated.SetUpdatedAt(at)
+	if parent != uuid.Nil {
+		dated.SetParentInstanceID(parent)
+	}
+	if err := dated.Update(h.t.Context(), testutils.Executor(h.db)); err != nil {
+		h.t.Fatalf("date the instance: %v", err)
 	}
 }
 
@@ -89,8 +93,8 @@ func (h heldSweep) sweep() {
 
 func (h heldSweep) left(id uuid.UUID) bool {
 	h.t.Helper()
-	var n int64
-	if err := h.db.WithContext(h.t.Context()).Raw(`SELECT count(*) FROM process_instances WHERE id = ?`, id).Scan(&n).Error; err != nil {
+	n, err := processinstance.New().IDEq(id).Count(h.t.Context(), testutils.Executor(h.db))
+	if err != nil {
 		h.t.Fatalf("count: %v", err)
 	}
 	return n == 1

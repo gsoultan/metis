@@ -56,7 +56,7 @@ type platformHarness struct {
 func newPlatformHarness(t *testing.T, organizations ...string) *platformHarness {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(db)
+	conn := db
 	repo := repositories.NewRepository(conn)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "platform-test-secret", nil, nil, nil)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -28,7 +29,7 @@ import (
 // what turns a list query into a join.
 type sloHarness struct {
 	t            *testing.T
-	db           *gorm.DB
+	db           *db.Conn
 	server       *httptest.Server
 	token        string
 	orgID        uuid.UUID
@@ -51,7 +52,7 @@ func newSLOHarnessWithService(t *testing.T) (*sloHarness, services.ServiceFacade
 
 	// 16 connections, so a measurement is not queueing behind itself.
 	db := testutils.SetupPostgresDB(t, 16)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	sse := observersimpl.NewSSEObserver()
 	dispatcher := observersimpl.NewEventDispatcher()
 	svc := services.NewServiceFacade(repo, dispatcher, sse, "loadtest-secret", nil, nil, nil)
@@ -64,7 +65,7 @@ func newSLOHarnessWithService(t *testing.T) (*sloHarness, services.ServiceFacade
 	dispatcher.Register(sse)
 	dispatcher.Register(observersimpl.NewNotificationObserver(svc))
 
-	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, testutils.StormConn(db))
+	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, db)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 

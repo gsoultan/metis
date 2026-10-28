@@ -32,7 +32,7 @@ import (
 func newTaskService(t *testing.T) (repositories.Repository, servicecontracts.TaskService, context.Context, uuid.UUID) {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	engine := serviceimpl.NewExecutionEngine(repo, observerimpl.NewEventDispatcher())
 	svc := serviceimpl.NewTaskService(repo, engine, serviceimpl.NewAuditWriter(repo.Audit()))
 

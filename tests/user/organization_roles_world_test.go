@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,7 +32,7 @@ const orgRolesPassword = "a-password-long-enough"
 // what decides which organization a request is for, and so which roles count.
 type orgRolesWorld struct {
 	t       *testing.T
-	db      *gorm.DB
+	db      *db.Conn
 	svc     services.ServiceFacade
 	handler http.Handler
 
@@ -57,7 +58,7 @@ func newOrgRolesWorld(t *testing.T, platformAdministrators ...string) *orgRolesW
 	t.Setenv("METIS_PLATFORM_ADMINS", strings.Join(named, ","))
 
 	db := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(db)
+	conn := db
 	repo := repositories.NewRepository(conn)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "organization-roles-test-secret",

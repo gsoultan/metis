@@ -12,15 +12,18 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/incident"
+	"github.com/gsoultan/metis/server/repositories/store/job"
+	"github.com/gsoultan/metis/server/repositories/store/variablesnapshot"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // retentionWorld is a server's sweep over a database holding one instance with
 // jobs and snapshots of every age and kind the opt-in sweeps choose between.
 type retentionWorld struct {
 	t      *testing.T
-	db     *gorm.DB
+	db     *db.Conn
 	repo   repositories.Repository
 	app    *App
 	ctx    context.Context
@@ -35,12 +38,11 @@ const (
 
 func newRetentionWorld(t *testing.T) retentionWorld {
 	t.Helper()
-	gormDB := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(gormDB)
+	conn := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
 	w := retentionWorld{
-		t: t, db: gormDB, repo: repo,
+		t: t, db: conn, repo: repo,
 		app: &App{storm: conn, repo: repo, sse: sse,
 			svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "retention-test", nil, nil, nil)},
 		ctx:  entities.WithSystemContext(t.Context()),
@@ -89,7 +91,10 @@ func newRetentionWorld(t *testing.T) retentionWorld {
 		case "completed lately, due long":
 			changed = time.Now().Add(-time.Hour)
 		}
-		w.exec(`UPDATE jobs SET next_run_at = ?, updated_at = ? WHERE id = ?`, due, changed, id)
+		dated := job.MutateKey(id)
+		dated.SetNextRunAt(due)
+		dated.SetUpdatedAt(changed)
+		w.must("date the "+name+" job", dated.Update(t.Context(), w.ex()))
 	}
 	for name, status := range map[string]models.IncidentStatus{
 		"failed, incident open":     models.IncidentOpen,
@@ -111,9 +116,17 @@ func newRetentionWorld(t *testing.T) retentionWorld {
 	if err != nil {
 		t.Fatalf("seed an old snapshot: %v", err)
 	}
-	w.exec(`INSERT INTO variable_snapshots (id, created_at, updated_at, instance_id, node_id, variables, captured_at)
-	        SELECT gen_random_uuid(), created_at, updated_at, instance_id, node_id, variables, captured_at
-	          FROM variable_snapshots, generate_series(1, ?) WHERE id = ?`, db.PruneBatch, uuid.UUID(old.ID))
+	original, found, err := variablesnapshot.New().IDEq(uuid.UUID(old.ID)).One(t.Context(), w.ex())
+	if err != nil || !found {
+		t.Fatalf("read the old snapshot back: found %v, %v", found, err)
+	}
+	copies := make([]variablesnapshot.Row, db.PruneBatch)
+	for i := range copies {
+		copies[i] = original
+		copies[i].ID = uuid.Must(uuid.NewV7())
+	}
+	_, err = variablesnapshot.InsertAll(t.Context(), w.ex(), copies)
+	w.must("copy the old snapshot", err)
 	recent, err := repo.VariableSnapshot().Create(tenant, models.VariableSnapshotModel{
 		InstanceID: models.FromUUID(instanceID), NodeID: "charge",
 		Variables: map[string]any{"amount": 130}, CapturedAt: time.Now().Add(-time.Hour),
@@ -125,24 +138,31 @@ func newRetentionWorld(t *testing.T) retentionWorld {
 	return w
 }
 
-func (w retentionWorld) exec(stmt string, args ...any) {
+func (w retentionWorld) ex() runtime.Executor { return testutils.Executor(w.db) }
+
+func (w retentionWorld) must(what string, err error) {
 	w.t.Helper()
-	if err := w.db.WithContext(w.t.Context()).Exec(stmt, args...).Error; err != nil {
-		w.t.Fatalf("%s: %v", stmt, err)
+	if err != nil {
+		w.t.Fatalf("%s: %v", what, err)
 	}
 }
 
-func (w retentionWorld) count(query string, args ...any) int64 {
+func (w retentionWorld) count(n int64, err error) int64 {
 	w.t.Helper()
-	var n int64
-	if err := w.db.WithContext(w.t.Context()).Raw(query, args...).Scan(&n).Error; err != nil {
-		w.t.Fatalf("%s: %v", query, err)
-	}
+	w.must("count", err)
 	return n
 }
 
+func (w retentionWorld) snapshots() int64 {
+	return w.count(variablesnapshot.New().Unordered().Count(w.t.Context(), w.ex()))
+}
+
+func (w retentionWorld) everyJob() int64 {
+	return w.count(job.New().Unordered().Count(w.t.Context(), w.ex()))
+}
+
 func (w retentionWorld) jobLeft(name string) bool {
-	return w.count(`SELECT count(*) FROM jobs WHERE id = ?`, w.jobs[name]) == 1
+	return w.count(job.New().IDEq(w.jobs[name]).Count(w.t.Context(), w.ex())) == 1
 }
 
 // Unless an operator says how long to keep them, no snapshot and no job is
@@ -150,14 +170,14 @@ func (w retentionWorld) jobLeft(name string) bool {
 // deleting history nobody asked it to.
 func TestNothingIsRemovedByTheOptInSweepsUntilTheyAreConfigured(t *testing.T) {
 	w := newRetentionWorld(t)
-	snapshots, jobs := w.count(`SELECT count(*) FROM variable_snapshots`), w.count(`SELECT count(*) FROM jobs`)
+	snapshots, jobs := w.snapshots(), w.everyJob()
 
 	w.app.sweepRetention(w.ctx, time.Now(), resolveOptInRetention())
 
-	if left := w.count(`SELECT count(*) FROM variable_snapshots`); left != snapshots {
+	if left := w.snapshots(); left != snapshots {
 		t.Errorf("an unconfigured sweep left %d of %d snapshots; want every one", left, snapshots)
 	}
-	if left := w.count(`SELECT count(*) FROM jobs`); left != jobs {
+	if left := w.everyJob(); left != jobs {
 		t.Errorf("an unconfigured sweep left %d of %d jobs; want every one", left, jobs)
 	}
 }
@@ -176,10 +196,10 @@ func TestTheOptInSweepsRemoveOnlyWhatWillNeverBeNeededAgain(t *testing.T) {
 
 	w.app.sweepRetention(w.ctx, time.Now(), keep)
 
-	if left := w.count(`SELECT count(*) FROM variable_snapshots`); left != 1 {
+	if left := w.snapshots(); left != 1 {
 		t.Errorf("%d snapshots are left; want only the one taken within the period", left)
 	}
-	if w.count(`SELECT count(*) FROM variable_snapshots WHERE id = ?`, w.recent) != 1 {
+	if w.count(variablesnapshot.New().IDEq(w.recent).Count(t.Context(), w.ex())) != 1 {
 		t.Error("the snapshot taken within the period was removed")
 	}
 	for name, wantLeft := range map[string]bool{
@@ -196,7 +216,7 @@ func TestTheOptInSweepsRemoveOnlyWhatWillNeverBeNeededAgain(t *testing.T) {
 			t.Errorf("the %s job: left = %v, want %v", name, left, wantLeft)
 		}
 	}
-	if w.count(`SELECT count(*) FROM incidents`) != 2 {
+	if w.count(incident.New().Unordered().Count(t.Context(), w.ex())) != 2 {
 		t.Error("a sweep of jobs removed an incident; the account of a failure outlives its job")
 	}
 }

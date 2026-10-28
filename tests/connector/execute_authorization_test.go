@@ -70,7 +70,7 @@ type executeHarness struct {
 func newExecuteHarness(t *testing.T) *executeHarness {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(db)
+	conn := db
 	repo := repositories.NewRepository(conn)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "execute-test-secret", nil, nil, nil)

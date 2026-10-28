@@ -16,7 +16,7 @@ import (
 // hundred days to one loses an instance finished two days ago.
 func TestTheSweepReadsEachProcesssNewestPeriod(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, _, project := testutils.ScopedProject(t, repo)
 	definition := seedDefinition(t, db, project, 1)
 	var key string

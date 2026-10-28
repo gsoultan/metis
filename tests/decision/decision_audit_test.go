@@ -3,6 +3,7 @@ package decision_test
 import (
 	"context"
 	"errors"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"strings"
 	"testing"
 
@@ -152,7 +153,7 @@ type businessRuleHarness struct {
 	decisions servicecontracts.DecisionService
 	projectID uuid.UUID
 	// db is the schema's GORM handle, for seeding rows in bulk.
-	db *gorm.DB
+	db *db.Conn
 	// The tenant this harness acts inside; every call below carries it,
 	// because in production every one of them arrives with one resolved.
 	ctx context.Context
@@ -180,7 +181,7 @@ func buildBusinessRuleHarness(t *testing.T, audit servicecontracts.AuditWriter) 
 	t.Helper()
 	db := testutils.SetupTestDB(t)
 	ctx := t.Context()
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 
 	if audit == nil {
 		audit = serviceimpl.NewAuditWriter(repo.Audit())

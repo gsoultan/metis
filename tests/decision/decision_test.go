@@ -13,7 +13,7 @@ import (
 func TestDecisionEvaluation(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := impl.NewDecisionService(repo, impl.NewDecisionTableEvaluator(impl.NewFEELEvaluator()))
 	// The table belongs to a project, and a scoped read reaches it by joining
 	// through one. Created without, it belongs to nobody.

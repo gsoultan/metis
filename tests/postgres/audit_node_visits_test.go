@@ -19,7 +19,7 @@ import (
 // node, or marked removed are not visits.
 func TestNodeVisitsAreInTheOrderTheTrailFirstReachedThem(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, _, project := testutils.ScopedProject(t, repo)
 	definition := seedDefinition(t, db, project, 1)
 	instance := func() uuid.UUID {

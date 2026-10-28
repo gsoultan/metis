@@ -51,7 +51,7 @@ func workerOn(t *testing.T, repo repositories.Repository, ctx context.Context, t
 // is written again once it is older than the throttle, and at once when the
 // worker says it is another version — a deploy shows on the next fetch.
 func TestAWorkerIsRecordedAtMostEveryTenSecondsUnlessItsVersionChanges(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	ctx, _, _ := testutils.ScopedProject(t, repo)
 	first := time.Now().Add(-time.Minute).UTC().Truncate(time.Microsecond)
 
@@ -85,7 +85,7 @@ func TestAWorkerIsRecordedAtMostEveryTenSecondsUnlessItsVersionChanges(t *testin
 // organization's topic serves nobody else's of the same name, and one that has
 // not fetched for longer than the live window serves nothing.
 func TestATopicIsUnservedWhenNoLiveWorkerOfItsOrganizationFetchesIt(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	served, _, servedProject := testutils.ScopedProject(t, repo)
 	alone, _, aloneProject := testutils.ScopedProject(t, repo)
 	stale, _, staleProject := testutils.ScopedProject(t, repo)
@@ -131,7 +131,7 @@ func TestATopicIsUnservedWhenNoLiveWorkerOfItsOrganizationFetchesIt(t *testing.T
 // Workers not heard from for a week are forgotten, and neither the count nor
 // the forgetting is a tenant's to run: both span every organization.
 func TestIdleWorkersAreForgottenAndOnlyBySystemWork(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	ctx, _, _ := testutils.ScopedProject(t, repo)
 	now := time.Now()
 
@@ -163,7 +163,7 @@ func TestIdleWorkersAreForgottenAndOnlyBySystemWork(t *testing.T) {
 // even when that worker was never recorded. A task with no tries left is
 // neither.
 func TestATopicCountsWhatIsOnOfferAndWhatEachWorkerHolds(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	ctx, _, project := testutils.ScopedProject(t, repo)
 	now := time.Now().UTC()
 	park := func(worker string, lock time.Duration, retries int) {

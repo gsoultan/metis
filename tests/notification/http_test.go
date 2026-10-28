@@ -3,6 +3,7 @@ package notification_test
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -47,7 +48,7 @@ type ownPage struct {
 // notifications a request reaches is decided the way it is for real.
 type api struct {
 	t      *testing.T
-	db     *gorm.DB
+	db     *db.Conn
 	svc    services.ServiceFacade
 	server *httptest.Server
 }
@@ -55,11 +56,11 @@ type api struct {
 func newAPI(t *testing.T) api {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "notification-test-secret", nil, nil, nil)
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil,
-		map[string]health.Checker{}, testutils.StormConn(db))
+		map[string]health.Checker{}, db)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	return api{t: t, db: db, svc: svc, server: server}

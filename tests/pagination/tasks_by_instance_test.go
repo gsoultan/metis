@@ -38,7 +38,7 @@ func seedTasksForInstance(t *testing.T, repo repositories.Repository, ctx contex
 
 func TestListByInstancePaged_WindowsAndCountsOneInstance(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 	wanted := uuid.Must(uuid.NewV7())
@@ -76,7 +76,7 @@ func TestListByInstancePaged_WindowsAndCountsOneInstance(t *testing.T) {
 // human step — and must not be a failure or somebody else's rows.
 func TestListByInstancePaged_UnknownInstanceIsEmpty(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 	seedTasksForInstance(t, repo, ctx, projectID, uuid.Must(uuid.NewV7()), 5)

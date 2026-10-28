@@ -18,7 +18,7 @@ import (
 // the source version.
 func TestAMigrationRequestThatDoesNotSayDryRunIsOne(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
 		"dry-run-default-test", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)

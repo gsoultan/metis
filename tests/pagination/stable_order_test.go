@@ -2,6 +2,7 @@ package pagination_test
 
 import (
 	"context"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"testing"
 
 	"github.com/google/uuid"
@@ -29,7 +30,7 @@ const (
 // none, and nobody could find the one that was never shown.
 func TestEveryPagedListShowsRowsSharingACreationTimeExactlyOnce(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 	instanceID := uuid.Must(uuid.NewV7())
 	seedAtOneMoment(t, db, ctx, projectID, instanceID)
@@ -108,7 +109,7 @@ func TestEveryPagedListShowsRowsSharingACreationTimeExactlyOnce(t *testing.T) {
 // seedAtOneMoment writes sameMoment tasks, instances, definitions and decisions,
 // each table in one statement, so each shares one created_at. Definitions come
 // first: an instance names one.
-func seedAtOneMoment(t *testing.T, db *gorm.DB, ctx context.Context, projectID, instanceID uuid.UUID) {
+func seedAtOneMoment(t *testing.T, db *db.Conn, ctx context.Context, projectID, instanceID uuid.UUID) {
 	t.Helper()
 	for _, seed := range []struct {
 		table     string

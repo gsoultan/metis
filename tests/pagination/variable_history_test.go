@@ -19,7 +19,7 @@ import (
 // the newest snapshots, the ones somebody looks at, were the ones dropped.
 func TestAVariableHistoryPastAThousandSnapshotsEndsWithTheNewest(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	definitionID := uuid.Must(uuid.NewV7())

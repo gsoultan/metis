@@ -15,7 +15,7 @@ import (
 // taken; an expired one is, and that claim counts the attempt the dead worker
 // never reported.
 func TestTheLockCountsOnlyATakeover(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	ctx := entities.WithSystemContext(t.Context())
 	jobs := repo.Job()
 	id, err := jobs.Create(ctx, models.JobModel{

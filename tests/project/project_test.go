@@ -16,7 +16,7 @@ func TestProjectAssociation(t *testing.T) {
 	ctx := t.Context()
 	db := testutils.SetupTestDB(t)
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := impl.NewEventDispatcher()
 
 	orgSvc := service_impl2.NewOrganizationService(repo)

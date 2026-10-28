@@ -19,6 +19,7 @@ package bpmn_test
 
 import (
 	"context"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"testing"
 	"time"
 
@@ -44,7 +45,7 @@ type simHarness struct {
 	tasks     servicecontracts.TaskService
 	defs      servicecontracts.DefinitionService
 	projectID uuid.UUID
-	db        *gorm.DB
+	db        *db.Conn
 	ctx       context.Context
 }
 
@@ -54,7 +55,7 @@ func newSimHarness(t *testing.T) *simHarness {
 	t.Helper()
 	ctx := t.Context()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 
 	dispatcher := observerimpl.NewEventDispatcher()
 	// The trail a real instance leaves, as the application registers it: a

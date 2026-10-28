@@ -1,6 +1,7 @@
 package postgres_test
 
 import (
+	"github.com/gsoultan/metis/server/repositories/db"
 	"testing"
 
 	"github.com/google/uuid"
@@ -17,7 +18,7 @@ import (
 // not counted.
 func TestEachVersionCountsItsOwnInstancesByState(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ours, _, project := testutils.ScopedProject(t, repo)
 	theirs, _, theirProject := testutils.ScopedProject(t, repo)
 
@@ -68,7 +69,7 @@ func TestEachVersionCountsItsOwnInstancesByState(t *testing.T) {
 	}
 }
 
-func seedDefinition(t *testing.T, db *gorm.DB, project uuid.UUID, version int) uuid.UUID {
+func seedDefinition(t *testing.T, db *db.Conn, project uuid.UUID, version int) uuid.UUID {
 	t.Helper()
 	id := uuid.Must(uuid.NewV7())
 	if err := db.Create(&models.ProcessDefinitionModel{

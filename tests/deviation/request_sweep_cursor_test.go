@@ -3,6 +3,7 @@ package deviation_test
 import (
 	"context"
 	"errors"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"slices"
 	"testing"
 	"time"
@@ -260,7 +261,7 @@ func TestARequestIsReadAndHeldWithoutTheDocumentsThatNoLongerOpen(t *testing.T) 
 		t.Fatalf("holding a request outside a transaction: %v, want it refused", err)
 	}
 	free := func(id uuid.UUID) error {
-		return h.db.Transaction(func(tx *gorm.DB) error {
+		return h.db.Transaction(func(tx *db.Conn) error {
 			return tx.Exec(`SELECT id FROM deviation_requests WHERE id = ? FOR UPDATE NOWAIT`, id).Error
 		})
 	}

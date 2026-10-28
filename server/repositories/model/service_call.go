@@ -54,6 +54,12 @@ func (s *ServiceCall) Schema(t *storm.Table) {
 	// record and makes the outbound call again — which is the one thing this
 	// table exists to prevent.
 	t.UniqueAcrossDeleted(&s.Instance, &s.NodeID, &s.IterationID, &s.Job)
+	// The record outlives its job: the finished-job sweep removes a completed
+	// job and keeps the call, which is still what stops the instance's step
+	// being called twice until the instance itself is swept. A key would
+	// refuse that sweep; one that cleared the column would change the
+	// record's identity under the unique key above.
+	t.Col(&s.Job).AcknowledgeNoFK("a call's record outlives the job that made it")
 	t.Col(&s.IdempotencyKey).Size(128)
 	t.Col(&s.IdempotencyKey).Index()
 	t.Col(&s.Status).Size(32)

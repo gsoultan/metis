@@ -3,6 +3,7 @@ package bpmn_test
 import (
 	"context"
 	"errors"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"strings"
 	"sync"
 	"testing"
@@ -347,7 +348,7 @@ const lockWait = 20 * time.Second
 // finished. What is sent while it is open waits for it, which is how a test
 // puts two requests in the order it is about, every time.
 type heldRows struct {
-	tx      *gorm.DB
+	tx      *db.Conn
 	session int
 	ended   bool
 }

@@ -2,6 +2,7 @@ package tenant
 
 import (
 	"context"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"testing"
 
 	"github.com/google/uuid"
@@ -36,7 +37,7 @@ func (f tenantFixture) asRequestOfA(t *testing.T) context.Context {
 
 // eachScope runs body under the default scope and under the strict one. A
 // request that resolved a tenant must behave identically in both.
-func eachScope(t *testing.T, body func(t *testing.T, db *gorm.DB)) {
+func eachScope(t *testing.T, body func(t *testing.T, db *db.Conn)) {
 	t.Helper()
 	for _, scope := range []struct {
 		name   string
@@ -50,9 +51,9 @@ func eachScope(t *testing.T, body func(t *testing.T, db *gorm.DB)) {
 }
 
 func TestARequestsReusedScopeStillDeniesAnotherOrganization(t *testing.T) {
-	eachScope(t, func(t *testing.T, db *gorm.DB) {
+	eachScope(t, func(t *testing.T, db *db.Conn) {
 		f := seedTenantFixture(t, db)
-		repo := repositories.NewRepository(testutils.StormConn(db))
+		repo := repositories.NewRepository(db)
 		ctx := f.asRequestOfA(t)
 		reads := pg.ScopeReads()
 
@@ -118,9 +119,9 @@ func TestARequestsReusedScopeStillDeniesAnotherOrganization(t *testing.T) {
 // The account service asks each of an account's organizations in turn, inside
 // one request. Each is answered with its own projects.
 func TestAnotherTenantInsideARequestIsNotAnsweredFromTheRequestsScope(t *testing.T) {
-	eachScope(t, func(t *testing.T, db *gorm.DB) {
+	eachScope(t, func(t *testing.T, db *db.Conn) {
 		f := seedTenantFixture(t, db)
-		repo := repositories.NewRepository(testutils.StormConn(db))
+		repo := repositories.NewRepository(db)
 		ctx := f.asRequestOfA(t)
 
 		if _, err := repo.Task().List(ctx); err != nil {
@@ -147,9 +148,9 @@ func TestAnotherTenantInsideARequestIsNotAnsweredFromTheRequestsScope(t *testing
 // Creating a project and deploying into it is one conversation, and the scope
 // the request read before the project existed must not refuse the deploy.
 func TestAProjectCreatedInARequestIsInItsScopeAtOnce(t *testing.T) {
-	eachScope(t, func(t *testing.T, db *gorm.DB) {
+	eachScope(t, func(t *testing.T, db *db.Conn) {
 		f := seedTenantFixture(t, db)
-		repo := repositories.NewRepository(testutils.StormConn(db))
+		repo := repositories.NewRepository(db)
 		ctx := f.asRequestOfA(t)
 
 		if _, err := repo.Form().ListByProject(ctx, uuid.Nil); err != nil {
@@ -174,9 +175,9 @@ func TestAProjectCreatedInARequestIsInItsScopeAtOnce(t *testing.T) {
 }
 
 func TestAProjectDeletedInARequestLeavesItsScopeAtOnce(t *testing.T) {
-	eachScope(t, func(t *testing.T, db *gorm.DB) {
+	eachScope(t, func(t *testing.T, db *db.Conn) {
 		f := seedTenantFixture(t, db)
-		repo := repositories.NewRepository(testutils.StormConn(db))
+		repo := repositories.NewRepository(db)
 		ctx := f.asRequestOfA(t)
 
 		doomed, form := uuid.New(), uuid.New()
@@ -203,9 +204,9 @@ func TestAProjectDeletedInARequestLeavesItsScopeAtOnce(t *testing.T) {
 // A goroutine the request started can hold its context past the end. From
 // there it reads for itself, and sees what was created since.
 func TestARequestsScopeEndsWithTheRequest(t *testing.T) {
-	eachScope(t, func(t *testing.T, db *gorm.DB) {
+	eachScope(t, func(t *testing.T, db *db.Conn) {
 		f := seedTenantFixture(t, db)
-		repo := repositories.NewRepository(testutils.StormConn(db))
+		repo := repositories.NewRepository(db)
 		ctx, request := tenantscope.WithRequest(f.ctxAsA(t), f.orgA.String())
 
 		if _, err := repo.Form().ListByProject(ctx, uuid.Nil); err != nil {
@@ -233,9 +234,9 @@ func TestARequestsScopeEndsWithTheRequest(t *testing.T) {
 func TestARequestWithNoTenantIsNotAnIdentity(t *testing.T) {
 	defer features.OverrideForTest(features.StrictTenantScope, true)()
 
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
 		f := seedTenantFixture(t, db)
-		repo := repositories.NewRepository(testutils.StormConn(db))
+		repo := repositories.NewRepository(db)
 		ctx, request := tenantscope.WithRequest(t.Context(), f.orgA.String())
 		defer request.End()
 

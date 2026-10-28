@@ -33,11 +33,11 @@ func TestAProcessRunsInAnEnvironment(t *testing.T) {
 	environmentID := uuid.New()
 	// Both layers, the way the boot sequence registers them: a half-open
 	// environment reaches one and refuses on the other.
-	if pool := testutils.StormConn(stagingDB); pool != nil {
+	if pool := stagingDB; pool != nil {
 		conn.RegisterEnvironment(environmentID, pool.Main())
 	}
 
-	repo := repositories.NewRepository(testutils.StormConn(mainDB))
+	repo := repositories.NewRepository(mainDB)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "env-e2e", nil, nil, nil)
 
@@ -54,7 +54,7 @@ func TestAProcessRunsInAnEnvironment(t *testing.T) {
 
 	// Exactly what opening an environment does at boot. Called rather than
 	// reproduced, so a change to the real seeding is covered by this test.
-	if err := app.SeedEnvironmentIdentity(ctx, testutils.StormConn(stagingDB).Main(),
+	if err := app.SeedEnvironmentIdentity(ctx, stagingDB.Main(),
 		models.ProjectModel{
 			Base:           models.Base{ID: models.FromUUID(project.ID)},
 			OrganizationID: models.FromUUID(org.ID),
@@ -127,7 +127,7 @@ func TestSeedingIsIdempotent(t *testing.T) {
 	}
 
 	for range 2 {
-		if err := app.SeedEnvironmentIdentity(ctx, testutils.StormConn(stagingDB).Main(), project, organization); err != nil {
+		if err := app.SeedEnvironmentIdentity(ctx, stagingDB.Main(), project, organization); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
@@ -142,7 +142,7 @@ func TestSeedingIsIdempotent(t *testing.T) {
 
 	// A rename in the main database reaches the copy on the next boot.
 	project.Name = "Purchase Approval (EU)"
-	if err := app.SeedEnvironmentIdentity(ctx, testutils.StormConn(stagingDB).Main(), project, organization); err != nil {
+	if err := app.SeedEnvironmentIdentity(ctx, stagingDB.Main(), project, organization); err != nil {
 		t.Fatalf("reseed after a rename: %v", err)
 	}
 	var stored models.ProjectModel

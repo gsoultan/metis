@@ -2,14 +2,12 @@ package testutils
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/server/repositories/db"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -25,23 +23,10 @@ func EmptySchema(t *testing.T) *pgxpool.Pool {
 		t.Skipf("set %s to run this against a live PostgreSQL instance", PostgresDSNEnv)
 	}
 	namespace := "e_" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
-	url := stormDSN(dsn, "")
-	url = strings.TrimSuffix(url, "&search_path=")
+	createSchema(t, dsn, namespace)
 
 	ctx := context.Background()
-	admin, err := pgx.Connect(ctx, url)
-	if err != nil {
-		t.Fatalf("open PostgreSQL: %v", err)
-	}
-	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+namespace); err != nil {
-		t.Fatalf("create schema %s: %v", namespace, err)
-	}
-	t.Cleanup(func() {
-		_, _ = admin.Exec(ctx, "DROP SCHEMA IF EXISTS "+namespace+" CASCADE")
-		_ = admin.Close(ctx)
-	})
-
-	pool, err := db.NewPool(ctx, fmt.Sprintf("%s&search_path=%s", url, namespace))
+	pool, err := db.NewPool(ctx, stormDSN(dsn, namespace))
 	if err != nil {
 		t.Fatalf("open the schema's pool: %v", err)
 	}

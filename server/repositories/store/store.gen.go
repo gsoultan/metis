@@ -86,42 +86,42 @@ var FlushOrder = map[string]int{
 	"webhooks":                    14,
 	"workflow_groups":             15,
 	"workflow_users":              16,
-	"batch_operations":            17,
-	"connector_instances":         18,
-	"decision_definitions":        19,
-	"decision_releases":           20,
-	"deployments":                 21,
-	"environments":                22,
-	"external_task_workers":       23,
-	"forms":                       24,
-	"groups":                      25,
-	"memberships":                 26,
-	"outgoing_webhooks":           27,
-	"participant_sources":         28,
-	"person_api_keys":             29,
-	"platform_role_assignments":   30,
-	"process_definition_releases": 31,
-	"process_definitions":         32,
-	"process_instances":           33,
-	"tasks":                       34,
-	"user_organizations":          35,
-	"user_projects":               36,
-	"variable_snapshots":          37,
-	"webhook_deliveries":          38,
-	"workflow_group_memberships":  39,
-	"audit_logs":                  40,
-	"batch_operation_items":       41,
-	"broadcast_events":            42,
-	"compensatable_activities":    43,
-	"deployment_resources":        44,
-	"deviation_requests":          45,
-	"event_subscriptions":         46,
-	"external_tasks":              47,
-	"instance_deviations":         48,
-	"jobs":                        49,
-	"notifications":               50,
-	"outgoing_webhook_deliveries": 51,
-	"service_calls":               52,
+	"audit_logs":                  17,
+	"batch_operations":            18,
+	"connector_instances":         19,
+	"decision_definitions":        20,
+	"decision_releases":           21,
+	"deployments":                 22,
+	"environments":                23,
+	"external_task_workers":       24,
+	"forms":                       25,
+	"groups":                      26,
+	"memberships":                 27,
+	"outgoing_webhooks":           28,
+	"participant_sources":         29,
+	"person_api_keys":             30,
+	"platform_role_assignments":   31,
+	"process_definition_releases": 32,
+	"process_definitions":         33,
+	"process_instances":           34,
+	"service_calls":               35,
+	"tasks":                       36,
+	"user_organizations":          37,
+	"user_projects":               38,
+	"variable_snapshots":          39,
+	"webhook_deliveries":          40,
+	"workflow_group_memberships":  41,
+	"batch_operation_items":       42,
+	"broadcast_events":            43,
+	"compensatable_activities":    44,
+	"deployment_resources":        45,
+	"deviation_requests":          46,
+	"event_subscriptions":         47,
+	"external_tasks":              48,
+	"instance_deviations":         49,
+	"jobs":                        50,
+	"notifications":               51,
+	"outgoing_webhook_deliveries": 52,
 	"incidents":                   53,
 }
 
@@ -139,7 +139,9 @@ const defaultChildLimit = 1 << 20
 // AuditEntryWithInstanceRow is audit_logs with its Instance loaded.
 type AuditEntryWithInstanceRow struct {
 	auditentry.Row
-	Instance processinstance.Row
+	// A pointer because nothing keeps the target there: the column has no
+	// foreign key. nil means the row it names is gone.
+	Instance *processinstance.Row
 }
 
 type AuditEntryWithInstanceQuery struct {
@@ -244,11 +246,9 @@ func (p AuditEntryWithInstanceQuery) All(ctx context.Context, ex runtime.Executo
 		key := out[i].Row.InstanceID
 		j, ok := by[key]
 		if !ok {
-			// A foreign key pointing at a row that is not there. The database
-			// forbids it, so reaching this means the constraint was dropped.
-			return nil, fmt.Errorf("storm: %s references a missing %s row", "audit_logs", "process_instances")
+			continue // no foreign key: the row it names may be gone
 		}
-		out[i].Instance = targets[j]
+		out[i].Instance = &targets[j]
 	}
 	return out, nil
 }
@@ -9222,8 +9222,9 @@ func (p ServiceCallWithInstanceQuery) All(ctx context.Context, ex runtime.Execut
 // ServiceCallWithJobRow is service_calls with its Job loaded.
 type ServiceCallWithJobRow struct {
 	servicecall.Row
-	// A pointer because the link is optional. nil means the row has no
-	// Job, which is different from having one that failed to load.
+	// A pointer because the link is optional and nothing keeps its target
+	// there: nil means the row has no Job, or the column has no foreign
+	// key and the row it names is gone.
 	Job *job.Row
 }
 
@@ -9335,9 +9336,7 @@ func (p ServiceCallWithJobQuery) All(ctx context.Context, ex runtime.Executor) (
 		}
 		j, ok := by[key]
 		if !ok {
-			// A foreign key pointing at a row that is not there. The database
-			// forbids it, so reaching this means the constraint was dropped.
-			return nil, fmt.Errorf("storm: %s references a missing %s row", "service_calls", "jobs")
+			continue // no foreign key: the row it names may be gone
 		}
 		out[i].Job = &targets[j]
 	}

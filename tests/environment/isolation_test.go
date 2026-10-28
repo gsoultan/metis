@@ -28,11 +28,11 @@ func TestARequestOnAnEnvironmentPortReadsThatEnvironmentsDatabase(t *testing.T) 
 	stagingDB := testutils.SetupTestDB(t)
 
 	environmentID := uuid.New()
-	if pool := testutils.StormConn(stagingDB); pool != nil {
+	if pool := stagingDB; pool != nil {
 		mainConn.RegisterEnvironment(environmentID, pool.Main())
 	}
 
-	repo := repositories.NewRepository(testutils.StormConn(mainDB))
+	repo := repositories.NewRepository(mainDB)
 	system := entities.WithSystemContext(context.Background())
 
 	// One definition in each database, with different keys, so which database
@@ -80,7 +80,7 @@ func TestIdentityStillResolvesAgainstTheMainDatabase(t *testing.T) {
 	stagingDB := testutils.SetupTestDB(t)
 
 	environmentID := uuid.New()
-	if pool := testutils.StormConn(stagingDB); pool != nil {
+	if pool := stagingDB; pool != nil {
 		mainConn.RegisterEnvironment(environmentID, pool.Main())
 	}
 
@@ -118,7 +118,7 @@ func TestIdentityStillResolvesAgainstTheMainDatabase(t *testing.T) {
 func TestAnEnvironmentWithNoConnectionIsRefusedNotServedFromMain(t *testing.T) {
 	mainDB := testutils.SetupTestDB(t)
 
-	repo := repositories.NewRepository(testutils.StormConn(mainDB))
+	repo := repositories.NewRepository(mainDB)
 	writeDefinition(t, mainDB, "lives-in-main")
 
 	// Registered nowhere: this is an environment whose database would not open.
@@ -144,7 +144,7 @@ func requestScoped(environmentID uuid.UUID, body func(*http.Request)) http.Handl
 	})
 }
 
-func writeDefinition(t *testing.T, db *gorm.DB, key string) {
+func writeDefinition(t *testing.T, db *db.Conn, key string) {
 	t.Helper()
 	def := models.ProcessDefinitionModel{
 		Base:    models.Base{ID: models.FromUUID(uuid.New())},

@@ -27,7 +27,7 @@ var loopingSteps = []string{"start", "review", "pay"}
 func seedLongTrail(t *testing.T) (context.Context, repositories.Repository, uuid.UUID) {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	definitionID := uuid.Must(uuid.NewV7())

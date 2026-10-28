@@ -61,7 +61,7 @@ func seedOCELProject(t *testing.T, repo repositories.Repository, instances, entr
 // than read in full first and the replica's memory with it.
 func TestAnOCELExportPastTheLimitIsRefusedAndSaysWhy(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, projectID := seedOCELProject(t, repo, 1, 4)
 	engine := NewExecutionEngine(repo, observersimpl.NewEventDispatcher())
 
@@ -90,7 +90,7 @@ func TestAnOCELExportPastTheLimitIsRefusedAndSaysWhy(t *testing.T) {
 // than the limit is refused before any is read.
 func TestAnOCELExportOfMoreInstancesThanTheLimitIsRefused(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, projectID := seedOCELProject(t, repo, 3, 1)
 	engine := NewExecutionEngine(repo, observersimpl.NewEventDispatcher())
 

@@ -15,7 +15,7 @@ import (
 // for the next caller.
 func TestAnIdempotencyAnswerIsKeptOnce(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	store := security.NewDBIdempotencyStore(testutils.StormConn(db), time.Hour)
+	store := security.NewDBIdempotencyStore(db, time.Hour)
 	ctx := entities.WithSystemContext(t.Context())
 
 	if out, err := store.Claim(ctx, "kept", "h"); err != nil || !out.Owned {

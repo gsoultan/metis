@@ -2,6 +2,7 @@ package outage
 
 import (
 	"context"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"slices"
 	"sync"
 	"testing"
@@ -104,7 +105,7 @@ func TestAWorkerWhoseConnectionIsKilledMidJobFinishesTheJobOnce(t *testing.T) {
 // ---------------------------------------------------------------- the drill
 
 type killDrill struct {
-	db       *gorm.DB
+	db       *db.Conn
 	repo     repositories.Repository
 	engine   *serviceimpl.Engine
 	jobs     servicecontracts.JobService

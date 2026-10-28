@@ -17,10 +17,8 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/db"
-	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // environmentHarness is a server as far as its environments go: the main
@@ -39,7 +37,7 @@ type environmentHarness struct {
 
 func newEnvironmentHarness(t *testing.T) *environmentHarness {
 	t.Helper()
-	_, conn := testutils.SetupTestStore(t)
+	conn := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
 	a := &App{storm: conn, repo: repo, sse: sse,
@@ -162,40 +160,14 @@ func scratchDatabase(t *testing.T) string {
 
 func createDatabase(t *testing.T, name string) {
 	t.Helper()
-	admin, err := gorms.Open("postgres", envvar.Get(testutils.PostgresDSNEnv))
-	if err != nil {
-		t.Fatalf("open the maintenance connection: %v", err)
-	}
-	t.Cleanup(func() { closeGorm(admin) })
-	if err := admin.Exec("CREATE DATABASE " + name).Error; err != nil {
-		t.Fatalf("create %s: %v", name, err)
-	}
-	t.Cleanup(func() {
-		// FORCE, because a pool that has not finished closing still holds
-		// connections to it — and a database left behind on a shared server is
-		// somebody else's problem tomorrow.
-		if err := admin.Exec("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)").Error; err != nil {
-			t.Logf("could not drop %s: %v", name, err)
-		}
-	})
+	testutils.CreateDatabase(t, name)
 }
 
 // behindTheServer opens one of the test's databases directly, the way
 // somebody looking behind the server's back would.
-func behindTheServer(t *testing.T, database string) *gorm.DB {
+func behindTheServer(t *testing.T, database string) *db.Conn {
 	t.Helper()
-	fields := dsnFields(t)
-	fields["dbname"] = database
-	pairs := make([]string, 0, len(fields))
-	for key, value := range fields {
-		pairs = append(pairs, key+"="+value)
-	}
-	conn, err := gorms.Open("postgres", strings.Join(pairs, " "))
-	if err != nil {
-		t.Fatalf("open %s: %v", database, err)
-	}
-	t.Cleanup(func() { closeGorm(conn) })
-	return conn
+	return testutils.OpenDatabase(t, database)
 }
 
 // noContent is a server that answers everything with 204, so a probe can tell
@@ -274,10 +246,3 @@ func within(t *testing.T, limit time.Duration, why string, done func() bool) {
 
 // startLimit is how long an environment may take to be served once it can be.
 const startLimit = 30 * time.Second
-
-// closeGorm lets go of a test's own connection.
-func closeGorm(conn *gorm.DB) {
-	if sqlDB, err := conn.DB(); err == nil {
-		_ = sqlDB.Close()
-	}
-}

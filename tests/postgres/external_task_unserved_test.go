@@ -16,7 +16,7 @@ import (
 // it on offer, and a removed project's tasks still count against the
 // organization that owned it.
 func TestAnUnservedTopicIsCountedOncePerOrganization(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	ctx, organization, first := testutils.ScopedProject(t, repo)
 	second := uuid.Must(uuid.NewV7())
 	if err := repo.Project().Create(entities.WithSystemContext(ctx), models.ProjectModel{
@@ -47,7 +47,7 @@ func TestAnUnservedTopicIsCountedOncePerOrganization(t *testing.T) {
 
 // The count is not a page: more topics than one read returns are all counted.
 func TestEveryUnservedTopicIsCounted(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	_, _, project := testutils.ScopedProject(t, repo)
 	const topics = 1001
 	for i := range topics {

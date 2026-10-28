@@ -1,6 +1,7 @@
 package postgres_test
 
 import (
+	"github.com/gsoultan/metis/server/repositories/db"
 	"slices"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ import (
 // state, and, on a table that soft-deletes, the marked rows as well as the
 // live ones — a purge that left the marked rows would never finish them.
 
-func countRows(t *testing.T, db *gorm.DB, table string) int64 {
+func countRows(t *testing.T, db *db.Conn, table string) int64 {
 	t.Helper()
 	var n int64
 	if err := db.Raw("SELECT count(*) FROM " + table).Scan(&n).Error; err != nil {
@@ -30,7 +31,7 @@ func countRows(t *testing.T, db *gorm.DB, table string) int64 {
 
 func TestTheIdempotencySweepRemovesOldAnswersAndAbandonedClaims(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(db)
+	conn := db
 	now := time.Now().UTC()
 	const ttl = time.Hour
 	for _, r := range []struct {
@@ -63,7 +64,7 @@ func TestTheIdempotencySweepRemovesOldAnswersAndAbandonedClaims(t *testing.T) {
 
 func TestTheSnapshotSweepPurgesOldSnapshotsMarkedOrNot(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ours, _, project := testutils.ScopedProject(t, repo)
 	instance := uuid.Must(uuid.NewV7())
 	if _, err := repo.Process().Create(ours, models.ProcessInstanceModel{
@@ -97,7 +98,7 @@ func TestTheSnapshotSweepPurgesOldSnapshotsMarkedOrNot(t *testing.T) {
 
 func TestTheDeliverySweepPurgesMarkedDeliveriesToo(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx := entities.WithSystemContext(t.Context())
 	if err := db.Exec(`
 		INSERT INTO webhook_deliveries (id, created_at, updated_at, deleted_at, webhook_id, delivery_id, received_at)
@@ -116,7 +117,7 @@ func TestTheDeliverySweepPurgesMarkedDeliveriesToo(t *testing.T) {
 
 func TestTheJobSweepKeepsWhatIsOwedAndWhatAnOpenIncidentNames(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ours, _, project := testutils.ScopedProject(t, repo)
 	definition := seedDefinition(t, db, project, 1)
 	instance := uuid.Must(uuid.NewV7())

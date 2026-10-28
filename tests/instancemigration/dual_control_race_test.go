@@ -3,6 +3,7 @@ package instancemigration
 import (
 	"context"
 	"errors"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"slices"
 	"strings"
 	"sync"
@@ -34,7 +35,7 @@ const freeRounds = 3
 
 // heldRequest is a request's row held open by a transaction of the test's.
 type heldRequest struct {
-	tx      *gorm.DB
+	tx      *db.Conn
 	session int
 	letGo   bool
 }
@@ -579,7 +580,7 @@ func TestTwoRunsUnderOneApprovalMoveEachInstanceOnce(t *testing.T) {
 // still on the source version and no longer on the operations approval: the
 // rewrite of an instance the run has just skipped, before it takes the lock.
 type skippedHook struct {
-	committed *gorm.DB
+	committed *db.Conn
 	source    uuid.UUID
 	fire      func()
 	fired     bool
@@ -590,7 +591,7 @@ type skippedHook struct {
 // Whether it has is read as committed — through committed, the test's own
 // connection, outside the locker's transaction — so the skip's own unit of work, which has advanced
 // the instance and not yet committed, does not fire it.
-func (p *hookedProcess) atTheRewriteOfASkippedInstance(committed *gorm.DB, source uuid.UUID, fire func()) {
+func (p *hookedProcess) atTheRewriteOfASkippedInstance(committed *db.Conn, source uuid.UUID, fire func()) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.skipped = &skippedHook{committed: committed, source: source, fire: fire}

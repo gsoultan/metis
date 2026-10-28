@@ -3,6 +3,7 @@ package bpmn_test
 import (
 	"context"
 	"errors"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"strings"
 	"testing"
 
@@ -111,7 +112,7 @@ func TestTwoAsksAfterTheDeadlineCloseTheRequestOnceAndOneOfThemWaits(t *testing.
 	asks := map[string]*sent[entities.DeviationOutcome]{"ana": askAs("ana")}
 	h.waitForWaiters(t, held, 1, asks["ana"].answered)
 	// Waiting for the request's row, she holds no instance.
-	if err := h.db.Transaction(func(tx *gorm.DB) error {
+	if err := h.db.Transaction(func(tx *db.Conn) error {
 		return tx.Exec(`SELECT id FROM process_instances WHERE id = ? FOR UPDATE NOWAIT`, id).Error
 	}); err != nil {
 		t.Fatalf("while an ask waits for the overdue request's row, the instance's row answers %v; want it free", err)

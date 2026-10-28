@@ -26,7 +26,7 @@ import (
 // failing later with "could not get decision by key: record not found".
 func TestCreateDecision_RejectsADecisionWithNoKey(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := serviceimpl.NewDecisionService(repo, serviceimpl.NewDecisionTableEvaluator(serviceimpl.NewFEELEvaluator()))
 	ctx := t.Context()
 
@@ -50,7 +50,7 @@ func TestCreateDecision_RejectsADecisionWithNoKey(t *testing.T) {
 
 func TestCreateDecision_AcceptsAKeyedDecision(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	svc := serviceimpl.NewDecisionService(repositories.NewRepository(testutils.StormConn(db)),
+	svc := serviceimpl.NewDecisionService(repositories.NewRepository(db),
 		serviceimpl.NewDecisionTableEvaluator(serviceimpl.NewFEELEvaluator()))
 
 	id, err := svc.CreateDecision(t.Context(), entities.DecisionDefinition{

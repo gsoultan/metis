@@ -36,7 +36,7 @@ const routeReason = "the approver has left; the director agreed in writing"
 func newDeviationRouteHarness(t *testing.T) *deviationHarness {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(db)
+	conn := db
 	repo := repositories.NewRepository(conn)
 	sse := observersimpl.NewSSEObserver()
 	dispatcher := observersimpl.NewEventDispatcher()

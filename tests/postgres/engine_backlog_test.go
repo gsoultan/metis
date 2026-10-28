@@ -17,7 +17,7 @@ import (
 // the oldest has waited, which leases ran out, and what is broken. Each count
 // has a case that must not be in it.
 func TestTheBacklogCountsWhatIsWaitingAndNothingElse(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	ctx := entities.WithSystemContext(t.Context())
 	now := time.Now().UTC()
 	oldest := now.Add(-10 * time.Minute)
@@ -63,7 +63,7 @@ func TestTheBacklogCountsWhatIsWaitingAndNothingElse(t *testing.T) {
 
 // Both count across every tenant, so neither answers a tenant.
 func TestTheBacklogIsNotATenantsToRead(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	ctx, _ := testutils.ScopedContext(t, repo)
 
 	if _, err := repo.Job().Backlog(ctx, time.Now()); !errors.Is(err, apierr.ErrForbidden) {

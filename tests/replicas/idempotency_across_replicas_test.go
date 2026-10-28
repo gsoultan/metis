@@ -11,6 +11,7 @@ package replicas
 import (
 	"bytes"
 	"fmt"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -36,18 +37,18 @@ const testMaxConns = 4
 // error the store has to recognise. A claim that silently stopped being atomic
 // on one dialect would let two replicas execute the same write there and
 // nowhere else, so each is proven rather than assumed.
-func forEachDialect(t *testing.T, body func(t *testing.T, db *gorm.DB)) {
+func forEachDialect(t *testing.T, body func(t *testing.T, db *db.Conn)) {
 	t.Helper()
 	engines := []struct {
 		name string
-		open func(*testing.T) *gorm.DB
+		open func(*testing.T) *db.Conn
 	}{
 		// One engine. This ran each case against SQLite and then PostgreSQL,
 		// back when both were supported — and the SQLite pass was the only one
 		// that ever ran, because the PostgreSQL DSN was set nowhere. Both
 		// helpers open the same engine now, so running twice would assert the
 		// same thing twice under two names.
-		{"postgres", func(t *testing.T) *gorm.DB { return testutils.SetupPostgresDB(t, testMaxConns) }},
+		{"postgres", func(t *testing.T) *db.Conn { return testutils.SetupPostgresDB(t, testMaxConns) }},
 	}
 	for _, engine := range engines {
 		t.Run(engine.name, func(t *testing.T) {
@@ -61,10 +62,10 @@ type replica struct {
 	handler http.Handler
 }
 
-func newReplica(t *testing.T, db *gorm.DB, calls *atomic.Int32, body func(w http.ResponseWriter, seq int32)) replica {
+func newReplica(t *testing.T, db *db.Conn, calls *atomic.Int32, body func(w http.ResponseWriter, seq int32)) replica {
 	t.Helper()
 	interceptor := security.NewIdempotencyInterceptorWithStore(
-		security.NewDBIdempotencyStore(testutils.StormConn(db), idempotencyTTL), idempotencyTTL)
+		security.NewDBIdempotencyStore(db, idempotencyTTL), idempotencyTTL)
 
 	return replica{handler: interceptor.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		body(w, calls.Add(1))
@@ -87,7 +88,7 @@ func post(t *testing.T, r replica, key, payload string) *httptest.ResponseRecord
 // write a second time — a duplicate business action, which for this system can
 // mean charging a card twice.
 func TestARetryOnAnotherReplicaDoesNotExecuteTwice(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
 		var calls atomic.Int32
 
 		body := func(w http.ResponseWriter, seq int32) {
@@ -120,7 +121,7 @@ func TestARetryOnAnotherReplicaDoesNotExecuteTwice(t *testing.T) {
 // two requests land on different processes — a client bug must not become
 // invisible because a load balancer moved it.
 func TestKeyReuseIsRefusedAcrossReplicas(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
 		var calls atomic.Int32
 		body := func(w http.ResponseWriter, _ int32) { w.WriteHeader(http.StatusCreated) }
 
@@ -141,7 +142,7 @@ func TestKeyReuseIsRefusedAcrossReplicas(t *testing.T) {
 // key, and exactly one must run it. A check-then-insert would let them all
 // through.
 func TestConcurrentReplicasElectExactlyOneExecutor(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
 		var calls atomic.Int32
 
 		// Slow enough that the other claims genuinely overlap the first.
@@ -191,7 +192,7 @@ func TestConcurrentReplicasElectExactlyOneExecutor(t *testing.T) {
 // takes the key and dies without recording anything. Without releasing the
 // claim, every retry waits out the budget for an answer nobody will write.
 func TestAnAbandonedClaimDoesNotStrandRetries(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
 		var deadCalls atomic.Int32
 
 		panicking := newReplica(t, db, &deadCalls, func(http.ResponseWriter, int32) {

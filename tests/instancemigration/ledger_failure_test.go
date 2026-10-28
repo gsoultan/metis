@@ -24,7 +24,7 @@ import (
 func newFixtureOver(t *testing.T, wrap func(repositories.Repository) repositories.Repository) *fixture {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := wrap(repositories.NewRepository(testutils.StormConn(db)))
+	repo := wrap(repositories.NewRepository(db))
 	dispatcher := observersimpl.NewEventDispatcher()
 	svc := services.NewServiceFacade(repo, dispatcher, observersimpl.NewSSEObserver(), "migration-test", nil, nil, nil)
 	org, err := svc.CreateOrganization(context.Background(), "Org", "")

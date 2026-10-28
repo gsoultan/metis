@@ -26,7 +26,7 @@ const sealedMarker = "123-45-6789-sealed-marker"
 
 func TestCopiesOfProcessVariablesAreEncryptedAtRest(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	// The audit observer as the application registers it, so the trail is
 	// written the way it is in production.
 	dispatcher := observersimpl.NewEventDispatcher()
@@ -124,7 +124,7 @@ func TestCopiesOfProcessVariablesAreEncryptedAtRest(t *testing.T) {
 // created.
 func TestStoredAnswersAreEncryptedAtRest(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(db)
+	conn := db
 	repo := repositories.NewRepository(conn)
 	ctx := entities.WithSystemContext(t.Context())
 

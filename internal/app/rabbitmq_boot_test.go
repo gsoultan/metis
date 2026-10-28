@@ -64,7 +64,7 @@ func (m *recordingMessaging) StopAll() { m.stops.Add(1) }
 func rabbitMQTestApp(t *testing.T) (*App, *recordingMessaging) {
 	t.Helper()
 	gormDB := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(gormDB)
+	conn := gormDB
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
 	facade := services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "rabbitmq-boot-test", nil, nil, nil)

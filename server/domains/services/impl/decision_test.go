@@ -14,7 +14,7 @@ import (
 
 func TestDecisionService_FullDMN(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := NewDecisionService(repo, NewDecisionTableEvaluator(NewFEELEvaluator()))
 
 	// A real project, not an invented id. decision_definitions references

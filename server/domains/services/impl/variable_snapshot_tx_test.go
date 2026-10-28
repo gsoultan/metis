@@ -31,7 +31,7 @@ func (f failingSnapshots) CaptureSnapshot(ctx context.Context, _ entities.Variab
 // aborted the transaction, and the step's next statement failed with it.
 func TestAFailedSnapshotDoesNotFailTheTransaction(t *testing.T) {
 	gormDB := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(gormDB)
+	conn := gormDB
 	repo := repositories.NewRepository(conn)
 	e := &Engine{repo: repo, varHistory: failingSnapshots{conn: conn}}
 	ctx := entities.WithSystemContext(t.Context())

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -30,7 +31,7 @@ import (
 // them, from a queue that commits with the step that raised each one.
 
 type outgoingHarness struct {
-	db        *gorm.DB
+	db        *db.Conn
 	repo      repositories.Repository
 	svc       services.ServiceFacade
 	ctx       context.Context
@@ -40,7 +41,7 @@ type outgoingHarness struct {
 func newOutgoingHarness(t *testing.T) *outgoingHarness {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := observersimpl.NewEventDispatcher()
 	// As the server wires it.
 	dispatcher.Register(observersimpl.NewOutgoingWebhookObserver(repo.OutgoingWebhookQueue(), repo.UnitOfWork().Attempt))

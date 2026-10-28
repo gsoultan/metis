@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -70,7 +71,7 @@ type deviationHarness struct {
 	server   *httptest.Server
 	svc      services.ServiceFacade
 	repo     repositories.Repository
-	db       *gorm.DB
+	db       *db.Conn
 	orgID    uuid.UUID
 	projID   uuid.UUID
 	deployed int
@@ -82,7 +83,7 @@ type deviationHarness struct {
 func newDeviationHarness(t *testing.T) *deviationHarness {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(db)
+	conn := db
 	repo := repositories.NewRepository(conn)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "deviation-test-secret", nil, nil, nil)

@@ -116,7 +116,7 @@ func TestWhatSomebodyDelegatedIsListedOnlyInsideTheirOrganization(t *testing.T) 
 	if err != nil {
 		t.Fatalf("create the other organization's project: %v", err)
 	}
-	repo := repositories.NewRepository(testutils.StormConn(h.db))
+	repo := repositories.NewRepository(h.db)
 	pendingFor := func(ctx context.Context, projectID uuid.UUID, state entities.DelegationState) string {
 		return seedTask(t, repo, ctx, projectID, entities.Task{
 			Name: "Approve the refund", Type: entities.UserTask, Status: entities.TaskDelegated,

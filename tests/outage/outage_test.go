@@ -23,6 +23,7 @@ package outage
 
 import (
 	"context"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"io"
 	"net"
 	"net/http"
@@ -231,11 +232,11 @@ func TestReadinessTellsTheTruthThroughAnOutage(t *testing.T) {
 // arbitrary database. Duplicated from tests/postgres deliberately: test
 // packages cannot import each other, and a shared harness in testutils would
 // couple every suite to the engine's constructor churn.
-func newEngine(t *testing.T, db *gorm.DB) (repositories.Repository, *serviceimpl.Engine, servicecontracts.JobService, uuid.UUID, context.Context) {
+func newEngine(t *testing.T, db *db.Conn) (repositories.Repository, *serviceimpl.Engine, servicecontracts.JobService, uuid.UUID, context.Context) {
 	t.Helper()
 	ctx := t.Context()
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := observersimpl.NewEventDispatcher()
 	engine := serviceimpl.NewExecutionEngine(repo, dispatcher)
 	connectorSvc := serviceimpl.NewConnectorService(repo)

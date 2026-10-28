@@ -14,7 +14,7 @@ import (
 // after. There is one now, so the thing to prove is that migrating does not
 // take it away.
 func TestMigratingAtBootKeepsTheServingPool(t *testing.T) {
-	_, conn := testutils.SetupTestStore(t)
+	conn := testutils.SetupTestDB(t)
 	a := &App{storm: conn, repo: repositories.NewRepository(conn)}
 
 	if err := a.migrate(t.Context()); err != nil {

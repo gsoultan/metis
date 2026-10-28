@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"reflect"
 	"strings"
 	"testing"
@@ -290,7 +291,7 @@ func TestAnApprovalHoldsItsRequestWhileItWaitsForTheInstance(t *testing.T) {
 	asked := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
 	request := asked.PendingApproval.RequestID
 	free := func() error {
-		return h.db.Transaction(func(tx *gorm.DB) error {
+		return h.db.Transaction(func(tx *db.Conn) error {
 			return tx.Exec(`SELECT id FROM deviation_requests WHERE id = ? FOR UPDATE NOWAIT`, request).Error
 		})
 	}

@@ -363,7 +363,7 @@ func TestSomebodyInSeveralOrganizationsIsHandedATaskInOneOfThem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read dana: %v", err)
 	}
-	repo := repositories.NewRepository(testutils.StormConn(h.db))
+	repo := repositories.NewRepository(h.db)
 	if err := repo.User().AddOrganization(context.Background(), dana.ID, other.ID); err != nil {
 		t.Fatalf("put dana in the other organization as well: %v", err)
 	}

@@ -2,6 +2,7 @@ package pagination_test
 
 import (
 	"context"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"testing"
 
 	"github.com/google/uuid"
@@ -23,7 +24,7 @@ import (
 // process_instances has foreign keys onto both, so an instance cannot be
 // written without them — which is the schema doing its job, and why the
 // fixtures here are rows rather than bare ids.
-func seedProject(t *testing.T, db *gorm.DB, orgID, projectID uuid.UUID, name string) {
+func seedProject(t *testing.T, db *db.Conn, orgID, projectID uuid.UUID, name string) {
 	t.Helper()
 	rows := []any{
 		&models.OrganizationModel{Base: models.Base{ID: models.FromUUID(orgID)}, Name: name},
@@ -41,7 +42,7 @@ func seedProject(t *testing.T, db *gorm.DB, orgID, projectID uuid.UUID, name str
 }
 
 // seedDefinition writes the process an instance is a run of.
-func seedDefinition(t *testing.T, db *gorm.DB, projectID, definitionID uuid.UUID, key string, version int) {
+func seedDefinition(t *testing.T, db *db.Conn, projectID, definitionID uuid.UUID, key string, version int) {
 	t.Helper()
 	err := db.Create(&models.ProcessDefinitionModel{
 		Base:      models.Base{ID: models.FromUUID(definitionID)},
@@ -90,7 +91,7 @@ func seedInstances(
 // finds nothing and reports a healthy project.
 func TestInstanceFilter_ReachesBeyondTheFirstPage(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	orgID := uuid.New()
 	projectID := uuid.Must(uuid.NewV7())
 	definitionID := uuid.Must(uuid.NewV7())
@@ -143,7 +144,7 @@ func TestInstanceFilter_ReachesBeyondTheFirstPage(t *testing.T) {
 // Narrowing to one process does the same, and combines with the state.
 func TestInstanceFilter_NarrowsToOneDefinition(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	projectID := uuid.Must(uuid.NewV7())
 	expenses := uuid.Must(uuid.NewV7())
 	onboarding := uuid.Must(uuid.NewV7())
@@ -175,7 +176,7 @@ func TestInstanceFilter_NarrowsToOneDefinition(t *testing.T) {
 // attention" and both be true.
 func TestInstanceFilter_CountsDescribeTheWholeProject(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	projectID := uuid.Must(uuid.NewV7())
 	definitionID := uuid.Must(uuid.NewV7())
 	orgID := uuid.New()
@@ -216,7 +217,7 @@ func TestInstanceFilter_CountsDescribeTheWholeProject(t *testing.T) {
 // change built the query the other way round.
 func TestInstanceFilter_DoesNotReachAnotherTenantsRows(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 
 	orgA, orgB := uuid.New(), uuid.New()
 	projectA, projectB := uuid.New(), uuid.New()
@@ -273,7 +274,7 @@ func TestInstanceFilter_DoesNotReachAnotherTenantsRows(t *testing.T) {
 }
 
 // seedIncident raises an unresolved incident against an instance.
-func seedIncident(t *testing.T, db *gorm.DB, instanceID, definitionID uuid.UUID) {
+func seedIncident(t *testing.T, db *db.Conn, instanceID, definitionID uuid.UUID) {
 	t.Helper()
 	err := db.Create(&models.IncidentModel{
 		Base:         models.Base{ID: models.FromUUID(uuid.Must(uuid.NewV7()))},
@@ -298,7 +299,7 @@ func seedIncident(t *testing.T, db *gorm.DB, instanceID, definitionID uuid.UUID)
 // one answer this page must never give wrongly.
 func TestInstanceAttention_IsNotTheStatusColumn(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	projectID := uuid.Must(uuid.NewV7())
 	definitionID := uuid.Must(uuid.NewV7())
 	orgID := uuid.New()
@@ -414,7 +415,7 @@ func TestInstanceAttention_IsNotTheStatusColumn(t *testing.T) {
 // Another tenant's incidents are neither counted nor reachable.
 func TestInstanceAttention_IsTenantScoped(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 
 	orgA, orgB := uuid.New(), uuid.New()
 	projectA, projectB := uuid.New(), uuid.New()

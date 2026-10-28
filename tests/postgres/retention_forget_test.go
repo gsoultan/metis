@@ -17,7 +17,7 @@ import (
 // like a live one.
 func TestTheSweepKeepsWhatAFinishedInstanceIsStillNeededFor(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, _, project := testutils.ScopedProject(t, repo)
 	definition := seedDefinition(t, db, project, 1)
 	exec := func(sql string, args ...any) {

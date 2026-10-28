@@ -2,6 +2,7 @@ package user_test
 
 import (
 	"context"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"testing"
 
 	"github.com/google/uuid"
@@ -19,14 +20,14 @@ const grantsAheadOfTheAdministrator = 1000
 
 type platformWorld struct {
 	svc contracts.PlatformUserService
-	db  *gorm.DB
+	db  *db.Conn
 	ctx context.Context
 }
 
 func newPlatformWorld(t *testing.T) platformWorld {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	accounts := pg.NewPlatformUserRepository(testutils.StormConn(db))
+	accounts := pg.NewPlatformUserRepository(db)
 	ctx := entities.WithSystemContext(t.Context())
 	if err := accounts.EnsureBuiltInRoles(ctx); err != nil {
 		t.Fatalf("seed the built-in roles: %v", err)

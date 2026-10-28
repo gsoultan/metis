@@ -5,6 +5,7 @@ package notification_test
 
 import (
 	"context"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"testing"
 
 	"github.com/google/uuid"
@@ -32,7 +33,7 @@ const (
 // world is one organization with a project, acted in by ctx, and the
 // notification service over it.
 type world struct {
-	db        *gorm.DB
+	db        *db.Conn
 	repo      repositories.Repository
 	svc       contracts.NotificationService
 	ctx       context.Context
@@ -42,7 +43,7 @@ type world struct {
 func newWorld(t *testing.T) world {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 	return world{db: db, repo: repo, svc: impl.NewNotificationService(repo.Notification()), ctx: ctx, projectID: projectID}
 }
@@ -66,7 +67,7 @@ func (w world) seedInbox(t *testing.T, userID string, projectID uuid.UUID, count
 // group of sameMoment, and rows 1 to unread are unread. Ids are random, so the
 // order among rows that share a created_at is up to the database unless a
 // query settles it.
-func seedInbox(t *testing.T, db *gorm.DB, userID string, projectID uuid.UUID, count, unread int) {
+func seedInbox(t *testing.T, db *db.Conn, userID string, projectID uuid.UUID, count, unread int) {
 	t.Helper()
 	if err := db.WithContext(t.Context()).Exec(`
 		INSERT INTO notifications (id, created_at, updated_at, user_id, type, title, message, is_read, project_id)

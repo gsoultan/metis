@@ -43,7 +43,7 @@ func queueJobs(t *testing.T, repo repositories.Repository, organization *uuid.UU
 // were. Now each organization's oldest is taken in turn, so another's work,
 // queued after the flood, is in the first round.
 func TestTheClaimTakesEachOrganizationsOldestInTurn(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	now := time.Now().UTC()
 	flooding, quiet := uuid.New(), uuid.New()
 
@@ -88,7 +88,7 @@ func TestTheClaimTakesEachOrganizationsOldestInTurn(t *testing.T) {
 // With nobody else's work due, the claim is what it was: one organization's
 // oldest first, a full round of them.
 func TestOneOrganizationAloneGetsAFullRoundOldestFirst(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	now := time.Now().UTC()
 	alone := uuid.New()
 	queueJobs(t, repo, &alone, now.Add(-time.Hour), 12)
@@ -110,7 +110,7 @@ func TestOneOrganizationAloneGetsAFullRoundOldestFirst(t *testing.T) {
 // A job whose worker died is offered again in its organization's turn, and one
 // still held, or not yet due, is not offered at all.
 func TestAnAbandonedJobIsOfferedInItsOrganizationsTurn(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	ctx := entities.WithSystemContext(t.Context())
 	now := time.Now().UTC()
 	organization := models.UUID(uuid.New())
@@ -151,7 +151,7 @@ func TestAnAbandonedJobIsOfferedInItsOrganizationsTurn(t *testing.T) {
 // project, without the caller naming it.
 func TestAJobTakesItsOrganizationFromItsInstance(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, organization, project := testutils.ScopedProject(t, repo)
 	definition := uuid.Must(uuid.NewV7())
 	if err := db.Create(&models.ProcessDefinitionModel{
@@ -188,7 +188,7 @@ func TestAJobTakesItsOrganizationFromItsInstance(t *testing.T) {
 // A round looks at a bounded window of organizations, so with more of them
 // than that it must still be filled, oldest first, and leave nobody out.
 func TestARoundIsFilledWhenThereAreMoreOrganizationsThanItLooksAt(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	now := time.Now().UTC()
 	queued := map[uuid.UUID]bool{}
 	for i := range 1001 {

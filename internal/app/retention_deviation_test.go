@@ -17,15 +17,19 @@ import (
 	"github.com/gsoultan/metis/server/domains/observers/impl"
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
+	"github.com/gsoultan/metis/server/repositories/store/instancedeviation"
+	"github.com/gsoultan/metis/server/repositories/store/task"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // waitingWaive is a server with one instance waiting at a step, and a request
 // to waive that step waiting for a second administrator.
 type waitingWaive struct {
 	app      *App
-	db       *gorm.DB
+	db       *db.Conn
 	tenant   context.Context
 	project  uuid.UUID
 	instance uuid.UUID
@@ -74,11 +78,10 @@ func (w waitingWaive) another(t *testing.T, outputs map[string]any) (instance, r
 // or "reject" and has no default, so a waive has to say what it counts as.
 func askForAWaive(t *testing.T, outputs map[string]any) waitingWaive {
 	t.Helper()
-	gormDB := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(gormDB)
+	conn := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
-	w := waitingWaive{db: gormDB, app: &App{storm: conn, repo: repo, sse: sse,
+	w := waitingWaive{db: conn, app: &App{storm: conn, repo: repo, sse: sse,
 		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "retention-deviation-test", nil, nil, nil)}}
 	svc := w.app.svc
 
@@ -122,6 +125,26 @@ func askForAWaive(t *testing.T, outputs map[string]any) waitingWaive {
 	return w
 }
 
+// requestStatus is how request is stored.
+func (w waitingWaive) requestStatus(t *testing.T, request uuid.UUID) string {
+	t.Helper()
+	row, found, err := deviationrequest.New().IDEq(request).One(t.Context(), testutils.Executor(w.db))
+	if err != nil || !found {
+		t.Fatalf("read request %s: found %v, %v", request, found, err)
+	}
+	return row.Status
+}
+
+// expiredBefore moves request's deadline to ago before now.
+func (w waitingWaive) expiredBefore(t *testing.T, request uuid.UUID, ago time.Duration) {
+	t.Helper()
+	deadline := deviationrequest.MutateKey(request)
+	deadline.SetExpiresAt(time.Now().Add(-ago))
+	if err := deadline.Update(t.Context(), testutils.Executor(w.db)); err != nil {
+		t.Fatalf("let time pass: %v", err)
+	}
+}
+
 // said is the lines kept that carry a fragment of a message, each as the
 // fields it was logged with.
 func (l *logTap) said(fragment string) []map[string]any {
@@ -151,13 +174,11 @@ func TestTheRetentionPassExpiresOverdueDeviationRequests(t *testing.T) {
 	logs := captureLogs(t)
 	stored := func() (request, row string) {
 		t.Helper()
-		if err := w.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, w.request).Scan(&request).Error; err != nil {
-			t.Fatalf("read the request: %v", err)
+		ledger, found, err := instancedeviation.New().RequestIDEq(w.request).One(t.Context(), testutils.Executor(w.db))
+		if err != nil || !found {
+			t.Fatalf("read the ledger row: found %v, %v", found, err)
 		}
-		if err := w.db.Raw(`SELECT status FROM instance_deviations WHERE request_id = ?`, w.request).Scan(&row).Error; err != nil {
-			t.Fatalf("read the ledger row: %v", err)
-		}
-		return request, row
+		return w.requestStatus(t, w.request), ledger.Status
 	}
 
 	// A pass before the deadline leaves it waiting, and says nothing of it.
@@ -178,8 +199,9 @@ func TestTheRetentionPassExpiresOverdueDeviationRequests(t *testing.T) {
 		t.Fatalf("the pass that expired a request said %v, want one line at info with expired = 1 for the main database", lines)
 	}
 	// The step is where it was: an expiry changes nothing of the instance.
-	var open int
-	if err := w.db.Raw(`SELECT count(*) FROM tasks WHERE instance_id = ? AND status IN ('unclaimed', 'claimed')`, w.instance).Scan(&open).Error; err != nil || open != 1 {
+	open, err := task.New().InstanceIDEq(w.instance).
+		StatusIn(string(models.TaskUnclaimed), string(models.TaskClaimed)).Count(t.Context(), testutils.Executor(w.db))
+	if err != nil || open != 1 {
 		t.Fatalf("%d task(s) are open on the instance (%v), want the one that was", open, err)
 	}
 }
@@ -262,9 +284,8 @@ func TestARefusedSelfApprovalAndAnApprovalThatCouldNotAdvanceLeaveATrace(t *test
 		t.Fatalf("budi approving a waive its gateway cannot follow: %v, want it refused with the request still waiting", err)
 	}
 	named(logs.said("could not be applied"), "budi")
-	var status string
-	if err := w.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, w.request).Scan(&status).Error; err != nil || status != "pending_approval" {
-		t.Fatalf("after both the request is stored as %q (%v), want it still waiting", status, err)
+	if status := w.requestStatus(t, w.request); status != "pending_approval" {
+		t.Fatalf("after both the request is stored as %q, want it still waiting", status)
 	}
 }
 
@@ -284,20 +305,24 @@ func TestAPassThatLeavesRequestsBehindSaysHowManyItClosedAndHowManyItCouldNot(t 
 		requests = append(requests, request)
 	}
 	for i, request := range requests {
-		if err := w.db.Exec(`UPDATE deviation_requests SET expires_at = now() - make_interval(mins => ?) WHERE id = ?`, len(requests)-i, request).Error; err != nil {
-			t.Fatalf("let time pass: %v", err)
-		}
+		w.expiredBefore(t, request, time.Duration(len(requests)-i)*time.Minute)
 	}
 	healthy := requests[broken]
-	if err := w.db.Exec(`UPDATE instance_deviations SET status = 'rejected', live_visit_key = NULL WHERE request_id IN ?`, requests[:broken]).Error; err != nil {
+	var rejected instancedeviation.Mut
+	rejected.SetStatus("rejected")
+	rejected.SetLiveVisitKeyNull()
+	keys := make([][16]byte, broken)
+	for i, request := range requests[:broken] {
+		keys[i] = request
+	}
+	if _, err := instancedeviation.New().RequestIDIn(keys...).UpdateAll(t.Context(), testutils.Executor(w.db), rejected); err != nil {
 		t.Fatalf("break the ledger rows of the first %d: %v", broken, err)
 	}
 	logs := captureLogs(t)
 	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now(), optInRetention{})
 
-	var status string
-	if err := w.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, healthy).Scan(&status).Error; err != nil || status != "expired" {
-		t.Fatalf("behind %d requests that cannot be closed, the one that can is stored as %q (%v) after a pass; want expired", broken, status, err)
+	if status := w.requestStatus(t, healthy); status != "expired" {
+		t.Fatalf("behind %d requests that cannot be closed, the one that can is stored as %q after a pass; want expired", broken, status)
 	}
 	end := logs.said("left some as they were")
 	if len(end) != 1 || end[0]["level"] != "warn" || end[0]["closed"] != float64(1) || end[0]["not_closed"] != float64(broken) || end[0]["budget_spent"] != false {
@@ -328,25 +353,19 @@ func TestAPassCountsARequestSomebodyHoldsApartFromOneItCannotClose(t *testing.T)
 	w := askForAWaive(t, map[string]any{"verdict": "accept"})
 	_, free := w.another(t, map[string]any{"verdict": "accept"})
 	for i, request := range []uuid.UUID{w.request, free} {
-		if err := w.db.Exec(`UPDATE deviation_requests SET expires_at = now() - make_interval(mins => ?) WHERE id = ?`, 10-i, request).Error; err != nil {
-			t.Fatalf("let time pass: %v", err)
-		}
+		w.expiredBefore(t, request, time.Duration(10-i)*time.Minute)
 	}
-	holder := w.db.Begin()
-	if err := holder.Exec(`SELECT 1 FROM instance_deviations WHERE request_id = ? FOR UPDATE`, w.request).Error; err != nil {
+	holder := testutils.Begin(t, w.db)
+	if _, err := instancedeviation.New().RequestIDEq(w.request).ForUpdate().All(t.Context(), holder, nil); err != nil {
 		t.Fatalf("hold the ledger row of the first request: %v", err)
 	}
-	t.Cleanup(func() { holder.Rollback() })
 
 	logs := captureLogs(t)
 	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now(), optInRetention{})
 
-	stored := func(request uuid.UUID) (status string) {
+	stored := func(request uuid.UUID) string {
 		t.Helper()
-		if err := w.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, request).Scan(&status).Error; err != nil {
-			t.Fatalf("read request %s: %v", request, err)
-		}
-		return status
+		return w.requestStatus(t, request)
 	}
 	if stored(w.request) != "pending_approval" || stored(free) != "expired" {
 		t.Fatalf("the held request is stored as %q and the free one as %q; want the first as it was and the second expired", stored(w.request), stored(free))
@@ -368,7 +387,7 @@ func TestAPassCountsARequestSomebodyHoldsApartFromOneItCannotClose(t *testing.T)
 	}
 
 	// Let go, the next pass closes it and has nothing to say.
-	if err := holder.Rollback().Error; err != nil {
+	if err := holder.Rollback(t.Context()); err != nil {
 		t.Fatalf("let go of the ledger row: %v", err)
 	}
 	logs = captureLogs(t)

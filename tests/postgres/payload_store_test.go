@@ -32,7 +32,7 @@ func TestALargeVariableIsKeptOnceOutsideTheInstanceRow(t *testing.T) {
 	}
 	t.Cleanup(payloads.ResetForTest)
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
 		"payload-store-secret", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)

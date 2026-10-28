@@ -17,7 +17,7 @@ import (
 // could not be chosen — and the same held for organizations.
 func TestTheProjectAndOrganizationListsShowEveryOne(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, orgID := testutils.ScopedContext(t, repo)
 
 	if err := db.WithContext(ctx).Exec(`

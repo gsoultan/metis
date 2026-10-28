@@ -2,6 +2,7 @@ package task_test
 
 import (
 	"context"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"slices"
 	"testing"
 
@@ -21,7 +22,7 @@ import (
 // groups; and "nobody", whichever way a row spells it.
 
 type candidateFixture struct {
-	db        *gorm.DB
+	db        *db.Conn
 	repo      repositories.Repository
 	ctx       context.Context
 	projectID uuid.UUID
@@ -31,7 +32,7 @@ type candidateFixture struct {
 func newCandidateFixture(t *testing.T) *candidateFixture {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, orgID := testutils.ScopedContext(t, repo)
 	projectID := uuid.Must(uuid.NewV7())
 	if err := repo.Project().Create(entities.WithSystemContext(ctx), models.ProjectModel{

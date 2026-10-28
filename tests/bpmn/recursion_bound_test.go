@@ -25,7 +25,7 @@ import (
 // node that looped, which is diagnosable instead of fatal.
 func TestUnboundedLoopIsRejectedNotStackOverflow(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx := t.Context()
 
 	dispatcher := observerimpl.NewEventDispatcher()

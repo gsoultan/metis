@@ -2,6 +2,7 @@ package bpmn_test
 
 import (
 	"context"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"testing"
 
 	"github.com/google/uuid"
@@ -29,7 +30,7 @@ type engineHarness struct {
 	projID uuid.UUID
 	// db is the schema's GORM handle, for a check that has to count in the
 	// database rather than through the code under test.
-	db *gorm.DB
+	db *db.Conn
 	// The tenant this harness acts inside. Tests take it with h.Ctx(t)
 	// rather than t.Context(), because a bare context carries no identity and
 	// every request in production carries one.
@@ -48,7 +49,7 @@ func newEngineHarness(t *testing.T, projectName string) engineHarness {
 	ctx := t.Context()
 	db := testutils.SetupTestDB(t)
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := impl.NewEventDispatcher()
 
 	orgSvc := service_impl2.NewOrganizationService(repo)

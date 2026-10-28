@@ -229,7 +229,7 @@ func (h *taskHarness) instanceVariables(t *testing.T, instanceID uuid.UUID) map[
 // storeForm keeps a form in the harness's project under key.
 func (h *taskHarness) storeForm(t *testing.T, key string, schema map[string]any) {
 	t.Helper()
-	repo := repositories.NewRepository(testutils.StormConn(h.db))
+	repo := repositories.NewRepository(h.db)
 	if err := repo.Form().Create(h.tenantContext(), models.FormModel{
 		Base:      models.Base{ID: models.FromUUID(uuid.Must(uuid.NewV7()))},
 		ProjectID: models.FromUUID(h.projID),

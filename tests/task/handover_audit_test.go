@@ -20,7 +20,7 @@ import (
 // trail returns an instance's audit entries of one type, oldest first.
 func (h *taskHarness) trail(t *testing.T, instanceID uuid.UUID, auditType string) []models.AuditModel {
 	t.Helper()
-	repo := repositories.NewRepository(testutils.StormConn(h.db))
+	repo := repositories.NewRepository(h.db)
 	entries, err := repo.Audit().ListByInstance(h.tenantContext(), instanceID)
 	if err != nil {
 		t.Fatalf("read the trail: %v", err)
@@ -113,7 +113,7 @@ func (refusingAuditWriter) RecordEvent(context.Context, entities.AuditEntry) err
 // written, the task does not move.
 func TestAHandOverThatCannotBeRecordedIsNotMade(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	engine := serviceimpl.NewExecutionEngine(repo, observerimpl.NewEventDispatcher())
 	svc := serviceimpl.NewTaskService(repo, engine, refusingAuditWriter{})
 	ctx, _, projectID := testutils.ScopedProject(t, repo)

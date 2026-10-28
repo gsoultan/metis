@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"io"
 	"maps"
 	"net/http"
@@ -104,7 +105,7 @@ type apiHarness struct {
 	provider *identityProvider
 	svc      services.ServiceFacade
 	server   *httptest.Server
-	db       *gorm.DB
+	db       *db.Conn
 }
 
 // newOIDCHarness serves the API with OIDC sign-in configured against a fake
@@ -137,12 +138,12 @@ func newAPIHarness(t *testing.T, validator *pkgauth.TokenValidator) *apiHarness 
 	t.Setenv("METIS_AUTH_CACHE_TTL", "0s")
 
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse,
 		localTokenSecret, nil, nil, nil)
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, validator,
-		map[string]health.Checker{}, testutils.StormConn(db))
+		map[string]health.Checker{}, db)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	return &apiHarness{t: t, svc: svc, server: server, db: db}

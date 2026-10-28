@@ -18,7 +18,7 @@ import (
 // that key, and only a removed one.
 func TestRestoringAConnectorBringsBackTheOneRemovedLast(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx := entities.WithSystemContext(t.Context())
 	connectors := repo.Connector()
 	// The key is unique among the live rows, as the model declares it; the

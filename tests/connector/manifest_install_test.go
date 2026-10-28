@@ -49,7 +49,7 @@ response:
 `)
 
 	// One service installs it…
-	installed, err := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.StormConn(db))).
+	installed, err := serviceimpl.NewConnectorService(repositories.NewRepository(db)).
 		InstallManifest(ctx, document)
 	if err != nil {
 		t.Fatalf("install: %v", err)
@@ -61,7 +61,7 @@ response:
 	// …and a completely separate one — a different replica, or this one after a
 	// restart — can call it, because the manifest is in the database rather than
 	// in the first service's memory.
-	afterRestart := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.StormConn(db)))
+	afterRestart := serviceimpl.NewConnectorService(repositories.NewRepository(db))
 	outputs, err := afterRestart.ExecuteConnector(ctx, "crm.create-lead", nil, map[string]any{"name": "Rex"})
 	if err != nil {
 		t.Fatalf("execute after restart: %v", err)
@@ -448,7 +448,7 @@ var _ = gorm.ErrRecordNotFound
 // budget the engine's own failures are measured against.
 func TestADocumentThatIsNotAConnectorIsTheSendersMistake(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	svc := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.StormConn(db)))
+	svc := serviceimpl.NewConnectorService(repositories.NewRepository(db))
 	ctx := t.Context()
 
 	for name, install := range map[string]func() error{

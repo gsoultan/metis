@@ -3,6 +3,7 @@ package replicas
 import (
 	"context"
 	"fmt"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -22,9 +23,9 @@ import (
 // over. That is the specific cost that made a single replica the supported
 // topology.
 func TestALimitIsSharedRatherThanAppliedTwice(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
 		const limit = 10
-		repo := repositories.NewRepository(testutils.StormConn(db))
+		repo := repositories.NewRepository(db)
 		now := time.Now()
 
 		a := sharedcount.New(repo.SharedCounter(), "http-rate", "replica-a", time.Minute)
@@ -70,8 +71,8 @@ func TestALimitIsSharedRatherThanAppliedTwice(t *testing.T) {
 // is keyed by replica so two processes never write the same one, and the shared
 // value is a SUM at read time.
 func TestEachReplicaOwnsItsOwnRow(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		repo := repositories.NewRepository(testutils.StormConn(db)).SharedCounter()
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
+		repo := repositories.NewRepository(db).SharedCounter()
 		window := time.Now().Truncate(time.Minute)
 		ctx := t.Context()
 
@@ -109,8 +110,8 @@ const busyClients = 1050
 // its own count alone, and the installation admitted them up to once per
 // replica — the limit the sharing exists to stop. Nothing said so.
 func TestTheSharedTotalsCoverEveryClient(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		repo := repositories.NewRepository(testutils.StormConn(db)).SharedCounter()
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
+		repo := repositories.NewRepository(db).SharedCounter()
 		window := time.Now().Truncate(time.Minute)
 		ctx := t.Context()
 
@@ -135,8 +136,8 @@ func TestTheSharedTotalsCoverEveryClient(t *testing.T) {
 
 // A different scope must not collide with another's keys.
 func TestScopesDoNotShareAKeySpace(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		repo := repositories.NewRepository(testutils.StormConn(db)).SharedCounter()
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
+		repo := repositories.NewRepository(db).SharedCounter()
 		window := time.Now().Truncate(time.Minute)
 		ctx := t.Context()
 
@@ -160,8 +161,8 @@ func TestScopesDoNotShareAKeySpace(t *testing.T) {
 // Closed windows are removed, or the table grows with every client that has
 // ever been seen.
 func TestClosedWindowsArePruned(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		repo := repositories.NewRepository(testutils.StormConn(db)).SharedCounter()
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
+		repo := repositories.NewRepository(db).SharedCounter()
 		ctx := t.Context()
 		old := time.Now().Add(-2 * time.Hour).Truncate(time.Minute)
 
