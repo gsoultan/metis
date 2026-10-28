@@ -81,9 +81,17 @@ jobs:
       # Most were build-time (eslint, babel, vite) rather than shipped code.
       # That lowers the severity and not the argument: a compromised build tool
       # ships compromised assets, and the whole UI is assets.
+      #
+      # One advisory is ignored, by id, because nothing fixes it yet:
+      # GHSA-gcqx-w48m-w2h4, prototype pollution in deepmerge's mergeObject()
+      # (<=4.3.1, and 4.3.1 is the latest release). It reaches us through
+      # vite-plugin-pwa > workbox-build > @rollup/plugin-node-resolve, which
+      # merges its own options and never anything from outside. Remove the
+      # --ignore once deepmerge publishes a fix; every other advisory still
+      # fails this step.
       - name: Dependency audit
         working-directory: ui
-        run: bun audit
+        run: bun audit --ignore GHSA-gcqx-w48m-w2h4
 
       # The Go build embeds ui/dist (ui/embed.go). Publish it so the Go job
       # compiles the same assets rather than rebuilding them.
