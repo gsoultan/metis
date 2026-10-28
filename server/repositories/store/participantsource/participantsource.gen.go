@@ -3338,7 +3338,7 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 5:
 			args = append(args, n.row.Kind)
 		case 6:
-			args = append(args, n.row.Config)
+			args = append(args, n.row.Config.OrNull())
 		case 7:
 			args = append(args, n.row.Schedule.Arg())
 		case 8:
@@ -3401,7 +3401,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.ProjectID)
 	args = append(args, r.Name)
 	args = append(args, r.Kind)
-	args = append(args, r.Config)
+	args = append(args, r.Config.OrNull())
 	args = append(args, r.Schedule.Arg())
 	args = append(args, r.OnMissing)
 	args = append(args, r.Enabled)
@@ -3547,7 +3547,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.ProjectID)
 	args = append(args, r.Name)
 	args = append(args, r.Kind)
-	args = append(args, r.Config)
+	args = append(args, r.Config.OrNull())
 	args = append(args, r.Schedule.Arg())
 	args = append(args, r.OnMissing)
 	args = append(args, r.Enabled)
@@ -3603,7 +3603,7 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 5:
 			args = append(args, n.row.Kind)
 		case 6:
-			args = append(args, n.row.Config)
+			args = append(args, n.row.Config.OrNull())
 		case 7:
 			args = append(args, n.row.Schedule.Arg())
 		case 8:
@@ -3686,7 +3686,7 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 3:
 			args = append(args, m.row.Kind)
 		case 4:
-			args = append(args, m.row.Config)
+			args = append(args, m.row.Config.OrNull())
 		case 5:
 			args = append(args, m.row.Schedule.Arg())
 		case 6:
@@ -3812,7 +3812,7 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 3:
 			args = append(args, m.row.Kind)
 		case 4:
-			args = append(args, m.row.Config)
+			args = append(args, m.row.Config.OrNull())
 		case 5:
 			args = append(args, m.row.Schedule.Arg())
 		case 6:
@@ -3977,7 +3977,7 @@ func (m Mut) updateArgs(args []any) []any {
 		case 3:
 			args = append(args, m.row.Kind)
 		case 4:
-			args = append(args, m.row.Config)
+			args = append(args, m.row.Config.OrNull())
 		case 5:
 			args = append(args, m.row.Schedule.Arg())
 		case 6:
@@ -4196,7 +4196,7 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 3:
 				args = append(args, m.row.Kind)
 			case 4:
-				args = append(args, m.row.Config)
+				args = append(args, m.row.Config.OrNull())
 			case 5:
 				args = append(args, m.row.Schedule.Arg())
 			case 6:

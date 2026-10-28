@@ -2332,7 +2332,7 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 3:
 			args = append(args, n.row.StatusCode)
 		case 4:
-			args = append(args, n.row.Headers)
+			args = append(args, n.row.Headers.OrNull())
 		case 5:
 			args = append(args, n.row.Body)
 		case 6:
@@ -2381,7 +2381,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.RequestHash)
 	args = append(args, r.Completed)
 	args = append(args, r.StatusCode)
-	args = append(args, r.Headers)
+	args = append(args, r.Headers.OrNull())
 	args = append(args, r.Body)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.CompletedAt.Arg())
@@ -2495,7 +2495,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.RequestHash)
 	args = append(args, r.Completed)
 	args = append(args, r.StatusCode)
-	args = append(args, r.Headers)
+	args = append(args, r.Headers.OrNull())
 	args = append(args, r.Body)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.CompletedAt.Arg())
@@ -2541,7 +2541,7 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 3:
 			args = append(args, n.row.StatusCode)
 		case 4:
-			args = append(args, n.row.Headers)
+			args = append(args, n.row.Headers.OrNull())
 		case 5:
 			args = append(args, n.row.Body)
 		case 6:
@@ -2610,7 +2610,7 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 2:
 			args = append(args, m.row.StatusCode)
 		case 3:
-			args = append(args, m.row.Headers)
+			args = append(args, m.row.Headers.OrNull())
 		case 4:
 			args = append(args, m.row.Body)
 		case 5:
@@ -2708,7 +2708,7 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 2:
 			args = append(args, m.row.StatusCode)
 		case 3:
-			args = append(args, m.row.Headers)
+			args = append(args, m.row.Headers.OrNull())
 		case 4:
 			args = append(args, m.row.Body)
 		case 5:
@@ -2817,7 +2817,7 @@ func (m Mut) updateArgs(args []any) []any {
 		case 2:
 			args = append(args, m.row.StatusCode)
 		case 3:
-			args = append(args, m.row.Headers)
+			args = append(args, m.row.Headers.OrNull())
 		case 4:
 			args = append(args, m.row.Body)
 		case 5:
@@ -3124,7 +3124,7 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 2:
 				args = append(args, m.row.StatusCode)
 			case 3:
-				args = append(args, m.row.Headers)
+				args = append(args, m.row.Headers.OrNull())
 			case 4:
 				args = append(args, m.row.Body)
 			case 5:

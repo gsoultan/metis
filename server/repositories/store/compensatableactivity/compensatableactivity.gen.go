@@ -2419,7 +2419,7 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 5:
 			args = append(args, n.row.CompensationNodeID)
 		case 6:
-			args = append(args, n.row.Variables)
+			args = append(args, n.row.Variables.OrNull())
 		case 7:
 			args = append(args, n.row.CompletedAt)
 		case 8:
@@ -2470,7 +2470,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.InstanceID)
 	args = append(args, r.NodeID)
 	args = append(args, r.CompensationNodeID)
-	args = append(args, r.Variables)
+	args = append(args, r.Variables.OrNull())
 	args = append(args, r.CompletedAt)
 	args = append(args, r.Compensated)
 	args = append(args, r.DeletedAt.Arg())
@@ -2592,7 +2592,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.InstanceID)
 	args = append(args, r.NodeID)
 	args = append(args, r.CompensationNodeID)
-	args = append(args, r.Variables)
+	args = append(args, r.Variables.OrNull())
 	args = append(args, r.CompletedAt)
 	args = append(args, r.Compensated)
 	args = append(args, r.DeletedAt.Arg())
@@ -2642,7 +2642,7 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 5:
 			args = append(args, n.row.CompensationNodeID)
 		case 6:
-			args = append(args, n.row.Variables)
+			args = append(args, n.row.Variables.OrNull())
 		case 7:
 			args = append(args, n.row.CompletedAt)
 		case 8:
@@ -2704,7 +2704,7 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 3:
 			args = append(args, m.row.CompensationNodeID)
 		case 4:
-			args = append(args, m.row.Variables)
+			args = append(args, m.row.Variables.OrNull())
 		case 5:
 			args = append(args, m.row.CompletedAt)
 		case 6:
@@ -2816,7 +2816,7 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 3:
 			args = append(args, m.row.CompensationNodeID)
 		case 4:
-			args = append(args, m.row.Variables)
+			args = append(args, m.row.Variables.OrNull())
 		case 5:
 			args = append(args, m.row.CompletedAt)
 		case 6:
@@ -2969,7 +2969,7 @@ func (m Mut) updateArgs(args []any) []any {
 		case 3:
 			args = append(args, m.row.CompensationNodeID)
 		case 4:
-			args = append(args, m.row.Variables)
+			args = append(args, m.row.Variables.OrNull())
 		case 5:
 			args = append(args, m.row.CompletedAt)
 		case 6:
@@ -3174,7 +3174,7 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 3:
 				args = append(args, m.row.CompensationNodeID)
 			case 4:
-				args = append(args, m.row.Variables)
+				args = append(args, m.row.Variables.OrNull())
 			case 5:
 				args = append(args, m.row.CompletedAt)
 			case 6:

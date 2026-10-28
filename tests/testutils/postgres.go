@@ -3,7 +3,6 @@ package testutils
 import (
 	"testing"
 
-	models2 "github.com/gsoultan/metis/server/repositories/models"
 	"gorm.io/gorm"
 )
 
@@ -39,7 +38,4 @@ func SetupPostgresDB(t *testing.T, maxConns int) *gorm.DB {
 		sqlDB.SetMaxOpenConns(maxConns)
 	}
 	return gormDB
-}
-func migrationModels() []any {
-	return models2.MigrationModels()
 }

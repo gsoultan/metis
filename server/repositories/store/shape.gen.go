@@ -661,6 +661,18 @@ func _assertRetentionPeriodShape(m m0.RetentionPeriod) {
 	}
 }
 
+// _assertSchemaMigrationShape fails to compile if m0.SchemaMigration gains, loses, renames or
+// reorders a field. Regenerate: `storm generate`.
+func _assertSchemaMigrationShape(m m0.SchemaMigration) {
+	type shape m0.SchemaMigration
+	_ = shape{
+		m.Version,
+		m.Name,
+		m.AppliedAt,
+		m.DurationMS,
+	}
+}
+
 // _assertServiceCallShape fails to compile if m0.ServiceCall gains, loses, renames or
 // reorders a field. Regenerate: `storm generate`.
 func _assertServiceCallShape(m m0.ServiceCall) {

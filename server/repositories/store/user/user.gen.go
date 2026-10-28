@@ -3147,7 +3147,7 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 9:
 			args = append(args, n.row.Email)
 		case 10:
-			args = append(args, n.row.Roles)
+			args = append(args, n.row.Roles.OrNull())
 		case 11:
 			args = append(args, n.row.IdentityIssuer.Arg())
 		case 12:
@@ -3202,7 +3202,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.DisplayName)
 	args = append(args, r.Organization)
 	args = append(args, r.Email)
-	args = append(args, r.Roles)
+	args = append(args, r.Roles.OrNull())
 	args = append(args, r.IdentityIssuer.Arg())
 	args = append(args, r.IdentitySubject.Arg())
 	args = append(args, r.DeletedAt.Arg())
@@ -3340,7 +3340,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.DisplayName)
 	args = append(args, r.Organization)
 	args = append(args, r.Email)
-	args = append(args, r.Roles)
+	args = append(args, r.Roles.OrNull())
 	args = append(args, r.IdentityIssuer.Arg())
 	args = append(args, r.IdentitySubject.Arg())
 	args = append(args, r.DeletedAt.Arg())
@@ -3398,7 +3398,7 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 9:
 			args = append(args, n.row.Email)
 		case 10:
-			args = append(args, n.row.Roles)
+			args = append(args, n.row.Roles.OrNull())
 		case 11:
 			args = append(args, n.row.IdentityIssuer.Arg())
 		case 12:
@@ -3468,7 +3468,7 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 7:
 			args = append(args, m.row.Email)
 		case 8:
-			args = append(args, m.row.Roles)
+			args = append(args, m.row.Roles.OrNull())
 		case 9:
 			args = append(args, m.row.IdentityIssuer.Arg())
 		case 10:
@@ -3588,7 +3588,7 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 7:
 			args = append(args, m.row.Email)
 		case 8:
-			args = append(args, m.row.Roles)
+			args = append(args, m.row.Roles.OrNull())
 		case 9:
 			args = append(args, m.row.IdentityIssuer.Arg())
 		case 10:
@@ -3749,7 +3749,7 @@ func (m Mut) updateArgs(args []any) []any {
 		case 7:
 			args = append(args, m.row.Email)
 		case 8:
-			args = append(args, m.row.Roles)
+			args = append(args, m.row.Roles.OrNull())
 		case 9:
 			args = append(args, m.row.IdentityIssuer.Arg())
 		case 10:
@@ -3962,7 +3962,7 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 7:
 				args = append(args, m.row.Email)
 			case 8:
-				args = append(args, m.row.Roles)
+				args = append(args, m.row.Roles.OrNull())
 			case 9:
 				args = append(args, m.row.IdentityIssuer.Arg())
 			case 10:

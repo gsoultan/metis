@@ -11,7 +11,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/store/auditentry"
-	"github.com/gsoultan/storm/runtime"
 )
 
 type auditRepository struct{ conn }
@@ -133,7 +132,7 @@ func (r *auditRepository) ListOperations(ctx context.Context, filter contracts.O
 	if filter.Before != nil {
 		q = q.After(auditentry.Row{
 			CreatedAt: filter.Before.At,
-			Seq:       runtime.Null[int64]{V: filter.Before.Seq, Valid: true},
+			Seq:       filter.Before.Seq,
 		})
 	}
 	return r.read(ctx, q.Limit(filter.Limit))
@@ -162,7 +161,7 @@ func (r *auditRepository) LatestByInstance(ctx context.Context, instanceID uuid.
 		return nil, 0, fmt.Errorf("could not count the audit trail: %w", err)
 	}
 	entries, err := r.read(ctx, q.
-		Order(auditentry.CreatedAt.Desc(), auditentry.Seq.DescNullsLast()).
+		Order(auditentry.CreatedAt.Desc(), auditentry.Seq.Desc()).
 		Limit(limit).
 		Offset(offset))
 	if err != nil {
@@ -226,11 +225,11 @@ func (r *auditRepository) NodeVisits(ctx context.Context, instanceID uuid.UUID, 
 // they are random, and ordering by them started the execution path at the task
 // instead of the start event.
 //
-// Entries written before migration 28 have no seq. They tie as they always did
-// and come back as they always have; NULLS FIRST, because every one of them was
-// written before any entry that has one.
+// Entries written before GORM's migration 28 have seq 0. They tie as they
+// always did and come first, because every one of them was written before any
+// entry that has one.
 func oldestFirst() []auditentry.Sort {
-	return []auditentry.Sort{auditentry.CreatedAt.Asc(), auditentry.Seq.AscNullsFirst()}
+	return []auditentry.Sort{auditentry.CreatedAt.Asc(), auditentry.Seq.Asc()}
 }
 
 // scoped is the trail the caller may see, narrowed by one predicate; false
@@ -288,7 +287,8 @@ func (r *auditRepository) read(ctx context.Context, q auditentry.Query) ([]model
 			Narrative:  valueOr(row.Narrative),
 			Actor:      valueOr(row.Actor),
 		}
-		if seq, ok := row.Seq.Get(); ok {
+		// 0 is an entry written before there was an order to record.
+		if seq := row.Seq; seq != 0 {
 			entry.Seq = &seq
 		}
 		if len(row.Data) > 0 {

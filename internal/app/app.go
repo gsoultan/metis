@@ -37,7 +37,6 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/internal/pkg/config"
 	"github.com/gsoultan/metis/internal/pkg/crypto"
-	"github.com/gsoultan/metis/internal/pkg/dbpool"
 	"github.com/gsoultan/metis/internal/pkg/health"
 	"github.com/gsoultan/metis/internal/pkg/logger"
 	"github.com/gsoultan/metis/internal/pkg/metrics"
@@ -55,9 +54,7 @@ import (
 	"github.com/gsoultan/metis/server/interceptors/tenant"
 	"github.com/gsoultan/metis/server/repositories"
 	stormdb "github.com/gsoultan/metis/server/repositories/db"
-	gorms "github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/migrations"
-	models "github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/payloads"
 	"github.com/gsoultan/metis/server/repositories/pg"
 	"github.com/gsoultan/metis/server/transports/grpcs"
@@ -66,7 +63,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
-	"gorm.io/gorm"
 )
 
 // version identifies this build in traces and, later, anywhere else that needs
@@ -82,7 +78,6 @@ import (
 var version = "dev"
 
 type App struct {
-	db *gorm.DB
 	// storm is the PostgreSQL connection the ported repositories use. Nil on any
 	// other engine, and on an installation that has not been set up yet.
 	storm *stormdb.Conn
@@ -121,12 +116,6 @@ type App struct {
 	// administrator's approval when it started: what it announced, and what
 	// its services are built with.
 	control controlSettings
-
-	// sweepsBegan is when this process started its retention sweeps: what the
-	// part of a pass that runs only for a while after start-up counts from
-	// (liveKeyFillFor). Written once, before the loop that reads it starts;
-	// zero in a process that never started them.
-	sweepsBegan time.Time
 }
 
 const (
@@ -325,25 +314,12 @@ func (a *App) Run() error {
 		log.Info().Str("dir", payloads.Root()).Msg("Large variable values are kept in the payload directory")
 	}
 
-	// 2. Open the database with GORM, which owns the schema.
-	if err := a.setupDatabase(); err != nil {
-		return err
-	}
-
-	// 2a. Open the storm connection *before* the migrations run.
-	//
-	//     Two of the migrations are backfills that read and write application
-	//     data, and every repository is on storm — so a migration list built
-	//     before this point hands them a nil connection and the first backfill
-	//     panics on a fresh install. It is only the connection here; the schema
-	//     work it used to do with it now happens after the migrations, because
-	//     it reconciles columns those migrations create.
+	// 2. Open the database, then bring its schema up to date and say how it
+	//    differs from the model.
 	if err := a.openStorm(ctx); err != nil {
 		return err
 	}
-
-	// 2b. Bring the schema up to date, then reconcile what storm writes against.
-	if err := a.migrate(); err != nil {
+	if err := a.migrate(ctx); err != nil {
 		return err
 	}
 	if err := a.ensureStormSchema(ctx); err != nil {
@@ -617,125 +593,18 @@ func (a *App) configureCurrentKey() error {
 	return nil
 }
 
-func (a *App) setupDatabase() error {
-	dialector, err := a.resolveDialector()
-	if err != nil {
-		return err
-	}
-	db, err := gorm.Open(dialector, gorms.Config())
-	if err != nil {
-		return fmt.Errorf("failed to open db: %w", err)
-	}
-	dbpool.Apply(db)
-	a.db = db
-	// Migrating is a separate step now: the backfills among the migrations read
-	// and write through repositories, which need the storm connection that is
-	// opened between this and a.migrate().
-	return nil
-}
-
-func (a *App) migrate() error {
-	// Migrations and the data repairs behind them rewrite rows across every
-	// tenant, which is exactly what they are for.
-	ctx := entities.WithSystemContext(context.Background())
-
-	result, err := migrations.Run(ctx, a.db, a.migrationList())
+func (a *App) migrate(ctx context.Context) error {
+	result, err := migrations.Run(ctx, a.storm.Main(), migrations.Steps())
 	if err != nil {
 		return fmt.Errorf("failed to migrate db: %w", err)
 	}
 	log.Info().
-		Ints("applied", result.Applied).
+		Bool("created", result.Created).
+		Bool("converted", result.Converted).
+		Ints64("applied", result.Applied).
 		Int("alreadyApplied", result.Skipped).
 		Msg("Database migrations complete")
-
-	a.reportSchemaDrift()
-
-	// GORM connects only to migrate. Every repository reads and writes through
-	// the storm pool, so keeping this one open served nothing after boot and
-	// held a second set of server sessions for the life of the process.
-	if a.db != nil {
-		closeDB(a.db)
-		a.db = nil
-	}
 	return nil
-}
-
-// migrationList is the full ordered set: the schema migrations, plus the data
-// repairs that need the repository layer.
-//
-// Both repairs used to run on every single boot. They are one-time upgrades —
-// they fix rows written by older versions of the engine, and nothing writes
-// those shapes any more — so every boot after the first scanned the whole table
-// to find nothing. BackfillEngineBookkeeping was the worse of the two: it calls
-// Process().List, loading every process instance ever created into memory, which
-// on a mature database is a startup that keeps getting slower and never has
-// anything to do.
-func (a *App) migrationList() []migrations.Migration {
-	// Each data migration builds its repository over the *transaction* the
-	// runner hands it, not over a.db. The first version captured an outer
-	// repository, which had two consequences: the backfills' writes never
-	// actually joined the transaction their Transactional flag promised, and
-	// once SQLite's pool was capped at one connection the repository's request
-	// for a second one deadlocked against the migration's own transaction —
-	// a hang, at boot, on the very first install.
-	return append(migrations.Schema(models.MigrationModels()), []migrations.Migration{
-		{
-			Version:       2,
-			Name:          "resolve templated message correlation keys",
-			Transactional: true,
-			// Message subscriptions written before correlation keys were
-			// resolved per instance still hold the raw ${...} template, which no
-			// inbound correlation value can match. Until they are repaired every
-			// instance waiting on a message event hangs.
-			Run: func(ctx context.Context, tx *gorm.DB) error {
-				_, err := serviceimpl.BackfillMessageCorrelationKeys(ctx, repositories.NewRepository(a.storm))
-				return err
-			},
-		},
-		{
-			Version:       3,
-			Name:          "move engine bookkeeping out of business variables",
-			Transactional: true,
-			// Multi-instance progress and gateway join counts moved out of the
-			// business variable namespace into their own columns. An instance
-			// part-way through either would otherwise come back with nothing
-			// recorded: restarting its iterations from zero, or forgetting the
-			// branches that had already reached a waiting gateway.
-			Run: func(ctx context.Context, tx *gorm.DB) error {
-				_, err := serviceimpl.BackfillEngineBookkeeping(ctx, repositories.NewRepository(a.storm))
-				return err
-			},
-		},
-	}...)
-}
-
-// reportSchemaDrift warns when a model declares a column the database lacks.
-//
-// Adding a field to a model used to be enough, because AutoMigrate ran on every
-// boot. It is not any more, and forgetting the migration fails at the first
-// request that touches the column rather than at startup — so startup says so.
-// A warning rather than a refusal: an operator restarting a service at 3am
-// should not be blocked by a column the running code may never read.
-func (a *App) reportSchemaDrift() {
-	drift, err := migrations.DriftReport(a.db, models.MigrationModels())
-	if err != nil {
-		log.Warn().Err(err).Msg("Could not check the schema against the models")
-		return
-	}
-	a.schemaDrift.Store(int64(len(drift)))
-	for _, item := range drift {
-		log.Warn().Str("drift", item).Msg("Schema drift: a model change is missing its migration")
-	}
-
-	// Refusing is opt-in. The default stays a warning because an operator
-	// restarting a service at 3am should not be blocked by a column the running
-	// code may never read — but an installation that would rather fail loudly at
-	// deploy time than serve a broken feature can say so.
-	if len(drift) > 0 && refuseSchemaDrift() {
-		log.Fatal().
-			Int("items", len(drift)).
-			Msg("Refusing to start: the schema is missing migrations and METIS_REFUSE_SCHEMA_DRIFT is set")
-	}
 }
 
 // refuseSchemaDrift reports whether drift should stop the server starting.
@@ -1386,82 +1255,6 @@ func (a *App) taskLinkSender(ctx context.Context) func(context.Context, servicec
 		notificationDeliveryWorkers, notificationDeliveryQueue)
 	log.Info().Str("public_url", a.publicURL).Msg("Task links will be mailed to the People a task names")
 	return serviceimpl.NewTaskLinkMailer(mail, a.publicURL, schedule)
-}
-
-// resolveDialector determines the GORM dialector based on config.yaml or environment variables.
-func (a *App) resolveDialector() (gorm.Dialector, error) {
-	// Priority 1: the config file, when there is one.
-	//
-	// An unreadable one is a refusal, not a warning. It used to log and fall
-	// through — and with no DATABASE_URL set, "fall through" meant creating a
-	// *fresh, empty SQLite file* and serving from it. The process then passed
-	// its own readiness probe while every list in the product was empty and
-	// every write went somewhere nobody would look for it. An installation
-	// that has been set up has a database; failing to read which one is not a
-	// reason to invent a different answer.
-	if config.Exists(config.DefaultConfigPath) {
-		cfg, err := config.Load(config.DefaultConfigPath)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"could not read %s, and this installation has been set up, so its database is the one "+
-					"named there. Fix the file or move it aside to run setup again: %w",
-				config.DefaultConfigPath, err)
-		}
-		return a.dialectorFromConfig(cfg)
-	}
-
-	// Priority 2: DATABASE_URL.
-	dsn := envvar.Get("DATABASE_URL")
-	if dsn != "" {
-		log.Info().Msg("Using PostgreSQL database from DATABASE_URL...")
-		return gorms.Dialector(config.DriverPostgres, dsn)
-	}
-
-	// There is no priority 3 any more.
-	//
-	// It used to be a local SQLite file, reached when there was no config and no
-	// DATABASE_URL — a first run before setup, and also a server deployment that
-	// meant to set DATABASE_URL and did not. The second case came up healthy and
-	// empty, which is the worst way to be misconfigured: nothing to read, no
-	// error, and a readiness probe that passes.
-	//
-	// The setup wizard is served by a running server, so it cannot be the way
-	// out of this: it creates the first organization and administrator in the
-	// database DATABASE_URL names.
-	return nil, fmt.Errorf(
-		"no database is configured. Set DATABASE_URL to a PostgreSQL connection string, "+
-			"or restore the %s a setup wrote; the setup wizard then runs on that database",
-		config.DefaultConfigPath)
-}
-
-func (a *App) dialectorFromConfig(cfg *config.Config) (gorm.Dialector, error) {
-	// Same precedence as setupEncryption: the key stored alongside the data
-	// wins, because it is the one the data was encrypted with.
-	encKey := cfg.EncryptionKey
-	if encKey == "" {
-		encKey = envvar.Get("ENCRYPTION_KEY")
-	}
-
-	dsn, err := cfg.DecryptConnectionString(encKey)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"could not decrypt the database connection string in %s — this almost always means the "+
-				"encryption key does not match the one used when the system was set up: %w",
-			config.DefaultConfigPath, err)
-	}
-
-	// Refused rather than defaulted. This used to fall through to SQLite for
-	// anything it did not recognise, so an installation whose config named MySQL
-	// would come up on a fresh empty file beside its real data — every process,
-	// task and definition apparently gone, with a successful startup log.
-	dialector, err := gorms.Dialector(cfg.Database.Driver, dsn)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"%w. Migrate the data to PostgreSQL and point %s at it; see docs/upgrading.md",
-			err, config.DefaultConfigPath)
-	}
-	log.Info().Msg("Using PostgreSQL database from config...")
-	return dialector, nil
 }
 
 // sharedRateLimit pools a limiter's count across replicas when there is a

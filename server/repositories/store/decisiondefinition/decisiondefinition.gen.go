@@ -3864,15 +3864,15 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 8:
 			args = append(args, n.row.Aggregation.Arg())
 		case 9:
-			args = append(args, n.row.RequiredDecisions)
+			args = append(args, n.row.RequiredDecisions.OrNull())
 		case 10:
-			args = append(args, n.row.Inputs)
+			args = append(args, n.row.Inputs.OrNull())
 		case 11:
-			args = append(args, n.row.Outputs)
+			args = append(args, n.row.Outputs.OrNull())
 		case 12:
-			args = append(args, n.row.Rules)
+			args = append(args, n.row.Rules.OrNull())
 		case 13:
-			args = append(args, n.row.Tests)
+			args = append(args, n.row.Tests.OrNull())
 		case 14:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
@@ -3922,11 +3922,11 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.Version)
 	args = append(args, r.HitPolicy)
 	args = append(args, r.Aggregation.Arg())
-	args = append(args, r.RequiredDecisions)
-	args = append(args, r.Inputs)
-	args = append(args, r.Outputs)
-	args = append(args, r.Rules)
-	args = append(args, r.Tests)
+	args = append(args, r.RequiredDecisions.OrNull())
+	args = append(args, r.Inputs.OrNull())
+	args = append(args, r.Outputs.OrNull())
+	args = append(args, r.Rules.OrNull())
+	args = append(args, r.Tests.OrNull())
 	args = append(args, r.DeletedAt.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
@@ -4064,11 +4064,11 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.Version)
 	args = append(args, r.HitPolicy)
 	args = append(args, r.Aggregation.Arg())
-	args = append(args, r.RequiredDecisions)
-	args = append(args, r.Inputs)
-	args = append(args, r.Outputs)
-	args = append(args, r.Rules)
-	args = append(args, r.Tests)
+	args = append(args, r.RequiredDecisions.OrNull())
+	args = append(args, r.Inputs.OrNull())
+	args = append(args, r.Outputs.OrNull())
+	args = append(args, r.Rules.OrNull())
+	args = append(args, r.Tests.OrNull())
 	args = append(args, r.DeletedAt.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
@@ -4122,15 +4122,15 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 8:
 			args = append(args, n.row.Aggregation.Arg())
 		case 9:
-			args = append(args, n.row.RequiredDecisions)
+			args = append(args, n.row.RequiredDecisions.OrNull())
 		case 10:
-			args = append(args, n.row.Inputs)
+			args = append(args, n.row.Inputs.OrNull())
 		case 11:
-			args = append(args, n.row.Outputs)
+			args = append(args, n.row.Outputs.OrNull())
 		case 12:
-			args = append(args, n.row.Rules)
+			args = append(args, n.row.Rules.OrNull())
 		case 13:
-			args = append(args, n.row.Tests)
+			args = append(args, n.row.Tests.OrNull())
 		case 14:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
@@ -4203,15 +4203,15 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 6:
 			args = append(args, m.row.Aggregation.Arg())
 		case 7:
-			args = append(args, m.row.RequiredDecisions)
+			args = append(args, m.row.RequiredDecisions.OrNull())
 		case 8:
-			args = append(args, m.row.Inputs)
+			args = append(args, m.row.Inputs.OrNull())
 		case 9:
-			args = append(args, m.row.Outputs)
+			args = append(args, m.row.Outputs.OrNull())
 		case 10:
-			args = append(args, m.row.Rules)
+			args = append(args, m.row.Rules.OrNull())
 		case 11:
-			args = append(args, m.row.Tests)
+			args = append(args, m.row.Tests.OrNull())
 		case 12:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
@@ -4327,15 +4327,15 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 6:
 			args = append(args, m.row.Aggregation.Arg())
 		case 7:
-			args = append(args, m.row.RequiredDecisions)
+			args = append(args, m.row.RequiredDecisions.OrNull())
 		case 8:
-			args = append(args, m.row.Inputs)
+			args = append(args, m.row.Inputs.OrNull())
 		case 9:
-			args = append(args, m.row.Outputs)
+			args = append(args, m.row.Outputs.OrNull())
 		case 10:
-			args = append(args, m.row.Rules)
+			args = append(args, m.row.Rules.OrNull())
 		case 11:
-			args = append(args, m.row.Tests)
+			args = append(args, m.row.Tests.OrNull())
 		case 12:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
@@ -4490,15 +4490,15 @@ func (m Mut) updateArgs(args []any) []any {
 		case 6:
 			args = append(args, m.row.Aggregation.Arg())
 		case 7:
-			args = append(args, m.row.RequiredDecisions)
+			args = append(args, m.row.RequiredDecisions.OrNull())
 		case 8:
-			args = append(args, m.row.Inputs)
+			args = append(args, m.row.Inputs.OrNull())
 		case 9:
-			args = append(args, m.row.Outputs)
+			args = append(args, m.row.Outputs.OrNull())
 		case 10:
-			args = append(args, m.row.Rules)
+			args = append(args, m.row.Rules.OrNull())
 		case 11:
-			args = append(args, m.row.Tests)
+			args = append(args, m.row.Tests.OrNull())
 		case 12:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
@@ -4707,15 +4707,15 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 6:
 				args = append(args, m.row.Aggregation.Arg())
 			case 7:
-				args = append(args, m.row.RequiredDecisions)
+				args = append(args, m.row.RequiredDecisions.OrNull())
 			case 8:
-				args = append(args, m.row.Inputs)
+				args = append(args, m.row.Inputs.OrNull())
 			case 9:
-				args = append(args, m.row.Outputs)
+				args = append(args, m.row.Outputs.OrNull())
 			case 10:
-				args = append(args, m.row.Rules)
+				args = append(args, m.row.Rules.OrNull())
 			case 11:
-				args = append(args, m.row.Tests)
+				args = append(args, m.row.Tests.OrNull())
 			case 12:
 				args = append(args, m.row.DeletedAt.Arg())
 			}

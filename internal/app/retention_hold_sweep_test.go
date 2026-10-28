@@ -35,7 +35,7 @@ func newHeldSweep(t *testing.T) heldSweep {
 	conn := testutils.StormConn(gormDB)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
-	a := &App{db: gormDB, storm: conn, repo: repo, sse: sse,
+	a := &App{storm: conn, repo: repo, sse: sse,
 		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "retention-hold-test", nil, nil, nil)}
 	tenant, _, projectID := testutils.ScopedProject(t, repo)
 	definitionID := uuid.Must(uuid.NewV7())

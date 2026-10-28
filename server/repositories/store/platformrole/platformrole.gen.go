@@ -2301,7 +2301,7 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 4:
 			args = append(args, n.row.Description.Arg())
 		case 5:
-			args = append(args, n.row.Permissions)
+			args = append(args, n.row.Permissions.OrNull())
 		case 6:
 			args = append(args, n.row.BuiltIn)
 		case 7:
@@ -2349,7 +2349,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.UpdatedAt)
 	args = append(args, r.Name)
 	args = append(args, r.Description.Arg())
-	args = append(args, r.Permissions)
+	args = append(args, r.Permissions.OrNull())
 	args = append(args, r.BuiltIn)
 	args = append(args, r.DeletedAt.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
@@ -2463,7 +2463,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.UpdatedAt)
 	args = append(args, r.Name)
 	args = append(args, r.Description.Arg())
-	args = append(args, r.Permissions)
+	args = append(args, r.Permissions.OrNull())
 	args = append(args, r.BuiltIn)
 	args = append(args, r.DeletedAt.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
@@ -2510,7 +2510,7 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 4:
 			args = append(args, n.row.Description.Arg())
 		case 5:
-			args = append(args, n.row.Permissions)
+			args = append(args, n.row.Permissions.OrNull())
 		case 6:
 			args = append(args, n.row.BuiltIn)
 		case 7:
@@ -2568,7 +2568,7 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 2:
 			args = append(args, m.row.Description.Arg())
 		case 3:
-			args = append(args, m.row.Permissions)
+			args = append(args, m.row.Permissions.OrNull())
 		case 4:
 			args = append(args, m.row.BuiltIn)
 		case 5:
@@ -2676,7 +2676,7 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 2:
 			args = append(args, m.row.Description.Arg())
 		case 3:
-			args = append(args, m.row.Permissions)
+			args = append(args, m.row.Permissions.OrNull())
 		case 4:
 			args = append(args, m.row.BuiltIn)
 		case 5:
@@ -2825,7 +2825,7 @@ func (m Mut) updateArgs(args []any) []any {
 		case 2:
 			args = append(args, m.row.Description.Arg())
 		case 3:
-			args = append(args, m.row.Permissions)
+			args = append(args, m.row.Permissions.OrNull())
 		case 4:
 			args = append(args, m.row.BuiltIn)
 		case 5:
@@ -3026,7 +3026,7 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 2:
 				args = append(args, m.row.Description.Arg())
 			case 3:
-				args = append(args, m.row.Permissions)
+				args = append(args, m.row.Permissions.OrNull())
 			case 4:
 				args = append(args, m.row.BuiltIn)
 			case 5:

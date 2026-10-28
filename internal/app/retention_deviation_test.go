@@ -78,7 +78,7 @@ func askForAWaive(t *testing.T, outputs map[string]any) waitingWaive {
 	conn := testutils.StormConn(gormDB)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
-	w := waitingWaive{db: gormDB, app: &App{db: gormDB, storm: conn, repo: repo, sse: sse,
+	w := waitingWaive{db: gormDB, app: &App{storm: conn, repo: repo, sse: sse,
 		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "retention-deviation-test", nil, nil, nil)}}
 	svc := w.app.svc
 
@@ -184,62 +184,6 @@ func TestTheRetentionPassExpiresOverdueDeviationRequests(t *testing.T) {
 	}
 }
 
-// A ledger row written by a pod of the previous release holds its visit and
-// has no live key, so the database's own guard does not see it. Migration 34
-// fills those once; a row written after it ran — during a rolling upgrade, or
-// after a rollback — is filled by the retention pass.
-func TestTheRetentionPassGivesALiveLedgerRowItsKey(t *testing.T) {
-	w := askForAWaive(t, map[string]any{"verdict": "accept"})
-	if err := w.db.Exec(`UPDATE instance_deviations SET live_visit_key = NULL WHERE request_id = ?`, w.request).Error; err != nil {
-		t.Fatalf("write the row as the previous release does: %v", err)
-	}
-	logs := captureLogs(t)
-	keys := func() (visit, live *string) {
-		t.Helper()
-		var row struct{ VisitKey, LiveVisitKey *string }
-		if err := w.db.Raw(`SELECT visit_key, live_visit_key FROM instance_deviations WHERE request_id = ?`, w.request).Scan(&row).Error; err != nil {
-			t.Fatalf("read the row: %v", err)
-		}
-		return row.VisitKey, row.LiveVisitKey
-	}
-	system := entities.WithSystemContext(t.Context())
-
-	// The search for such rows reads the ledger with no index to serve it, so
-	// it is made only for the first hour after the process started its
-	// sweeps: a process that never started them, and a pass past that hour,
-	// look for nothing.
-	began := time.Now()
-	w.app.sweepRetention(system, began, optInRetention{})
-	if _, live := keys(); live != nil {
-		t.Fatalf("a pass of a process that never started its sweeps filled the key (%q)", *live)
-	}
-	w.app.sweepsBegan = began
-	// (Each well inside the request's own deadline, so that it still waits.)
-	for _, late := range []time.Duration{liveKeyFillFor, liveKeyFillFor + time.Minute, 48 * time.Hour} {
-		w.app.sweepRetention(system, began.Add(late), optInRetention{})
-		if _, live := keys(); live != nil {
-			t.Fatalf("a pass %s after the sweeps began filled the key; the fill is for the first %s", late, liveKeyFillFor)
-		}
-	}
-	if lines := logs.said("the key that holds"); len(lines) != 0 {
-		t.Fatalf("passes that looked for nothing said %v", lines)
-	}
-
-	w.app.sweepRetention(system, began.Add(liveKeyFillFor-time.Minute), optInRetention{})
-	if visit, live := keys(); visit == nil || live == nil || *live != *visit {
-		t.Fatalf("after a pass within the hour the row's live key is %v and its visit key %v; want the live key filled", live, visit)
-	}
-	lines := logs.said("the key that holds")
-	if len(lines) != 1 || lines[0]["level"] != "warn" || lines[0]["filled"] != float64(1) {
-		t.Fatalf("the pass that filled a key said %v, want one warning with filled = 1", lines)
-	}
-	// With nothing to fill it says nothing: every pass would say it otherwise.
-	w.app.sweepRetention(system, began.Add(time.Minute), optInRetention{})
-	if lines := logs.said("the key that holds"); len(lines) != 1 {
-		t.Fatalf("a pass with no key to fill said something: %v", lines)
-	}
-}
-
 // The loop has nobody to return an error to, so the pass says what it closed,
 // says when it could not, and says nothing when there was nothing to do.
 func TestAnExpiryPassSaysWhatItClosedAndWhenItCouldNot(t *testing.T) {
@@ -321,49 +265,6 @@ func TestARefusedSelfApprovalAndAnApprovalThatCouldNotAdvanceLeaveATrace(t *test
 	var status string
 	if err := w.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, w.request).Scan(&status).Error; err != nil || status != "pending_approval" {
 		t.Fatalf("after both the request is stored as %q (%v), want it still waiting", status, err)
-	}
-}
-
-// Two live ledger rows that hold one visit of one instance is what the live
-// key exists to make impossible, and nothing in the product leaves it behind.
-// Should a pod of the previous release have — here it is written by hand: the
-// waiting row's twin, applied and keyless — the fill cannot give the twin its
-// key, and says what that means, as an error and in words, rather than as a
-// sweep that merely failed. Neither row is changed: no pass can choose which
-// of the two is the true one.
-func TestALiveKeyThatCannotBeGivenBecauseTheVisitIsHeldTwiceIsSaidAsThat(t *testing.T) {
-	w := askForAWaive(t, map[string]any{"verdict": "accept"})
-	err := w.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`CREATE TEMP TABLE twin ON COMMIT DROP AS SELECT * FROM instance_deviations WHERE request_id = ?`, w.request).Error; err != nil {
-			return err
-		}
-		if err := tx.Exec(`UPDATE twin SET id = gen_random_uuid(), status = 'applied', live_visit_key = NULL`).Error; err != nil {
-			return err
-		}
-		return tx.Exec(`INSERT INTO instance_deviations SELECT * FROM twin`).Error
-	})
-	if err != nil {
-		t.Fatalf("write the twin row: %v", err)
-	}
-	logs := captureLogs(t)
-	w.app.sweepsBegan = time.Now()
-	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now(), optInRetention{})
-
-	lines := logs.said("hold one visit of one instance")
-	if len(lines) != 1 || lines[0]["level"] != "error" || lines[0]["database"] != "main" {
-		t.Fatalf("the pass said %v; want one error that names two live rows holding one visit", lines)
-	}
-	// One pair stops the fill for the whole database, and the line says so.
-	if said, _ := lines[0]["message"].(string); !strings.Contains(said, "any other row of this database written without its key was not given it either") {
-		t.Fatalf("the line does not say that nothing behind the pair was filled: %s", said)
-	}
-	if generic := logs.said("Could not give ledger rows"); len(generic) != 0 {
-		t.Fatalf("it was also said as a sweep that merely failed: %v", generic)
-	}
-	var keyless, live int
-	if err := w.db.Raw(`SELECT count(*) FILTER (WHERE live_visit_key IS NULL), count(*) FILTER (WHERE live_visit_key IS NOT NULL)
-		FROM instance_deviations WHERE instance_id = ?`, w.instance).Row().Scan(&keyless, &live); err != nil || keyless != 1 || live != 1 {
-		t.Fatalf("after the pass the instance has %d keyless and %d keyed row(s) (%v); want both rows as they were", keyless, live, err)
 	}
 }
 

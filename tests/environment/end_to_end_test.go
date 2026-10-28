@@ -54,7 +54,7 @@ func TestAProcessRunsInAnEnvironment(t *testing.T) {
 
 	// Exactly what opening an environment does at boot. Called rather than
 	// reproduced, so a change to the real seeding is covered by this test.
-	if err := app.SeedEnvironmentIdentity(ctx, stagingDB,
+	if err := app.SeedEnvironmentIdentity(ctx, testutils.StormConn(stagingDB).Main(),
 		models.ProjectModel{
 			Base:           models.Base{ID: models.FromUUID(project.ID)},
 			OrganizationID: models.FromUUID(org.ID),
@@ -127,7 +127,7 @@ func TestSeedingIsIdempotent(t *testing.T) {
 	}
 
 	for range 2 {
-		if err := app.SeedEnvironmentIdentity(ctx, stagingDB, project, organization); err != nil {
+		if err := app.SeedEnvironmentIdentity(ctx, testutils.StormConn(stagingDB).Main(), project, organization); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
@@ -142,7 +142,7 @@ func TestSeedingIsIdempotent(t *testing.T) {
 
 	// A rename in the main database reaches the copy on the next boot.
 	project.Name = "Purchase Approval (EU)"
-	if err := app.SeedEnvironmentIdentity(ctx, stagingDB, project, organization); err != nil {
+	if err := app.SeedEnvironmentIdentity(ctx, testutils.StormConn(stagingDB).Main(), project, organization); err != nil {
 		t.Fatalf("reseed after a rename: %v", err)
 	}
 	var stored models.ProjectModel

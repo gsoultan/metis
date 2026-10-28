@@ -41,7 +41,7 @@ func newRetentionWorld(t *testing.T) retentionWorld {
 	sse := impl.NewSSEObserver()
 	w := retentionWorld{
 		t: t, db: gormDB, repo: repo,
-		app: &App{db: gormDB, storm: conn, repo: repo, sse: sse,
+		app: &App{storm: conn, repo: repo, sse: sse,
 			svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "retention-test", nil, nil, nil)},
 		ctx:  entities.WithSystemContext(t.Context()),
 		jobs: map[string]uuid.UUID{},

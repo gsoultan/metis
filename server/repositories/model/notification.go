@@ -30,6 +30,13 @@ type Notification struct {
 }
 
 func (n *Notification) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&n.UserID).FillNulls(blank)
+	t.Col(&n.Type).FillNulls(blank)
+	t.Col(&n.Title).FillNulls(blank)
+	t.Col(&n.Message).FillNulls(blank)
+	t.Col(&n.IsRead).FillNulls(no)
 	t.Col(&n.UserID).Size(255)
 	t.Col(&n.UserID).Index()
 	t.Col(&n.Type).Size(64)
@@ -40,6 +47,10 @@ func (n *Notification) Schema(t *storm.Table) {
 	t.Col(&n.Project).OnDelete(storm.SetNull).Index()
 	t.Col(&n.Instance).OnDelete(storm.SetNull).Index()
 	t.Col(&n.DeletedAt).Index()
+	// A person's unread count per project, and their newest first: the bell
+	// and the inbox. Partial, so they are the size of what is still shown.
+	t.Index(&n.UserID, &n.IsRead, &n.Project).Where("(deleted_at IS NULL)").Named("ix_notifications_user_unread")
+	t.Index(&n.UserID, storm.Desc(&n.CreatedAt), storm.Desc(&n.ID)).Where("(deleted_at IS NULL)").Named("ix_notifications_user_newest")
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&n.DeletedAt)

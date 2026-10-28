@@ -2158,9 +2158,9 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 5:
 			args = append(args, n.row.Name)
 		case 6:
-			args = append(args, n.row.Scenario)
+			args = append(args, n.row.Scenario.OrNull())
 		case 7:
-			args = append(args, n.row.Expect)
+			args = append(args, n.row.Expect.OrNull())
 		}
 	}
 	var out Row
@@ -2205,8 +2205,8 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.ProjectID)
 	args = append(args, r.ProcessKey)
 	args = append(args, r.Name)
-	args = append(args, r.Scenario)
-	args = append(args, r.Expect)
+	args = append(args, r.Scenario.OrNull())
+	args = append(args, r.Expect.OrNull())
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
 		return err
@@ -2319,8 +2319,8 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.ProjectID)
 	args = append(args, r.ProcessKey)
 	args = append(args, r.Name)
-	args = append(args, r.Scenario)
-	args = append(args, r.Expect)
+	args = append(args, r.Scenario.OrNull())
+	args = append(args, r.Expect.OrNull())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
 
@@ -2367,9 +2367,9 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 5:
 			args = append(args, n.row.Name)
 		case 6:
-			args = append(args, n.row.Scenario)
+			args = append(args, n.row.Scenario.OrNull())
 		case 7:
-			args = append(args, n.row.Expect)
+			args = append(args, n.row.Expect.OrNull())
 		}
 	}
 	return runtime.BatchOp{SQL: st.SQL, Args: args}, nil
@@ -2425,9 +2425,9 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 3:
 			args = append(args, m.row.Name)
 		case 4:
-			args = append(args, m.row.Scenario)
+			args = append(args, m.row.Scenario.OrNull())
 		case 5:
-			args = append(args, m.row.Expect)
+			args = append(args, m.row.Expect.OrNull())
 		}
 	}
 	args = append(args, m.row.ID)
@@ -2519,9 +2519,9 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 3:
 			args = append(args, m.row.Name)
 		case 4:
-			args = append(args, m.row.Scenario)
+			args = append(args, m.row.Scenario.OrNull())
 		case 5:
-			args = append(args, m.row.Expect)
+			args = append(args, m.row.Expect.OrNull())
 		}
 	}
 	args = append(args, m.row.ID)
@@ -2626,9 +2626,9 @@ func (m Mut) updateArgs(args []any) []any {
 		case 3:
 			args = append(args, m.row.Name)
 		case 4:
-			args = append(args, m.row.Scenario)
+			args = append(args, m.row.Scenario.OrNull())
 		case 5:
-			args = append(args, m.row.Expect)
+			args = append(args, m.row.Expect.OrNull())
 		}
 	}
 	return args
@@ -2794,9 +2794,9 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 3:
 				args = append(args, m.row.Name)
 			case 4:
-				args = append(args, m.row.Scenario)
+				args = append(args, m.row.Scenario.OrNull())
 			case 5:
-				args = append(args, m.row.Expect)
+				args = append(args, m.row.Expect.OrNull())
 			}
 		}
 		return run(st.SQL, append(args, q.bindPreds(b)...))

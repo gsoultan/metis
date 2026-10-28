@@ -25,7 +25,7 @@ func TestARunningServerForgetsWhatCanNoLongerBeAsked(t *testing.T) {
 	conn := testutils.StormConn(gormDB)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
-	a := &App{db: gormDB, storm: conn, repo: repo, sse: sse,
+	a := &App{storm: conn, repo: repo, sse: sse,
 		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "retention-test", nil, nil, nil)}
 
 	seed := func(stmt string, args ...any) {

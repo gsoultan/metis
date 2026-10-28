@@ -29,6 +29,11 @@ type Subscription struct {
 }
 
 func (s *Subscription) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&s.NodeID).FillNulls(blank)
+	t.Col(&s.Type).FillNulls(blank)
+	t.Col(&s.EventName).FillNulls(blank)
 	// The table predates the type's name; keeping it avoids renaming a table
 	// for cosmetics.
 	t.Name("event_subscriptions")

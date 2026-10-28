@@ -38,6 +38,13 @@ type ServiceCall struct {
 }
 
 func (s *ServiceCall) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&s.NodeID).FillNulls(blank)
+	t.Col(&s.IterationID).FillNulls(blank)
+	t.Col(&s.IdempotencyKey).FillNulls(blank)
+	t.Col(&s.Status).FillNulls(blank)
+	t.Col(&s.Response).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Col(&s.NodeID).Size(191)
 	t.Col(&s.IterationID).Size(191)
 	// One record per visit to a step of an instance: this is what makes a

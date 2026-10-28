@@ -31,12 +31,10 @@ type AuditEntry struct {
 	// read by created_at and then by this: created_at is the moment the
 	// writing transaction began, which every entry one step writes shares.
 	//
-	// Nullable, and plain here rather than Serial: entries written before
-	// migration 28 have no place, because nothing recorded one, and a serial
-	// column is NOT NULL. The sequence and the default are the migration's —
-	// it makes the sequence owned by the column, which is what storm reads
-	// back as a serial and leaves out of the drift report.
-	Seq *int64
+	// Entries written before GORM's migration 28 had no place, because
+	// nothing recorded one, and were NULL. They are 0, which keeps them where
+	// the trail read them: ahead of every numbered entry of their moment.
+	Seq int64
 
 	// Actor is the person who acted, for an entry somebody's act wrote: a
 	// waive, a migration, a reassignment, a hold. Nil for the engine's own
@@ -49,10 +47,16 @@ type AuditEntry struct {
 }
 
 func (a *AuditEntry) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&a.Type).FillNulls(blank)
+	t.Col(&a.Message).FillNulls(blank)
+	t.Col(&a.Data).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Name("audit_logs")
 	t.Col(&a.Type).Size(64)
 	t.Col(&a.NodeID).Size(255)
 	t.Col(&a.Actor).Size(255)
+	t.Col(&a.Seq).Serial().FillNulls("0")
 	t.Col(&a.DeletedAt).Index()
 	// The audit log: the entries that name somebody, newest first, and one
 	// person's. Partial, so they are the size of what people did rather than
@@ -72,5 +76,5 @@ func (a *AuditEntry) Aggregates(g *storm.Aggregates) {
 	visits.By(&a.NodeID)
 	visits.Count("Visits")
 	visits.Min(&a.CreatedAt, "FirstAt")
-	visits.FirstOf(&a.Seq, "FirstSeq", g.Over().OrderByAsc(&a.CreatedAt).OrderByAscNullsFirst(&a.Seq))
+	visits.FirstOf(&a.Seq, "FirstSeq", g.Over().OrderByAsc(&a.CreatedAt).OrderByAsc(&a.Seq))
 }

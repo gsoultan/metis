@@ -3041,9 +3041,9 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 6:
 			args = append(args, n.row.Version)
 		case 7:
-			args = append(args, n.row.Nodes)
+			args = append(args, n.row.Nodes.OrNull())
 		case 8:
-			args = append(args, n.row.Flows)
+			args = append(args, n.row.Flows.OrNull())
 		case 9:
 			args = append(args, n.row.DeploymentID.Arg())
 		case 10:
@@ -3093,8 +3093,8 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.Key)
 	args = append(args, r.Name)
 	args = append(args, r.Version)
-	args = append(args, r.Nodes)
-	args = append(args, r.Flows)
+	args = append(args, r.Nodes.OrNull())
+	args = append(args, r.Flows.OrNull())
 	args = append(args, r.DeploymentID.Arg())
 	args = append(args, r.DeletedAt.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
@@ -3219,8 +3219,8 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.Key)
 	args = append(args, r.Name)
 	args = append(args, r.Version)
-	args = append(args, r.Nodes)
-	args = append(args, r.Flows)
+	args = append(args, r.Nodes.OrNull())
+	args = append(args, r.Flows.OrNull())
 	args = append(args, r.DeploymentID.Arg())
 	args = append(args, r.DeletedAt.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
@@ -3271,9 +3271,9 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 6:
 			args = append(args, n.row.Version)
 		case 7:
-			args = append(args, n.row.Nodes)
+			args = append(args, n.row.Nodes.OrNull())
 		case 8:
-			args = append(args, n.row.Flows)
+			args = append(args, n.row.Flows.OrNull())
 		case 9:
 			args = append(args, n.row.DeploymentID.Arg())
 		case 10:
@@ -3344,9 +3344,9 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 4:
 			args = append(args, m.row.Version)
 		case 5:
-			args = append(args, m.row.Nodes)
+			args = append(args, m.row.Nodes.OrNull())
 		case 6:
-			args = append(args, m.row.Flows)
+			args = append(args, m.row.Flows.OrNull())
 		case 7:
 			args = append(args, m.row.DeploymentID.Arg())
 		case 8:
@@ -3460,9 +3460,9 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 4:
 			args = append(args, m.row.Version)
 		case 5:
-			args = append(args, m.row.Nodes)
+			args = append(args, m.row.Nodes.OrNull())
 		case 6:
-			args = append(args, m.row.Flows)
+			args = append(args, m.row.Flows.OrNull())
 		case 7:
 			args = append(args, m.row.DeploymentID.Arg())
 		case 8:
@@ -3615,9 +3615,9 @@ func (m Mut) updateArgs(args []any) []any {
 		case 4:
 			args = append(args, m.row.Version)
 		case 5:
-			args = append(args, m.row.Nodes)
+			args = append(args, m.row.Nodes.OrNull())
 		case 6:
-			args = append(args, m.row.Flows)
+			args = append(args, m.row.Flows.OrNull())
 		case 7:
 			args = append(args, m.row.DeploymentID.Arg())
 		case 8:
@@ -3824,9 +3824,9 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 4:
 				args = append(args, m.row.Version)
 			case 5:
-				args = append(args, m.row.Nodes)
+				args = append(args, m.row.Nodes.OrNull())
 			case 6:
-				args = append(args, m.row.Flows)
+				args = append(args, m.row.Flows.OrNull())
 			case 7:
 				args = append(args, m.row.DeploymentID.Arg())
 			case 8:

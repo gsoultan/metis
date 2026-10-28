@@ -10,24 +10,18 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/gsoultan/metis/server/repositories/gorms"
-
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/internal/pkg/config"
 	"github.com/gsoultan/metis/internal/pkg/crypto"
-	"github.com/gsoultan/metis/internal/pkg/dbpool"
 	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services/contracts"
+	"github.com/gsoultan/metis/server/repositories"
 	stormdb "github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/migrations"
-	"github.com/gsoultan/metis/server/repositories/model"
 	"github.com/gsoultan/metis/server/repositories/models"
-	"github.com/gsoultan/storm"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 // ErrAlreadySetUp refuses setup on an installation that has been set up.
@@ -114,19 +108,19 @@ func (s *setupService) Setup(ctx context.Context, req contracts.SetupRequest) er
 	}
 
 	// 1. Open a connection to the TARGET database and seed initial data
-	targetDB, cleanup, err := openTargetDatabase(target)
+	targetDB, err := stormdb.Open(ctx, config.PostgresURL(target.dsn))
 	if err != nil {
 		return fmt.Errorf("failed to connect to target database: %w", err)
 	}
-	defer cleanup()
+	defer targetDB.Close()
 
 	// 2. Run migrations on the target database
-	if err := migrateTargetDatabase(ctx, targetDB, target); err != nil {
+	if err := migrateTargetDatabase(ctx, targetDB); err != nil {
 		return fmt.Errorf("failed to migrate target database: %w", err)
 	}
 
 	// 3. Create Organization, Project, and Admin User in the target database
-	if err := seedTargetDatabase(targetDB, req); err != nil {
+	if err := seedTargetDatabase(ctx, targetDB, req); err != nil {
 		return err
 	}
 
@@ -199,32 +193,23 @@ func (s *setupService) TestConnection(ctx context.Context, req contracts.TestCon
 		SSLEnabled: req.DBSSLEnabled,
 	}
 	dsn := config.BuildConnectionString(req.DatabaseDriver, fields)
-	dialector, err := gorms.Dialector(req.DatabaseDriver, dsn)
-	if err != nil {
-		return contracts.TestConnectionResult{Success: false, Message: err.Error()}
+	if !config.SupportedDriver(req.DatabaseDriver) {
+		return contracts.TestConnectionResult{Success: false,
+			Message: fmt.Sprintf("this runs on PostgreSQL; %q is not a database engine it supports", req.DatabaseDriver)}
 	}
-
-	db, err := gorm.Open(dialector, gorms.Config())
-	if err != nil {
-		return contracts.TestConnectionResult{Success: false, Message: fmt.Sprintf("Failed to open connection: %s", redaction.RedactError(err))}
-	}
-
-	sqlDB, err := db.DB()
-	if err != nil {
-		return contracts.TestConnectionResult{Success: false, Message: fmt.Sprintf("Failed to get database handle: %s", redaction.RedactError(err))}
-	}
-	defer func() {
-		// A connection test that leaks its own pool is a connection test that
-		// exhausts the server it was checking.
-		if err := sqlDB.Close(); err != nil {
-			log.Warn().Err(err).Msg("Could not close the connection opened to test the database")
-		}
-	}()
 
 	pingCtx, cancel := context.WithTimeout(ctx, testConnectionTimeout)
 	defer cancel()
 
-	if err := sqlDB.PingContext(pingCtx); err != nil {
+	// Opening does not contact the server, so the pool is asked: that is the
+	// only way to learn the database answers. Closed after, because a
+	// connection test that leaks its own pool exhausts the server it checked.
+	pool, err := stormdb.NewPool(pingCtx, config.PostgresURL(dsn))
+	if err != nil {
+		return contracts.TestConnectionResult{Success: false, Message: fmt.Sprintf("Failed to open connection: %s", redaction.RedactError(err))}
+	}
+	defer pool.Close()
+	if err := pool.Ping(pingCtx); err != nil {
 		return contracts.TestConnectionResult{Success: false, Message: fmt.Sprintf("Connection failed: %s", redaction.RedactError(err))}
 	}
 
@@ -324,130 +309,31 @@ func buildDatabaseFields(req contracts.SetupRequest) config.DatabaseFields {
 	}
 }
 
-func openTargetDatabase(target setupTarget) (*gorm.DB, func(), error) {
-	dialector, err := gorms.Dialector(target.driver, target.dsn)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	db, err := gorm.Open(dialector, gorms.Config())
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to open target database: %w", err)
-	}
-
-	// Sized the same way the app's own open path sizes it: setup migrates the
-	// whole schema through it.
-	dbpool.Apply(db)
-
-	cleanup := func() {
-		sqlDB, err := db.DB()
-		if err != nil {
-			log.Warn().Err(err).Msg("Could not reach the database handle to close it")
-			return
-		}
-		if err := sqlDB.Close(); err != nil {
-			log.Warn().Err(err).Msg("Could not close the database connection pool")
-		}
-	}
-
-	return db, cleanup, nil
-}
-
 // migrateTargetDatabase brings the freshly configured database up to the
-// current schema.
-//
-// It runs the same versioned migrations the application runs at boot, rather
-// than a bare AutoMigrate. Otherwise setup would create the schema without
-// recording a single version, and the first boot afterwards would treat a brand
-// new database as one that had never been migrated — replaying every data
-// migration over it, including the one that walks every process instance.
-func migrateTargetDatabase(ctx context.Context, db *gorm.DB, target setupTarget) error {
-	// Only the schema migrations. The data migrations need the repository layer,
-	// which setup does not have here, and they repair rows written by older
-	// versions of the engine — of which a database created seconds ago has none.
-	// The first boot runs and records them against empty tables, which costs two
-	// queries that find nothing.
-	if _, err := migrations.Run(ctx, db, migrations.Schema(models.MigrationModels())); err != nil {
-		return err
-	}
-	return ensureStormSchema(ctx, target.dsn)
-}
-
-// ensureStormSchema creates the tables the GORM migrations do not describe, in
-// the database the wizard has just configured.
-//
-// The same two steps the application performs at boot, run here because setup
-// writes into this database immediately afterwards — the admin's organization
-// membership lands in a join table the GORM models no longer declare, and
-// without this the very first insert of a fresh installation fails with
-// "relation user_organizations does not exist".
-//
-// A second connection rather than the GORM one, because these are storm's own
-// DDL and its schema builder speaks pgx.
-func ensureStormSchema(ctx context.Context, dsn string) error {
-	want, err := storm.Build(model.All()...)
-	if err != nil {
-		return fmt.Errorf("the model layer does not build: %w", err)
-	}
-	pool, err := pgxpool.New(ctx, config.PostgresURL(dsn))
-	if err != nil {
-		return fmt.Errorf("could not open the target database for the storm schema: %w", err)
-	}
-	defer pool.Close()
-
-	if _, err := stormdb.EnsureTables(ctx, pool, want); err != nil {
-		return fmt.Errorf("could not create the storm tables: %w", err)
-	}
-	if _, err := stormdb.EnsureColumnDefaults(ctx, pool, want); err != nil {
-		return fmt.Errorf("could not reconcile the storm column defaults: %w", err)
-	}
-	return nil
+// current schema, with the same runner and steps the application boots with,
+// so the first boot afterwards finds it recorded where it is.
+func migrateTargetDatabase(ctx context.Context, target *stormdb.Conn) error {
+	_, err := migrations.Run(ctx, target.Main(), migrations.Steps())
+	return err
 }
 
 const defaultProjectName = "Default Project"
-
-// setupAdvisoryLock serialises refuseExistingInstallation's check and the seed
-// that follows it, across concurrent requests and replicas. Any fixed key
-// would do; this one is "metis" in ASCII.
-const setupAdvisoryLock int64 = 0x6d65746973
-
-// refuseExistingInstallation stops setup seeding a database that is in use.
-//
-// Setup is anonymous by necessity — nobody can sign in before it — so it must
-// only ever create the first administrator of an empty database. Without this,
-// anyone who could reach the wizard and knew a working connection string could
-// mint an administrator inside an installation that was already running. The
-// lock makes the check and the seed one step: two first runs racing each other
-// would otherwise both find the database empty.
-func refuseExistingInstallation(tx *gorm.DB) error {
-	if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", setupAdvisoryLock).Error; err != nil {
-		return fmt.Errorf("could not take the setup lock: %w", err)
-	}
-	var inUse bool
-	if err := tx.Raw("SELECT EXISTS (SELECT 1 FROM users)").Scan(&inUse).Error; err != nil {
-		return fmt.Errorf("could not tell whether this database is already in use: %w", err)
-	}
-	if inUse {
-		return ErrDatabaseInUse
-	}
-	return nil
-}
 
 // seedTargetDatabase writes the installation's organization, its project and
 // its first administrator, in one transaction, and says in the server's log
 // that the account was created once it has been.
 //
-// The account is written here and not through the account service: this is
-// the database the wizard is configuring, which the services are not
-// connected to. So the line every other new account gets is written here
-// too, in the same shape (traceUnattended): the first administrator holds
-// the role a second approver's control rests on, and is attributable as any
-// later one is. It names no actor — nobody can be signed in to an
-// installation that has no account — and says set-up made it.
-func seedTargetDatabase(db *gorm.DB, req contracts.SetupRequest) error {
+// The account is written through a repository over the database the wizard is
+// configuring, not through the account service: the services are connected to
+// the database this process started on. So the line every other new account
+// gets is written here too, in the same shape (traceUnattended): the first
+// administrator holds the role a second approver's control rests on, and is
+// attributable as any later one is. It names no actor — nobody can be signed
+// in to an installation that has no account — and says set-up made it.
+func seedTargetDatabase(ctx context.Context, target *stormdb.Conn, req contracts.SetupRequest) error {
 	orgID, adminID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	roles := []string{entities.RoleAdmin}
-	if err := seedInstallation(db, req, orgID, adminID, roles); err != nil {
+	if err := seedInstallation(ctx, target, req, orgID, adminID, roles); err != nil {
 		return err
 	}
 	traceUnattended(madeThroughSetup, accountCreated, orgID, adminID, req.AdminUsername, accountRoles{},
@@ -456,21 +342,32 @@ func seedTargetDatabase(db *gorm.DB, req contracts.SetupRequest) error {
 }
 
 // seedInstallation is seedTargetDatabase's transaction.
-func seedInstallation(db *gorm.DB, req contracts.SetupRequest, orgID, adminID uuid.UUID, roles []string) error {
-	return db.Transaction(func(tx *gorm.DB) error {
-		if err := refuseExistingInstallation(tx); err != nil {
-			return err
+//
+// Setup is anonymous by necessity — nobody can sign in before it — so it must
+// only ever create the first administrator of an empty database. Without the
+// check, anyone who could reach the wizard and knew a working connection string
+// could mint an administrator inside an installation that was already running.
+// The accounts are held for the transaction, which makes the check and the
+// seed one step: two first runs racing each other would otherwise both find
+// the database empty.
+func seedInstallation(ctx context.Context, target *stormdb.Conn, req contracts.SetupRequest, orgID, adminID uuid.UUID, roles []string) error {
+	repo := repositories.NewRepository(target)
+	// The installation has no tenant yet to scope any of this by.
+	ctx = entities.WithSystemContext(ctx)
+	return target.Transact(ctx, func(ctx context.Context) error {
+		if err := repo.User().LockAccounts(ctx); err != nil {
+			return fmt.Errorf("could not take the setup lock: %w", err)
 		}
-		now := time.Now()
+		inUse, err := repo.User().HasAccounts(ctx)
+		if err != nil {
+			return fmt.Errorf("could not tell whether this database is already in use: %w", err)
+		}
+		if inUse {
+			return ErrDatabaseInUse
+		}
 
-		org := models.OrganizationModel{
-			Base: models.Base{
-				ID:        models.UUID(orgID),
-				CreatedAt: now,
-			},
-			Name: req.OrganizationName,
-		}
-		if err := tx.Create(&org).Error; err != nil {
+		org := models.OrganizationModel{Base: models.Base{ID: models.UUID(orgID)}, Name: req.OrganizationName}
+		if err := repo.Organization().Create(ctx, org); err != nil {
 			return fmt.Errorf("failed to create organization: %w", err)
 		}
 
@@ -479,14 +376,11 @@ func seedInstallation(db *gorm.DB, req contracts.SetupRequest, orgID, adminID uu
 			projectName = defaultProjectName
 		}
 		project := models.ProjectModel{
-			Base: models.Base{
-				ID:        models.UUID(uuid.Must(uuid.NewV7())),
-				CreatedAt: now,
-			},
+			Base:           models.Base{ID: models.UUID(uuid.Must(uuid.NewV7()))},
 			OrganizationID: models.UUID(orgID),
 			Name:           projectName,
 		}
-		if err := tx.Create(&project).Error; err != nil {
+		if err := repo.Project().Create(ctx, project); err != nil {
 			return fmt.Errorf("failed to create project: %w", err)
 		}
 
@@ -495,44 +389,21 @@ func seedInstallation(db *gorm.DB, req contracts.SetupRequest, orgID, adminID uu
 			return fmt.Errorf("failed to hash password: %w", err)
 		}
 
+		// With its memberships: the organization, holding no role of its own
+		// there beyond the account's, and the project.
 		admin := models.UserModel{
-			Base: models.Base{
-				ID:        models.UUID(adminID),
-				CreatedAt: now,
-			},
-			Username:     req.AdminUsername,
-			PasswordHash: string(hash),
-			FullName:     req.AdminFullName,
-			DisplayName:  req.AdminPublicName,
-			Email:        req.AdminEmail,
-			Roles:        roles,
+			Base:          models.Base{ID: models.UUID(adminID)},
+			Username:      req.AdminUsername,
+			FullName:      req.AdminFullName,
+			DisplayName:   req.AdminPublicName,
+			Email:         req.AdminEmail,
+			Roles:         roles,
+			Organizations: []models.OrganizationModel{org},
+			Projects:      []models.ProjectModel{project},
 		}
-		if err := tx.Create(&admin).Error; err != nil {
+		if err := repo.User().Create(ctx, admin, string(hash)); err != nil {
 			return fmt.Errorf("failed to create admin user: %w", err)
 		}
-
-		// The memberships, written explicitly.
-		//
-		// They used to be GORM associations on the struct above, which wrote
-		// the join rows as a side effect of creating the user. The join tables
-		// belong to the storm model now and the association tags are gone, so
-		// the side effect went with them — silently: setup succeeded, the admin
-		// existed, and signing in showed "authenticated principal has no
-		// organization membership" on every page.
-		//
-		// Raw SQL because this runs on the database the wizard is configuring,
-		// which is not the one the repositories are connected to yet.
-		if err := tx.Exec(
-			`INSERT INTO user_organizations (user_id, organization_id) VALUES (?, ?)`,
-			admin.ID, org.ID).Error; err != nil {
-			return fmt.Errorf("failed to put the admin in the organization: %w", err)
-		}
-		if err := tx.Exec(
-			`INSERT INTO user_projects (user_id, project_id) VALUES (?, ?)`,
-			admin.ID, project.ID).Error; err != nil {
-			return fmt.Errorf("failed to put the admin in the project: %w", err)
-		}
-
 		return nil
 	})
 }

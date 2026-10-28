@@ -405,6 +405,22 @@ func (r *userRepository) HasAccounts(ctx context.Context) (bool, error) {
 	return len(ever) == 1 && ever[0].Accounts > 0, nil
 }
 
+// LockAccounts takes the accounts table until the transaction ends. Outside
+// one it would be released as soon as it was taken, so that is refused.
+func (r *userRepository) LockAccounts(ctx context.Context) error {
+	if !db.InTransaction(ctx) {
+		return errors.New("the accounts can only be held inside a transaction")
+	}
+	ex, err := r.conn.conn.MainExecutor(ctx)
+	if err != nil {
+		return err
+	}
+	if err := store.LockTables(ctx, ex, store.LockExclusive, store.TableUser); err != nil {
+		return fmt.Errorf("could not hold the accounts: %w", err)
+	}
+	return nil
+}
+
 func (r *userRepository) Create(ctx context.Context, u models.UserModel, passwordHash string) error {
 	ex, err := r.conn.conn.MainExecutor(ctx)
 	if err != nil {

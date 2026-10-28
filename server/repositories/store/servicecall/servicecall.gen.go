@@ -3031,7 +3031,7 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 10:
 			args = append(args, n.row.Attempts)
 		case 11:
-			args = append(args, n.row.Response)
+			args = append(args, n.row.Response.OrNull())
 		case 12:
 			args = append(args, n.row.CompletedAt.Arg())
 		case 13:
@@ -3085,7 +3085,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.IdempotencyKey)
 	args = append(args, r.Status)
 	args = append(args, r.Attempts)
-	args = append(args, r.Response)
+	args = append(args, r.Response.OrNull())
 	args = append(args, r.CompletedAt.Arg())
 	args = append(args, r.DeletedAt.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
@@ -3223,7 +3223,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.IdempotencyKey)
 	args = append(args, r.Status)
 	args = append(args, r.Attempts)
-	args = append(args, r.Response)
+	args = append(args, r.Response.OrNull())
 	args = append(args, r.CompletedAt.Arg())
 	args = append(args, r.DeletedAt.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
@@ -3282,7 +3282,7 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 10:
 			args = append(args, n.row.Attempts)
 		case 11:
-			args = append(args, n.row.Response)
+			args = append(args, n.row.Response.OrNull())
 		case 12:
 			args = append(args, n.row.CompletedAt.Arg())
 		case 13:
@@ -3361,7 +3361,7 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 8:
 			args = append(args, m.row.Attempts)
 		case 9:
-			args = append(args, m.row.Response)
+			args = append(args, m.row.Response.OrNull())
 		case 10:
 			args = append(args, m.row.CompletedAt.Arg())
 		case 11:
@@ -3483,7 +3483,7 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 8:
 			args = append(args, m.row.Attempts)
 		case 9:
-			args = append(args, m.row.Response)
+			args = append(args, m.row.Response.OrNull())
 		case 10:
 			args = append(args, m.row.CompletedAt.Arg())
 		case 11:
@@ -3644,7 +3644,7 @@ func (m Mut) updateArgs(args []any) []any {
 		case 8:
 			args = append(args, m.row.Attempts)
 		case 9:
-			args = append(args, m.row.Response)
+			args = append(args, m.row.Response.OrNull())
 		case 10:
 			args = append(args, m.row.CompletedAt.Arg())
 		case 11:
@@ -3859,7 +3859,7 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 8:
 				args = append(args, m.row.Attempts)
 			case 9:
-				args = append(args, m.row.Response)
+				args = append(args, m.row.Response.OrNull())
 			case 10:
 				args = append(args, m.row.CompletedAt.Arg())
 			case 11:

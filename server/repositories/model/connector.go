@@ -31,6 +31,12 @@ type Connector struct {
 }
 
 func (c *Connector) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&c.Key).FillNulls(blank)
+	t.Col(&c.Name).FillNulls(blank)
+	t.Col(&c.Type).FillNulls(blank)
+	t.Col(&c.Properties).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Col(&c.Key).Size(255)
 	// Live rows only: a removed connector's key is free again.
 	t.Col(&c.Key).Unique()

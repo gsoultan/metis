@@ -63,6 +63,15 @@ type User struct {
 // the relations point at, so the join tables referenced a table called
 // "accounts" that nothing creates — which PostgreSQL only says at apply time.
 func (a *User) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&a.Username).FillNulls(blank)
+	t.Col(&a.PasswordHash).FillNulls(blank)
+	t.Col(&a.FullName).FillNulls(blank)
+	t.Col(&a.DisplayName).FillNulls(blank)
+	t.Col(&a.Organization).FillNulls(blank)
+	t.Col(&a.Email).FillNulls(blank)
+	t.Col(&a.Roles).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Col(&a.Username).Size(255)
 	t.Col(&a.DeletedAt).Index()
 	t.SoftDelete(&a.DeletedAt)
@@ -70,6 +79,9 @@ func (a *User) Schema(t *storm.Table) {
 	// username reissued to a different person makes two people indistinguishable
 	// in it.
 	t.UniqueAcrossDeleted(&a.Username)
+	// Taken by setup, so its check that the database holds no account and the
+	// first account it writes are one step.
+	t.Lockable()
 	// Over the live rows only: one account per identity, and an administrator
 	// deleting a linked account ends that account without locking the person
 	// out for ever — their next sign-in is given a new one, under a new
@@ -145,9 +157,16 @@ type Group struct {
 }
 
 func (g *Group) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&g.Name).FillNulls(blank)
+	t.Col(&g.Description).FillNulls(blank)
+	t.Col(&g.Roles).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Name("groups")
 	t.Col(&g.Name).Size(255)
 	t.Col(&g.Organization).OnDelete(storm.Cascade).Index()
+	// A group's name is its organization's, among every group it ever had.
+	t.Index(&g.Organization, &g.Name).Unique().AcrossDeleted().Named("idx_group_name_org")
 	t.Col(&g.DeletedAt).Index()
 	t.SoftDelete(&g.DeletedAt)
 }

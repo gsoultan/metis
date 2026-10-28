@@ -57,6 +57,10 @@ type UserRepository interface {
 	// it answers whether this database already holds an installation, which
 	// setup has to know before there is anybody to scope the question by.
 	HasAccounts(ctx context.Context) (bool, error)
+	// LockAccounts holds every account against being written until the
+	// transaction it runs in ends, so HasAccounts and a Create after it are one
+	// step: two first runs of setup racing each other cannot both find none.
+	LockAccounts(ctx context.Context) error
 	Create(ctx context.Context, u models.UserModel, passwordHash string) error
 
 	// SetPasswordHash replaces one user's password hash and touches nothing

@@ -28,6 +28,12 @@ type CompensatableActivity struct {
 }
 
 func (c *CompensatableActivity) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&c.NodeID).FillNulls(blank)
+	t.Col(&c.CompensationNodeID).FillNulls(blank)
+	t.Col(&c.Variables).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&c.Compensated).FillNulls(no)
 	t.Col(&c.NodeID).Size(255)
 	t.Col(&c.CompensationNodeID).Size(255)
 	t.Col(&c.DeletedAt).Index()

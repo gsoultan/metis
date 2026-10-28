@@ -24,6 +24,9 @@ type Project struct {
 }
 
 func (p *Project) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&p.Name).FillNulls(blank)
 	t.Col(&p.Name).Size(255)
 	// A project's name is unique inside its organization, not globally: two
 	// tenants both having a "Payments" project is normal.

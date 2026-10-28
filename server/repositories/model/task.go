@@ -57,6 +57,15 @@ type Task struct {
 }
 
 func (t2 *Task) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&t2.NodeID).FillNulls(blank)
+	t.Col(&t2.Name).FillNulls(blank)
+	t.Col(&t2.Type).FillNulls(blank)
+	t.Col(&t2.Status).FillNulls(blank)
+	t.Col(&t2.CandidateUsers).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&t2.CandidateGroups).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&t2.Variables).FillNulls(blank)
 	t.Col(&t2.NodeID).Size(255)
 	t.Col(&t2.Type).Size(64)
 	t.Col(&t2.Type).Index()
@@ -69,6 +78,8 @@ func (t2 *Task) Schema(t *storm.Table) {
 	t.Col(&t2.Owner).Index()
 	t.Col(&t2.DelegationState).Size(32)
 	t.Col(&t2.DeletedAt).Index()
+	// The task list: a project's newest first, the id breaking ties.
+	t.Index(&t2.Project, storm.Desc(&t2.CreatedAt), storm.Desc(&t2.ID)).Named("ix_tasks_project_created")
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&t2.DeletedAt)

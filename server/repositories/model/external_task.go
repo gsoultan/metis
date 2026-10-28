@@ -35,6 +35,11 @@ type ExternalTask struct {
 }
 
 func (e *ExternalTask) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&e.NodeID).FillNulls(blank)
+	t.Col(&e.Topic).FillNulls(blank)
+	t.Col(&e.Variables).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Col(&e.NodeID).Size(255)
 	t.Col(&e.Topic).Size(255)
 	t.Col(&e.Topic).Index()

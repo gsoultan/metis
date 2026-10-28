@@ -23,6 +23,9 @@ type WebhookDelivery struct {
 }
 
 func (d *WebhookDelivery) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&d.DeliveryID).FillNulls(blank)
 	t.Col(&d.DeliveryID).Size(191)
 	// Across the deleted rows: a delivery id is how a redelivery is recognised
 	// as the same one. A marked row that stopped conflicting would let the same

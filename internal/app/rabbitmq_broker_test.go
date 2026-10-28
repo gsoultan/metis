@@ -59,7 +59,7 @@ func realRabbitMQApp(t *testing.T) *App {
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
 	facade := services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "rabbitmq-broker-test", nil, nil, nil)
-	return &App{db: gormDB, storm: conn, repo: repo, sse: sse, svc: facade}
+	return &App{storm: conn, repo: repo, sse: sse, svc: facade}
 }
 
 func deployAndStart(t *testing.T, ctx context.Context, a *App, def *entities.ProcessDefinition, vars map[string]any) uuid.UUID {

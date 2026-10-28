@@ -2208,7 +2208,7 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 5:
 			args = append(args, n.row.Name)
 		case 6:
-			args = append(args, n.row.Fields)
+			args = append(args, n.row.Fields.OrNull())
 		case 7:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
@@ -2255,7 +2255,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.ProjectID)
 	args = append(args, r.Key)
 	args = append(args, r.Name)
-	args = append(args, r.Fields)
+	args = append(args, r.Fields.OrNull())
 	args = append(args, r.DeletedAt.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
@@ -2369,7 +2369,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.ProjectID)
 	args = append(args, r.Key)
 	args = append(args, r.Name)
-	args = append(args, r.Fields)
+	args = append(args, r.Fields.OrNull())
 	args = append(args, r.DeletedAt.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
@@ -2417,7 +2417,7 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 5:
 			args = append(args, n.row.Name)
 		case 6:
-			args = append(args, n.row.Fields)
+			args = append(args, n.row.Fields.OrNull())
 		case 7:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
@@ -2475,7 +2475,7 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 3:
 			args = append(args, m.row.Name)
 		case 4:
-			args = append(args, m.row.Fields)
+			args = append(args, m.row.Fields.OrNull())
 		case 5:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
@@ -2583,7 +2583,7 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 3:
 			args = append(args, m.row.Name)
 		case 4:
-			args = append(args, m.row.Fields)
+			args = append(args, m.row.Fields.OrNull())
 		case 5:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
@@ -2732,7 +2732,7 @@ func (m Mut) updateArgs(args []any) []any {
 		case 3:
 			args = append(args, m.row.Name)
 		case 4:
-			args = append(args, m.row.Fields)
+			args = append(args, m.row.Fields.OrNull())
 		case 5:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
@@ -2933,7 +2933,7 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 3:
 				args = append(args, m.row.Name)
 			case 4:
-				args = append(args, m.row.Fields)
+				args = append(args, m.row.Fields.OrNull())
 			case 5:
 				args = append(args, m.row.DeletedAt.Arg())
 			}

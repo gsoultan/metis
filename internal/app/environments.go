@@ -9,11 +9,9 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/db"
-	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/migrations"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/rs/zerolog/log"
-	"gorm.io/gorm"
 )
 
 // openEnvironments connects to every enabled environment's database and brings
@@ -109,29 +107,33 @@ func (a *App) migrateEnvironment(ctx context.Context, row models.EnvironmentMode
 		return err
 	}
 
-	db, err := gorms.Open(row.Driver, dsn)
+	if !config.SupportedDriver(row.Driver) {
+		return fmt.Errorf("this runs on PostgreSQL; %q is not a database engine it supports", row.Driver)
+	}
+	pool, err := db.NewPool(ctx, config.PostgresURL(dsn))
 	if err != nil {
 		return err
 	}
-	defer closeDB(db)
+	defer pool.Close()
 	// Opening does not contact the server, so without this a database that is
 	// simply not there would be registered as ready and fail at the first
 	// request, instead of here, where the failure is reported and retried.
-	if err := gorms.Ping(db); err != nil {
-		return err
+	if err := pool.Ping(ctx); err != nil {
+		return fmt.Errorf("the database did not answer: %w", err)
 	}
 
 	// Migrations rewrite rows across every tenant in this runtime, which is
 	// what they are for.
 	migrateCtx := entities.WithSystemContext(ctx)
-	result, err := migrations.Run(migrateCtx, db, migrations.Schema(models.MigrationModels()))
+	result, err := migrations.Run(migrateCtx, pool, migrations.Steps())
 	if err != nil {
 		return fmt.Errorf("could not migrate this environment's database: %w", err)
 	}
-	if len(result.Applied) > 0 {
+	if result.Created || len(result.Applied) > 0 {
 		log.Info().
 			Str("environment", row.Name).
-			Ints("applied", result.Applied).
+			Bool("created", result.Created).
+			Ints64("applied", result.Applied).
 			Msg("Environment database migrated")
 	}
 
@@ -146,7 +148,7 @@ func (a *App) migrateEnvironment(ctx context.Context, row models.EnvironmentMode
 	if err != nil {
 		return err
 	}
-	return SeedEnvironmentIdentity(migrateCtx, db, project, organization)
+	return SeedEnvironmentIdentity(migrateCtx, pool, project, organization)
 }
 
 // environmentDSN builds the connection string for a stored environment.
@@ -198,20 +200,6 @@ func boolField(m models.EncryptedMap, key string) bool {
 	return ok && value
 }
 
-// closeDB releases a connection pool, reporting a failure rather than
-// discarding it: a pool that would not close is a file handle and a set of
-// server-side sessions that stay held.
-func closeDB(db *gorm.DB) {
-	sqlDB, err := db.DB()
-	if err != nil {
-		log.Warn().Err(err).Msg("Could not reach a database pool to close it")
-		return
-	}
-	if err := sqlDB.Close(); err != nil {
-		log.Warn().Err(err).Msg("Could not close a database pool")
-	}
-}
-
 // openEnvironmentStorm opens the pgx pool the ported repositories read through.
 //
 // A second pool onto the same database rather than a shared one, because the
@@ -228,17 +216,6 @@ func (a *App) openEnvironmentStorm(ctx context.Context, row models.EnvironmentMo
 	pool, err := db.NewPool(ctx, config.PostgresURL(dsn))
 	if err != nil {
 		return fmt.Errorf("could not open this environment's storm connection: %w", err)
-	}
-	// After the migrations openEnvironment has run, as for the main database:
-	// the defaults are reconciled on the tables those migrations create.
-	want, err := stormModel()
-	if err != nil {
-		pool.Close()
-		return err
-	}
-	if err := ensureStormTables(ctx, pool, want); err != nil {
-		pool.Close()
-		return fmt.Errorf("could not prepare this environment's database for the engine: %w", err)
 	}
 	if previous := a.storm.RegisterEnvironment(id, pool); previous != nil {
 		previous.Close()

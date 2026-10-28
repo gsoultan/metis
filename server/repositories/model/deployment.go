@@ -19,6 +19,9 @@ type Deployment struct {
 }
 
 func (d *Deployment) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&d.Name).FillNulls(blank)
 	t.Col(&d.Name).Size(255)
 	t.Col(&d.DeletedAt).Index()
 	// Declared, so the predicate is compiled into every read of this table

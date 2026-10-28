@@ -2224,7 +2224,7 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 4:
 			args = append(args, n.row.NodeID.Arg())
 		case 5:
-			args = append(args, n.row.Variables)
+			args = append(args, n.row.Variables.OrNull())
 		case 6:
 			args = append(args, n.row.CapturedAt)
 		case 7:
@@ -2272,7 +2272,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.UpdatedAt)
 	args = append(args, r.InstanceID)
 	args = append(args, r.NodeID.Arg())
-	args = append(args, r.Variables)
+	args = append(args, r.Variables.OrNull())
 	args = append(args, r.CapturedAt)
 	args = append(args, r.DeletedAt.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
@@ -2386,7 +2386,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.UpdatedAt)
 	args = append(args, r.InstanceID)
 	args = append(args, r.NodeID.Arg())
-	args = append(args, r.Variables)
+	args = append(args, r.Variables.OrNull())
 	args = append(args, r.CapturedAt)
 	args = append(args, r.DeletedAt.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
@@ -2433,7 +2433,7 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 4:
 			args = append(args, n.row.NodeID.Arg())
 		case 5:
-			args = append(args, n.row.Variables)
+			args = append(args, n.row.Variables.OrNull())
 		case 6:
 			args = append(args, n.row.CapturedAt)
 		case 7:
@@ -2491,7 +2491,7 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 2:
 			args = append(args, m.row.NodeID.Arg())
 		case 3:
-			args = append(args, m.row.Variables)
+			args = append(args, m.row.Variables.OrNull())
 		case 4:
 			args = append(args, m.row.CapturedAt)
 		case 5:
@@ -2599,7 +2599,7 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 2:
 			args = append(args, m.row.NodeID.Arg())
 		case 3:
-			args = append(args, m.row.Variables)
+			args = append(args, m.row.Variables.OrNull())
 		case 4:
 			args = append(args, m.row.CapturedAt)
 		case 5:
@@ -2748,7 +2748,7 @@ func (m Mut) updateArgs(args []any) []any {
 		case 2:
 			args = append(args, m.row.NodeID.Arg())
 		case 3:
-			args = append(args, m.row.Variables)
+			args = append(args, m.row.Variables.OrNull())
 		case 4:
 			args = append(args, m.row.CapturedAt)
 		case 5:
@@ -3084,7 +3084,7 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 2:
 				args = append(args, m.row.NodeID.Arg())
 			case 3:
-				args = append(args, m.row.Variables)
+				args = append(args, m.row.Variables.OrNull())
 			case 4:
 				args = append(args, m.row.CapturedAt)
 			case 5:

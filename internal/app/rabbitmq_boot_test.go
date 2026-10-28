@@ -73,7 +73,7 @@ func rabbitMQTestApp(t *testing.T) (*App, *recordingMessaging) {
 		bridges:       make(chan startedBridge, 4),
 		consumers:     make(chan startedConsumer, 4),
 	}
-	return &App{db: gormDB, storm: conn, repo: repo, sse: sse, svc: recorder}, recorder
+	return &App{storm: conn, repo: repo, sse: sse, svc: recorder}, recorder
 }
 
 // seededRabbitMQConnection is a project with a RabbitMQ connection configured

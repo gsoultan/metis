@@ -4539,15 +4539,15 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 9:
 			args = append(args, n.row.Variables)
 		case 10:
-			args = append(args, n.row.Tokens)
+			args = append(args, n.row.Tokens.OrNull())
 		case 11:
-			args = append(args, n.row.CompletedNodes)
+			args = append(args, n.row.CompletedNodes.OrNull())
 		case 12:
-			args = append(args, n.row.CompensatedNodes)
+			args = append(args, n.row.CompensatedNodes.OrNull())
 		case 13:
-			args = append(args, n.row.MultiInstance)
+			args = append(args, n.row.MultiInstance.OrNull())
 		case 14:
-			args = append(args, n.row.Joins)
+			args = append(args, n.row.Joins.OrNull())
 		case 15:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
@@ -4598,11 +4598,11 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.Status)
 	args = append(args, r.BusinessKey.Arg())
 	args = append(args, r.Variables)
-	args = append(args, r.Tokens)
-	args = append(args, r.CompletedNodes)
-	args = append(args, r.CompensatedNodes)
-	args = append(args, r.MultiInstance)
-	args = append(args, r.Joins)
+	args = append(args, r.Tokens.OrNull())
+	args = append(args, r.CompletedNodes.OrNull())
+	args = append(args, r.CompensatedNodes.OrNull())
+	args = append(args, r.MultiInstance.OrNull())
+	args = append(args, r.Joins.OrNull())
 	args = append(args, r.DeletedAt.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
@@ -4744,11 +4744,11 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.Status)
 	args = append(args, r.BusinessKey.Arg())
 	args = append(args, r.Variables)
-	args = append(args, r.Tokens)
-	args = append(args, r.CompletedNodes)
-	args = append(args, r.CompensatedNodes)
-	args = append(args, r.MultiInstance)
-	args = append(args, r.Joins)
+	args = append(args, r.Tokens.OrNull())
+	args = append(args, r.CompletedNodes.OrNull())
+	args = append(args, r.CompensatedNodes.OrNull())
+	args = append(args, r.MultiInstance.OrNull())
+	args = append(args, r.Joins.OrNull())
 	args = append(args, r.DeletedAt.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
@@ -4804,15 +4804,15 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 9:
 			args = append(args, n.row.Variables)
 		case 10:
-			args = append(args, n.row.Tokens)
+			args = append(args, n.row.Tokens.OrNull())
 		case 11:
-			args = append(args, n.row.CompletedNodes)
+			args = append(args, n.row.CompletedNodes.OrNull())
 		case 12:
-			args = append(args, n.row.CompensatedNodes)
+			args = append(args, n.row.CompensatedNodes.OrNull())
 		case 13:
-			args = append(args, n.row.MultiInstance)
+			args = append(args, n.row.MultiInstance.OrNull())
 		case 14:
-			args = append(args, n.row.Joins)
+			args = append(args, n.row.Joins.OrNull())
 		case 15:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
@@ -4878,15 +4878,15 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 7:
 			args = append(args, m.row.Variables)
 		case 8:
-			args = append(args, m.row.Tokens)
+			args = append(args, m.row.Tokens.OrNull())
 		case 9:
-			args = append(args, m.row.CompletedNodes)
+			args = append(args, m.row.CompletedNodes.OrNull())
 		case 10:
-			args = append(args, m.row.CompensatedNodes)
+			args = append(args, m.row.CompensatedNodes.OrNull())
 		case 11:
-			args = append(args, m.row.MultiInstance)
+			args = append(args, m.row.MultiInstance.OrNull())
 		case 12:
-			args = append(args, m.row.Joins)
+			args = append(args, m.row.Joins.OrNull())
 		case 13:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
@@ -5002,15 +5002,15 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 7:
 			args = append(args, m.row.Variables)
 		case 8:
-			args = append(args, m.row.Tokens)
+			args = append(args, m.row.Tokens.OrNull())
 		case 9:
-			args = append(args, m.row.CompletedNodes)
+			args = append(args, m.row.CompletedNodes.OrNull())
 		case 10:
-			args = append(args, m.row.CompensatedNodes)
+			args = append(args, m.row.CompensatedNodes.OrNull())
 		case 11:
-			args = append(args, m.row.MultiInstance)
+			args = append(args, m.row.MultiInstance.OrNull())
 		case 12:
-			args = append(args, m.row.Joins)
+			args = append(args, m.row.Joins.OrNull())
 		case 13:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
@@ -5167,15 +5167,15 @@ func (m Mut) updateArgs(args []any) []any {
 		case 7:
 			args = append(args, m.row.Variables)
 		case 8:
-			args = append(args, m.row.Tokens)
+			args = append(args, m.row.Tokens.OrNull())
 		case 9:
-			args = append(args, m.row.CompletedNodes)
+			args = append(args, m.row.CompletedNodes.OrNull())
 		case 10:
-			args = append(args, m.row.CompensatedNodes)
+			args = append(args, m.row.CompensatedNodes.OrNull())
 		case 11:
-			args = append(args, m.row.MultiInstance)
+			args = append(args, m.row.MultiInstance.OrNull())
 		case 12:
-			args = append(args, m.row.Joins)
+			args = append(args, m.row.Joins.OrNull())
 		case 13:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
@@ -5384,15 +5384,15 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 7:
 				args = append(args, m.row.Variables)
 			case 8:
-				args = append(args, m.row.Tokens)
+				args = append(args, m.row.Tokens.OrNull())
 			case 9:
-				args = append(args, m.row.CompletedNodes)
+				args = append(args, m.row.CompletedNodes.OrNull())
 			case 10:
-				args = append(args, m.row.CompensatedNodes)
+				args = append(args, m.row.CompensatedNodes.OrNull())
 			case 11:
-				args = append(args, m.row.MultiInstance)
+				args = append(args, m.row.MultiInstance.OrNull())
 			case 12:
-				args = append(args, m.row.Joins)
+				args = append(args, m.row.Joins.OrNull())
 			case 13:
 				args = append(args, m.row.DeletedAt.Arg())
 			}

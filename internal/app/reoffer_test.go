@@ -20,7 +20,7 @@ func TestARunningServerOffersAgainAnExternalTaskNobodyWasToldAbout(t *testing.T)
 	conn := testutils.StormConn(gormDB)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
-	a := &App{db: gormDB, storm: conn, repo: repo, sse: sse,
+	a := &App{storm: conn, repo: repo, sse: sse,
 		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "reoffer-test", nil, nil, nil)}
 
 	task, now := uuid.New(), time.Now()

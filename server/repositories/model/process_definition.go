@@ -34,6 +34,12 @@ type ProcessDefinition struct {
 }
 
 func (d *ProcessDefinition) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&d.Key).FillNulls(blank)
+	t.Col(&d.Name).FillNulls(blank)
+	t.Col(&d.Nodes).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&d.Flows).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Col(&d.Key).Size(255)
 	t.Col(&d.Key).Index()
 	// Across the deleted rows: a version number, once used, must never be

@@ -3882,7 +3882,7 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 11:
 			args = append(args, n.row.LockExpires.Arg())
 		case 12:
-			args = append(args, n.row.Payload)
+			args = append(args, n.row.Payload.OrNull())
 		case 13:
 			args = append(args, n.row.Retries)
 		case 14:
@@ -3945,7 +3945,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.Status)
 	args = append(args, r.LockedBy.Arg())
 	args = append(args, r.LockExpires.Arg())
-	args = append(args, r.Payload)
+	args = append(args, r.Payload.OrNull())
 	args = append(args, r.Retries)
 	args = append(args, r.MaxRetries)
 	args = append(args, r.RepeatsRemaining)
@@ -4103,7 +4103,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.Status)
 	args = append(args, r.LockedBy.Arg())
 	args = append(args, r.LockExpires.Arg())
-	args = append(args, r.Payload)
+	args = append(args, r.Payload.OrNull())
 	args = append(args, r.Retries)
 	args = append(args, r.MaxRetries)
 	args = append(args, r.RepeatsRemaining)
@@ -4168,7 +4168,7 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 11:
 			args = append(args, n.row.LockExpires.Arg())
 		case 12:
-			args = append(args, n.row.Payload)
+			args = append(args, n.row.Payload.OrNull())
 		case 13:
 			args = append(args, n.row.Retries)
 		case 14:
@@ -4257,7 +4257,7 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 9:
 			args = append(args, m.row.LockExpires.Arg())
 		case 10:
-			args = append(args, m.row.Payload)
+			args = append(args, m.row.Payload.OrNull())
 		case 11:
 			args = append(args, m.row.Retries)
 		case 12:
@@ -4391,7 +4391,7 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 9:
 			args = append(args, m.row.LockExpires.Arg())
 		case 10:
-			args = append(args, m.row.Payload)
+			args = append(args, m.row.Payload.OrNull())
 		case 11:
 			args = append(args, m.row.Retries)
 		case 12:
@@ -4563,7 +4563,7 @@ func (m Mut) updateArgs(args []any) []any {
 		case 9:
 			args = append(args, m.row.LockExpires.Arg())
 		case 10:
-			args = append(args, m.row.Payload)
+			args = append(args, m.row.Payload.OrNull())
 		case 11:
 			args = append(args, m.row.Retries)
 		case 12:
@@ -4925,7 +4925,7 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 9:
 				args = append(args, m.row.LockExpires.Arg())
 			case 10:
-				args = append(args, m.row.Payload)
+				args = append(args, m.row.Payload.OrNull())
 			case 11:
 				args = append(args, m.row.Retries)
 			case 12:

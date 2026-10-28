@@ -37,6 +37,14 @@ type Webhook struct {
 }
 
 func (w *Webhook) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&w.Name).FillNulls(blank)
+	t.Col(&w.Token).FillNulls(blank)
+	t.Col(&w.Secret).FillNulls(blank)
+	t.Col(&w.SignatureHeader).FillNulls(blank)
+	t.Col(&w.MessageName).FillNulls(blank)
+	t.Col(&w.Enabled).FillNulls(no)
 	t.Col(&w.Name).Size(255)
 	t.Col(&w.Token).Size(64)
 	// Across the deleted rows: the token is a credential. Freeing a deleted

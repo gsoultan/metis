@@ -38,6 +38,16 @@ type DecisionDefinition struct {
 }
 
 func (d *DecisionDefinition) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&d.Key).FillNulls(blank)
+	t.Col(&d.Name).FillNulls(blank)
+	t.Col(&d.HitPolicy).FillNulls(blank)
+	t.Col(&d.RequiredDecisions).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&d.Inputs).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&d.Outputs).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&d.Rules).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&d.Tests).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Col(&d.Key).Size(255)
 	t.Col(&d.Key).Index()
 	// Across the deleted rows, for the same reason process definitions are: a

@@ -4905,9 +4905,9 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 11:
 			args = append(args, n.row.Assignee.Arg())
 		case 12:
-			args = append(args, n.row.CandidateUsers)
+			args = append(args, n.row.CandidateUsers.OrNull())
 		case 13:
-			args = append(args, n.row.CandidateGroups)
+			args = append(args, n.row.CandidateGroups.OrNull())
 		case 14:
 			args = append(args, n.row.Owner.Arg())
 		case 15:
@@ -4974,8 +4974,8 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.Type)
 	args = append(args, r.Status)
 	args = append(args, r.Assignee.Arg())
-	args = append(args, r.CandidateUsers)
-	args = append(args, r.CandidateGroups)
+	args = append(args, r.CandidateUsers.OrNull())
+	args = append(args, r.CandidateGroups.OrNull())
 	args = append(args, r.Owner.Arg())
 	args = append(args, r.DelegationState.Arg())
 	args = append(args, r.Priority)
@@ -5144,8 +5144,8 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.Type)
 	args = append(args, r.Status)
 	args = append(args, r.Assignee.Arg())
-	args = append(args, r.CandidateUsers)
-	args = append(args, r.CandidateGroups)
+	args = append(args, r.CandidateUsers.OrNull())
+	args = append(args, r.CandidateGroups.OrNull())
 	args = append(args, r.Owner.Arg())
 	args = append(args, r.DelegationState.Arg())
 	args = append(args, r.Priority)
@@ -5212,9 +5212,9 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 11:
 			args = append(args, n.row.Assignee.Arg())
 		case 12:
-			args = append(args, n.row.CandidateUsers)
+			args = append(args, n.row.CandidateUsers.OrNull())
 		case 13:
-			args = append(args, n.row.CandidateGroups)
+			args = append(args, n.row.CandidateGroups.OrNull())
 		case 14:
 			args = append(args, n.row.Owner.Arg())
 		case 15:
@@ -5307,9 +5307,9 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 9:
 			args = append(args, m.row.Assignee.Arg())
 		case 10:
-			args = append(args, m.row.CandidateUsers)
+			args = append(args, m.row.CandidateUsers.OrNull())
 		case 11:
-			args = append(args, m.row.CandidateGroups)
+			args = append(args, m.row.CandidateGroups.OrNull())
 		case 12:
 			args = append(args, m.row.Owner.Arg())
 		case 13:
@@ -5445,9 +5445,9 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 9:
 			args = append(args, m.row.Assignee.Arg())
 		case 10:
-			args = append(args, m.row.CandidateUsers)
+			args = append(args, m.row.CandidateUsers.OrNull())
 		case 11:
-			args = append(args, m.row.CandidateGroups)
+			args = append(args, m.row.CandidateGroups.OrNull())
 		case 12:
 			args = append(args, m.row.Owner.Arg())
 		case 13:
@@ -5622,9 +5622,9 @@ func (m Mut) updateArgs(args []any) []any {
 		case 9:
 			args = append(args, m.row.Assignee.Arg())
 		case 10:
-			args = append(args, m.row.CandidateUsers)
+			args = append(args, m.row.CandidateUsers.OrNull())
 		case 11:
-			args = append(args, m.row.CandidateGroups)
+			args = append(args, m.row.CandidateGroups.OrNull())
 		case 12:
 			args = append(args, m.row.Owner.Arg())
 		case 13:
@@ -5853,9 +5853,9 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 9:
 				args = append(args, m.row.Assignee.Arg())
 			case 10:
-				args = append(args, m.row.CandidateUsers)
+				args = append(args, m.row.CandidateUsers.OrNull())
 			case 11:
-				args = append(args, m.row.CandidateGroups)
+				args = append(args, m.row.CandidateGroups.OrNull())
 			case 12:
 				args = append(args, m.row.Owner.Arg())
 			case 13:

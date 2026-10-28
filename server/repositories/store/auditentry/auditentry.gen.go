@@ -31,7 +31,7 @@ type Row struct {
 	Message    string
 	Narrative  runtime.Null[string]
 	Data       runtime.JSON
-	Seq        runtime.Null[int64]
+	Seq        int64
 	Actor      runtime.Null[string]
 	DeletedAt  runtime.Null[time.Time]
 }
@@ -265,7 +265,7 @@ func (q *Query) cursor(col uint32, r Row) {
 			q.over = true
 			return
 		}
-		q.nums[q.nn] = int64(r.Seq.V)
+		q.nums[q.nn] = int64(r.Seq)
 		q.nn++
 	case 12:
 		if int(q.ns) >= len(q.strs) {
@@ -457,7 +457,7 @@ var (
 	Message    = TextCol{8}
 	Narrative  = NullTextCol{9}
 	Data       = JSONCol{10}
-	Seq        = NullInt64Col{11}
+	Seq        = Int64Col{11}
 	Actor      = NullTextCol{12}
 	DeletedAt  = NullTimeCol{13}
 )
@@ -597,34 +597,30 @@ func (h JSONCol) TextLikeAny(v ...string) Pred {
 }
 func (h JSONCol) IsEmpty() Pred { return Pred{col: h.c, op: opJSONIsEmpty} }
 
-// NullInt64Col addresses a int8 column.
-type NullInt64Col struct{ c uint8 }
+// Int64Col addresses a int8 column.
+type Int64Col struct{ c uint8 }
 
-func (h NullInt64Col) Asc() Sort  { return Sort(runtime.MakeOrder(runtime.Asc, uint32(h.c))) }
-func (h NullInt64Col) Desc() Sort { return Sort(runtime.MakeOrder(runtime.Desc, uint32(h.c))) }
-func (h NullInt64Col) AscNullsFirst() Sort {
+func (h Int64Col) Asc() Sort  { return Sort(runtime.MakeOrder(runtime.Asc, uint32(h.c))) }
+func (h Int64Col) Desc() Sort { return Sort(runtime.MakeOrder(runtime.Desc, uint32(h.c))) }
+func (h Int64Col) AscNullsFirst() Sort {
 	return Sort(runtime.MakeOrder(runtime.AscNullsFirst, uint32(h.c)))
 }
-func (h NullInt64Col) DescNullsLast() Sort {
+func (h Int64Col) DescNullsLast() Sort {
 	return Sort(runtime.MakeOrder(runtime.DescNullsLast, uint32(h.c)))
 }
 
-func (h NullInt64Col) Eq(v int64) Pred    { return Pred{col: h.c, op: opEq, num: int64(v)} }
-func (h NullInt64Col) NotEq(v int64) Pred { return Pred{col: h.c, op: opNotEq, num: int64(v)} }
-func (h NullInt64Col) Gt(v int64) Pred    { return Pred{col: h.c, op: opGt, num: int64(v)} }
-func (h NullInt64Col) Gte(v int64) Pred   { return Pred{col: h.c, op: opGte, num: int64(v)} }
-func (h NullInt64Col) Lt(v int64) Pred    { return Pred{col: h.c, op: opLt, num: int64(v)} }
-func (h NullInt64Col) Lte(v int64) Pred   { return Pred{col: h.c, op: opLte, num: int64(v)} }
-func (h NullInt64Col) In(v ...int64) Pred { return Pred{col: h.c, op: opIn, anyI64: runtime.List(v)} }
+func (h Int64Col) Eq(v int64) Pred    { return Pred{col: h.c, op: opEq, num: int64(v)} }
+func (h Int64Col) NotEq(v int64) Pred { return Pred{col: h.c, op: opNotEq, num: int64(v)} }
+func (h Int64Col) Gt(v int64) Pred    { return Pred{col: h.c, op: opGt, num: int64(v)} }
+func (h Int64Col) Gte(v int64) Pred   { return Pred{col: h.c, op: opGte, num: int64(v)} }
+func (h Int64Col) Lt(v int64) Pred    { return Pred{col: h.c, op: opLt, num: int64(v)} }
+func (h Int64Col) Lte(v int64) Pred   { return Pred{col: h.c, op: opLte, num: int64(v)} }
+func (h Int64Col) In(v ...int64) Pred { return Pred{col: h.c, op: opIn, anyI64: runtime.List(v)} }
 
 // NotIn is `<> ALL($1)`. A NULL anywhere in v makes the
 // comparison NULL for every row and the result empty —
 // PostgreSQL's rule for NOT IN, not storm's.
-func (h NullInt64Col) NotIn(v ...int64) Pred {
-	return Pred{col: h.c, op: opNotIn, anyI64: runtime.List(v)}
-}
-func (h NullInt64Col) IsNull() Pred    { return Pred{col: h.c, op: opIsNull} }
-func (h NullInt64Col) IsNotNull() Pred { return Pred{col: h.c, op: opIsNotNull} }
+func (h Int64Col) NotIn(v ...int64) Pred { return Pred{col: h.c, op: opNotIn, anyI64: runtime.List(v)} }
 
 // NullTimeCol addresses a timestamptz column.
 type NullTimeCol struct{ c uint8 }
@@ -1079,8 +1075,6 @@ func (q Query) SeqLt(v int64) Query                  { return q.Where(Seq.Lt(v))
 func (q Query) SeqLte(v int64) Query                 { return q.Where(Seq.Lte(v)) }
 func (q Query) SeqIn(v ...int64) Query               { return q.Where(Seq.In(v...)) }
 func (q Query) SeqNotIn(v ...int64) Query            { return q.Where(Seq.NotIn(v...)) }
-func (q Query) SeqIsNull() Query                     { return q.Where(Seq.IsNull()) }
-func (q Query) SeqIsNotNull() Query                  { return q.Where(Seq.IsNotNull()) }
 func (q Query) ActorEq(v string) Query               { return q.Where(Actor.Eq(v)) }
 func (q Query) ActorNotEq(v string) Query            { return q.Where(Actor.NotEq(v)) }
 func (q Query) ActorGt(v string) Query               { return q.Where(Actor.Gt(v)) }
@@ -1671,8 +1665,8 @@ var fragTable = [14][31]runtime.Frag{
 		{},
 		{},
 		{},
-		{A: "\"seq\" IS NULL", B: ""},
-		{A: "\"seq\" IS NOT NULL", B: ""},
+		{},
+		{},
 		{},
 		{},
 		{},
@@ -2007,7 +2001,7 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 	r.Message = sl.Str(rv[8])
 	r.Narrative = runtime.NullText(rv[9], sl)
 	r.Data = runtime.JSON(runtime.JSONB(rv[10], sl))
-	r.Seq = runtime.Nullable(rv[11], runtime.Int8)
+	r.Seq = runtime.Int8(rv[11])
 	r.Actor = runtime.NullText(rv[12], sl)
 	r.DeletedAt = runtime.Nullable(rv[13], runtime.Timestamptz)
 	return nil
@@ -2332,7 +2326,7 @@ type VisitsRow struct {
 	FirstSeq runtime.Null[int64]
 }
 
-const visitsPrefix = `SELECT "node_id" AS "node_id", count(*) AS "visits", min("created_at") AS "first_at", (array_agg("seq" ORDER BY "created_at", "seq" NULLS FIRST))[1] AS "first_seq" FROM "audit_logs"`
+const visitsPrefix = `SELECT "node_id" AS "node_id", count(*) AS "visits", min("created_at") AS "first_at", (array_agg("seq" ORDER BY "created_at", "seq"))[1] AS "first_seq" FROM "audit_logs"`
 const visitsSuffix = ` GROUP BY "node_id" ORDER BY "node_id"`
 
 var (
@@ -2473,6 +2467,26 @@ var exprFrags = [nUpdatable]runtime.Frag{
 	{A: "\"seq\" = \"seq\" + 1", B: ""},  // seq = its own value plus one
 	{},                                   // actor has no server-side form
 	{A: "\"deleted_at\" = now()", B: ""}, // deleted_at = the database's clock
+}
+
+// addFrags adds a bound amount to a counter's own value. A column set
+// this way carries BOTH its dirty and its expr bit — a pair no setter
+// can otherwise produce, because each clears the other's — so the
+// statement key needs no third mask. A zero Frag means the column
+// cannot be added to.
+var addFrags = [nUpdatable]runtime.Frag{
+	{},                                  // updated_at cannot be added to
+	{},                                  // project_id cannot be added to
+	{},                                  // instance_id cannot be added to
+	{},                                  // type cannot be added to
+	{},                                  // node_id cannot be added to
+	{},                                  // node_name cannot be added to
+	{},                                  // message cannot be added to
+	{},                                  // narrative cannot be added to
+	{},                                  // data cannot be added to
+	{A: "\"seq\" = \"seq\" + $", B: ""}, // seq = its own value plus an amount
+	{},                                  // actor cannot be added to
+	{},                                  // deleted_at cannot be added to
 }
 
 // pkFrags addresses one row.
@@ -2683,7 +2697,7 @@ func (m *Mut) SetData(v runtime.JSON) {
 }
 
 func (m *Mut) SetSeq(v int64) {
-	m.row.Seq = runtime.Null[int64]{V: v, Valid: true}
+	m.row.Seq = v
 	m.dirty |= dSeq
 	m.expr &^= dSeq
 }
@@ -2698,12 +2712,15 @@ func (m *Mut) IncSeq() {
 	m.dirty &^= dSeq
 }
 
-// SetSeqNull writes SQL NULL. It is a separate method because a
-// zero value and an absent value are different facts.
-func (m *Mut) SetSeqNull() {
-	m.row.Seq = runtime.Null[int64]{}
+// AddSeq adds n to the column's OWN value, in the database, for
+// the same reason IncSeq does. It replaces any other assignment
+// to the column staged on m, as every setter does.
+//
+// Until the write, Row() holds n, not the column's value.
+func (m *Mut) AddSeq(n int64) {
+	m.row.Seq = n
 	m.dirty |= dSeq
-	m.expr &^= dSeq
+	m.expr |= dSeq
 }
 
 func (m *Mut) SetActor(v string) {
@@ -2762,6 +2779,10 @@ type Ins struct {
 	// — which is the right default: silently updating a row you meant to
 	// create is a data-loss bug that looks like success.
 	conflict uint8
+
+	// add marks the assigned columns an upsert ACCUMULATES into rather
+	// than overwrites. Part of the statement key, beside the mask.
+	add uint64
 }
 
 // Create stages a new row.
@@ -2847,15 +2868,24 @@ func (n *Ins) SetData(v runtime.JSON) {
 }
 
 func (n *Ins) SetSeq(v int64) {
-	n.row.Seq = runtime.Null[int64]{V: v, Valid: true}
+	n.row.Seq = v
 	n.set |= iSeq
+	n.add &^= iSeq
 }
 
-// SetSeqNull writes SQL NULL explicitly, which is not the same as
-// leaving the column unset and taking its default.
-func (n *Ins) SetSeqNull() {
-	n.row.Seq = runtime.Null[int64]{}
+// AddSeqOnConflict inserts v, or — when the insert conflicts and an
+// OnConflict… target updates the row already there — ADDS v to it:
+//
+//	"seq" = "audit_logs"."seq" + EXCLUDED."seq"
+//
+// The sum is the database's, in the same statement, so two writers
+// counting into one row both land. Reading the row, adding in Go and
+// upserting the total loses one of them, with nothing to show it.
+// Without an OnConflict target, or with DoNothing, it is SetSeq.
+func (n *Ins) AddSeqOnConflict(v int64) {
+	n.row.Seq = v
 	n.set |= iSeq
+	n.add |= iSeq
 }
 
 func (n *Ins) SetActor(v string) {
@@ -2899,7 +2929,11 @@ const conflictAny = 1
 // columns the caller ASSIGNED. Assigning every column would revert
 // each one the caller left out to its default, on the row that
 // already exists — a silent data loss that reads as an upsert working.
-func upsertTail(conflict uint8, mask uint64) string {
+//
+// add marks the assigned columns that ACCUMULATE instead: the row
+// that already exists keeps its value plus the one this insert
+// carried. See the Add…OnConflict setters.
+func upsertTail(conflict uint8, mask uint64, add uint64) string {
 	if conflict == conflictAny {
 		return " ON CONFLICT DO NOTHING"
 	}
@@ -2913,7 +2947,7 @@ func upsertTail(conflict uint8, mask uint64) string {
 		// SQL, and leaving the row alone is what the caller asked for.
 		return spec + " DO NOTHING"
 	}
-	return spec + " DO UPDATE SET " + joinAssign(set)
+	return spec + " DO UPDATE SET " + joinAssign(set, add)
 }
 
 // conflictSpecs is one inference specification per target, in
@@ -3002,15 +3036,31 @@ func (n *Ins) DoNothing() *Ins {
 
 // joinAssign renders the DO UPDATE SET list for the columns the caller
 // assigned. The punctuation comes from the back end, never from here.
-func joinAssign(set []string) string {
+func joinAssign(set []string, add uint64) string {
 	out := ""
 	for i, c := range set {
 		if i > 0 {
 			out += ", "
 		}
+		if a, ok := assignAdded(c, add); ok {
+			out += a
+			continue
+		}
 		out += assignExcluded(c)
 	}
 	return out
+}
+
+// assignAdded is the accumulating assignment for column c, when the
+// caller asked for one: the existing row's value plus the rejected
+// row's, added by the database in the same statement, so two
+// concurrent upserts both land rather than one overwriting the other.
+func assignAdded(c string, add uint64) (string, bool) {
+	switch c {
+	case "seq":
+		return "\"seq\" = \"audit_logs\".\"seq\" + EXCLUDED.\"seq\"", add&iSeq != 0
+	}
+	return "", false
 }
 
 var assignFor = map[string]string{
@@ -3030,11 +3080,18 @@ var assignFor = map[string]string{
 
 func assignExcluded(c string) string { return assignFor[c] }
 
-func stmtForInsert(mask uint64, conflict uint8) *runtime.Stmt {
+func stmtForInsert(mask uint64, conflict uint8, add uint64) *runtime.Stmt {
 	// The conflict clause is part of the statement, so it must be part of
 	// the key. Packing it above the column bits keeps one cache for both.
 	key := mask | uint64(conflict)<<nInsertable
-	if st := insCache.Get(runtime.MaskKey{Dirty: key}); st != nil {
+	// Accumulating only means something in a DO UPDATE (an even code
+	// from 2): anywhere else it is an ordinary insert of the value, and
+	// keying it apart would compile the same statement twice.
+	if conflict < 2 || conflict%2 == 1 {
+		add = 0
+	}
+	add &= mask
+	if st := insCache.Get(runtime.MaskKey{Dirty: key, Expr: add}); st != nil {
 		return st
 	}
 	cols := make([]string, 0, nInsertable)
@@ -3045,9 +3102,9 @@ func stmtForInsert(mask uint64, conflict uint8) *runtime.Stmt {
 	}
 	suffix := insReturning
 	if conflict > 0 {
-		suffix = upsertTail(conflict, mask) + insReturning
+		suffix = upsertTail(conflict, mask, add) + insReturning
 	}
-	return insCache.Put(runtime.MaskKey{Dirty: key}, runtime.SpliceInsertWith(insPrefix, insParts, cols, insPlaceholder, suffix))
+	return insCache.Put(runtime.MaskKey{Dirty: key, Expr: add}, runtime.SpliceInsertWith(insPrefix, insParts, cols, insPlaceholder, suffix))
 }
 
 // Insert writes the assigned columns and reads every column back, so
@@ -3057,7 +3114,7 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 	if n.set == 0 {
 		return Row{}, runtime.ErrNothingAssigned
 	}
-	st := stmtForInsert(n.set, n.conflict)
+	st := stmtForInsert(n.set, n.conflict, n.add)
 	if st.Err != nil {
 		// A malformed token stream is a code-generation bug. Executing it
 		// would run a query whose filter is not the one that was asked for.
@@ -3090,9 +3147,9 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 9:
 			args = append(args, n.row.Narrative.Arg())
 		case 10:
-			args = append(args, n.row.Data)
+			args = append(args, n.row.Data.OrNull())
 		case 11:
-			args = append(args, n.row.Seq.Arg())
+			args = append(args, n.row.Seq)
 		case 12:
 			args = append(args, n.row.Actor.Arg())
 		case 13:
@@ -3145,8 +3202,8 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.NodeName.Arg())
 	args = append(args, r.Message)
 	args = append(args, r.Narrative.Arg())
-	args = append(args, r.Data)
-	args = append(args, r.Seq.Arg())
+	args = append(args, r.Data.OrNull())
+	args = append(args, r.Seq)
 	args = append(args, r.Actor.Arg())
 	args = append(args, r.DeletedAt.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
@@ -3224,7 +3281,7 @@ func (s *rowSource) Values() []any {
 	s.buf[8] = &r.Message
 	s.buf[9] = r.Narrative.Ptr()
 	s.buf[10] = &r.Data
-	s.buf[11] = r.Seq.Ptr()
+	s.buf[11] = &r.Seq
 	s.buf[12] = r.Actor.Ptr()
 	s.buf[13] = r.DeletedAt.Ptr()
 	return s.buf[:]
@@ -3271,7 +3328,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	mask |= 1 << 11
 	mask |= 1 << 12
 	mask |= 1 << 13
-	st := stmtForInsertNoReturn(mask, 0)
+	st := stmtForInsertNoReturn(mask, 0, 0)
 	args := make([]any, 0, 14)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
@@ -3283,8 +3340,8 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.NodeName.Arg())
 	args = append(args, r.Message)
 	args = append(args, r.Narrative.Arg())
-	args = append(args, r.Data)
-	args = append(args, r.Seq.Arg())
+	args = append(args, r.Data.OrNull())
+	args = append(args, r.Seq)
 	args = append(args, r.Actor.Arg())
 	args = append(args, r.DeletedAt.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
@@ -3310,7 +3367,7 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 	if n.set == 0 {
 		return runtime.BatchOp{}, runtime.ErrNothingAssigned
 	}
-	st := stmtForInsertNoReturn(n.set, n.conflict)
+	st := stmtForInsertNoReturn(n.set, n.conflict, n.add)
 	if st.Err != nil {
 		return runtime.BatchOp{}, st.Err
 	}
@@ -3341,9 +3398,9 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 9:
 			args = append(args, n.row.Narrative.Arg())
 		case 10:
-			args = append(args, n.row.Data)
+			args = append(args, n.row.Data.OrNull())
 		case 11:
-			args = append(args, n.row.Seq.Arg())
+			args = append(args, n.row.Seq)
 		case 12:
 			args = append(args, n.row.Actor.Arg())
 		case 13:
@@ -3356,9 +3413,18 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 // stmtForInsertNoReturn is stmtForInsert without RETURNING, for the
 // batch path. Its own cache: the two differ by a suffix, and sharing
 // one would hand a batch the statement that asks for rows back.
-func stmtForInsertNoReturn(mask uint64, conflict uint8) *runtime.Stmt {
+func stmtForInsertNoReturn(mask uint64, conflict uint8, add uint64) *runtime.Stmt {
+	// The conflict clause is part of the statement, so it must be part of
+	// the key. Packing it above the column bits keeps one cache for both.
 	key := mask | uint64(conflict)<<nInsertable
-	if st := insOpCache.Get(runtime.MaskKey{Dirty: key}); st != nil {
+	// Accumulating only means something in a DO UPDATE (an even code
+	// from 2): anywhere else it is an ordinary insert of the value, and
+	// keying it apart would compile the same statement twice.
+	if conflict < 2 || conflict%2 == 1 {
+		add = 0
+	}
+	add &= mask
+	if st := insOpCache.Get(runtime.MaskKey{Dirty: key, Expr: add}); st != nil {
 		return st
 	}
 	cols := make([]string, 0, nInsertable)
@@ -3369,9 +3435,9 @@ func stmtForInsertNoReturn(mask uint64, conflict uint8) *runtime.Stmt {
 	}
 	suffix := ""
 	if conflict > 0 {
-		suffix = upsertTail(conflict, mask)
+		suffix = upsertTail(conflict, mask, add)
 	}
-	return insOpCache.Put(runtime.MaskKey{Dirty: key}, runtime.SpliceInsertWith(insPrefix, insParts, cols, insPlaceholder, suffix))
+	return insOpCache.Put(runtime.MaskKey{Dirty: key, Expr: add}, runtime.SpliceInsertWith(insPrefix, insParts, cols, insPlaceholder, suffix))
 }
 
 // UpdateOp is this Mut's update as a queueable statement.
@@ -3411,9 +3477,9 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 7:
 			args = append(args, m.row.Narrative.Arg())
 		case 8:
-			args = append(args, m.row.Data)
+			args = append(args, m.row.Data.OrNull())
 		case 9:
-			args = append(args, m.row.Seq.Arg())
+			args = append(args, m.row.Seq)
 		case 10:
 			args = append(args, m.row.Actor.Arg())
 		case 11:
@@ -3466,6 +3532,8 @@ func stmtForKey(k runtime.MaskKey, ret bool) *runtime.Stmt {
 		// An expression wins: a column set both ways cannot happen,
 		// because each setter clears the other's bit.
 		switch {
+		case k.Expr&k.Dirty&(1<<uint(i)) != 0:
+			set = append(set, addFrags[i])
 		case k.Expr&(1<<uint(i)) != 0:
 			set = append(set, exprFrags[i])
 		case k.Dirty&(1<<uint(i)) != 0:
@@ -3531,9 +3599,9 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 7:
 			args = append(args, m.row.Narrative.Arg())
 		case 8:
-			args = append(args, m.row.Data)
+			args = append(args, m.row.Data.OrNull())
 		case 9:
-			args = append(args, m.row.Seq.Arg())
+			args = append(args, m.row.Seq)
 		case 10:
 			args = append(args, m.row.Actor.Arg())
 		case 11:
@@ -3692,9 +3760,9 @@ func (m Mut) updateArgs(args []any) []any {
 		case 7:
 			args = append(args, m.row.Narrative.Arg())
 		case 8:
-			args = append(args, m.row.Data)
+			args = append(args, m.row.Data.OrNull())
 		case 9:
-			args = append(args, m.row.Seq.Arg())
+			args = append(args, m.row.Seq)
 		case 10:
 			args = append(args, m.row.Actor.Arg())
 		case 11:
@@ -3735,6 +3803,8 @@ func updHead(k runtime.MaskKey) *runtime.Stmt {
 	set := make([]runtime.Frag, 0, nUpdatable+1)
 	for i := 0; i < nUpdatable; i++ {
 		switch {
+		case k.Expr&k.Dirty&(1<<uint(i)) != 0:
+			set = append(set, addFrags[i])
 		case k.Expr&(1<<uint(i)) != 0:
 			set = append(set, exprFrags[i])
 		case k.Dirty&(1<<uint(i)) != 0:
@@ -3905,9 +3975,9 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 7:
 				args = append(args, m.row.Narrative.Arg())
 			case 8:
-				args = append(args, m.row.Data)
+				args = append(args, m.row.Data.OrNull())
 			case 9:
-				args = append(args, m.row.Seq.Arg())
+				args = append(args, m.row.Seq)
 			case 10:
 				args = append(args, m.row.Actor.Arg())
 			case 11:

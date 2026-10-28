@@ -62,6 +62,15 @@ type ProcessInstance struct {
 }
 
 func (i *ProcessInstance) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&i.Status).FillNulls(blank)
+	t.Col(&i.Variables).FillNulls(blank)
+	t.Col(&i.Tokens).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&i.CompletedNodes).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&i.CompensatedNodes).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&i.MultiInstance).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&i.JoinArrivals).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Col(&i.Status).Size(32)
 	t.Col(&i.Status).Index()
 	// Self-referential: a sub-process instance names the one that called it.
@@ -73,6 +82,9 @@ func (i *ProcessInstance) Schema(t *storm.Table) {
 	t.Col(&i.JoinArrivals).Named("joins")
 	// A project's instances of one case, which the instance list searches by.
 	t.Index(&i.Project, &i.BusinessKey).Named("ix_process_instances_business_key")
+	// The instance list: newest first, in every state and in one.
+	t.Index(&i.Project, storm.Desc(&i.CreatedAt)).Named("ix_process_instances_project_created")
+	t.Index(&i.Project, &i.Status, storm.Desc(&i.CreatedAt)).Named("ix_process_instances_project_status")
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&i.DeletedAt)

@@ -53,6 +53,12 @@ type Job struct {
 }
 
 func (j *Job) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&j.NodeID).FillNulls(blank)
+	t.Col(&j.Type).FillNulls(blank)
+	t.Col(&j.Status).FillNulls(blank)
+	t.Col(&j.Payload).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Col(&j.Organization).NoIndex().AcknowledgeNoFK("the claim must not be held up by an organization's row")
 	t.Col(&j.NodeID).Size(255)
 	t.Col(&j.Type).Size(64)
@@ -62,6 +68,8 @@ func (j *Job) Schema(t *storm.Table) {
 	t.Col(&j.Retries).IncWhen(&j.Status)
 	// The claim query's index: the predicate and the order in one.
 	t.Index(&j.Status, &j.NextRunAt)
+	// The sweeps that ask what is due regardless of state.
+	t.Index(&j.NextRunAt).Named("idx_jobs_next_run_at")
 	// The fair claim's: each organization's due jobs, oldest first, as one
 	// range.
 	t.Index(&j.Status, &j.Organization, &j.NextRunAt).Named("ix_jobs_claim_by_organization")

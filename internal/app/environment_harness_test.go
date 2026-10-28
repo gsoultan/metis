@@ -39,10 +39,10 @@ type environmentHarness struct {
 
 func newEnvironmentHarness(t *testing.T) *environmentHarness {
 	t.Helper()
-	gormDB, conn := testutils.SetupTestStore(t)
+	_, conn := testutils.SetupTestStore(t)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
-	a := &App{db: gormDB, storm: conn, repo: repo, sse: sse,
+	a := &App{storm: conn, repo: repo, sse: sse,
 		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "environment-test", nil, nil, nil)}
 
 	ctx := entities.WithSystemContext(t.Context())
@@ -166,7 +166,7 @@ func createDatabase(t *testing.T, name string) {
 	if err != nil {
 		t.Fatalf("open the maintenance connection: %v", err)
 	}
-	t.Cleanup(func() { closeDB(admin) })
+	t.Cleanup(func() { closeGorm(admin) })
 	if err := admin.Exec("CREATE DATABASE " + name).Error; err != nil {
 		t.Fatalf("create %s: %v", name, err)
 	}
@@ -194,7 +194,7 @@ func behindTheServer(t *testing.T, database string) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open %s: %v", database, err)
 	}
-	t.Cleanup(func() { closeDB(conn) })
+	t.Cleanup(func() { closeGorm(conn) })
 	return conn
 }
 
@@ -274,3 +274,10 @@ func within(t *testing.T, limit time.Duration, why string, done func() bool) {
 
 // startLimit is how long an environment may take to be served once it can be.
 const startLimit = 30 * time.Second
+
+// closeGorm lets go of a test's own connection.
+func closeGorm(conn *gorm.DB) {
+	if sqlDB, err := conn.DB(); err == nil {
+		_ = sqlDB.Close()
+	}
+}

@@ -32,6 +32,11 @@ type Incident struct {
 }
 
 func (i *Incident) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&i.NodeID).FillNulls(blank)
+	t.Col(&i.Error).FillNulls(blank)
+	t.Col(&i.Status).FillNulls(blank)
 	t.Col(&i.NodeID).Size(255)
 	t.Col(&i.Status).Size(32)
 	t.Col(&i.Status).Index()

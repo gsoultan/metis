@@ -12,7 +12,9 @@ import (
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/migrations"
-	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/organization"
+	"github.com/gsoultan/storm/runtime/pgxdrv"
+	pgschema "github.com/gsoultan/storm/schema/pg"
 )
 
 // A saved environment row is enough to open and migrate its database.
@@ -21,42 +23,52 @@ import (
 // server can serve: the row names a driver and a database, and nothing else has
 // to be configured for that runtime to exist.
 func TestAnEnvironmentRowOpensAndMigratesItsDatabase(t *testing.T) {
-	db, err := gorms.Open("postgres", environmentDSN(t))
+	ctx := entities.WithSystemContext(t.Context())
+	pool, err := db.NewPool(ctx, config.PostgresURL(environmentDSN(t)))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	t.Cleanup(func() {
-		if sqlDB, err := db.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-	})
+	t.Cleanup(pool.Close)
 
 	// Opening does not contact the database; asking it something does.
-	if err := gorms.Ping(db); err != nil {
+	if err := pool.Ping(ctx); err != nil {
 		t.Fatalf("ping: %v", err)
 	}
 
-	ctx := entities.WithSystemContext(t.Context())
-	result, err := migrations.Run(ctx, db, migrations.Schema(models.MigrationModels()))
+	result, err := migrations.Run(ctx, pool, migrations.Steps())
 	if err != nil {
 		t.Fatalf("migrate the environment database: %v", err)
 	}
-	if len(result.Applied) == 0 {
-		t.Fatal("a fresh environment database should have had migrations applied")
+	if !result.Created {
+		t.Fatal("a fresh environment database should have been created")
 	}
 
 	// The runtime tables are what an environment holds.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("borrow a connection: %v", err)
+	}
+	live, err := pgschema.Introspect(ctx, conn.Conn(), db.Namespace(pool))
+	conn.Release()
+	if err != nil {
+		t.Fatalf("read the schema: %v", err)
+	}
+	have := map[string]bool{}
+	for _, table := range live.Tables {
+		have[table.Name] = true
+	}
 	for _, table := range []string{"process_definitions", "process_instances", "tasks", "jobs"} {
-		if !db.Migrator().HasTable(table) {
+		if !have[table] {
 			t.Errorf("an environment database needs %s", table)
 		}
 	}
 
 	// And it is genuinely a different database: writing here leaves the main
 	// one alone, which is the whole guarantee.
-	if err := db.Create(&models.OrganizationModel{
-		Base: models.Base{ID: models.FromUUID(uuid.Must(uuid.NewV7()))}, Name: "only here",
-	}).Error; err != nil {
+	org := organization.Create()
+	org.SetID(uuid.Must(uuid.NewV7()))
+	org.SetName("only here")
+	if _, err := org.Insert(ctx, pgxdrv.Pool{P: pool}); err != nil {
 		t.Fatalf("write to the environment database: %v", err)
 	}
 }

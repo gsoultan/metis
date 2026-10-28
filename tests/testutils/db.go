@@ -13,8 +13,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/migrations"
-	"github.com/gsoultan/metis/server/repositories/model"
-	"github.com/gsoultan/storm"
 	"gorm.io/gorm"
 )
 
@@ -105,22 +103,15 @@ func setupTestSchema(t *testing.T) (*gorm.DB, *db.Conn) {
 		}
 	})
 
-	if err := gormDB.AutoMigrate(migrationModels()...); err != nil {
-		t.Fatalf("failed to migrate db: %v", err)
-	}
-	ensureVersionIndexes(t, gormDB)
-	ensureAuditWriteOrder(t, gormDB)
-	if err := migrations.EnsureRolesJSONB(context.Background(), gormDB); err != nil {
-		t.Fatalf("failed to make roles jsonb: %v", err)
-	}
-
 	conn, err := db.Open(context.Background(), stormDSN(dsn, namespace))
 	if err != nil {
 		t.Fatalf("open the storm connection: %v", err)
 	}
 	t.Cleanup(conn.Close)
-	if err := createStormTables(t, conn); err != nil {
-		t.Fatalf("create the storm tables: %v", err)
+	// The schema every installation is created with, through the same
+	// runner the application boots with.
+	if _, err := migrations.Run(context.Background(), conn.Main(), nil); err != nil {
+		t.Fatalf("create the schema: %v", err)
 	}
 	stormConns.Store(gormDB, conn)
 	t.Cleanup(func() { stormConns.Delete(gormDB) })
@@ -154,45 +145,6 @@ func sslModeOr(mode string) string {
 	}
 	return mode
 }
-func ensureVersionIndexes(t *testing.T, db *gorm.DB) {
-	t.Helper()
-	if err := migrations.EnsureVersionIndexes(db, migrationModels()); err != nil {
-		t.Fatalf("failed to create version indexes: %v", err)
-	}
-}
-
-// ensureAuditWriteOrder gives the audit table the sequence migration 28 puts
-// behind audit_logs.seq. AutoMigrate creates the column and not the sequence,
-// and a trail read without it would come back in storage order — the defect
-// the migration closes.
-func ensureAuditWriteOrder(t *testing.T, db *gorm.DB) {
-	t.Helper()
-	if err := migrations.EnsureAuditWriteOrder(context.Background(), db); err != nil {
-		t.Fatalf("failed to number audit entries as they are written: %v", err)
-	}
-}
-
-// createStormTables applies the storm model's DDL for tables the GORM models do
-// not describe.
-//
-// Both layers share the schema, so whichever runs second must create only what
-// the first did not — see db.EnsureTables, which is the same function the
-// application boots with.
-func createStormTables(t *testing.T, conn *db.Conn) error {
-	t.Helper()
-	want, err := storm.Build(model.All()...)
-	if err != nil {
-		return err
-	}
-	if _, err := db.EnsureTables(context.Background(), conn.Main(), want); err != nil {
-		return err
-	}
-	// The same reconciliation the application performs at boot: AutoMigrate has
-	// just created the shared tables without the defaults storm writes against.
-	_, err = db.EnsureColumnDefaults(context.Background(), conn.Main(), want)
-	return err
-}
-
 // stormConns remembers the storm connection that shares a schema with a GORM
 // one, keyed by the GORM handle a test already holds.
 //

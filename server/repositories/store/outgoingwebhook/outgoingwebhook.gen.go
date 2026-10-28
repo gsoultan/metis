@@ -2420,7 +2420,7 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 5:
 			args = append(args, n.row.URL)
 		case 6:
-			args = append(args, n.row.Events)
+			args = append(args, n.row.Events.OrNull())
 		case 7:
 			args = append(args, n.row.Secret)
 		case 8:
@@ -2471,7 +2471,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.ProjectID)
 	args = append(args, r.Name)
 	args = append(args, r.URL)
-	args = append(args, r.Events)
+	args = append(args, r.Events.OrNull())
 	args = append(args, r.Secret)
 	args = append(args, r.Enabled)
 	args = append(args, r.DeletedAt.Arg())
@@ -2593,7 +2593,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.ProjectID)
 	args = append(args, r.Name)
 	args = append(args, r.URL)
-	args = append(args, r.Events)
+	args = append(args, r.Events.OrNull())
 	args = append(args, r.Secret)
 	args = append(args, r.Enabled)
 	args = append(args, r.DeletedAt.Arg())
@@ -2643,7 +2643,7 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 5:
 			args = append(args, n.row.URL)
 		case 6:
-			args = append(args, n.row.Events)
+			args = append(args, n.row.Events.OrNull())
 		case 7:
 			args = append(args, n.row.Secret)
 		case 8:
@@ -2705,7 +2705,7 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 3:
 			args = append(args, m.row.URL)
 		case 4:
-			args = append(args, m.row.Events)
+			args = append(args, m.row.Events.OrNull())
 		case 5:
 			args = append(args, m.row.Secret)
 		case 6:
@@ -2817,7 +2817,7 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 3:
 			args = append(args, m.row.URL)
 		case 4:
-			args = append(args, m.row.Events)
+			args = append(args, m.row.Events.OrNull())
 		case 5:
 			args = append(args, m.row.Secret)
 		case 6:
@@ -2970,7 +2970,7 @@ func (m Mut) updateArgs(args []any) []any {
 		case 3:
 			args = append(args, m.row.URL)
 		case 4:
-			args = append(args, m.row.Events)
+			args = append(args, m.row.Events.OrNull())
 		case 5:
 			args = append(args, m.row.Secret)
 		case 6:
@@ -3175,7 +3175,7 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 3:
 				args = append(args, m.row.URL)
 			case 4:
-				args = append(args, m.row.Events)
+				args = append(args, m.row.Events.OrNull())
 			case 5:
 				args = append(args, m.row.Secret)
 			case 6:

@@ -33,6 +33,9 @@ type DecisionRelease struct {
 }
 
 func (r *DecisionRelease) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&r.DecisionKey).FillNulls(blank)
 	// As long as the key it names can be: decision keys are 255 characters.
 	t.Col(&r.DecisionKey).Size(255)
 	// Two versions cannot claim the same instant, and making a version live

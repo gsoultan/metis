@@ -31,6 +31,11 @@ type IdempotencyRecord struct {
 }
 
 func (i *IdempotencyRecord) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&i.RequestHash).FillNulls(blank)
+	t.Col(&i.Completed).FillNulls(no)
+	t.Col(&i.Headers).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	// Renamed before the key is declared; see SharedCounter for why the order
 	// is not cosmetic.
 	t.Col(&i.Key).Named("record_key").Size(64)

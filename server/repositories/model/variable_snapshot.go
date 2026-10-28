@@ -24,6 +24,9 @@ type VariableSnapshot struct {
 }
 
 func (v *VariableSnapshot) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&v.Variables).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Col(&v.NodeID).Size(255)
 	t.Col(&v.CapturedAt).Index()
 	t.Col(&v.DeletedAt).Index()

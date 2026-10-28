@@ -4158,15 +4158,15 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 11:
 			args = append(args, n.row.Reason)
 		case 12:
-			args = append(args, n.row.Command)
+			args = append(args, n.row.Command.OrNull())
 		case 13:
-			args = append(args, n.row.Plan)
+			args = append(args, n.row.Plan.OrNull())
 		case 14:
 			args = append(args, n.row.Fingerprint)
 		case 15:
 			args = append(args, n.row.LiveKey.Arg())
 		case 16:
-			args = append(args, n.row.ApprovedInstances)
+			args = append(args, n.row.ApprovedInstances.OrNull())
 		case 17:
 			args = append(args, n.row.ExpiresAt)
 		case 18:
@@ -4178,7 +4178,7 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 21:
 			args = append(args, n.row.DecidedAt.Arg())
 		case 22:
-			args = append(args, n.row.Outcome)
+			args = append(args, n.row.Outcome.OrNull())
 		}
 	}
 	var out Row
@@ -4229,17 +4229,17 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.RequestedBy)
 	args = append(args, r.RequestedByID)
 	args = append(args, r.Reason)
-	args = append(args, r.Command)
-	args = append(args, r.Plan)
+	args = append(args, r.Command.OrNull())
+	args = append(args, r.Plan.OrNull())
 	args = append(args, r.Fingerprint)
 	args = append(args, r.LiveKey.Arg())
-	args = append(args, r.ApprovedInstances)
+	args = append(args, r.ApprovedInstances.OrNull())
 	args = append(args, r.ExpiresAt)
 	args = append(args, r.DecidedBy.Arg())
 	args = append(args, r.DecidedByID.Arg())
 	args = append(args, r.DecisionReason.Arg())
 	args = append(args, r.DecidedAt.Arg())
-	args = append(args, r.Outcome)
+	args = append(args, r.Outcome.OrNull())
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
 		return err
@@ -4403,17 +4403,17 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.RequestedBy)
 	args = append(args, r.RequestedByID)
 	args = append(args, r.Reason)
-	args = append(args, r.Command)
-	args = append(args, r.Plan)
+	args = append(args, r.Command.OrNull())
+	args = append(args, r.Plan.OrNull())
 	args = append(args, r.Fingerprint)
 	args = append(args, r.LiveKey.Arg())
-	args = append(args, r.ApprovedInstances)
+	args = append(args, r.ApprovedInstances.OrNull())
 	args = append(args, r.ExpiresAt)
 	args = append(args, r.DecidedBy.Arg())
 	args = append(args, r.DecidedByID.Arg())
 	args = append(args, r.DecisionReason.Arg())
 	args = append(args, r.DecidedAt.Arg())
-	args = append(args, r.Outcome)
+	args = append(args, r.Outcome.OrNull())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
 
@@ -4472,15 +4472,15 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 11:
 			args = append(args, n.row.Reason)
 		case 12:
-			args = append(args, n.row.Command)
+			args = append(args, n.row.Command.OrNull())
 		case 13:
-			args = append(args, n.row.Plan)
+			args = append(args, n.row.Plan.OrNull())
 		case 14:
 			args = append(args, n.row.Fingerprint)
 		case 15:
 			args = append(args, n.row.LiveKey.Arg())
 		case 16:
-			args = append(args, n.row.ApprovedInstances)
+			args = append(args, n.row.ApprovedInstances.OrNull())
 		case 17:
 			args = append(args, n.row.ExpiresAt)
 		case 18:
@@ -4492,7 +4492,7 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 21:
 			args = append(args, n.row.DecidedAt.Arg())
 		case 22:
-			args = append(args, n.row.Outcome)
+			args = append(args, n.row.Outcome.OrNull())
 		}
 	}
 	return runtime.BatchOp{SQL: st.SQL, Args: args}, nil
@@ -4560,15 +4560,15 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 9:
 			args = append(args, m.row.Reason)
 		case 10:
-			args = append(args, m.row.Command)
+			args = append(args, m.row.Command.OrNull())
 		case 11:
-			args = append(args, m.row.Plan)
+			args = append(args, m.row.Plan.OrNull())
 		case 12:
 			args = append(args, m.row.Fingerprint)
 		case 13:
 			args = append(args, m.row.LiveKey.Arg())
 		case 14:
-			args = append(args, m.row.ApprovedInstances)
+			args = append(args, m.row.ApprovedInstances.OrNull())
 		case 15:
 			args = append(args, m.row.ExpiresAt)
 		case 16:
@@ -4580,7 +4580,7 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 19:
 			args = append(args, m.row.DecidedAt.Arg())
 		case 20:
-			args = append(args, m.row.Outcome)
+			args = append(args, m.row.Outcome.OrNull())
 		}
 	}
 	args = append(args, m.row.ID)
@@ -4684,15 +4684,15 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 9:
 			args = append(args, m.row.Reason)
 		case 10:
-			args = append(args, m.row.Command)
+			args = append(args, m.row.Command.OrNull())
 		case 11:
-			args = append(args, m.row.Plan)
+			args = append(args, m.row.Plan.OrNull())
 		case 12:
 			args = append(args, m.row.Fingerprint)
 		case 13:
 			args = append(args, m.row.LiveKey.Arg())
 		case 14:
-			args = append(args, m.row.ApprovedInstances)
+			args = append(args, m.row.ApprovedInstances.OrNull())
 		case 15:
 			args = append(args, m.row.ExpiresAt)
 		case 16:
@@ -4704,7 +4704,7 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 19:
 			args = append(args, m.row.DecidedAt.Arg())
 		case 20:
-			args = append(args, m.row.Outcome)
+			args = append(args, m.row.Outcome.OrNull())
 		}
 	}
 	args = append(args, m.row.ID)
@@ -4821,15 +4821,15 @@ func (m Mut) updateArgs(args []any) []any {
 		case 9:
 			args = append(args, m.row.Reason)
 		case 10:
-			args = append(args, m.row.Command)
+			args = append(args, m.row.Command.OrNull())
 		case 11:
-			args = append(args, m.row.Plan)
+			args = append(args, m.row.Plan.OrNull())
 		case 12:
 			args = append(args, m.row.Fingerprint)
 		case 13:
 			args = append(args, m.row.LiveKey.Arg())
 		case 14:
-			args = append(args, m.row.ApprovedInstances)
+			args = append(args, m.row.ApprovedInstances.OrNull())
 		case 15:
 			args = append(args, m.row.ExpiresAt)
 		case 16:
@@ -4841,7 +4841,7 @@ func (m Mut) updateArgs(args []any) []any {
 		case 19:
 			args = append(args, m.row.DecidedAt.Arg())
 		case 20:
-			args = append(args, m.row.Outcome)
+			args = append(args, m.row.Outcome.OrNull())
 		}
 	}
 	return args
@@ -5019,15 +5019,15 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 9:
 				args = append(args, m.row.Reason)
 			case 10:
-				args = append(args, m.row.Command)
+				args = append(args, m.row.Command.OrNull())
 			case 11:
-				args = append(args, m.row.Plan)
+				args = append(args, m.row.Plan.OrNull())
 			case 12:
 				args = append(args, m.row.Fingerprint)
 			case 13:
 				args = append(args, m.row.LiveKey.Arg())
 			case 14:
-				args = append(args, m.row.ApprovedInstances)
+				args = append(args, m.row.ApprovedInstances.OrNull())
 			case 15:
 				args = append(args, m.row.ExpiresAt)
 			case 16:
@@ -5039,7 +5039,7 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 19:
 				args = append(args, m.row.DecidedAt.Arg())
 			case 20:
-				args = append(args, m.row.Outcome)
+				args = append(args, m.row.Outcome.OrNull())
 			}
 		}
 		return run(st.SQL, append(args, q.bindPreds(b)...))

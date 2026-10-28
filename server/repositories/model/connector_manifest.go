@@ -22,6 +22,12 @@ type ConnectorManifest struct {
 }
 
 func (c *ConnectorManifest) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&c.Key).FillNulls(blank)
+	t.Col(&c.Name).FillNulls(blank)
+	t.Col(&c.Document).FillNulls(blank)
+	t.Col(&c.Enabled).FillNulls(no)
 	// 191 rather than 255: the unique index has to fit MySQL's key length under
 	// utf8mb4, and the limit outlived the MySQL back end because shortening a
 	// key later is a migration nobody wants.

@@ -2113,6 +2113,7 @@ func upsertTail(conflict uint8, mask uint64) string {
 // row that collides, which a test inserting distinct rows never sees.
 var conflictSpecs = []string{
 	" ON CONFLICT (\"id\")",
+	" ON CONFLICT (\"organization_id\", \"name\")",
 }
 
 // assignable is the columns target i may overwrite, given the mask.
@@ -2138,6 +2139,19 @@ func assignable(i uint8, mask uint64) []string {
 		if mask&(1<<7) != 0 {
 			set = append(set, "deleted_at")
 		}
+	case 1:
+		if mask&(1<<2) != 0 {
+			set = append(set, "updated_at")
+		}
+		if mask&(1<<5) != 0 {
+			set = append(set, "description")
+		}
+		if mask&(1<<6) != 0 {
+			set = append(set, "roles")
+		}
+		if mask&(1<<7) != 0 {
+			set = append(set, "deleted_at")
+		}
 	}
 	return set
 }
@@ -2149,6 +2163,16 @@ func assignable(i uint8, mask uint64) []string {
 // entirely.
 func (n *Ins) OnConflictID() *Ins {
 	n.conflict = 2
+	return n
+}
+
+// OnConflictOrganizationIDName upserts on the unique index over (organization_id, name).
+//
+// The row that already exists keeps every column this insert did
+// not assign. Follow with DoNothing() to leave it untouched
+// entirely.
+func (n *Ins) OnConflictOrganizationIDName() *Ins {
+	n.conflict = 4
 	return n
 }
 
@@ -2248,7 +2272,7 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 5:
 			args = append(args, n.row.Description)
 		case 6:
-			args = append(args, n.row.Roles)
+			args = append(args, n.row.Roles.OrNull())
 		case 7:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
@@ -2295,7 +2319,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.OrganizationID)
 	args = append(args, r.Name)
 	args = append(args, r.Description)
-	args = append(args, r.Roles)
+	args = append(args, r.Roles.OrNull())
 	args = append(args, r.DeletedAt.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
@@ -2409,7 +2433,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.OrganizationID)
 	args = append(args, r.Name)
 	args = append(args, r.Description)
-	args = append(args, r.Roles)
+	args = append(args, r.Roles.OrNull())
 	args = append(args, r.DeletedAt.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
@@ -2457,7 +2481,7 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 5:
 			args = append(args, n.row.Description)
 		case 6:
-			args = append(args, n.row.Roles)
+			args = append(args, n.row.Roles.OrNull())
 		case 7:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
@@ -2515,7 +2539,7 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 3:
 			args = append(args, m.row.Description)
 		case 4:
-			args = append(args, m.row.Roles)
+			args = append(args, m.row.Roles.OrNull())
 		case 5:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
@@ -2623,7 +2647,7 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 3:
 			args = append(args, m.row.Description)
 		case 4:
-			args = append(args, m.row.Roles)
+			args = append(args, m.row.Roles.OrNull())
 		case 5:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
@@ -2772,7 +2796,7 @@ func (m Mut) updateArgs(args []any) []any {
 		case 3:
 			args = append(args, m.row.Description)
 		case 4:
-			args = append(args, m.row.Roles)
+			args = append(args, m.row.Roles.OrNull())
 		case 5:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
@@ -2973,7 +2997,7 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 3:
 				args = append(args, m.row.Description)
 			case 4:
-				args = append(args, m.row.Roles)
+				args = append(args, m.row.Roles.OrNull())
 			case 5:
 				args = append(args, m.row.DeletedAt.Arg())
 			}

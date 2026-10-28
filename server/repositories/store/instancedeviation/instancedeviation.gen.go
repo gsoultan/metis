@@ -4671,11 +4671,11 @@ func (n *Ins) Insert(ctx context.Context, ex runtime.Executor) (Row, error) {
 		case 16:
 			args = append(args, n.row.Reason.Arg())
 		case 17:
-			args = append(args, n.row.Before)
+			args = append(args, n.row.Before.OrNull())
 		case 18:
-			args = append(args, n.row.After)
+			args = append(args, n.row.After.OrNull())
 		case 19:
-			args = append(args, n.row.Details)
+			args = append(args, n.row.Details.OrNull())
 		case 20:
 			args = append(args, n.row.RunID)
 		case 21:
@@ -4747,9 +4747,9 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.Actor)
 	args = append(args, r.ActorID.Arg())
 	args = append(args, r.Reason.Arg())
-	args = append(args, r.Before)
-	args = append(args, r.After)
-	args = append(args, r.Details)
+	args = append(args, r.Before.OrNull())
+	args = append(args, r.After.OrNull())
+	args = append(args, r.Details.OrNull())
 	args = append(args, r.RunID)
 	args = append(args, r.AuditEntryID.Arg())
 	args = append(args, r.VisitKey.Arg())
@@ -4941,9 +4941,9 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.Actor)
 	args = append(args, r.ActorID.Arg())
 	args = append(args, r.Reason.Arg())
-	args = append(args, r.Before)
-	args = append(args, r.After)
-	args = append(args, r.Details)
+	args = append(args, r.Before.OrNull())
+	args = append(args, r.After.OrNull())
+	args = append(args, r.Details.OrNull())
 	args = append(args, r.RunID)
 	args = append(args, r.AuditEntryID.Arg())
 	args = append(args, r.VisitKey.Arg())
@@ -5020,11 +5020,11 @@ func (n *Ins) Op() (runtime.BatchOp, error) {
 		case 16:
 			args = append(args, n.row.Reason.Arg())
 		case 17:
-			args = append(args, n.row.Before)
+			args = append(args, n.row.Before.OrNull())
 		case 18:
-			args = append(args, n.row.After)
+			args = append(args, n.row.After.OrNull())
 		case 19:
-			args = append(args, n.row.Details)
+			args = append(args, n.row.Details.OrNull())
 		case 20:
 			args = append(args, n.row.RunID)
 		case 21:
@@ -5118,11 +5118,11 @@ func (m *Mut) UpdateOp() (runtime.BatchOp, bool) {
 		case 14:
 			args = append(args, m.row.Reason.Arg())
 		case 15:
-			args = append(args, m.row.Before)
+			args = append(args, m.row.Before.OrNull())
 		case 16:
-			args = append(args, m.row.After)
+			args = append(args, m.row.After.OrNull())
 		case 17:
-			args = append(args, m.row.Details)
+			args = append(args, m.row.Details.OrNull())
 		case 18:
 			args = append(args, m.row.RunID)
 		case 19:
@@ -5252,11 +5252,11 @@ func (m *Mut) Update(ctx context.Context, ex runtime.Executor) error {
 		case 14:
 			args = append(args, m.row.Reason.Arg())
 		case 15:
-			args = append(args, m.row.Before)
+			args = append(args, m.row.Before.OrNull())
 		case 16:
-			args = append(args, m.row.After)
+			args = append(args, m.row.After.OrNull())
 		case 17:
-			args = append(args, m.row.Details)
+			args = append(args, m.row.Details.OrNull())
 		case 18:
 			args = append(args, m.row.RunID)
 		case 19:
@@ -5399,11 +5399,11 @@ func (m Mut) updateArgs(args []any) []any {
 		case 14:
 			args = append(args, m.row.Reason.Arg())
 		case 15:
-			args = append(args, m.row.Before)
+			args = append(args, m.row.Before.OrNull())
 		case 16:
-			args = append(args, m.row.After)
+			args = append(args, m.row.After.OrNull())
 		case 17:
-			args = append(args, m.row.Details)
+			args = append(args, m.row.Details.OrNull())
 		case 18:
 			args = append(args, m.row.RunID)
 		case 19:
@@ -5607,11 +5607,11 @@ func (q Query) UpdateAllStep(m Mut) runtime.Step {
 			case 14:
 				args = append(args, m.row.Reason.Arg())
 			case 15:
-				args = append(args, m.row.Before)
+				args = append(args, m.row.Before.OrNull())
 			case 16:
-				args = append(args, m.row.After)
+				args = append(args, m.row.After.OrNull())
 			case 17:
-				args = append(args, m.row.Details)
+				args = append(args, m.row.Details.OrNull())
 			case 18:
 				args = append(args, m.row.RunID)
 			case 19:

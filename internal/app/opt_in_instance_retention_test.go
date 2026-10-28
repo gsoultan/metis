@@ -21,7 +21,7 @@ func TestTheInstanceSweepRemovesOnlyFinishedInstancesNothingStillNeeds(t *testin
 	conn := testutils.StormConn(gormDB)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
-	a := &App{db: gormDB, storm: conn, repo: repo, sse: sse,
+	a := &App{storm: conn, repo: repo, sse: sse,
 		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "retention-test", nil, nil, nil)}
 	ctx := entities.WithSystemContext(t.Context())
 	exec := func(stmt string, args ...any) {
