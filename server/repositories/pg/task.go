@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -117,133 +116,89 @@ func (r *taskRepository) ListByInstance(ctx context.Context, instanceID uuid.UUI
 
 // ListByCandidates returns the unclaimed work a person could pick up.
 //
-// The candidate lists are JSON arrays in a text column, so this matches the
-// quoted name as a substring — the same predicate the GORM repository used, and
-// the same one this becomes `jsonb ?| array[...]` when the column types are
-// reconciled at the end of the port. Quoted rather than bare so "ada" does not
-// match "adam".
-//
-// Raw SQL because the predicate is a disjunction over a variable number of
-// groups, which the generated store expresses only for a fixed column.
+// The candidate lists are JSON arrays kept as text, so this matches the quoted
+// name in the list's text, as the GORM repository did. Quoted rather than bare
+// so "ada" does not match "adam". Read as text, the question holds once the
+// columns become jsonb too.
 func (r *taskRepository) ListByCandidates(ctx context.Context, c contracts.Candidacy) ([]models.TaskModel, error) {
-	rows, _, err := r.candidates(ctx, c, nil)
-	return rows, err
+	q, ok, err := r.candidates(ctx, c)
+	if err != nil || !ok {
+		return nil, err
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := everyRow[task.Row](ctx, ex, q.Order(task.CreatedAt.Desc(), task.ID.Desc()))
+	if err != nil {
+		return nil, fmt.Errorf("could not list the candidate tasks: %w", err)
+	}
+	return tasksFrom(rows)
 }
 
 func (r *taskRepository) ListByCandidatesPaged(ctx context.Context, c contracts.Candidacy, p contracts.Pagination) (contracts.Page[models.TaskModel], error) {
-	n := p.Normalize()
-	items, total, err := r.candidates(ctx, c, &n)
+	empty := contracts.NewPage([]models.TaskModel{}, 0, p)
+	q, ok, err := r.candidates(ctx, c)
+	if err != nil || !ok {
+		return empty, err
+	}
+	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
-		return contracts.NewPage([]models.TaskModel{}, 0, p), err
+		return empty, err
+	}
+	total, err := q.Count(ctx, ex)
+	if err != nil {
+		return empty, fmt.Errorf("could not count the candidate tasks: %w", err)
+	}
+	n := p.Normalize()
+	// The id breaks ties: the tasks one transaction creates share its
+	// created_at, and paging a tie with OFFSET showed some of them twice and
+	// others never.
+	rows, err := q.
+		Order(task.CreatedAt.Desc(), task.ID.Desc()).
+		Limit(int64(n.PageSize)).
+		Offset(int64(n.Offset())).
+		All(ctx, ex, nil)
+	if err != nil {
+		return empty, fmt.Errorf("could not list the candidate tasks: %w", err)
+	}
+	items, err := tasksFrom(rows)
+	if err != nil {
+		return empty, err
 	}
 	return contracts.NewPage(items, total, p), nil
 }
 
-// newestFirst is the candidate list's order. The id breaks ties: the tasks one
-// transaction creates share its created_at, and paging a tie with OFFSET
-// showed some of them twice and others never.
-const newestFirst = "created_at DESC, id DESC"
+// candidates is the unclaimed work in the caller's scope offered to c: to the
+// person by name, to one of their groups, or, when c.Unnamed, to nobody.
+// ok is false when the scope holds no project.
+func (r *taskRepository) candidates(ctx context.Context, c contracts.Candidacy) (task.Query, bool, error) {
+	q, ok, err := r.scopedQuery(ctx, nil, []task.Pred{task.Status.Eq(string(models.TaskUnclaimed))})
+	if err != nil || !ok {
+		return q, ok, err
+	}
+	offered := []task.Grp{task.And(task.CandidateUsers.TextLikeAny("%" + quoted(c.User) + "%"))}
+	if len(c.Groups) > 0 {
+		patterns := make([]string, len(c.Groups))
+		for i, group := range c.Groups {
+			patterns[i] = "%" + quoted(group) + "%"
+		}
+		offered = append(offered, task.And(task.CandidateGroups.TextLikeAny(patterns...)))
+	}
+	if c.Unnamed {
+		offered = append(offered, namesNobody())
+	}
+	return q.AnyOf(offered...), true, nil
+}
 
 // namesNobody matches a task given to nobody: no assignee, and no candidate
 // users or groups (entities.Task.FallsToOperators), whatever kind of task.
 //
-// This repository writes an empty list as []. NULL, the JSON null and an empty
-// value are what a row written some other way can hold, and they name nobody
-// just the same. Read as text, so the predicate still holds once the candidate
-// columns become jsonb.
-const namesNobody = "(COALESCE(assignee, '') = ''" +
-	" AND COALESCE(candidate_users::text, '') IN ('', '[]', 'null')" +
-	" AND COALESCE(candidate_groups::text, '') IN ('', '[]', 'null'))"
-
-func (r *taskRepository) candidates(ctx context.Context, c contracts.Candidacy, page *contracts.Pagination) ([]models.TaskModel, int64, error) {
-	scope, err := r.scopeOf(ctx)
-	if err != nil {
-		return nil, 0, err
-	}
-	if !scope.unrestricted() && len(scope.projects) == 0 {
-		return nil, 0, nil
-	}
-	ex, err := r.conn.conn.Executor(ctx)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	where := []string{"deleted_at IS NULL", "status = $1"}
-	args := []any{string(models.TaskUnclaimed)}
-
-	matches := []string{fmt.Sprintf("candidate_users LIKE $%d", len(args)+1)}
-	args = append(args, "%"+quoted(c.User)+"%")
-	for _, group := range c.Groups {
-		matches = append(matches, fmt.Sprintf("candidate_groups LIKE $%d", len(args)+1))
-		args = append(args, "%"+quoted(group)+"%")
-	}
-	if c.Unnamed {
-		matches = append(matches, namesNobody)
-	}
-	where = append(where, "("+strings.Join(matches, " OR ")+")")
-
-	if !scope.unrestricted() {
-		where = append(where, fmt.Sprintf("project_id = ANY($%d)", len(args)+1))
-		args = append(args, uuidsToRaw(scope.projects))
-	}
-	predicate := strings.Join(where, " AND ")
-
-	var total int64
-	countRows, err := ex.Query(ctx, "SELECT COUNT(*) FROM tasks WHERE "+predicate, args)
-	if err != nil {
-		return nil, 0, fmt.Errorf("could not count the candidate tasks: %w", err)
-	}
-	if countRows.Next() {
-		if err := scanInt(countRows.RawValues(), &total); err != nil {
-			countRows.Close()
-			return nil, 0, err
-		}
-	}
-	countRows.Close()
-	if err := countRows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("could not count the candidate tasks: %w", err)
-	}
-
-	query := "SELECT id FROM tasks WHERE " + predicate + " ORDER BY " + newestFirst
-	if page != nil {
-		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
-		args = append(args, page.PageSize, page.Offset())
-	}
-	idRows, err := ex.Query(ctx, query, args)
-	if err != nil {
-		return nil, 0, fmt.Errorf("could not list the candidate tasks: %w", err)
-	}
-	var ids [][16]byte
-	for idRows.Next() {
-		values := idRows.RawValues()
-		if len(values) == 0 {
-			continue
-		}
-		var id [16]byte
-		copy(id[:], values[0])
-		ids = append(ids, id)
-	}
-	idRows.Close()
-	if err := idRows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("could not list the candidate tasks: %w", err)
-	}
-	if len(ids) == 0 {
-		return nil, total, nil
-	}
-
-	// The rows themselves come back through the generated reader, so the
-	// decoding — including the encrypted variables — is the same code every
-	// other read here uses.
-	rows, err := task.New().
-		Where(task.ID.In(ids...)).
-		Order(task.CreatedAt.Desc(), task.ID.Desc()).
-		Limit(int64(len(ids))).
-		All(ctx, ex, nil)
-	if err != nil {
-		return nil, 0, fmt.Errorf("could not read the candidate tasks: %w", err)
-	}
-	items, err := tasksFrom(rows)
-	return items, total, err
+// This repository writes an empty list as [] and no assignee as NULL. An empty
+// assignee, a NULL list, the JSON null and an empty value are what a row
+// written some other way can hold, and they name nobody just the same.
+func namesNobody() task.Grp {
+	return task.And(task.Assignee.IsNullOrEmpty(), task.CandidateUsers.IsEmpty(), task.CandidateGroups.IsEmpty())
 }
 
 func (r *taskRepository) ListByAssigneePaged(ctx context.Context, assignee string, p contracts.Pagination) (contracts.Page[models.TaskModel], error) {
