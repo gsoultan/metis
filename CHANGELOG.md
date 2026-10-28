@@ -441,6 +441,16 @@ does not undo a migration.
 
 ### Added
 
+- **Server settings can be changed on the Settings page.** A platform
+  administrator sees every setting the server reads, grouped (email, sign-in,
+  retention, workers, limits, caches, observability), where its value comes
+  from, and changes one with a reason. Every change is kept with who made it
+  and why (migration 49); a secret such as the mail password is stored sealed
+  and never sent back to the browser. A value set in the environment still
+  wins and is shown locked. Retention periods and execution limits apply
+  without a restart; the rest say they wait for one. The database, keys,
+  listen addresses and guardrails stay environment-only and are listed
+  read-only with the reason.
 - **An administrator can set a colleague's password.** Editing an account
   on Platform access now has a *New password* field: left empty, the
   password stays as it is; filled in, it replaces it and signs the account

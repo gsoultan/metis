@@ -125,6 +125,8 @@ Release notes are in [`CHANGELOG.md`](CHANGELOG.md). What to check before and du
 
 ### Configuration
 
+Most of the settings below can also be changed after sign-in under **Settings → Server settings**, by a platform administrator, with a reason that is kept with every change. A variable set in the environment always wins and shows there as locked. Database, keys, listen addresses and the guardrails (`METIS_ALLOW_*`, allow-lists, `METIS_PLATFORM_ADMINS`) are environment-only; the page lists them read-only with the reason.
+
 | Variable | Purpose |
 | :-- | :-- |
 | `ENCRYPTION_KEY` | **Required.** Encrypts process and task variables at rest. The server refuses to start without it once configured, and refuses a weak one — see below. Changing it alone makes existing variables unreadable; rotate it with `ENCRYPTION_KEY_PREVIOUS` and `metis --reseal` ([`docs/runbooks.md`](docs/runbooks.md), "Rotating secrets"). |
