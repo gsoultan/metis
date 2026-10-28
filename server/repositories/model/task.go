@@ -73,3 +73,34 @@ func (t2 *Task) Schema(t *storm.Table) {
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&t2.DeletedAt)
 }
+
+// Aggregates are the counts the dashboard's deadline report heads its list
+// with: of the open tasks the caller's predicates choose, how many have a due
+// date and how many do not. One pass over the rows, not one per count.
+func (t2 *Task) Aggregates(a *storm.Aggregates) {
+	deadlines := a.Named("Deadlines")
+	deadlines.Count("WithDeadline").Filter(a.IsNotNull(&t2.DueDate))
+	deadlines.Count("WithoutDeadline").Filter(a.IsNull(&t2.DueDate))
+}
+
+// Joins are the deadline report's rows: a task with the key and name of the
+// process it is part of. Left joins, so a task whose instance or definition is
+// gone still shows, with no process.
+func (t2 *Task) Joins(j *storm.Joins) {
+	var instance ProcessInstance
+	var definition ProcessDefinition
+	j.Named("Deadline").
+		Left(&instance, &t2.Instance).
+		Left(&definition, j.OnCols("process_instances", "definition_id", &definition.ID)).
+		Take(&t2.ID, "ID").
+		Take(&t2.Name, "Name").
+		Take(&t2.NodeID, "NodeID").
+		Take(&t2.Status, "Status").
+		Take(&t2.Priority, "Priority").
+		Take(&t2.Assignee, "Assignee").
+		Take(&t2.DueDate, "DueDate").
+		Take(&definition.Key, "ProcessKey").
+		Take(&definition.Name, "ProcessName").
+		OrderAsc(&t2.DueDate).
+		OrderAsc(&t2.ID)
+}

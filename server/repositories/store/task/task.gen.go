@@ -2782,6 +2782,874 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 	return stmtFor(q.stream(&buf), q.offset > 0, q.lock).SQL, q.bind(b)
 }
 
+// DeadlinesRow is the "Deadlines" aggregation over tasks.
+//
+// No grouping columns: the whole table is one group, so this is
+// exactly one row however many rows it read.
+type DeadlinesRow struct {
+	WithDeadline    int64
+	WithoutDeadline int64
+}
+
+const deadlinesPrefix = `SELECT count(*) FILTER (WHERE "due_date" IS NOT NULL) AS "with_deadline", count(*) FILTER (WHERE "due_date" IS NULL) AS "without_deadline" FROM "tasks"`
+const deadlinesSuffix = ``
+
+var (
+	deadlinesCache       = runtime.NewTreeCache()
+	deadlinesOffsetCache = runtime.NewTreeCache()
+)
+
+func deadlinesStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := deadlinesCache, deadlinesSuffix+limitSuffix
+	if withOffset {
+		c, suffix = deadlinesOffsetCache, deadlinesSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(deadlinesPrefix, softDeleteWhere, toks, lowering, suffix))
+}
+
+func scanDeadlines(rv [][]byte, r *DeadlinesRow, sl *runtime.Slab) error {
+	r.WithDeadline = runtime.Int8(rv[0])
+	r.WithoutDeadline = runtime.Int8(rv[1])
+	return nil
+}
+
+// AllDeadlines runs the "Deadlines" aggregation. Predicates compose exactly as on All —
+// they filter the rows that go INTO the groups, which is the WHERE clause
+// and not a HAVING. Limit and offset page the groups.
+func (q Query) AllDeadlines(ctx context.Context, ex runtime.Executor) ([]DeadlinesRow, error) {
+	var sl runtime.Slab
+	return q.AllDeadlinesInto(ctx, ex, nil, &sl)
+}
+
+// AllDeadlinesInto lets the caller own the output slice and the arena.
+func (q Query) AllDeadlinesInto(ctx context.Context, ex runtime.Executor, dst []DeadlinesRow, sl *runtime.Slab) ([]DeadlinesRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errDeadlinesOrdered
+	}
+	if q.lock != 0 {
+		return dst, errDeadlinesLocked
+	}
+	var buf [21]runtime.Tok
+	st := deadlinesStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, DeadlinesRow{})
+		if err := scanDeadlines(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+var errDeadlinesLocked = errors.New(
+	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
+
+var errDeadlinesOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and tasks.Deadlines is already ordered by its grouping columns; sort the returned slice if you need another order")
+
+// OneDeadlines is the whole-table aggregate: exactly one row, always.
+func (q Query) OneDeadlines(ctx context.Context, ex runtime.Executor) (DeadlinesRow, error) {
+	out, err := q.AllDeadlines(ctx, ex)
+	if err != nil || len(out) == 0 {
+		return DeadlinesRow{}, err
+	}
+	return out[0], nil
+}
+
+// joinFragTable is fragTable for a join: every column named with its table.
+var joinFragTable = [22][28]runtime.Frag{
+	{ // id
+		{}, // opNone
+		{A: "\"tasks\".\"id\" = $", B: ""},
+		{A: "\"tasks\".\"id\" <> $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"id\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // created_at
+		{}, // opNone
+		{A: "\"tasks\".\"created_at\" = $", B: ""},
+		{A: "\"tasks\".\"created_at\" <> $", B: ""},
+		{A: "\"tasks\".\"created_at\" > $", B: ""},
+		{A: "\"tasks\".\"created_at\" >= $", B: ""},
+		{A: "\"tasks\".\"created_at\" < $", B: ""},
+		{A: "\"tasks\".\"created_at\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // updated_at
+		{}, // opNone
+		{A: "\"tasks\".\"updated_at\" = $", B: ""},
+		{A: "\"tasks\".\"updated_at\" <> $", B: ""},
+		{A: "\"tasks\".\"updated_at\" > $", B: ""},
+		{A: "\"tasks\".\"updated_at\" >= $", B: ""},
+		{A: "\"tasks\".\"updated_at\" < $", B: ""},
+		{A: "\"tasks\".\"updated_at\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // project_id
+		{}, // opNone
+		{A: "\"tasks\".\"project_id\" = $", B: ""},
+		{A: "\"tasks\".\"project_id\" <> $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"project_id\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"project_id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // instance_id
+		{}, // opNone
+		{A: "\"tasks\".\"instance_id\" = $", B: ""},
+		{A: "\"tasks\".\"instance_id\" <> $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"instance_id\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"instance_id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // node_id
+		{}, // opNone
+		{A: "\"tasks\".\"node_id\" = $", B: ""},
+		{A: "\"tasks\".\"node_id\" <> $", B: ""},
+		{A: "\"tasks\".\"node_id\" > $", B: ""},
+		{A: "\"tasks\".\"node_id\" >= $", B: ""},
+		{A: "\"tasks\".\"node_id\" < $", B: ""},
+		{A: "\"tasks\".\"node_id\" <= $", B: ""},
+		{A: "lower(\"tasks\".\"node_id\") = lower($", B: ")"},
+		{A: "\"tasks\".\"node_id\" LIKE $", B: ""},
+		{A: "\"tasks\".\"node_id\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"node_id\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"node_id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // iteration_id
+		{}, // opNone
+		{A: "\"tasks\".\"iteration_id\" = $", B: ""},
+		{A: "\"tasks\".\"iteration_id\" <> $", B: ""},
+		{A: "\"tasks\".\"iteration_id\" > $", B: ""},
+		{A: "\"tasks\".\"iteration_id\" >= $", B: ""},
+		{A: "\"tasks\".\"iteration_id\" < $", B: ""},
+		{A: "\"tasks\".\"iteration_id\" <= $", B: ""},
+		{A: "lower(\"tasks\".\"iteration_id\") = lower($", B: ")"},
+		{A: "\"tasks\".\"iteration_id\" LIKE $", B: ""},
+		{A: "\"tasks\".\"iteration_id\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"iteration_id\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"iteration_id\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"iteration_id\" IS NULL", B: ""},
+		{A: "\"tasks\".\"iteration_id\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
+	{ // name
+		{}, // opNone
+		{A: "\"tasks\".\"name\" = $", B: ""},
+		{A: "\"tasks\".\"name\" <> $", B: ""},
+		{A: "\"tasks\".\"name\" > $", B: ""},
+		{A: "\"tasks\".\"name\" >= $", B: ""},
+		{A: "\"tasks\".\"name\" < $", B: ""},
+		{A: "\"tasks\".\"name\" <= $", B: ""},
+		{A: "lower(\"tasks\".\"name\") = lower($", B: ")"},
+		{A: "\"tasks\".\"name\" LIKE $", B: ""},
+		{A: "\"tasks\".\"name\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"name\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"name\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // description
+		{}, // opNone
+		{A: "\"tasks\".\"description\" = $", B: ""},
+		{A: "\"tasks\".\"description\" <> $", B: ""},
+		{A: "\"tasks\".\"description\" > $", B: ""},
+		{A: "\"tasks\".\"description\" >= $", B: ""},
+		{A: "\"tasks\".\"description\" < $", B: ""},
+		{A: "\"tasks\".\"description\" <= $", B: ""},
+		{A: "lower(\"tasks\".\"description\") = lower($", B: ")"},
+		{A: "\"tasks\".\"description\" LIKE $", B: ""},
+		{A: "\"tasks\".\"description\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"description\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"description\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"description\" IS NULL", B: ""},
+		{A: "\"tasks\".\"description\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
+	{ // type
+		{}, // opNone
+		{A: "\"tasks\".\"type\" = $", B: ""},
+		{A: "\"tasks\".\"type\" <> $", B: ""},
+		{A: "\"tasks\".\"type\" > $", B: ""},
+		{A: "\"tasks\".\"type\" >= $", B: ""},
+		{A: "\"tasks\".\"type\" < $", B: ""},
+		{A: "\"tasks\".\"type\" <= $", B: ""},
+		{A: "lower(\"tasks\".\"type\") = lower($", B: ")"},
+		{A: "\"tasks\".\"type\" LIKE $", B: ""},
+		{A: "\"tasks\".\"type\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"type\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"type\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // status
+		{}, // opNone
+		{A: "\"tasks\".\"status\" = $", B: ""},
+		{A: "\"tasks\".\"status\" <> $", B: ""},
+		{A: "\"tasks\".\"status\" > $", B: ""},
+		{A: "\"tasks\".\"status\" >= $", B: ""},
+		{A: "\"tasks\".\"status\" < $", B: ""},
+		{A: "\"tasks\".\"status\" <= $", B: ""},
+		{A: "lower(\"tasks\".\"status\") = lower($", B: ")"},
+		{A: "\"tasks\".\"status\" LIKE $", B: ""},
+		{A: "\"tasks\".\"status\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"status\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"status\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // assignee
+		{}, // opNone
+		{A: "\"tasks\".\"assignee\" = $", B: ""},
+		{A: "\"tasks\".\"assignee\" <> $", B: ""},
+		{A: "\"tasks\".\"assignee\" > $", B: ""},
+		{A: "\"tasks\".\"assignee\" >= $", B: ""},
+		{A: "\"tasks\".\"assignee\" < $", B: ""},
+		{A: "\"tasks\".\"assignee\" <= $", B: ""},
+		{A: "lower(\"tasks\".\"assignee\") = lower($", B: ")"},
+		{A: "\"tasks\".\"assignee\" LIKE $", B: ""},
+		{A: "\"tasks\".\"assignee\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"assignee\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"assignee\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"assignee\" IS NULL", B: ""},
+		{A: "\"tasks\".\"assignee\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
+	{ // candidate_users
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"candidate_users\" @> $", B: ""},
+		{A: "\"tasks\".\"candidate_users\" <@ $", B: ""},
+		{A: "\"tasks\".\"candidate_users\" ?| $", B: ""},
+		{A: "\"tasks\".\"candidate_users\" ?& $", B: ""},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // candidate_groups
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"candidate_groups\" @> $", B: ""},
+		{A: "\"tasks\".\"candidate_groups\" <@ $", B: ""},
+		{A: "\"tasks\".\"candidate_groups\" ?| $", B: ""},
+		{A: "\"tasks\".\"candidate_groups\" ?& $", B: ""},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // owner
+		{}, // opNone
+		{A: "\"tasks\".\"owner\" = $", B: ""},
+		{A: "\"tasks\".\"owner\" <> $", B: ""},
+		{A: "\"tasks\".\"owner\" > $", B: ""},
+		{A: "\"tasks\".\"owner\" >= $", B: ""},
+		{A: "\"tasks\".\"owner\" < $", B: ""},
+		{A: "\"tasks\".\"owner\" <= $", B: ""},
+		{A: "lower(\"tasks\".\"owner\") = lower($", B: ")"},
+		{A: "\"tasks\".\"owner\" LIKE $", B: ""},
+		{A: "\"tasks\".\"owner\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"owner\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"owner\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"owner\" IS NULL", B: ""},
+		{A: "\"tasks\".\"owner\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
+	{ // delegation_state
+		{}, // opNone
+		{A: "\"tasks\".\"delegation_state\" = $", B: ""},
+		{A: "\"tasks\".\"delegation_state\" <> $", B: ""},
+		{A: "\"tasks\".\"delegation_state\" > $", B: ""},
+		{A: "\"tasks\".\"delegation_state\" >= $", B: ""},
+		{A: "\"tasks\".\"delegation_state\" < $", B: ""},
+		{A: "\"tasks\".\"delegation_state\" <= $", B: ""},
+		{A: "lower(\"tasks\".\"delegation_state\") = lower($", B: ")"},
+		{A: "\"tasks\".\"delegation_state\" LIKE $", B: ""},
+		{A: "\"tasks\".\"delegation_state\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"delegation_state\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"delegation_state\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"delegation_state\" IS NULL", B: ""},
+		{A: "\"tasks\".\"delegation_state\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
+	{ // priority
+		{}, // opNone
+		{A: "\"tasks\".\"priority\" = $", B: ""},
+		{A: "\"tasks\".\"priority\" <> $", B: ""},
+		{A: "\"tasks\".\"priority\" > $", B: ""},
+		{A: "\"tasks\".\"priority\" >= $", B: ""},
+		{A: "\"tasks\".\"priority\" < $", B: ""},
+		{A: "\"tasks\".\"priority\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"priority\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"priority\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // due_date
+		{}, // opNone
+		{A: "\"tasks\".\"due_date\" = $", B: ""},
+		{A: "\"tasks\".\"due_date\" <> $", B: ""},
+		{A: "\"tasks\".\"due_date\" > $", B: ""},
+		{A: "\"tasks\".\"due_date\" >= $", B: ""},
+		{A: "\"tasks\".\"due_date\" < $", B: ""},
+		{A: "\"tasks\".\"due_date\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"due_date\" IS NULL", B: ""},
+		{A: "\"tasks\".\"due_date\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
+	{ // form_key
+		{}, // opNone
+		{A: "\"tasks\".\"form_key\" = $", B: ""},
+		{A: "\"tasks\".\"form_key\" <> $", B: ""},
+		{A: "\"tasks\".\"form_key\" > $", B: ""},
+		{A: "\"tasks\".\"form_key\" >= $", B: ""},
+		{A: "\"tasks\".\"form_key\" < $", B: ""},
+		{A: "\"tasks\".\"form_key\" <= $", B: ""},
+		{A: "lower(\"tasks\".\"form_key\") = lower($", B: ")"},
+		{A: "\"tasks\".\"form_key\" LIKE $", B: ""},
+		{A: "\"tasks\".\"form_key\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"form_key\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"form_key\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"form_key\" IS NULL", B: ""},
+		{A: "\"tasks\".\"form_key\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
+	{ // form_definition
+		{}, // opNone
+		{A: "\"tasks\".\"form_definition\" = $", B: ""},
+		{A: "\"tasks\".\"form_definition\" <> $", B: ""},
+		{A: "\"tasks\".\"form_definition\" > $", B: ""},
+		{A: "\"tasks\".\"form_definition\" >= $", B: ""},
+		{A: "\"tasks\".\"form_definition\" < $", B: ""},
+		{A: "\"tasks\".\"form_definition\" <= $", B: ""},
+		{A: "lower(\"tasks\".\"form_definition\") = lower($", B: ")"},
+		{A: "\"tasks\".\"form_definition\" LIKE $", B: ""},
+		{A: "\"tasks\".\"form_definition\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"form_definition\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"form_definition\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"form_definition\" IS NULL", B: ""},
+		{A: "\"tasks\".\"form_definition\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
+	{ // variables
+		{}, // opNone
+		{A: "\"tasks\".\"variables\" = $", B: ""},
+		{A: "\"tasks\".\"variables\" <> $", B: ""},
+		{A: "\"tasks\".\"variables\" > $", B: ""},
+		{A: "\"tasks\".\"variables\" >= $", B: ""},
+		{A: "\"tasks\".\"variables\" < $", B: ""},
+		{A: "\"tasks\".\"variables\" <= $", B: ""},
+		{A: "lower(\"tasks\".\"variables\") = lower($", B: ")"},
+		{A: "\"tasks\".\"variables\" LIKE $", B: ""},
+		{A: "\"tasks\".\"variables\" ILIKE $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"variables\" = ANY($", B: ")"},
+		{A: "\"tasks\".\"variables\" <> ALL($", B: ")"},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+	},
+	{ // deleted_at
+		{}, // opNone
+		{A: "\"tasks\".\"deleted_at\" = $", B: ""},
+		{A: "\"tasks\".\"deleted_at\" <> $", B: ""},
+		{A: "\"tasks\".\"deleted_at\" > $", B: ""},
+		{A: "\"tasks\".\"deleted_at\" >= $", B: ""},
+		{A: "\"tasks\".\"deleted_at\" < $", B: ""},
+		{A: "\"tasks\".\"deleted_at\" <= $", B: ""},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "\"tasks\".\"deleted_at\" IS NULL", B: ""},
+		{A: "\"tasks\".\"deleted_at\" IS NOT NULL", B: ""},
+		{},
+		{},
+	},
+}
+
+func joinFragOf(op, col uint32) runtime.Frag {
+	if int(col) >= len(joinFragTable) || int(op) >= len(joinFragTable[0]) {
+		return runtime.Frag{}
+	}
+	return joinFragTable[col][op]
+}
+
+// joinLowering is lowering with qualified predicates. A join takes no
+// call-site order and no cursor, so qualifying the predicates is all
+// it needs.
+var joinLowering = func() runtime.Lowering {
+	l := lowering
+	l.Frag = joinFragOf
+	return l
+}()
+
+// DeadlineRow is the "Deadline" join: 9 column(s) from 3 table(s).
+//
+// A flat projection, not a graph. Any column taken through a LEFT join is
+// nullable whatever its own constraint says — that is what a LEFT join
+// means, and typing it otherwise would decode a missing match as a zero.
+type DeadlineRow struct {
+	ID          [16]byte
+	Name        string
+	NodeID      string
+	Status      string
+	Priority    int64
+	Assignee    runtime.Null[string]
+	DueDate     runtime.Null[time.Time]
+	ProcessKey  runtime.Null[string]
+	ProcessName runtime.Null[string]
+}
+
+const deadlinePrefix = `SELECT "tasks"."id" AS "id", "tasks"."name" AS "name", "tasks"."node_id" AS "node_id", "tasks"."status" AS "status", "tasks"."priority" AS "priority", "tasks"."assignee" AS "assignee", "tasks"."due_date" AS "due_date", "process_definitions"."key" AS "process_key", "process_definitions"."name" AS "process_name" FROM "tasks" LEFT JOIN "process_instances" ON "tasks"."instance_id" = "process_instances"."id" AND "process_instances"."deleted_at" IS NULL LEFT JOIN "process_definitions" ON "process_instances"."definition_id" = "process_definitions"."id" AND "process_definitions"."deleted_at" IS NULL`
+const deadlineSuffix = ` ORDER BY "tasks"."due_date", "tasks"."id"`
+const deadlineWhere = `"tasks"."deleted_at" IS NULL`
+
+var (
+	deadlineCache       = runtime.NewTreeCache()
+	deadlineOffsetCache = runtime.NewTreeCache()
+)
+
+func deadlineStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := deadlineCache, deadlineSuffix+limitSuffix
+	if withOffset {
+		c, suffix = deadlineOffsetCache, deadlineSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(deadlinePrefix, deadlineWhere, toks, joinLowering, suffix))
+}
+
+func scanDeadline(rv [][]byte, r *DeadlineRow, sl *runtime.Slab) error {
+	copy(r.ID[:], rv[0])
+	r.Name = sl.Str(rv[1])
+	r.NodeID = sl.Str(rv[2])
+	r.Status = sl.Str(rv[3])
+	r.Priority = runtime.Int8(rv[4])
+	r.Assignee = runtime.NullText(rv[5], sl)
+	r.DueDate = runtime.Nullable(rv[6], runtime.Timestamptz)
+	r.ProcessKey = runtime.NullText(rv[7], sl)
+	r.ProcessName = runtime.NullText(rv[8], sl)
+	return nil
+}
+
+// AllDeadline runs the "Deadline" join. Call-site predicates apply to tasks and compose
+// with whatever the declaration already filtered.
+func (q Query) AllDeadline(ctx context.Context, ex runtime.Executor) ([]DeadlineRow, error) {
+	var sl runtime.Slab
+	return q.AllDeadlineInto(ctx, ex, nil, &sl)
+}
+
+// AllDeadlineInto lets the caller own the output slice and the arena.
+func (q Query) AllDeadlineInto(ctx context.Context, ex runtime.Executor, dst []DeadlineRow, sl *runtime.Slab) ([]DeadlineRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errDeadlineOrdered
+	}
+	if q.lock != 0 {
+		return dst, errDeadlineLocked
+	}
+	var buf [21]runtime.Tok
+	st := deadlineStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, DeadlineRow{})
+		if err := scanDeadline(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+var errDeadlineLocked = errors.New(
+	"storm: a declared join cannot be row-locked — the server refuses a row lock on the nullable side of an outer join, and which side a lock would take is not something the call site says; lock the base read instead")
+
+var errDeadlineOrdered = errors.New(
+	"storm: Order() on a join — its ordering is declared, because a column name in a multi-table result is ambiguous; sort the returned slice if you need another order")
+
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
 const insertSQL = `INSERT INTO "tasks" ("id", "created_at", "updated_at", "project_id", "instance_id", "node_id", "iteration_id", "name", "description", "type", "status", "assignee", "candidate_users", "candidate_groups", "owner", "delegation_state", "priority", "due_date", "form_key", "form_definition", "variables", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) RETURNING "id", "created_at", "updated_at", "project_id", "instance_id", "node_id", "iteration_id", "name", "description", "type", "status", "assignee", "candidate_users", "candidate_groups", "owner", "delegation_state", "priority", "due_date", "form_key", "form_definition", "variables", "deleted_at"`

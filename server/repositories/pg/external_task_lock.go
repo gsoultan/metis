@@ -7,18 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/server/repositories/store/externaltask"
 )
-
-// extendExternalTaskLock moves the expiry of a lock its worker still holds.
-//
-// Every condition is on the row being written, which is the point. A fetch
-// that locked the task for another worker leaves a row this does not match,
-// whether the fetch committed first or this waited for it: PostgreSQL checks
-// the conditions again against the row it waited for. Reading the row,
-// deciding in Go and writing it back would let a late extension overwrite
-// that fetch.
-const extendExternalTaskLock = `UPDATE external_tasks SET lock_expiration = $1, updated_at = $2
-	WHERE id = $3 AND worker_id = $4 AND lock_expiration > $2 AND deleted_at IS NULL`
 
 // ExtendLock gives the worker holding a task's lock until lockDuration from
 // now, and reports whether it held it.
@@ -49,12 +39,19 @@ func (r *externalTaskRepository) ExtendLock(ctx context.Context, id uuid.UUID, w
 	now := time.Now().UTC()
 	// The column keeps microseconds: the worker is told the time stored.
 	until := now.Add(lockDuration).Truncate(time.Microsecond)
-	query, args := extendExternalTaskLock, []any{until, now, id, workerID}
-	if !scope.unrestricted() {
-		args = append(args, uuidsToRaw(scope.projects))
-		query += " AND project_id = ANY($5)"
-	}
-	extended, err := ex.Exec(ctx, query, args)
+	// Every condition is on the row being written, which is the point. A fetch
+	// that locked the task for another worker leaves a row this does not
+	// match, whether the fetch committed first or this waited for it:
+	// PostgreSQL checks the conditions again against the row it waited for.
+	// Reading the row, deciding in Go and writing it back would let a late
+	// extension overwrite that fetch.
+	var extend externaltask.Mut
+	extend.SetLockExpiration(until)
+	extend.SetUpdatedAt(now)
+	extended, err := externaltask.New().
+		Where(externaltask.ID.Eq(id), externaltask.WorkerID.Eq(workerID), externaltask.LockExpiration.Gt(now)).
+		WhereIf(!scope.unrestricted(), externaltask.ProjectID.In(uuidsToRaw(scope.projects)...)).
+		UpdateAll(ctx, ex, extend)
 	if err != nil {
 		return time.Time{}, false, fmt.Errorf("could not extend the external task's lock: %w", err)
 	}

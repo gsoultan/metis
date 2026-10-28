@@ -10,6 +10,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store"
 	"github.com/gsoultan/metis/server/repositories/store/platformrole"
 	"github.com/gsoultan/metis/server/repositories/store/platformroleassignment"
 	"github.com/gsoultan/metis/server/repositories/store/platformuser"
@@ -300,14 +301,6 @@ func (r *platformUserRepository) EnsureBuiltInRoles(ctx context.Context) error {
 	return nil
 }
 
-// liveGrantCount counts one role's grants held by accounts that have not been
-// deleted. Raw SQL for the join: the generated store counts one table.
-const liveGrantCount = `SELECT count(*)
-	  FROM platform_role_assignments a
-	  JOIN platform_users u ON u.id = a.platform_user_id
-	 WHERE a.platform_role_id = $1
-	   AND u.deleted_at IS NULL`
-
 // CountAdministrators reports how many accounts still hold the admin role.
 //
 // Accounts that exist, not grants. Deleting an account marks its row and
@@ -327,18 +320,12 @@ func (r *platformUserRepository) CountAdministrators(ctx context.Context) (int, 
 	if !ok {
 		return 0, nil
 	}
-	rows, err := ex.Query(ctx, liveGrantCount, []any{adminID})
+	// The accounts holding the role, not the grants: the read hides a deleted
+	// account, whose grants stay in place. The pair is the grant's key, so an
+	// account holds the role once.
+	count, err := store.PlatformUserHavingRoles(platformuser.New(),
+		platformroleassignment.PlatformRoleID.Eq(adminID)).Count(ctx, ex)
 	if err != nil {
-		return 0, fmt.Errorf("could not count administrators: %w", err)
-	}
-	defer rows.Close()
-	var count int64
-	if rows.Next() {
-		if err := scanInt(rows.RawValues(), &count); err != nil {
-			return 0, err
-		}
-	}
-	if err := rows.Err(); err != nil {
 		return 0, fmt.Errorf("could not count administrators: %w", err)
 	}
 	return int(count), nil

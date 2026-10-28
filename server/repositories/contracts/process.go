@@ -48,22 +48,6 @@ type InstanceFilter struct {
 	NeedsAttention bool
 }
 
-// AttentionLimit bounds the ids InstancesNeedingAttention will return.
-//
-// The filter is applied by naming the matching instances in the query, so the
-// bound is what stops the query's size being chosen by how badly the system is
-// failing. A project with more than this many unresolved incidents is not one
-// where the difference between 1,000 and 1,001 rows matters.
-//
-// Known consequence, stated because it is visible: past this point the chip's
-// count and the list's total disagree — "3,500 need attention" beside
-// "1–25 of 1,000". Both numbers are true (that is the project total, and that
-// is how far this filter reached) but the pair reads oddly, and reaching the
-// rest means resolving some. If that ever becomes a real complaint rather than
-// a hypothetical, the fix is to report the truncation in the response and say
-// "the first 1,000" on screen, not to remove the bound.
-const AttentionLimit = 1000
-
 // Any reports whether the filter narrows anything at all.
 func (f InstanceFilter) Any() bool {
 	return f.Status != "" || f.DefinitionID != uuid.Nil || f.NeedsAttention
@@ -142,15 +126,6 @@ type ProcessRepository interface {
 	// counts are: the question "is anything broken?" is not a question about
 	// the twenty-five rows that happen to be on screen.
 	CountInstancesNeedingAttention(ctx context.Context, projectID uuid.UUID, f InstanceFilter) (int64, error)
-
-	// InstancesNeedingAttention lists the ids of instances holding an unresolved
-	// incident, so they can be filtered for.
-	//
-	// Bounded by limit, and the caller is told when it hit it. An unbounded set
-	// spliced into an IN clause is a query whose size an outsider chooses, and
-	// the bound is honest rather than silent: a project past it is already in a
-	// state where "every one of these needs a person" is the useful answer.
-	InstancesNeedingAttention(ctx context.Context, projectID uuid.UUID, f InstanceFilter, limit int) (ids []uuid.UUID, complete bool, err error)
 
 	// CountByStatuses reports how many instances the project holds in each
 	// state, in one grouped query.

@@ -223,15 +223,6 @@ func deliveryFrom(row outgoingwebhookdelivery.Row, hook *entities.OutgoingWebhoo
 	}, nil
 }
 
-// settleSQL records an attempt, on the claim it was made under only: a row
-// whose attempts have moved on was claimed again after this attempt's lease
-// ran out, and the newer claim is the one that decides.
-const settleSQL = `
-	UPDATE outgoing_webhook_deliveries
-	   SET status = $1, next_attempt_at = $2, last_attempt_at = $3,
-	       last_status_code = $4, last_error = $5, last_response = $6, updated_at = $3
-	 WHERE id = $7 AND attempts = $8 AND status = 'pending'`
-
 // maxRecordedText is the longest error or response kept for a delivery: the
 // columns'.
 const maxRecordedText = 1024
@@ -241,15 +232,26 @@ func (q *outgoingWebhookQueue) Settle(ctx context.Context, delivery entities.Out
 	if err != nil {
 		return err
 	}
-	var statusCode any
+	// On the claim it was made under only: a row whose attempts have moved on
+	// was claimed again after this attempt's lease ran out, and the newer
+	// claim is the one that decides.
+	var settled outgoingwebhookdelivery.Mut
+	settled.SetStatus(string(delivery.Status))
+	settled.SetNextAttemptAt(delivery.NextAttemptAt.UTC())
+	settled.SetLastAttemptAt(attempt.At.UTC())
+	settled.SetUpdatedAt(attempt.At.UTC())
 	if attempt.StatusCode != 0 {
-		statusCode = int64(attempt.StatusCode)
+		settled.SetLastStatusCode(int64(attempt.StatusCode))
+	} else {
+		settled.SetLastStatusCodeNull()
 	}
-	_, err = ex.Exec(ctx, settleSQL, []any{
-		string(delivery.Status), delivery.NextAttemptAt.UTC(), attempt.At.UTC(),
-		statusCode, recordedText(attempt.Error), recordedText(attempt.Response),
-		delivery.ID[:], int64(delivery.Attempts),
-	})
+	setRecordedText(attempt.Error, settled.SetLastError, settled.SetLastErrorNull)
+	setRecordedText(attempt.Response, settled.SetLastResponse, settled.SetLastResponseNull)
+	_, err = outgoingwebhookdelivery.New().
+		Where(outgoingwebhookdelivery.ID.Eq(delivery.ID),
+			outgoingwebhookdelivery.Attempts.Eq(int64(delivery.Attempts)),
+			outgoingwebhookdelivery.Status.Eq(string(entities.DeliveryPending))).
+		UpdateAll(ctx, ex, settled)
 	if err != nil {
 		return fmt.Errorf("could not record the attempt on delivery %s: %w", delivery.ID, err)
 	}
@@ -270,13 +272,14 @@ func (q *outgoingWebhookQueue) ForgetBefore(ctx context.Context, cutoff time.Tim
 	return removed, nil
 }
 
-// recordedText is what a text column of the log keeps of s: nothing for
-// nothing, and at most maxRecordedText runes of anything else.
-func recordedText(s string) any {
+// setRecordedText writes an error or a response through set, cut to
+// maxRecordedText runes, or NULL through null when there is nothing to keep.
+func setRecordedText(s string, set func(string), null func()) {
 	if s == "" {
-		return nil
+		null()
+		return
 	}
-	return truncateRunes(s, maxRecordedText)
+	set(truncateRunes(s, maxRecordedText))
 }
 
 // truncateRunes cuts s to at most n runes, so a multi-byte character is never

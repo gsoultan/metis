@@ -85,14 +85,9 @@ func logPage(asked int) int {
 	}
 }
 
-// retrySQL makes a delivery due now. A pending one keeps its count, so its
-// schedule goes on from where it was; a failed one has run out, so the
+// RetryDelivery makes a delivery due now. A pending one keeps its count, so
+// its schedule goes on from where it was; a failed one has run out, so the
 // attempt this allows is its last unless it is accepted.
-const retrySQL = `
-	UPDATE outgoing_webhook_deliveries
-	   SET status = 'pending', next_attempt_at = $1, updated_at = $1
-	 WHERE id = $2 AND NOT test AND status IN ('pending', 'failed')`
-
 func (r *outgoingWebhookRepository) RetryDelivery(ctx context.Context, deliveryID uuid.UUID, now time.Time) error {
 	row, err := r.delivery(ctx, deliveryID)
 	if err != nil {
@@ -101,16 +96,15 @@ func (r *outgoingWebhookRepository) RetryDelivery(ctx context.Context, deliveryI
 	if err := refuseUnless(row, entities.DeliveryPending, entities.DeliveryFailed); err != nil {
 		return err
 	}
-	return r.change(ctx, row, retrySQL, now.UTC(), deliveryID[:])
+	var due outgoingwebhookdelivery.Mut
+	due.SetStatus(string(entities.DeliveryPending))
+	due.SetNextAttemptAt(now.UTC())
+	due.SetUpdatedAt(now.UTC())
+	return r.change(ctx, row, due, entities.DeliveryPending, entities.DeliveryFailed)
 }
 
-// stopSQL fails a pending delivery. A worker holding it settles nothing
+// StopDelivery fails a pending delivery. A worker holding it settles nothing
 // afterwards: its settle is guarded on the row still being pending.
-const stopSQL = `
-	UPDATE outgoing_webhook_deliveries
-	   SET status = 'failed', last_error = $1, updated_at = $2
-	 WHERE id = $3 AND NOT test AND status = 'pending'`
-
 func (r *outgoingWebhookRepository) StopDelivery(ctx context.Context, deliveryID uuid.UUID, now time.Time, reason string) error {
 	row, err := r.delivery(ctx, deliveryID)
 	if err != nil {
@@ -119,17 +113,30 @@ func (r *outgoingWebhookRepository) StopDelivery(ctx context.Context, deliveryID
 	if err := refuseUnless(row, entities.DeliveryPending); err != nil {
 		return err
 	}
-	return r.change(ctx, row, stopSQL, recordedText(reason), now.UTC(), deliveryID[:])
+	var stopped outgoingwebhookdelivery.Mut
+	stopped.SetStatus(string(entities.DeliveryFailed))
+	setRecordedText(reason, stopped.SetLastError, stopped.SetLastErrorNull)
+	stopped.SetUpdatedAt(now.UTC())
+	return r.change(ctx, row, stopped, entities.DeliveryPending)
 }
 
-// change runs one guarded update on a delivery, and says so when the delivery
-// moved on between the read and the write.
-func (r *outgoingWebhookRepository) change(ctx context.Context, row outgoingwebhookdelivery.Row, sql string, args ...any) error {
+// change runs one guarded update on a delivery that is not a test and is in
+// one of from, and says so when the delivery moved on between the read and
+// the write.
+func (r *outgoingWebhookRepository) change(ctx context.Context, row outgoingwebhookdelivery.Row, m outgoingwebhookdelivery.Mut, from ...entities.OutgoingWebhookDeliveryStatus) error {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return err
 	}
-	changed, err := ex.Exec(ctx, sql, args)
+	statuses := make([]string, len(from))
+	for i, status := range from {
+		statuses[i] = string(status)
+	}
+	changed, err := outgoingwebhookdelivery.New().
+		Where(outgoingwebhookdelivery.ID.Eq(row.ID),
+			outgoingwebhookdelivery.Test.Eq(false),
+			outgoingwebhookdelivery.Status.In(statuses...)).
+		UpdateAll(ctx, ex, m)
 	if err != nil {
 		return fmt.Errorf("could not change delivery %s: %w", uuid.UUID(row.ID), err)
 	}

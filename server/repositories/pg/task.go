@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -633,77 +632,34 @@ func (r *taskRepository) Deadlines(ctx context.Context, projectID uuid.UUID, lim
 	if err != nil {
 		return nil, counts, err
 	}
-	args := []any{string(models.TaskCompleted), string(models.TaskCanceled)}
-	open := `t.deleted_at IS NULL AND t.status <> $1 AND t.status <> $2`
-	if scoped != nil {
-		args = append(args, uuidsToRaw(scoped))
-		open += fmt.Sprintf(" AND t.project_id = ANY($%d)", len(args))
-	}
+	open := task.New().
+		Where(task.Status.NotIn(string(models.TaskCompleted), string(models.TaskCanceled))).
+		WhereIf(scoped != nil, task.ProjectID.In(uuidsToRaw(scoped)...))
 
-	counted, err := ex.Query(ctx, `SELECT count(*) FILTER (WHERE t.due_date IS NOT NULL),
-	                                      count(*) FILTER (WHERE t.due_date IS NULL)
-	                                 FROM tasks t WHERE `+open, args)
+	counted, err := open.OneDeadlines(ctx, ex)
 	if err != nil {
 		return nil, counts, fmt.Errorf("could not count the open tasks: %w", err)
 	}
-	for counted.Next() {
-		values := counted.RawValues()
-		if len(values) < 2 {
-			continue
-		}
-		if err := scanInt(values[0:1], &counts.WithDeadline); err != nil {
-			counted.Close()
-			return nil, counts, err
-		}
-		if err := scanInt(values[1:2], &counts.WithoutDeadline); err != nil {
-			counted.Close()
-			return nil, counts, err
-		}
-	}
-	counted.Close()
-	if err := counted.Err(); err != nil {
-		return nil, counts, fmt.Errorf("could not count the open tasks: %w", err)
-	}
+	counts.WithDeadline, counts.WithoutDeadline = counted.WithDeadline, counted.WithoutDeadline
 
-	listArgs := append(slices.Clone(args), limit)
-	rows, err := ex.Query(ctx, `SELECT t.id, t.name, t.node_id, t.status, t.priority::int8, COALESCE(t.assignee, ''),
-	                                   (extract(epoch FROM t.due_date) * 1000)::int8,
-	                                   COALESCE(d.key, ''), COALESCE(d.name, '')
-	                              FROM tasks t
-	                              LEFT JOIN process_instances p ON p.id = t.instance_id
-	                              LEFT JOIN process_definitions d ON d.id = p.definition_id
-	                             WHERE `+open+` AND t.due_date IS NOT NULL
-	                             ORDER BY t.due_date, t.id
-	                             LIMIT $`+fmt.Sprint(len(listArgs)), listArgs)
+	rows, err := open.Where(task.DueDate.IsNotNull()).Limit(int64(limit)).AllDeadline(ctx, ex)
 	if err != nil {
 		return nil, counts, fmt.Errorf("could not read the open tasks with a deadline: %w", err)
 	}
-	defer rows.Close()
-	var out []contracts.DeadlineRow
-	for rows.Next() {
-		values := rows.RawValues()
-		if len(values) < 9 {
-			continue
+	out := make([]contracts.DeadlineRow, len(rows))
+	for i, row := range rows {
+		out[i] = contracts.DeadlineRow{
+			TaskID:   uuid.UUID(row.ID),
+			Name:     row.Name,
+			NodeID:   row.NodeID,
+			Status:   row.Status,
+			Priority: row.Priority,
+			Assignee: row.Assignee.V,
+			// Milliseconds, as the report has always carried them.
+			DueDate:     row.DueDate.V.UTC().Round(time.Millisecond),
+			ProcessKey:  row.ProcessKey.V,
+			ProcessName: row.ProcessName.V,
 		}
-		var row contracts.DeadlineRow
-		if row.TaskID, err = uuid.FromBytes(values[0]); err != nil {
-			return nil, counts, fmt.Errorf("could not read a task id: %w", err)
-		}
-		row.Name, row.NodeID, row.Status = string(values[1]), string(values[2]), string(values[3])
-		if err := scanInt(values[4:5], &row.Priority); err != nil {
-			return nil, counts, err
-		}
-		row.Assignee = string(values[5])
-		var dueMillis int64
-		if err := scanInt(values[6:7], &dueMillis); err != nil {
-			return nil, counts, err
-		}
-		row.DueDate = time.UnixMilli(dueMillis).UTC()
-		row.ProcessKey, row.ProcessName = string(values[7]), string(values[8])
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, counts, fmt.Errorf("could not read the open tasks with a deadline: %w", err)
 	}
 	return out, counts, nil
 }
