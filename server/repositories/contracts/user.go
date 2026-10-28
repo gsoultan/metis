@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -63,6 +64,10 @@ type UserRepository interface {
 	// else. Update writes the whole row, so it cannot be used for this without
 	// blanking whatever the caller did not supply.
 	SetPasswordHash(ctx context.Context, id uuid.UUID, passwordHash string) error
+
+	// EndSessions refuses every token issued to the account before from, and
+	// touches nothing else.
+	EndSessions(ctx context.Context, id uuid.UUID, from time.Time) error
 
 	// SetProfile writes an account's full name, display name and email — read
 	// from u, with u.ID naming the account — and touches nothing else. For the

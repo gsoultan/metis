@@ -150,6 +150,15 @@ does not undo a migration.
   least 8 characters, at most 72 bytes, refused with a 400. A password over 72
   bytes was a 500. Accounts that already exist are not touched.
 
+- **Signing out ends the session on the server.** Signing out cleared the
+  token in the one browser it was in, and the token went on working for the
+  rest of its 24 hours wherever else it had been copied. `POST /api/v1/logout`
+  now ends every session a local account has, on every device, and the UI
+  calls it when somebody signs out. An account that signs in through an
+  identity provider is refused with a 400 and signs out there. On a server
+  with replicas the other replicas refuse the old token within
+  `METIS_AUTH_CACHE_TTL`, 5 seconds by default.
+
 - **A project's People directory is its organization's alone.** Listing a
   project's participants, importing or syncing people into it and removing
   them checked only that the caller was signed in, not that the project was

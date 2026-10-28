@@ -28,6 +28,15 @@ func RegisterHandlers(m *http.ServeMux, eps user.Endpoints, options []httptransp
 		common.EncodeResponse,
 		options...,
 	))
+	// Ends the caller's sessions on the server. Signing out used to clear the
+	// browser and nothing else, so a copied token kept working for its whole
+	// lifetime.
+	m.Handle("POST /api/v1/logout", httptransport.NewServer(
+		eps.SignOut,
+		decodeSignOutRequest,
+		common.EncodeResponse,
+		options...,
+	))
 	// The caller's own profile, for the same reason. A literal segment is more
 	// specific than {id}, so the mux sends these here and not to the
 	// administrative handlers below — which is where "me" used to land, as an
@@ -192,4 +201,8 @@ func decodeChangePasswordRequest(_ context.Context, r *http.Request) (any, error
 		return nil, apierr.Invalidf("could not read the request body: %v", err)
 	}
 	return req, nil
+}
+
+func decodeSignOutRequest(_ context.Context, _ *http.Request) (any, error) {
+	return user.SignOutRequest{}, nil
 }

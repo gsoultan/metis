@@ -26,6 +26,11 @@ TOKEN=$(curl -s -X POST $GOBPM/api/v1/login \
   -d '{"username":"admin","password":"…"}' | jq -r .token)
 ```
 
+`POST /api/v1/logout` with the token ends every session the account has, on
+every device; the token, and any other issued to it before then, is refused
+from then on. An account that signs in through an identity provider signs out
+there instead.
+
 Accounts that belong to several organizations choose one per request with the
 `X-Organization-ID` header. The server validates the choice against the
 caller's actual memberships — it is a selection, never an assertion.
