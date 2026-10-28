@@ -13,6 +13,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/store/externaltask"
 	"github.com/gsoultan/metis/server/repositories/store/externaltaskworker"
+	"github.com/gsoultan/metis/server/repositories/store/project"
 )
 
 type externalTaskWorkerRepository struct{ conn }
@@ -172,18 +173,11 @@ func (r *externalTaskWorkerRepository) Topics(ctx context.Context, now time.Time
 	return listed, nil
 }
 
-// unservedTopics counts the topics, by organization, with tasks on offer and
-// no worker heard from since $2. Projects are in every database: an
-// environment's has its own project's row, so the join holds there too.
-const unservedTopics = `SELECT count(*) FROM (
-  SELECT DISTINCT p.organization_id, t.topic
-  FROM external_tasks AS t JOIN projects AS p ON p.id = t.project_id
-  WHERE t.deleted_at IS NULL AND t.retries > 0 AND (t.lock_expiration IS NULL OR t.lock_expiration <= $1)
-) AS waiting
-WHERE NOT EXISTS (
-  SELECT 1 FROM external_task_workers AS w
-  WHERE w.organization_id = waiting.organization_id AND w.topic = waiting.topic AND w.last_seen_at > $2)`
-
+// CountUnserved counts the topics, by organization, with tasks on offer and
+// no worker heard from inside the live window. Three paged reads: the topics
+// on offer by project, the organization of each of those projects, and the
+// topics a live worker serves. Projects are in every database: an
+// environment's has its own project's row, so the lookup holds there too.
 func (r *externalTaskWorkerRepository) CountUnserved(ctx context.Context, now time.Time) (int64, error) {
 	if !entities.IsSystemContext(ctx) {
 		return 0, fmt.Errorf("%w: the topics nobody serves span every tenant", apierr.ErrForbidden)
@@ -193,21 +187,64 @@ func (r *externalTaskWorkerRepository) CountUnserved(ctx context.Context, now ti
 		return 0, err
 	}
 	now = now.UTC()
-	rows, err := ex.Query(ctx, unservedTopics, []any{now, now.Add(-entities.WorkerLiveWindow)})
+	waiting, err := everyGroup(func(offset int64) ([]externaltask.WaitingByProjectRow, error) {
+		return externaltask.New().
+			Where(externaltask.Retries.Gt(0)).
+			Any(externaltask.LockExpiration.IsNull(), externaltask.LockExpiration.Lte(now)).
+			Limit(everyRowBatch).Offset(offset).
+			AllWaitingByProject(ctx, ex)
+	})
 	if err != nil {
 		return 0, fmt.Errorf("could not count the topics nobody serves: %w", err)
 	}
-	defer rows.Close()
-	var unserved int64
-	if rows.Next() {
-		if err := scanInt(rows.RawValues(), &unserved); err != nil {
-			return 0, err
+	if len(waiting) == 0 {
+		return 0, nil
+	}
+	projectIDs := make([][16]byte, 0, len(waiting))
+	seen := make(map[[16]byte]bool, len(waiting))
+	for _, row := range waiting {
+		if !seen[row.ProjectID] {
+			seen[row.ProjectID] = true
+			projectIDs = append(projectIDs, row.ProjectID)
 		}
 	}
-	if err := rows.Err(); err != nil {
+	projects, err := everyRow[project.Row](ctx, ex, project.New().WithDeleted().Where(project.ID.In(projectIDs...)))
+	if err != nil {
 		return 0, fmt.Errorf("could not count the topics nobody serves: %w", err)
 	}
-	return unserved, nil
+	organizationOf := make(map[[16]byte][16]byte, len(projects))
+	for _, p := range projects {
+		organizationOf[p.ID] = p.OrganizationID
+	}
+	served, err := everyGroup(func(offset int64) ([]externaltaskworker.ServedRow, error) {
+		return externaltaskworker.New().
+			Where(externaltaskworker.LastSeenAt.Gt(now.Add(-entities.WorkerLiveWindow))).
+			Limit(everyRowBatch).Offset(offset).
+			AllServed(ctx, ex)
+	})
+	if err != nil {
+		return 0, fmt.Errorf("could not count the topics nobody serves: %w", err)
+	}
+	type orgTopic struct {
+		organization [16]byte
+		topic        string
+	}
+	live := make(map[orgTopic]bool, len(served))
+	for _, row := range served {
+		live[orgTopic{row.OrganizationID, row.Topic}] = true
+	}
+	unserved := make(map[orgTopic]bool)
+	for _, row := range waiting {
+		organization, ok := organizationOf[row.ProjectID]
+		if !ok {
+			continue
+		}
+		key := orgTopic{organization, row.Topic}
+		if !live[key] {
+			unserved[key] = true
+		}
+	}
+	return int64(len(unserved)), nil
 }
 
 func (r *externalTaskWorkerRepository) ForgetIdle(ctx context.Context, before time.Time) (int64, error) {

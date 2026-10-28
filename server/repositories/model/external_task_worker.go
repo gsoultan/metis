@@ -43,3 +43,11 @@ func (w *ExternalTaskWorker) Schema(t *storm.Table) {
 	// Which removes a batch at a time (DeleteBatch).
 	t.Takes()
 }
+
+// Aggregates declares Served: each organization's topics with a worker heard
+// from, which the unserved count takes from the topics on offer.
+func (w *ExternalTaskWorker) Aggregates(a *storm.Aggregates) {
+	served := a.Named("Served")
+	served.By(&w.Organization, &w.Topic)
+	served.Count("Workers")
+}

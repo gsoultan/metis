@@ -2638,6 +2638,104 @@ var errHeldByWorkerLocked = errors.New(
 var errHeldByWorkerOrdered = errors.New(
 	"storm: Order() on an aggregation — its rows are groups, not table rows, and external_tasks.HeldByWorker is already ordered by its grouping columns; sort the returned slice if you need another order")
 
+// WaitingByProjectRow is the "WaitingByProject" aggregation over external_tasks.
+//
+// One row per group. The grouping columns come first, in declaration
+// order, and the result is ordered by them: PostgreSQL promises no
+// order for a GROUP BY, and an unordered report shuffles between
+// requests for no reason anyone can see.
+type WaitingByProjectRow struct {
+	ProjectID [16]byte
+	Topic     string
+	Total     int64
+}
+
+const waitingByProjectPrefix = `SELECT "project_id" AS "project_id", "topic" AS "topic", count(*) AS "total" FROM "external_tasks"`
+const waitingByProjectSuffix = ` GROUP BY "project_id", "topic" ORDER BY "project_id", "topic"`
+
+var (
+	waitingByProjectCache       = runtime.NewTreeCache()
+	waitingByProjectOffsetCache = runtime.NewTreeCache()
+)
+
+func waitingByProjectStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := waitingByProjectCache, waitingByProjectSuffix+limitSuffix
+	if withOffset {
+		c, suffix = waitingByProjectOffsetCache, waitingByProjectSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(waitingByProjectPrefix, softDeleteWhere, toks, lowering, suffix))
+}
+
+func scanWaitingByProject(rv [][]byte, r *WaitingByProjectRow, sl *runtime.Slab) error {
+	copy(r.ProjectID[:], rv[0])
+	r.Topic = sl.Str(rv[1])
+	r.Total = runtime.Int8(rv[2])
+	return nil
+}
+
+// AllWaitingByProject runs the "WaitingByProject" aggregation. Predicates compose exactly as on All —
+// they filter the rows that go INTO the groups, which is the WHERE clause
+// and not a HAVING. Limit and offset page the groups.
+func (q Query) AllWaitingByProject(ctx context.Context, ex runtime.Executor) ([]WaitingByProjectRow, error) {
+	var sl runtime.Slab
+	return q.AllWaitingByProjectInto(ctx, ex, nil, &sl)
+}
+
+// AllWaitingByProjectInto lets the caller own the output slice and the arena.
+func (q Query) AllWaitingByProjectInto(ctx context.Context, ex runtime.Executor, dst []WaitingByProjectRow, sl *runtime.Slab) ([]WaitingByProjectRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errWaitingByProjectOrdered
+	}
+	if q.lock != 0 {
+		return dst, errWaitingByProjectLocked
+	}
+	var buf [21]runtime.Tok
+	st := waitingByProjectStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, WaitingByProjectRow{})
+		if err := scanWaitingByProject(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// WaitingByProjectPieces is the "WaitingByProject" aggregation's statement around its
+// predicates, for the context package to splice a composed read into:
+// the SELECT … FROM, and the GROUP BY, ORDER BY and LIMIT after it.
+func WaitingByProjectPieces() (prefix, suffix string) {
+	return waitingByProjectPrefix, waitingByProjectSuffix + limitSuffix
+}
+
+// ScanWaitingByProject decodes one row of the "WaitingByProject" aggregation.
+func ScanWaitingByProject(rv [][]byte, r *WaitingByProjectRow, sl *runtime.Slab) error {
+	return scanWaitingByProject(rv, r, sl)
+}
+
+var errWaitingByProjectLocked = errors.New(
+	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
+
+var errWaitingByProjectOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and external_tasks.WaitingByProject is already ordered by its grouping columns; sort the returned slice if you need another order")
+
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
 const insertSQL = `INSERT INTO "external_tasks" ("id", "created_at", "updated_at", "project_id", "instance_id", "definition_id", "node_id", "topic", "worker_id", "lock_expiration", "retries", "retry_timeout", "error_message", "error_details", "variables", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING "id", "created_at", "updated_at", "project_id", "instance_id", "definition_id", "node_id", "topic", "worker_id", "lock_expiration", "retries", "retry_timeout", "error_message", "error_details", "variables", "deleted_at"`

@@ -111,6 +111,9 @@ type Query struct {
 	// noOrder suppresses the default ordering. See Unordered.
 	noOrder  bool
 	badAfter bool
+
+	// deleted reads the marked rows as well. See WithDeleted.
+	deleted bool
 }
 
 // New starts a query.
@@ -303,6 +306,9 @@ func (q Query) Order(ts ...Sort) Query {
 
 // Err reports a query that outgrew its buffers.
 func (q Query) Err() error {
+	if q.deleted {
+		return errWithDeleted
+	}
 	return q.readErr()
 }
 
@@ -319,6 +325,9 @@ func (q Query) readErr() error {
 	}
 	return nil
 }
+
+var errWithDeleted = errors.New(
+	"storm: WithDeleted() reaches All, One, Count, Exists, Take and the declared projections; every other terminal keeps the marked rows out, and running it as if it did not would answer a different question than the one asked")
 
 var errAfterUnordered = errors.New(
 	"storm: After() on an Unordered() query with no explicit Order — a keyset cursor without an ordering is a position in nothing")
@@ -1245,12 +1254,57 @@ func countStmtFor(toks []runtime.Tok) *runtime.Stmt {
 	return countCache.Put(toks, runtime.SpliceTreeWhere(countPrefix, softDeleteWhere, toks, lowering, ""))
 }
 
+// WithDeleted reads the marked rows as well as the live ones. All, One,
+// Count, Exists, Take and the projections honour it; every other terminal refuses it,
+// rather than quietly answering about the live rows only.
+func (q Query) WithDeleted() Query { q.deleted = true; return q }
+
+var (
+	deletedReads = func() [7][2]*runtime.TreeCache {
+		var cs [7][2]*runtime.TreeCache
+		for i := range cs {
+			cs[i][0], cs[i][1] = runtime.NewTreeCache(), runtime.NewTreeCache()
+		}
+		return cs
+	}()
+	deletedCount  = runtime.NewTreeCache()
+	deletedExists = runtime.NewTreeCache()
+)
+
 func (q Query) readStmt(toks []runtime.Tok) *runtime.Stmt {
-	return stmtFor(toks, q.offset > 0, q.lock)
+	if !q.deleted {
+		return stmtFor(toks, q.offset > 0, q.lock)
+	}
+	i, suffix := 0, limitSuffix
+	if q.offset > 0 {
+		i, suffix = 1, limitOffsetSuffix
+	}
+	c := deletedReads[q.lock][i]
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTree(selectPrefix, toks, lowering, suffix+lockSuffix[q.lock]))
 }
 
-func (q Query) countStmt(toks []runtime.Tok) *runtime.Stmt  { return countStmtFor(toks) }
-func (q Query) existsStmt(toks []runtime.Tok) *runtime.Stmt { return existsStmtFor(toks) }
+func (q Query) countStmt(toks []runtime.Tok) *runtime.Stmt {
+	if !q.deleted {
+		return countStmtFor(toks)
+	}
+	if st := deletedCount.Get(toks); st != nil {
+		return st
+	}
+	return deletedCount.Put(toks, runtime.SpliceTree(countPrefix, toks, lowering, ""))
+}
+
+func (q Query) existsStmt(toks []runtime.Tok) *runtime.Stmt {
+	if !q.deleted {
+		return existsStmtFor(toks)
+	}
+	if st := deletedExists.Get(toks); st != nil {
+		return st
+	}
+	return deletedExists.Put(toks, runtime.SpliceTree(existsPrefix, toks, lowering, existsSuffix))
+}
 
 const (
 	distinctOpen = "SELECT DISTINCT ON ("
@@ -1810,6 +1864,22 @@ func keyStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
 	return c.Put(toks, runtime.SpliceTreeWhere(keyPrefix, softDeleteWhere, toks, lowering, suffix))
 }
 
+var keyDeletedCaches = [2]*runtime.TreeCache{runtime.NewTreeCache(), runtime.NewTreeCache()}
+
+// keyDeletedStmtFor is keyStmtFor under WithDeleted: no soft-delete
+// predicate, because the model let this table's call sites ask for that.
+func keyDeletedStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	i, suffix := 0, limitSuffix
+	if withOffset {
+		i, suffix = 1, limitOffsetSuffix
+	}
+	c := keyDeletedCaches[i]
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTree(keyPrefix, toks, lowering, suffix))
+}
+
 func scanKey(rv [][]byte, r *KeyRow, sl *runtime.Slab) error {
 	copy(r.ID[:], rv[0])
 	return nil
@@ -1832,7 +1902,11 @@ func (q Query) AllKeyInto(ctx context.Context, ex runtime.Executor, dst []KeyRow
 		return dst, err
 	}
 	var buf [21]runtime.Tok
-	st := keyStmtFor(q.stream(&buf), q.offset > 0)
+	pick := keyStmtFor
+	if q.deleted {
+		pick = keyDeletedStmtFor
+	}
+	st := pick(q.stream(&buf), q.offset > 0)
 	if st.Err != nil {
 		return dst, st.Err
 	}

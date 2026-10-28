@@ -33,6 +33,9 @@ func (p *Project) Schema(t *storm.Table) {
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&p.DeletedAt)
+	// The unserved-topic count names the organization of every project with
+	// a task on offer, removed or not.
+	t.ReadsDeleted()
 }
 
 // Projections declares the tenant scope's read: an organization's projects by

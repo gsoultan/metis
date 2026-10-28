@@ -1727,6 +1727,100 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 	return q.readStmt(q.stream(&buf)).SQL, q.bind(b)
 }
 
+// ServedRow is the "Served" aggregation over external_task_workers.
+//
+// One row per group. The grouping columns come first, in declaration
+// order, and the result is ordered by them: PostgreSQL promises no
+// order for a GROUP BY, and an unordered report shuffles between
+// requests for no reason anyone can see.
+type ServedRow struct {
+	OrganizationID [16]byte
+	Topic          string
+	Workers        int64
+}
+
+const servedPrefix = `SELECT "organization_id" AS "organization_id", "topic" AS "topic", count(*) AS "workers" FROM "external_task_workers"`
+const servedSuffix = ` GROUP BY "organization_id", "topic" ORDER BY "organization_id", "topic"`
+
+var (
+	servedCache       = runtime.NewTreeCache()
+	servedOffsetCache = runtime.NewTreeCache()
+)
+
+func servedStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := servedCache, servedSuffix+limitSuffix
+	if withOffset {
+		c, suffix = servedOffsetCache, servedSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTree(servedPrefix, toks, lowering, suffix))
+}
+
+func scanServed(rv [][]byte, r *ServedRow, sl *runtime.Slab) error {
+	copy(r.OrganizationID[:], rv[0])
+	r.Topic = sl.Str(rv[1])
+	r.Workers = runtime.Int8(rv[2])
+	return nil
+}
+
+// AllServed runs the "Served" aggregation. Predicates compose exactly as on All —
+// they filter the rows that go INTO the groups, which is the WHERE clause
+// and not a HAVING. Limit and offset page the groups.
+func (q Query) AllServed(ctx context.Context, ex runtime.Executor) ([]ServedRow, error) {
+	var sl runtime.Slab
+	return q.AllServedInto(ctx, ex, nil, &sl)
+}
+
+// AllServedInto lets the caller own the output slice and the arena.
+func (q Query) AllServedInto(ctx context.Context, ex runtime.Executor, dst []ServedRow, sl *runtime.Slab) ([]ServedRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errServedOrdered
+	}
+	if q.lock != 0 {
+		return dst, errServedLocked
+	}
+	var buf [21]runtime.Tok
+	st := servedStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, ServedRow{})
+		if err := scanServed(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// ServedPieces is the "Served" aggregation's statement around its
+// predicates, for the context package to splice a composed read into:
+// the SELECT … FROM, and the GROUP BY, ORDER BY and LIMIT after it.
+func ServedPieces() (prefix, suffix string) { return servedPrefix, servedSuffix + limitSuffix }
+
+// ScanServed decodes one row of the "Served" aggregation.
+func ScanServed(rv [][]byte, r *ServedRow, sl *runtime.Slab) error { return scanServed(rv, r, sl) }
+
+var errServedLocked = errors.New(
+	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
+
+var errServedOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and external_task_workers.Served is already ordered by its grouping columns; sort the returned slice if you need another order")
+
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
 const insertSQL = `INSERT INTO "external_task_workers" ("id", "created_at", "updated_at", "organization_id", "topic", "worker_id", "version", "last_seen_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING "id", "created_at", "updated_at", "organization_id", "topic", "worker_id", "version", "last_seen_at"`

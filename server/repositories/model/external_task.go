@@ -60,4 +60,9 @@ func (e *ExternalTask) Aggregates(a *storm.Aggregates) {
 	held := a.Named("HeldByWorker")
 	held.By(&e.Topic, &e.WorkerID)
 	held.Count("Total")
+	// The topics on offer in each project, which the unserved count reads
+	// across every tenant.
+	byProject := a.Named("WaitingByProject")
+	byProject.By(&e.Project, &e.Topic)
+	byProject.Count("Total")
 }
