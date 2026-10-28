@@ -1421,6 +1421,16 @@ does not undo a migration.
   account that belongs to no organization at all was a 500. All three are 403
   now, with the reason; 401 is kept for a token that proves nothing.
 
+- **Whoever creates an organization administers it.** A new organization was
+  created with nobody in it: its creator could not see it in their list,
+  could not reach it, and was refused with "that organization is not yours"
+  when they added its first member. Its creator is now an administrator of it,
+  in the same transaction that creates it, and can reach it straight away.
+  An organization created before this is left as it is: nobody is made a
+  member of it on upgrade, so one that is still empty needs its first member
+  added in the database, as before. An organization with no name is refused with a 400
+  instead of a 500.
+
 - **The REST organization calls report their failures.** Reading, creating,
   listing, renaming or deleting an organization answered 200 whatever happened:
   the error was sent as `"err":{}`. Asking for an organization that is not the

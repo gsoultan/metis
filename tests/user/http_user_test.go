@@ -30,7 +30,7 @@ func setupHTTPTestService(t *testing.T) (services.ServiceFacade, http.Handler) {
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	dispatcher := impl.NewEventDispatcher()
 
-	orgSvc := service_impl.NewOrganizationService(repo)
+	orgSvc := service_impl.NewOrganizationService(repo, nil)
 	projectSvc := service_impl.NewProjectService(repo)
 	defSvc := service_impl.NewDefinitionService(repo)
 	connectorSvc := service_impl.NewConnectorService(repo)

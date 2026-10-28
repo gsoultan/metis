@@ -385,7 +385,7 @@ func newHandlerHarness(t *testing.T) (services.ServiceFacade, servicecontracts.J
 	)
 
 	svc := services.NewService(services.ServiceParams{
-		OrganizationService:  service_impl2.NewOrganizationService(repo),
+		OrganizationService:  service_impl2.NewOrganizationService(repo, nil),
 		ProjectService:       service_impl2.NewProjectService(repo),
 		DefinitionService:    service_impl2.NewDefinitionService(repo),
 		TaskService:          taskSvc,

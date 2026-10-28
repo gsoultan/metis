@@ -242,7 +242,6 @@ func NewServiceFacade(
 	if accounts == nil {
 		accounts = serviceimpl.NewUnavailablePlatformUserService()
 	}
-	orgSvc := serviceimpl.NewOrganizationService(repo)
 	projectSvc := serviceimpl.NewProjectService(repo)
 	defSvc := serviceimpl.NewDefinitionService(repo)
 	environmentSvc := serviceimpl.NewEnvironmentService(repo)
@@ -263,6 +262,7 @@ func NewServiceFacade(
 	decisionSvc := serviceimpl.NewDecisionService(repo, tableEval)
 	userSvc := serviceimpl.NewUserService(repo, jwtSecret)
 	groupSvc := serviceimpl.NewGroupService(repo, serviceimpl.PrincipalForgetter(userSvc))
+	orgSvc := serviceimpl.NewOrganizationService(repo, serviceimpl.PrincipalForgetter(userSvc))
 	messagingSvc := serviceimpl.NewMessagingService(engine, externalTaskSvc)
 	webhookSvc := serviceimpl.NewWebhookService(repo, engine)
 	adHocActivator := serviceimpl.NewAdHocActivator(engine, repo)

@@ -209,7 +209,7 @@ func TestAnotherOrganisationsWebhookCannotBeSimulated(t *testing.T) {
 	h := newWebhookHarness(t)
 	hook := h.register(t, "order.paid", "order.id")
 
-	other, err := serviceimpl.NewOrganizationService(h.repo).CreateOrganization(h.ctx, "Other Org", "")
+	other, err := serviceimpl.NewOrganizationService(h.repo, nil).CreateOrganization(h.ctx, "Other Org", "")
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}

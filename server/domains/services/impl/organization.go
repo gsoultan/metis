@@ -2,11 +2,11 @@ package impl
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
@@ -14,19 +14,34 @@ import (
 )
 
 type organizationService struct {
-	repo repositories.Repository
+	repo   repositories.Repository
+	forget func(uuid.UUID)
 }
 
 // NewOrganizationService creates a new OrganizationService implementation.
-func NewOrganizationService(repo repositories.Repository) servicecontracts.OrganizationService {
+// forget drops an account from the cache of signed-in callers, so that one
+// who has just joined an organization can reach it at once; nil forgets
+// nothing.
+func NewOrganizationService(repo repositories.Repository, forget func(uuid.UUID)) servicecontracts.OrganizationService {
+	if forget == nil {
+		forget = func(uuid.UUID) {}
+	}
 	return &organizationService{
-		repo: repo,
+		repo:   repo,
+		forget: forget,
 	}
 }
 
+// CreateOrganization adds an organization and makes whoever created it its
+// administrator, in the same transaction.
+//
+// Without that nobody was in it: the creator could not add anybody to it,
+// because adding a member is refused for an organization that is not the
+// caller's, and it was not in their list of organizations either. A call with
+// nobody signed in — a test, or the composition root — creates it empty.
 func (s *organizationService) CreateOrganization(ctx context.Context, name, description string) (entities.Organization, error) {
 	if name == "" {
-		return entities.Organization{}, errors.New("organization name is required")
+		return entities.Organization{}, apierr.Invalidf("organization name is required")
 	}
 	idObj, err := uuid.NewV7()
 	if err != nil {
@@ -39,8 +54,21 @@ func (s *organizationService) CreateOrganization(ctx context.Context, name, desc
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
-	if err := s.repo.Organization().Create(ctx, adapters.OrganizationModelAdapter{Organization: o}.ToModel()); err != nil {
+	creator := signedIn(ctx)
+	err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		if err := s.repo.Organization().Create(txCtx, adapters.OrganizationModelAdapter{Organization: o}.ToModel()); err != nil {
+			return err
+		}
+		if creator == nil {
+			return nil
+		}
+		return s.repo.User().AddOrganizationWithRoles(txCtx, creator.ID, o.ID, []string{entities.RoleAdmin})
+	})
+	if err != nil {
 		return entities.Organization{}, err
+	}
+	if creator != nil {
+		s.forget(creator.ID)
 	}
 	return o, nil
 }

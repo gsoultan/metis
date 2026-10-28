@@ -592,6 +592,10 @@ func (r *userRepository) AddOrganization(ctx context.Context, userID, organizati
 	return r.addMembership(ctx, userID, organizationID, nil)
 }
 
+func (r *userRepository) AddOrganizationWithRoles(ctx context.Context, userID, organizationID uuid.UUID, roles []string) error {
+	return r.addMembership(ctx, userID, organizationID, roles)
+}
+
 // addMembership puts an account in an organization, holding roles there. With
 // none named the column's default holds: no role of its own. A membership that
 // is already there is left as it is, roles included.

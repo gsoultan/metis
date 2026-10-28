@@ -15,7 +15,7 @@ func TestUserCRUD(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 
 	repo := repositories.NewRepository(testutils.StormConn(db))
-	orgSvc := service_impl.NewOrganizationService(repo)
+	orgSvc := service_impl.NewOrganizationService(repo, nil)
 	userSvc := service_impl.NewUserService(repo, "test-jwt-secret")
 
 	org, err := orgSvc.CreateOrganization(ctx, "Test Org", "")
@@ -148,7 +148,7 @@ func TestGroupCRUD(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 
 	repo := repositories.NewRepository(testutils.StormConn(db))
-	orgSvc := service_impl.NewOrganizationService(repo)
+	orgSvc := service_impl.NewOrganizationService(repo, nil)
 	groupSvc := service_impl.NewGroupService(repo, nil)
 
 	org, err := orgSvc.CreateOrganization(ctx, "Test Org", "")
@@ -259,7 +259,7 @@ func TestGroupMembership(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 
 	repo := repositories.NewRepository(testutils.StormConn(db))
-	orgSvc := service_impl.NewOrganizationService(repo)
+	orgSvc := service_impl.NewOrganizationService(repo, nil)
 	userSvc := service_impl.NewUserService(repo, "test-jwt-secret")
 	groupSvc := service_impl.NewGroupService(repo, nil)
 

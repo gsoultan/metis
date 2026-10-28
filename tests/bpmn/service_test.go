@@ -26,7 +26,7 @@ func TestBPMNFlow(t *testing.T) {
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	dispatcher := impl.NewEventDispatcher()
 
-	orgSvc := service_impl2.NewOrganizationService(repo)
+	orgSvc := service_impl2.NewOrganizationService(repo, nil)
 	projectSvc := service_impl2.NewProjectService(repo)
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
@@ -145,7 +145,7 @@ func TestExclusiveGatewayFlow(t *testing.T) {
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	dispatcher := impl.NewEventDispatcher()
 
-	orgSvc := service_impl2.NewOrganizationService(repo)
+	orgSvc := service_impl2.NewOrganizationService(repo, nil)
 	projectSvc := service_impl2.NewProjectService(repo)
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
@@ -260,7 +260,7 @@ func TestParallelGatewayJoin(t *testing.T) {
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	dispatcher := impl.NewEventDispatcher()
 
-	orgSvc := service_impl2.NewOrganizationService(repo)
+	orgSvc := service_impl2.NewOrganizationService(repo, nil)
 	projectSvc := service_impl2.NewProjectService(repo)
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
@@ -376,7 +376,7 @@ func TestParallelGatewayFlow(t *testing.T) {
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	dispatcher := impl.NewEventDispatcher()
 
-	orgSvc := service_impl2.NewOrganizationService(repo)
+	orgSvc := service_impl2.NewOrganizationService(repo, nil)
 	projectSvc := service_impl2.NewProjectService(repo)
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
@@ -459,7 +459,7 @@ func TestTaskServiceEnhancements(t *testing.T) {
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	dispatcher := impl.NewEventDispatcher()
 
-	orgSvc := service_impl2.NewOrganizationService(repo)
+	orgSvc := service_impl2.NewOrganizationService(repo, nil)
 	projectSvc := service_impl2.NewProjectService(repo)
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)
@@ -586,7 +586,7 @@ func TestExecutionEnhancements(t *testing.T) {
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	dispatcher := impl.NewEventDispatcher()
 
-	orgSvc := service_impl2.NewOrganizationService(repo)
+	orgSvc := service_impl2.NewOrganizationService(repo, nil)
 	projectSvc := service_impl2.NewProjectService(repo)
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)

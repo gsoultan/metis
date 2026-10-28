@@ -78,6 +78,11 @@ type UserRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 
 	AddOrganization(ctx context.Context, userID, organizationID uuid.UUID) error
+
+	// AddOrganizationWithRoles puts an account in an organization holding
+	// roles there, as AddOrganization does with none. A membership that is
+	// already there is left as it is.
+	AddOrganizationWithRoles(ctx context.Context, userID, organizationID uuid.UUID, roles []string) error
 	RemoveOrganization(ctx context.Context, userID, organizationID uuid.UUID) error
 	AddProject(ctx context.Context, userID, projectID uuid.UUID) error
 	RemoveProject(ctx context.Context, userID, projectID uuid.UUID) error
