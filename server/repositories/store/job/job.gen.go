@@ -521,12 +521,14 @@ func (h UUIDCol) DescNullsLast() Sort {
 
 func (h UUIDCol) Eq(v [16]byte) Pred    { return Pred{col: h.c, op: opEq, raw: v} }
 func (h UUIDCol) NotEq(v [16]byte) Pred { return Pred{col: h.c, op: opNotEq, raw: v} }
-func (h UUIDCol) In(v ...[16]byte) Pred { return Pred{col: h.c, op: opIn, anyRaw: v} }
+func (h UUIDCol) In(v ...[16]byte) Pred { return Pred{col: h.c, op: opIn, anyRaw: runtime.List(v)} }
 
 // NotIn is `<> ALL($1)`. A NULL anywhere in v makes the
 // comparison NULL for every row and the result empty —
 // PostgreSQL's rule for NOT IN, not storm's.
-func (h UUIDCol) NotIn(v ...[16]byte) Pred { return Pred{col: h.c, op: opNotIn, anyRaw: v} }
+func (h UUIDCol) NotIn(v ...[16]byte) Pred {
+	return Pred{col: h.c, op: opNotIn, anyRaw: runtime.List(v)}
+}
 
 // TimeCol addresses a timestamptz column.
 type TimeCol struct{ c uint8 }
@@ -561,14 +563,16 @@ func (h NullUUIDCol) DescNullsLast() Sort {
 
 func (h NullUUIDCol) Eq(v [16]byte) Pred    { return Pred{col: h.c, op: opEq, raw: v} }
 func (h NullUUIDCol) NotEq(v [16]byte) Pred { return Pred{col: h.c, op: opNotEq, raw: v} }
-func (h NullUUIDCol) In(v ...[16]byte) Pred { return Pred{col: h.c, op: opIn, anyRaw: v} }
+func (h NullUUIDCol) In(v ...[16]byte) Pred { return Pred{col: h.c, op: opIn, anyRaw: runtime.List(v)} }
 
 // NotIn is `<> ALL($1)`. A NULL anywhere in v makes the
 // comparison NULL for every row and the result empty —
 // PostgreSQL's rule for NOT IN, not storm's.
-func (h NullUUIDCol) NotIn(v ...[16]byte) Pred { return Pred{col: h.c, op: opNotIn, anyRaw: v} }
-func (h NullUUIDCol) IsNull() Pred             { return Pred{col: h.c, op: opIsNull} }
-func (h NullUUIDCol) IsNotNull() Pred          { return Pred{col: h.c, op: opIsNotNull} }
+func (h NullUUIDCol) NotIn(v ...[16]byte) Pred {
+	return Pred{col: h.c, op: opNotIn, anyRaw: runtime.List(v)}
+}
+func (h NullUUIDCol) IsNull() Pred    { return Pred{col: h.c, op: opIsNull} }
+func (h NullUUIDCol) IsNotNull() Pred { return Pred{col: h.c, op: opIsNotNull} }
 
 // TextCol addresses a varchar(255) column.
 type TextCol struct{ c uint8 }
@@ -591,12 +595,12 @@ func (h TextCol) Lte(v string) Pred     { return Pred{col: h.c, op: opLte, str: 
 func (h TextCol) EqLower(v string) Pred { return Pred{col: h.c, op: opEqLower, str: v} }
 func (h TextCol) Like(v string) Pred    { return Pred{col: h.c, op: opLike, str: v} }
 func (h TextCol) ILike(v string) Pred   { return Pred{col: h.c, op: opILike, str: v} }
-func (h TextCol) In(v ...string) Pred   { return Pred{col: h.c, op: opIn, anyStr: v} }
+func (h TextCol) In(v ...string) Pred   { return Pred{col: h.c, op: opIn, anyStr: runtime.List(v)} }
 
 // NotIn is `<> ALL($1)`. A NULL anywhere in v makes the
 // comparison NULL for every row and the result empty —
 // PostgreSQL's rule for NOT IN, not storm's.
-func (h TextCol) NotIn(v ...string) Pred { return Pred{col: h.c, op: opNotIn, anyStr: v} }
+func (h TextCol) NotIn(v ...string) Pred { return Pred{col: h.c, op: opNotIn, anyStr: runtime.List(v)} }
 
 // NullTextCol addresses a text column.
 type NullTextCol struct{ c uint8 }
@@ -619,15 +623,17 @@ func (h NullTextCol) Lte(v string) Pred     { return Pred{col: h.c, op: opLte, s
 func (h NullTextCol) EqLower(v string) Pred { return Pred{col: h.c, op: opEqLower, str: v} }
 func (h NullTextCol) Like(v string) Pred    { return Pred{col: h.c, op: opLike, str: v} }
 func (h NullTextCol) ILike(v string) Pred   { return Pred{col: h.c, op: opILike, str: v} }
-func (h NullTextCol) In(v ...string) Pred   { return Pred{col: h.c, op: opIn, anyStr: v} }
+func (h NullTextCol) In(v ...string) Pred   { return Pred{col: h.c, op: opIn, anyStr: runtime.List(v)} }
 
 // NotIn is `<> ALL($1)`. A NULL anywhere in v makes the
 // comparison NULL for every row and the result empty —
 // PostgreSQL's rule for NOT IN, not storm's.
-func (h NullTextCol) NotIn(v ...string) Pred { return Pred{col: h.c, op: opNotIn, anyStr: v} }
-func (h NullTextCol) IsNull() Pred           { return Pred{col: h.c, op: opIsNull} }
-func (h NullTextCol) IsNotNull() Pred        { return Pred{col: h.c, op: opIsNotNull} }
-func (h NullTextCol) IsNullOrEmpty() Pred    { return Pred{col: h.c, op: opNullOrEmpty} }
+func (h NullTextCol) NotIn(v ...string) Pred {
+	return Pred{col: h.c, op: opNotIn, anyStr: runtime.List(v)}
+}
+func (h NullTextCol) IsNull() Pred        { return Pred{col: h.c, op: opIsNull} }
+func (h NullTextCol) IsNotNull() Pred     { return Pred{col: h.c, op: opIsNotNull} }
+func (h NullTextCol) IsNullOrEmpty() Pred { return Pred{col: h.c, op: opNullOrEmpty} }
 
 // NullTimeCol addresses a timestamptz column.
 type NullTimeCol struct{ c uint8 }
@@ -666,15 +672,19 @@ func (h JSONCol) Contains(v runtime.JSON) Pred { return Pred{col: h.c, op: opJSO
 func (h JSONCol) ContainedBy(v runtime.JSON) Pred {
 	return Pred{col: h.c, op: opJSONContainedBy, jsn: v}
 }
-func (h JSONCol) HasAnyKey(v ...string) Pred  { return Pred{col: h.c, op: opHasAnyKey, anyStr: v} }
-func (h JSONCol) HasAllKeys(v ...string) Pred { return Pred{col: h.c, op: opHasAllKeys, anyStr: v} }
+func (h JSONCol) HasAnyKey(v ...string) Pred {
+	return Pred{col: h.c, op: opHasAnyKey, anyStr: runtime.List(v)}
+}
+func (h JSONCol) HasAllKeys(v ...string) Pred {
+	return Pred{col: h.c, op: opHasAllKeys, anyStr: runtime.List(v)}
+}
 
 // TextLikeAny matches the document's text against each LIKE
 // pattern in v. A NULL document reads as the empty string.
 // The patterns are the caller's: escape % and _ in what they
 // quote.
 func (h JSONCol) TextLikeAny(v ...string) Pred {
-	return Pred{col: h.c, op: opJSONTextLikeAny, anyStr: v}
+	return Pred{col: h.c, op: opJSONTextLikeAny, anyStr: runtime.List(v)}
 }
 func (h JSONCol) IsEmpty() Pred { return Pred{col: h.c, op: opJSONIsEmpty} }
 
@@ -696,12 +706,12 @@ func (h Int64Col) Gt(v int64) Pred    { return Pred{col: h.c, op: opGt, num: int
 func (h Int64Col) Gte(v int64) Pred   { return Pred{col: h.c, op: opGte, num: int64(v)} }
 func (h Int64Col) Lt(v int64) Pred    { return Pred{col: h.c, op: opLt, num: int64(v)} }
 func (h Int64Col) Lte(v int64) Pred   { return Pred{col: h.c, op: opLte, num: int64(v)} }
-func (h Int64Col) In(v ...int64) Pred { return Pred{col: h.c, op: opIn, anyI64: v} }
+func (h Int64Col) In(v ...int64) Pred { return Pred{col: h.c, op: opIn, anyI64: runtime.List(v)} }
 
 // NotIn is `<> ALL($1)`. A NULL anywhere in v makes the
 // comparison NULL for every row and the result empty —
 // PostgreSQL's rule for NOT IN, not storm's.
-func (h Int64Col) NotIn(v ...int64) Pred { return Pred{col: h.c, op: opNotIn, anyI64: v} }
+func (h Int64Col) NotIn(v ...int64) Pred { return Pred{col: h.c, op: opNotIn, anyI64: runtime.List(v)} }
 
 // Where applies predicates, ANDed together.
 func (q Query) Where(ps ...Pred) Query {
@@ -2288,6 +2298,127 @@ func (q Query) AllDistinctOn(ctx context.Context, ex runtime.Executor, n int, ds
 		if err := scan(rows.RawValues(), &dst[len(dst)-1], &sl); err != nil {
 			return dst, err
 		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// TurnRow is a row and its turn: its place among its group's rows, in
+// the order AllTurns was given.
+type TurnRow struct {
+	Row
+	Turn int64
+}
+
+const turnsHead = "WITH RECURSIVE \"_storm_onward\"(\"_storm_g\", \"_storm_n\") AS ((SELECT \"organization_id\", 1 FROM \"jobs\""
+
+// turnsGroups and turnsRows are each splice's declared predicate and
+// the text after it.
+var turnsGroups = [4][2]string{
+	{"\"organization_id\" >= $1 AND \"deleted_at\" IS NULL", " ORDER BY \"organization_id\" LIMIT 1) UNION ALL SELECT (SELECT \"organization_id\" FROM \"jobs\""},
+	{"\"organization_id\" > \"_storm_onward\".\"_storm_g\" AND \"deleted_at\" IS NULL", " ORDER BY \"organization_id\" LIMIT 1), \"_storm_onward\".\"_storm_n\" + 1 FROM \"_storm_onward\" WHERE \"_storm_onward\".\"_storm_g\" IS NOT NULL AND \"_storm_onward\".\"_storm_n\" < $2), \"_storm_wrapped\"(\"_storm_g\", \"_storm_n\") AS ((SELECT \"organization_id\", 1 FROM \"jobs\""},
+	{"\"organization_id\" < $1 AND \"deleted_at\" IS NULL", " ORDER BY \"organization_id\" LIMIT 1) UNION ALL SELECT (SELECT \"organization_id\" FROM \"jobs\""},
+	{"\"organization_id\" > \"_storm_wrapped\".\"_storm_g\" AND \"organization_id\" < $1 AND \"deleted_at\" IS NULL", " ORDER BY \"organization_id\" LIMIT 1), \"_storm_wrapped\".\"_storm_n\" + 1 FROM \"_storm_wrapped\" WHERE \"_storm_wrapped\".\"_storm_g\" IS NOT NULL AND \"_storm_wrapped\".\"_storm_n\" < $2), \"_storm_groups\" AS (SELECT \"_storm_g\" FROM (SELECT \"_storm_g\" FROM \"_storm_onward\" WHERE \"_storm_g\" IS NOT NULL UNION ALL SELECT \"_storm_g\" FROM \"_storm_wrapped\" WHERE \"_storm_g\" IS NOT NULL) AS \"_storm_found\" LIMIT $2), \"_storm_queued\" AS (SELECT \"_storm_c\".* FROM \"_storm_groups\" CROSS JOIN LATERAL (SELECT \"id\", \"created_at\", \"updated_at\", \"instance_id\", \"definition_id\", \"organization_id\", \"node_id\", \"iteration_id\", \"type\", \"status\", \"locked_by\", \"lock_expires\", \"payload\", \"retries\", \"max_retries\", \"repeats_remaining\", \"next_run_at\", \"last_error\", \"deleted_at\", row_number() OVER (\x00order\x00) AS \"_storm_turn\" FROM \"jobs\""},
+}
+
+var turnsRows = [2][2]string{
+	{"\"organization_id\" = \"_storm_groups\".\"_storm_g\" AND \"deleted_at\" IS NULL", " LIMIT $3) AS \"_storm_c\" UNION ALL (SELECT \"id\", \"created_at\", \"updated_at\", \"instance_id\", \"definition_id\", \"organization_id\", \"node_id\", \"iteration_id\", \"type\", \"status\", \"locked_by\", \"lock_expires\", \"payload\", \"retries\", \"max_retries\", \"repeats_remaining\", \"next_run_at\", \"last_error\", \"deleted_at\", row_number() OVER (\x00order\x00) AS \"_storm_turn\" FROM \"jobs\""},
+	{"\"organization_id\" IS NULL AND \"deleted_at\" IS NULL", " LIMIT $3)) SELECT \"id\", \"created_at\", \"updated_at\", \"instance_id\", \"definition_id\", \"organization_id\", \"node_id\", \"iteration_id\", \"type\", \"status\", \"locked_by\", \"lock_expires\", \"payload\", \"retries\", \"max_retries\", \"repeats_remaining\", \"next_run_at\", \"last_error\", \"deleted_at\", \"_storm_turn\" FROM \"_storm_queued\" ORDER BY \"_storm_turn\"\x00order\x00 LIMIT $3"},
+}
+
+var turnsCache = runtime.NewTreeCache()
+
+var errTurns = errors.New(
+	"storm: AllTurns deals out the rows of a query with no Offset and no row lock, from groups chosen by predicates alone, and wants at least one group")
+
+// turnsStmtFor compiles one pair of streams, once. key is the groups'
+// stream behind its length, then the rows'.
+func turnsStmtFor(key, gt, rt []runtime.Tok) *runtime.Stmt {
+	if st := turnsCache.Get(key); st != nil {
+		return st
+	}
+	sql, n := turnsHead, 3
+	var err error
+	for _, p := range turnsGroups {
+		st := runtime.SpliceTreeWhereFrom("", p[0], gt, lowering, p[1], 3)
+		sql, n = sql+st.SQL, st.NArg
+		if err == nil {
+			err = st.Err
+		}
+	}
+	reserved := n
+	for _, p := range turnsRows {
+		st := runtime.SpliceTreeWhereFrom("", p[0], rt, lowering, p[1], reserved)
+		sql, n = sql+st.SQL, st.NArg
+		if err == nil {
+			err = st.Err
+		}
+	}
+	var terms []string
+	for _, t := range rt {
+		if t.Kind() == runtime.KOrder {
+			terms = append(terms, lowering.Order(t.Op(), t.Col()))
+		}
+	}
+	// Each window numbers by the order, and the result is in turn, then
+	// the order.
+	for range turnsRows {
+		sql = runtime.SpliceOrder(sql, terms, lowering.OB.Lead, lowering.OB.Sep)
+	}
+	sql = runtime.SpliceOrder(sql, terms, lowering.OB.Sep, lowering.OB.Sep)
+	return turnsCache.Put(key, &runtime.Stmt{SQL: sql, NArg: n, Err: err})
+}
+
+// AllTurns deals the query's rows out by OrganizationID, a turn at a time: each
+// group's first rows numbered in the query's order, and every group's
+// first turn ahead of anyone's second. groups chooses the groups by its
+// predicates alone; at most n of them are read, from the first at or
+// after from, wrapping round to the start. The query's limit caps each
+// group's rows and the rows returned.
+//
+// The rows with no OrganizationID are one more group.
+func (q Query) AllTurns(ctx context.Context, ex runtime.Executor, groups Query, from [16]byte, n int, dst []TurnRow) ([]TurnRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if err := groups.Err(); err != nil {
+		return dst, err
+	}
+	if n < 1 || q.offset != 0 || q.lock != 0 || groups.lock != 0 {
+		return dst, errTurns
+	}
+	var gb, rb [21]runtime.Tok
+	gt, rt := groups.preds(&gb), q.stream(&rb)
+	var kb [43]runtime.Tok
+	kb[0] = runtime.Tok(len(gt))
+	key := kb[:1+copy(kb[1:], gt)]
+	key = key[:len(key)+copy(kb[len(key):], rt)]
+	st := turnsStmtFor(key, gt, rt)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	gbind, rbind := binders.Get(), binders.Get()
+	defer putBinder(gbind)
+	defer putBinder(rbind)
+	args := make([]any, 0, st.NArg)
+	args = append(args, from, int64(n), q.limit)
+	args = append(args, groups.bindPreds(gbind)...)
+	args = append(args, q.bindPreds(rbind)...)
+	var sl runtime.Slab
+	sl.Reserve(st.SlabHint())
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		rv := rows.RawValues()
+		dst = append(dst, TurnRow{})
+		r := &dst[len(dst)-1]
+		if err := scan(rv, &r.Row, &sl); err != nil {
+			return dst, err
+		}
+		r.Turn = runtime.Int8(rv[len(rv)-1])
 	}
 	st.ObserveSlab(sl.Size())
 	return dst, rows.Err()

@@ -584,12 +584,14 @@ func (h UUIDCol) DescNullsLast() Sort {
 
 func (h UUIDCol) Eq(v [16]byte) Pred    { return Pred{col: h.c, op: opEq, raw: v} }
 func (h UUIDCol) NotEq(v [16]byte) Pred { return Pred{col: h.c, op: opNotEq, raw: v} }
-func (h UUIDCol) In(v ...[16]byte) Pred { return Pred{col: h.c, op: opIn, anyRaw: v} }
+func (h UUIDCol) In(v ...[16]byte) Pred { return Pred{col: h.c, op: opIn, anyRaw: runtime.List(v)} }
 
 // NotIn is `<> ALL($1)`. A NULL anywhere in v makes the
 // comparison NULL for every row and the result empty —
 // PostgreSQL's rule for NOT IN, not storm's.
-func (h UUIDCol) NotIn(v ...[16]byte) Pred { return Pred{col: h.c, op: opNotIn, anyRaw: v} }
+func (h UUIDCol) NotIn(v ...[16]byte) Pred {
+	return Pred{col: h.c, op: opNotIn, anyRaw: runtime.List(v)}
+}
 
 // TimeCol addresses a timestamptz column.
 type TimeCol struct{ c uint8 }
@@ -624,14 +626,16 @@ func (h NullUUIDCol) DescNullsLast() Sort {
 
 func (h NullUUIDCol) Eq(v [16]byte) Pred    { return Pred{col: h.c, op: opEq, raw: v} }
 func (h NullUUIDCol) NotEq(v [16]byte) Pred { return Pred{col: h.c, op: opNotEq, raw: v} }
-func (h NullUUIDCol) In(v ...[16]byte) Pred { return Pred{col: h.c, op: opIn, anyRaw: v} }
+func (h NullUUIDCol) In(v ...[16]byte) Pred { return Pred{col: h.c, op: opIn, anyRaw: runtime.List(v)} }
 
 // NotIn is `<> ALL($1)`. A NULL anywhere in v makes the
 // comparison NULL for every row and the result empty —
 // PostgreSQL's rule for NOT IN, not storm's.
-func (h NullUUIDCol) NotIn(v ...[16]byte) Pred { return Pred{col: h.c, op: opNotIn, anyRaw: v} }
-func (h NullUUIDCol) IsNull() Pred             { return Pred{col: h.c, op: opIsNull} }
-func (h NullUUIDCol) IsNotNull() Pred          { return Pred{col: h.c, op: opIsNotNull} }
+func (h NullUUIDCol) NotIn(v ...[16]byte) Pred {
+	return Pred{col: h.c, op: opNotIn, anyRaw: runtime.List(v)}
+}
+func (h NullUUIDCol) IsNull() Pred    { return Pred{col: h.c, op: opIsNull} }
+func (h NullUUIDCol) IsNotNull() Pred { return Pred{col: h.c, op: opIsNotNull} }
 
 // TextCol addresses a varchar(32) column.
 type TextCol struct{ c uint8 }
@@ -654,12 +658,12 @@ func (h TextCol) Lte(v string) Pred     { return Pred{col: h.c, op: opLte, str: 
 func (h TextCol) EqLower(v string) Pred { return Pred{col: h.c, op: opEqLower, str: v} }
 func (h TextCol) Like(v string) Pred    { return Pred{col: h.c, op: opLike, str: v} }
 func (h TextCol) ILike(v string) Pred   { return Pred{col: h.c, op: opILike, str: v} }
-func (h TextCol) In(v ...string) Pred   { return Pred{col: h.c, op: opIn, anyStr: v} }
+func (h TextCol) In(v ...string) Pred   { return Pred{col: h.c, op: opIn, anyStr: runtime.List(v)} }
 
 // NotIn is `<> ALL($1)`. A NULL anywhere in v makes the
 // comparison NULL for every row and the result empty —
 // PostgreSQL's rule for NOT IN, not storm's.
-func (h TextCol) NotIn(v ...string) Pred { return Pred{col: h.c, op: opNotIn, anyStr: v} }
+func (h TextCol) NotIn(v ...string) Pred { return Pred{col: h.c, op: opNotIn, anyStr: runtime.List(v)} }
 
 // NullTextCol addresses a varchar(255) column.
 type NullTextCol struct{ c uint8 }
@@ -682,15 +686,17 @@ func (h NullTextCol) Lte(v string) Pred     { return Pred{col: h.c, op: opLte, s
 func (h NullTextCol) EqLower(v string) Pred { return Pred{col: h.c, op: opEqLower, str: v} }
 func (h NullTextCol) Like(v string) Pred    { return Pred{col: h.c, op: opLike, str: v} }
 func (h NullTextCol) ILike(v string) Pred   { return Pred{col: h.c, op: opILike, str: v} }
-func (h NullTextCol) In(v ...string) Pred   { return Pred{col: h.c, op: opIn, anyStr: v} }
+func (h NullTextCol) In(v ...string) Pred   { return Pred{col: h.c, op: opIn, anyStr: runtime.List(v)} }
 
 // NotIn is `<> ALL($1)`. A NULL anywhere in v makes the
 // comparison NULL for every row and the result empty —
 // PostgreSQL's rule for NOT IN, not storm's.
-func (h NullTextCol) NotIn(v ...string) Pred { return Pred{col: h.c, op: opNotIn, anyStr: v} }
-func (h NullTextCol) IsNull() Pred           { return Pred{col: h.c, op: opIsNull} }
-func (h NullTextCol) IsNotNull() Pred        { return Pred{col: h.c, op: opIsNotNull} }
-func (h NullTextCol) IsNullOrEmpty() Pred    { return Pred{col: h.c, op: opNullOrEmpty} }
+func (h NullTextCol) NotIn(v ...string) Pred {
+	return Pred{col: h.c, op: opNotIn, anyStr: runtime.List(v)}
+}
+func (h NullTextCol) IsNull() Pred        { return Pred{col: h.c, op: opIsNull} }
+func (h NullTextCol) IsNotNull() Pred     { return Pred{col: h.c, op: opIsNotNull} }
+func (h NullTextCol) IsNullOrEmpty() Pred { return Pred{col: h.c, op: opNullOrEmpty} }
 
 // JSONCol addresses a jsonb column.
 type JSONCol struct{ c uint8 }
@@ -708,15 +714,19 @@ func (h JSONCol) Contains(v runtime.JSON) Pred { return Pred{col: h.c, op: opJSO
 func (h JSONCol) ContainedBy(v runtime.JSON) Pred {
 	return Pred{col: h.c, op: opJSONContainedBy, jsn: v}
 }
-func (h JSONCol) HasAnyKey(v ...string) Pred  { return Pred{col: h.c, op: opHasAnyKey, anyStr: v} }
-func (h JSONCol) HasAllKeys(v ...string) Pred { return Pred{col: h.c, op: opHasAllKeys, anyStr: v} }
+func (h JSONCol) HasAnyKey(v ...string) Pred {
+	return Pred{col: h.c, op: opHasAnyKey, anyStr: runtime.List(v)}
+}
+func (h JSONCol) HasAllKeys(v ...string) Pred {
+	return Pred{col: h.c, op: opHasAllKeys, anyStr: runtime.List(v)}
+}
 
 // TextLikeAny matches the document's text against each LIKE
 // pattern in v. A NULL document reads as the empty string.
 // The patterns are the caller's: escape % and _ in what they
 // quote.
 func (h JSONCol) TextLikeAny(v ...string) Pred {
-	return Pred{col: h.c, op: opJSONTextLikeAny, anyStr: v}
+	return Pred{col: h.c, op: opJSONTextLikeAny, anyStr: runtime.List(v)}
 }
 func (h JSONCol) IsEmpty() Pred { return Pred{col: h.c, op: opJSONIsEmpty} }
 

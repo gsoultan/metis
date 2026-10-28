@@ -369,12 +369,14 @@ func (h UUIDCol) DescNullsLast() Sort {
 
 func (h UUIDCol) Eq(v [16]byte) Pred    { return Pred{col: h.c, op: opEq, raw: v} }
 func (h UUIDCol) NotEq(v [16]byte) Pred { return Pred{col: h.c, op: opNotEq, raw: v} }
-func (h UUIDCol) In(v ...[16]byte) Pred { return Pred{col: h.c, op: opIn, anyRaw: v} }
+func (h UUIDCol) In(v ...[16]byte) Pred { return Pred{col: h.c, op: opIn, anyRaw: runtime.List(v)} }
 
 // NotIn is `<> ALL($1)`. A NULL anywhere in v makes the
 // comparison NULL for every row and the result empty —
 // PostgreSQL's rule for NOT IN, not storm's.
-func (h UUIDCol) NotIn(v ...[16]byte) Pred { return Pred{col: h.c, op: opNotIn, anyRaw: v} }
+func (h UUIDCol) NotIn(v ...[16]byte) Pred {
+	return Pred{col: h.c, op: opNotIn, anyRaw: runtime.List(v)}
+}
 
 // JSONCol addresses a jsonb column.
 type JSONCol struct{ c uint8 }
@@ -392,15 +394,19 @@ func (h JSONCol) Contains(v runtime.JSON) Pred { return Pred{col: h.c, op: opJSO
 func (h JSONCol) ContainedBy(v runtime.JSON) Pred {
 	return Pred{col: h.c, op: opJSONContainedBy, jsn: v}
 }
-func (h JSONCol) HasAnyKey(v ...string) Pred  { return Pred{col: h.c, op: opHasAnyKey, anyStr: v} }
-func (h JSONCol) HasAllKeys(v ...string) Pred { return Pred{col: h.c, op: opHasAllKeys, anyStr: v} }
+func (h JSONCol) HasAnyKey(v ...string) Pred {
+	return Pred{col: h.c, op: opHasAnyKey, anyStr: runtime.List(v)}
+}
+func (h JSONCol) HasAllKeys(v ...string) Pred {
+	return Pred{col: h.c, op: opHasAllKeys, anyStr: runtime.List(v)}
+}
 
 // TextLikeAny matches the document's text against each LIKE
 // pattern in v. A NULL document reads as the empty string.
 // The patterns are the caller's: escape % and _ in what they
 // quote.
 func (h JSONCol) TextLikeAny(v ...string) Pred {
-	return Pred{col: h.c, op: opJSONTextLikeAny, anyStr: v}
+	return Pred{col: h.c, op: opJSONTextLikeAny, anyStr: runtime.List(v)}
 }
 func (h JSONCol) IsEmpty() Pred { return Pred{col: h.c, op: opJSONIsEmpty} }
 

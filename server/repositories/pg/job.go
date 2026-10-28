@@ -12,7 +12,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
-	"github.com/gsoultan/metis/server/repositories/model"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/store"
 	"github.com/gsoultan/metis/server/repositories/store/incident"
@@ -335,33 +334,37 @@ type turnOf struct {
 const claimOwnersPerRound = 1000
 
 // claimable reads the due jobs in one status whose lease is free, never taken
-// or expired, in the turns model.FairClaimableJobs gives them, looking at the
-// organizations from the first at or after from.
+// or expired, at most limit of each organization's, numbered in each by age,
+// and the first limit of them by turn and then age, in one statement.
+//
+// The organizations are those with any job in the status, found by skipping
+// along ix_jobs_claim_by_organization a seek at a time, not read from the
+// organizations table: a job whose organization has no row there is still
+// owed. At most claimOwnersPerRound of them, from the first at or after from,
+// wrapping round to the start. Jobs with no organization, made before
+// migration 44, are one more queue.
 func claimable(ctx context.Context, ex runtime.Executor, status models.JobStatus, now time.Time, limit int, from uuid.UUID) ([]turnOf, error) {
-	due, err := model.FairClaimableJobs.Query(ctx, ex, string(status), now, int64(limit), from, int64(claimOwnersPerRound))
-	if err != nil || len(due) == 0 {
-		return nil, err
-	}
-	ids := make([][16]byte, len(due))
-	turns := make(map[[16]byte]int64, len(due))
-	for i, d := range due {
-		ids[i] = d.ID
-		turns[d.ID] = d.Turn
-	}
-	found, err := job.New().Where(job.ID.In(ids...)).All(ctx, ex, nil)
-	if err != nil {
+	due := job.New().
+		Where(job.Status.Eq(string(status)), job.NextRunAt.Lte(now)).
+		Any(job.LockExpires.IsNull(), job.LockExpires.Lt(now)).
+		Order(job.NextRunAt.Asc(), job.ID.Asc()).
+		Limit(int64(limit))
+	owners := job.New().Where(job.Status.Eq(string(status)))
+	found, err := due.AllTurns(ctx, ex, owners, from, claimOwnersPerRound, nil)
+	if err != nil || len(found) == 0 {
 		return nil, err
 	}
 	offered := make([]turnOf, 0, len(found))
 	for _, row := range found {
-		offered = append(offered, turnOf{row: row, turn: turns[row.ID]})
+		offered = append(offered, turnOf{row: row.Row, turn: row.Turn})
 	}
 	return offered, nil
 }
 
 // organizationOf is whose work a job is: the one the caller named, or the
 // organization of its instance's project. uuid.Nil when the instance or its
-// project is not there to say, or is deleted, which the claim treats as one more queue.
+// project is not there to say, or is deleted, which the claim treats as one
+// more queue.
 func (r *jobRepository) organizationOf(ctx context.Context, ex runtime.Executor, j models.JobModel) (uuid.UUID, error) {
 	if j.OrganizationID != nil && uuid.UUID(*j.OrganizationID) != uuid.Nil {
 		return uuid.UUID(*j.OrganizationID), nil

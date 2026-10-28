@@ -65,6 +65,9 @@ func (j *Job) Schema(t *storm.Table) {
 	// The fair claim's: each organization's due jobs, oldest first, as one
 	// range.
 	t.Index(&j.Status, &j.Organization, &j.NextRunAt).Named("ix_jobs_claim_by_organization")
+	// The claim deals the due jobs out by organization, a turn each, finding
+	// the organizations a seek at a time along that index (AllTurns).
+	t.TakesTurns(&j.Organization)
 	t.Col(&j.DeletedAt).Index()
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
