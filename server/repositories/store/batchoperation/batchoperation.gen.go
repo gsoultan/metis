@@ -4589,14 +4589,12 @@ var takeCache = runtime.NewTreeCache()
 // takeOpen narrows the UPDATE to the rows the read selects.
 const takeOpen = ` WHERE "id" IN (SELECT "id" FROM "batch_operations"`
 
-// takeStmtFor compiles one (assignments, lock, read) triple, once.
-func takeStmtFor(k runtime.MaskKey, lock uint8, toks []runtime.Tok) *runtime.Stmt {
-	var key [26]runtime.Tok
-	key[0], key[1] = runtime.Tok(k.Dirty), runtime.Tok(k.Dirty>>32)
-	key[2], key[3] = runtime.Tok(k.Expr), runtime.Tok(k.Expr>>32)
-	key[4] = runtime.Tok(lock)
-	n := 5 + copy(key[5:], toks)
-	if st := takeCache.Get(key[:n]); st != nil {
+var takeHeadCache = runtime.NewMaskCache()
+
+// takeHead is the UPDATE … SET of one assignment mask, before the read
+// that narrows it.
+func takeHead(k runtime.MaskKey) *runtime.Stmt {
+	if st := takeHeadCache.Get(k); st != nil {
 		return st
 	}
 	set := make([]runtime.Frag, 0, nUpdatable+1)
@@ -4610,9 +4608,22 @@ func takeStmtFor(k runtime.MaskKey, lock uint8, toks []runtime.Tok) *runtime.Stm
 			set = append(set, setFrags[i])
 		}
 	}
-	head := runtime.SpliceSections(updatePrefix, []runtime.Section{
+	return takeHeadCache.Put(k, runtime.SpliceSections(updatePrefix, []runtime.Section{
 		{Lead: "", Sep: ", ", Frags: set},
-	}, "")
+	}, ""))
+}
+
+// takeStmtFor compiles one (assignments, lock, read) triple, once.
+func takeStmtFor(k runtime.MaskKey, lock uint8, toks []runtime.Tok) *runtime.Stmt {
+	var key [26]runtime.Tok
+	key[0], key[1] = runtime.Tok(k.Dirty), runtime.Tok(k.Dirty>>32)
+	key[2], key[3] = runtime.Tok(k.Expr), runtime.Tok(k.Expr>>32)
+	key[4] = runtime.Tok(lock)
+	n := 5 + copy(key[5:], toks)
+	if st := takeCache.Get(key[:n]); st != nil {
+		return st
+	}
+	head := takeHead(k)
 	if head.Err != nil {
 		return head
 	}
@@ -4651,7 +4662,26 @@ func (q Query) Take(ctx context.Context, ex runtime.Executor, m Mut, dst []Row) 
 	}
 	b := binders.Get()
 	defer putBinder(b)
-	args := make([]any, 0, st.NArg)
+	args := append(m.takeArgs(make([]any, 0, st.NArg)), q.bind(b)...)
+	var sl runtime.Slab
+	sl.Reserve(st.SlabHint())
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, Row{})
+		if err := scan(rows.RawValues(), &dst[len(dst)-1], &sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// takeArgs appends the values m assigns, in SET order.
+func (m Mut) takeArgs(args []any) []any {
 	for i := 0; i < nUpdatable; i++ {
 		if m.dirty&(1<<uint(i)) == 0 {
 			continue
@@ -4699,22 +4729,22 @@ func (q Query) Take(ctx context.Context, ex runtime.Executor, m Mut, dst []Row) 
 			args = append(args, m.row.StopReason)
 		}
 	}
-	args = append(args, q.bind(b)...)
-	var sl runtime.Slab
-	sl.Reserve(st.SlabHint())
-	rows, err := ex.Query(ctx, st.SQL, args)
-	if err != nil {
-		return dst, err
+	return args
+}
+
+// TakeHead is Take's statement without its read, for the context
+// package to narrow with a composed one: the UPDATE … SET, what opens
+// and closes the read (the lock q holds spelled in the close), the
+// identity a statement built from them is cached under, and the values
+// m assigns. ok is false when m assigns nothing.
+func (m Mut) TakeHead(q Query) (head *runtime.Stmt, open, close string, key [5]runtime.Tok, args []any, ok bool) {
+	if m.dirty == 0 && m.expr == 0 {
+		return nil, "", "", key, nil, false
 	}
-	defer rows.Close()
-	for rows.Next() {
-		dst = append(dst, Row{})
-		if err := scan(rows.RawValues(), &dst[len(dst)-1], &sl); err != nil {
-			return dst, err
-		}
-	}
-	st.ObserveSlab(sl.Size())
-	return dst, rows.Err()
+	key[0], key[1] = runtime.Tok(m.dirty), runtime.Tok(m.dirty>>32)
+	key[2], key[3] = runtime.Tok(m.expr), runtime.Tok(m.expr>>32)
+	key[4] = runtime.Tok(q.lock)
+	return takeHead(m.key()), takeOpen, lockSuffix[q.lock] + `)` + updReturning, key, m.takeArgs(nil), true
 }
 
 var trimCache = runtime.NewTreeCache()

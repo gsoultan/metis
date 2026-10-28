@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store"
 	"github.com/gsoultan/metis/server/repositories/store/outgoingwebhook"
 	"github.com/gsoultan/metis/server/repositories/store/outgoingwebhookdelivery"
 )
@@ -94,41 +95,38 @@ func insertDelivery(ctx context.Context, q *outgoingWebhookQueue, webhookID [16]
 	return nil
 }
 
-// claimDueSQL takes the due deliveries of switched-on webhooks and moves each
+// ClaimDue takes the due deliveries of switched-on webhooks and moves each
 // one's next attempt past the lease, in one statement.
 //
 // SKIP LOCKED, so replicas claiming at once take different rows rather than
 // queueing on the same ones; the update itself is the claim, so a row is
-// never handed to two workers. Locking only the deliveries, not the webhooks,
-// so a claim never waits on somebody switching a webhook off.
-const claimDueSQL = `
-	UPDATE outgoing_webhook_deliveries d
-	   SET next_attempt_at = $1, attempts = d.attempts + 1, updated_at = $2
-	 WHERE d.id IN (
-	       SELECT q.id FROM outgoing_webhook_deliveries q
-	         JOIN outgoing_webhooks w ON w.id = q.webhook_id
-	        WHERE q.status = 'pending' AND q.next_attempt_at <= $2
-	          AND w.enabled AND w.deleted_at IS NULL
-	        ORDER BY q.next_attempt_at
-	        LIMIT $3
-	        FOR UPDATE OF q SKIP LOCKED)
-	RETURNING d.id`
-
+// never handed to two workers. The webhook is asked about in an EXISTS, which
+// the row lock does not reach, so a claim never waits on somebody switching a
+// webhook off.
 func (q *outgoingWebhookQueue) ClaimDue(ctx context.Context, now time.Time, lease time.Duration, limit int) ([]entities.OutgoingWebhookDelivery, error) {
-	ids, err := q.claim(ctx, now, lease, limit)
-	if err != nil || len(ids) == 0 {
-		return nil, err
-	}
 	ex, err := q.conn.conn.Executor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := outgoingwebhookdelivery.New().
-		Where(outgoingwebhookdelivery.ID.In(ids...)).
+	due := outgoingwebhookdelivery.New().
+		Where(
+			outgoingwebhookdelivery.Status.Eq(string(entities.DeliveryPending)),
+			outgoingwebhookdelivery.NextAttemptAt.Lte(now.UTC()),
+		).
 		Order(outgoingwebhookdelivery.NextAttemptAt.Asc()).
-		All(ctx, ex, nil)
+		Limit(int64(limit)).
+		ForUpdateSkipLocked()
+	var claim outgoingwebhookdelivery.Mut
+	claim.SetNextAttemptAt(now.Add(lease).UTC())
+	claim.IncAttempts()
+	claim.SetUpdatedAt(now.UTC())
+	rows, err := store.OutgoingWebhookDeliveryHavingWebhook(due, outgoingwebhook.Enabled.Eq(true)).
+		Take(ctx, ex, claim, nil)
 	if err != nil {
-		return nil, fmt.Errorf("could not read the claimed deliveries: %w", err)
+		return nil, fmt.Errorf("could not claim the due deliveries: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil, nil
 	}
 	hooks, err := q.webhooksOf(ctx, rows)
 	if err != nil {
@@ -149,30 +147,6 @@ func (q *outgoingWebhookQueue) ClaimDue(ctx context.Context, now time.Time, leas
 		out = append(out, delivery)
 	}
 	return out, nil
-}
-
-func (q *outgoingWebhookQueue) claim(ctx context.Context, now time.Time, lease time.Duration, limit int) ([][16]byte, error) {
-	ex, err := q.conn.conn.Executor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := ex.Query(ctx, claimDueSQL, []any{now.Add(lease).UTC(), now.UTC(), int64(limit)})
-	if err != nil {
-		return nil, fmt.Errorf("could not claim the due deliveries: %w", err)
-	}
-	defer rows.Close()
-	var ids [][16]byte
-	for rows.Next() {
-		values := rows.RawValues()
-		if len(values) == 0 || len(values[0]) != len(uuid.UUID{}) {
-			return nil, fmt.Errorf("could not read a claimed delivery's id")
-		}
-		ids = append(ids, [16]byte(values[0]))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("could not claim the due deliveries: %w", err)
-	}
-	return ids, nil
 }
 
 // webhooksOf reads the webhooks the claimed deliveries are for, with their

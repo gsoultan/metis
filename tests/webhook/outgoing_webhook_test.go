@@ -302,6 +302,29 @@ func TestASwitchedOffWebhookIsOwedButNotSent(t *testing.T) {
 	}
 }
 
+// A deleted webhook's deliveries are never claimed: not taken, and not
+// counted as an attempt.
+func TestADeletedWebhookIsNeverClaimed(t *testing.T) {
+	h := newOutgoingHarness(t)
+	hook := h.register(t, "https://ledger.example.com/hooks", entities.OutgoingProcessStarted)
+	if _, err := h.svc.StartProcess(h.ctx, h.projectID, "purchase", nil); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := h.svc.DeleteOutgoingWebhook(h.ctx, hook.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if due := h.claimAll(t, time.Now()); len(due) != 0 {
+		t.Fatalf("a deleted webhook was handed %d deliveries", len(due))
+	}
+	var attempts int
+	if err := h.db.Raw(`SELECT COALESCE(SUM(attempts), 0) FROM outgoing_webhook_deliveries`).Scan(&attempts).Error; err != nil {
+		t.Fatalf("read the deliveries: %v", err)
+	}
+	if attempts != 0 {
+		t.Errorf("a deleted webhook's deliveries were claimed %d times", attempts)
+	}
+}
+
 // Another organization's webhooks are not there.
 func TestAnotherOrganizationsOutgoingWebhooksAreNotThere(t *testing.T) {
 	h := newOutgoingHarness(t)

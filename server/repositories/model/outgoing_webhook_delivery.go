@@ -53,6 +53,8 @@ func (d *OutgoingWebhookDelivery) Schema(t *storm.Table) {
 	t.Index(&d.Webhook, &d.CreatedAt, &d.ID).Named("ix_outgoing_webhook_deliveries_webhook")
 	// The retention sweep.
 	t.Index(&d.CreatedAt).Named("ix_outgoing_webhook_deliveries_created")
-	// Which removes a batch at a time (DeleteBatch).
+	// Which removes a batch at a time (DeleteBatch); the claim takes the due
+	// rows of switched-on webhooks in one statement (Take over the probe).
 	t.Takes()
+	t.Probes(&d.Webhook)
 }

@@ -12936,6 +12936,61 @@ func (h JobIncidentsProbeQuery) HardDeleteBatch(ctx context.Context, ex runtime.
 	return ex.Exec(ctx, st.SQL, args)
 }
 
+var jobIncidentsProbeQueryTakeCache = runtime.NewTreeCache()
+
+// Take is the job package's Take over this semi-join: it writes m's
+// assigned columns to the jobs rows the composed read selects — its
+// predicates, probes, order, Limit and row lock — in ONE statement, and
+// returns them as they now stand. Nothing assigned issues no statement
+// and returns dst; an Offset is refused with runtime.ErrPagedWrite.
+func (h JobIncidentsProbeQuery) Take(ctx context.Context, ex runtime.Executor, m job.Mut, dst []job.Row) ([]job.Row, error) {
+	if err := h.err(); err != nil {
+		return dst, err
+	}
+	if h.q.Paged() {
+		return dst, runtime.ErrPagedWrite
+	}
+	head, open, close, key, args, ok := m.TakeHead(h.q)
+	if !ok {
+		return dst, nil
+	}
+	var buf [49]runtime.Tok
+	toks := h.tokens(append(buf[:0], key[:]...), false)
+	st := jobIncidentsProbeQueryTakeCache.Get(toks)
+	if st == nil {
+		if head.Err != nil {
+			return dst, head.Err
+		}
+		_, _, limitSfx := job.StmtPieces()
+		st = jobIncidentsProbeQueryTakeCache.Put(toks, runtime.SpliceTreeWhereFrom(head.SQL+open, `"deleted_at" IS NULL`, toks[len(key):], jobIncidentsProbeQueryLowering, limitSfx+close, head.NArg))
+	}
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	pb := job.GetBinder()
+	defer job.PutBinder(pb)
+	read, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			incident.PutBinder(cb)
+		}
+	}()
+	args = append(args, read...)
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	for rows.Next() {
+		dst = append(dst, job.Row{})
+		if err := job.Scan(rows.RawValues(), &dst[len(dst)-1], &sl); err != nil {
+			return dst, err
+		}
+	}
+	return dst, rows.Err()
+}
+
 // OrganizationProjectsProbeQuery is a parent query with one or more existence probes against
 // projects, combined with AND. Build it with OrganizationHavingProjects or
 // OrganizationNotHavingProjects and extend it with AndHaving/AndNotHaving.
@@ -13147,6 +13202,309 @@ func (h OrganizationProjectsProbeQuery) Count(ctx context.Context, ex runtime.Ex
 		return 0, rows.Err()
 	}
 	return runtime.Int8(rows.RawValues()[0]), rows.Err()
+}
+
+// OutgoingWebhookDeliveryWebhookProbeQuery is a parent query with one or more existence probes against
+// outgoing_webhooks, combined with AND. Build it with OutgoingWebhookDeliveryHavingWebhook or
+// OutgoingWebhookDeliveryNotHavingWebhook and extend it with AndHaving/AndNotHaving.
+type OutgoingWebhookDeliveryWebhookProbeQuery struct {
+	q outgoingwebhookdelivery.Query
+	p []outgoingWebhookDeliveryWebhookProbeQueryProbe
+}
+
+type outgoingWebhookDeliveryWebhookProbeQueryProbe struct {
+	c   outgoingwebhook.Query
+	neg bool
+}
+
+// OutgoingWebhookDeliveryHavingWebhook narrows q to rows with at least one matching outgoing_webhooks row —
+// the filtered semi-join, in one statement. The child predicates are
+// typed by the child's own package; ids and values meet only here.
+func OutgoingWebhookDeliveryHavingWebhook(q outgoingwebhookdelivery.Query, ps ...outgoingwebhook.Pred) OutgoingWebhookDeliveryWebhookProbeQuery {
+	return OutgoingWebhookDeliveryWebhookProbeQuery{q: q}.AndHaving(ps...)
+}
+
+// OutgoingWebhookDeliveryNotHavingWebhook narrows q to rows with NO matching outgoing_webhooks row — the
+// filtered anti-join.
+//
+// Read the predicates carefully: this is "has no outgoing_webhooks row matching
+// these", not "has a outgoing_webhooks row that does not match". With no predicates
+// at all it is "has none". The two questions have different answers
+// whenever a parent has several children, and SQL spells them the same
+// way round.
+func OutgoingWebhookDeliveryNotHavingWebhook(q outgoingwebhookdelivery.Query, ps ...outgoingwebhook.Pred) OutgoingWebhookDeliveryWebhookProbeQuery {
+	return OutgoingWebhookDeliveryWebhookProbeQuery{q: q}.AndNotHaving(ps...)
+}
+
+// AndHaving adds another EXISTS probe against outgoing_webhooks, ANDed with the
+// ones already there.
+func (h OutgoingWebhookDeliveryWebhookProbeQuery) AndHaving(ps ...outgoingwebhook.Pred) OutgoingWebhookDeliveryWebhookProbeQuery {
+	return h.probe(false, ps...)
+}
+
+// AndNotHaving adds a NOT EXISTS probe against outgoing_webhooks. This is how
+// "has one of these but none of those" is one statement:
+//
+//	OutgoingWebhookDeliveryHavingWebhook(q, bought).AndNotHaving(alsoBought)
+func (h OutgoingWebhookDeliveryWebhookProbeQuery) AndNotHaving(ps ...outgoingwebhook.Pred) OutgoingWebhookDeliveryWebhookProbeQuery {
+	return h.probe(true, ps...)
+}
+
+func (h OutgoingWebhookDeliveryWebhookProbeQuery) probe(neg bool, ps ...outgoingwebhook.Pred) OutgoingWebhookDeliveryWebhookProbeQuery {
+	// Copied rather than appended in place: a composer is a value, and
+	// two chains branching from one base must not share a backing array.
+	p := make([]outgoingWebhookDeliveryWebhookProbeQueryProbe, len(h.p), len(h.p)+1)
+	copy(p, h.p)
+	h.p = append(p, outgoingWebhookDeliveryWebhookProbeQueryProbe{c: outgoingwebhook.New().Unordered().Where(ps...), neg: neg})
+	return h
+}
+
+var outgoingWebhookDeliveryWebhookProbeQueryLowering = func() runtime.Lowering {
+	lw := outgoingwebhookdelivery.Lowering()
+	parentFrag := lw.Frag
+	lw.Frag = func(op, col uint32) runtime.Frag {
+		if col >= runtime.ChildColBase {
+			return outgoingwebhook.FragOf(op, col-runtime.ChildColBase)
+		}
+		return parentFrag(op, col)
+	}
+	// The token's relation id picks the header: 0 positive, 1 negated.
+	// Both probes are the same relation, so only the polarity varies.
+	lw.Exists = func(rel uint32) string {
+		if rel == 1 {
+			return "NOT EXISTS (SELECT 1 FROM \"outgoing_webhooks\" AS \"_storm_e\" WHERE \"_storm_e\".\"id\" = \"outgoing_webhook_deliveries\".\"webhook_id\" AND \"_storm_e\".\"deleted_at\" IS NULL"
+		}
+		return "EXISTS (SELECT 1 FROM \"outgoing_webhooks\" AS \"_storm_e\" WHERE \"_storm_e\".\"id\" = \"outgoing_webhook_deliveries\".\"webhook_id\" AND \"_storm_e\".\"deleted_at\" IS NULL"
+	}
+	return lw
+}()
+
+var outgoingWebhookDeliveryWebhookProbeQueryCache = runtime.NewTreeCache()
+
+func (h OutgoingWebhookDeliveryWebhookProbeQuery) stmt(count bool) (*runtime.Stmt, []runtime.Tok) {
+	var buf [44]runtime.Tok
+	toks := h.tokens(buf[:0], count)
+	sel, cnt, limitSfx := outgoingwebhookdelivery.StmtPieces()
+	prefix, suffix := sel, limitSfx
+	if count {
+		prefix, suffix = cnt, ""
+	}
+	if st := outgoingWebhookDeliveryWebhookProbeQueryCache.Get(toks); st != nil {
+		return st, toks
+	}
+	return outgoingWebhookDeliveryWebhookProbeQueryCache.Put(toks, runtime.SpliceTree(prefix, toks, outgoingWebhookDeliveryWebhookProbeQueryLowering, suffix)), toks
+}
+
+// tokens appends the composed stream to dst: the parent's predicates,
+// each probe, and — unless count — the parent's ordering.
+func (h OutgoingWebhookDeliveryWebhookProbeQuery) tokens(dst []runtime.Tok, count bool) []runtime.Tok {
+	toks := h.q.PredToks(dst)
+	stack := 0
+	if len(toks) > 0 {
+		stack = 1
+	}
+	for _, pr := range h.p {
+		child := pr.c.PredToks(nil)
+		toks = runtime.OffsetCols(toks, child, runtime.ChildColBase)
+		arity := uint32(0)
+		if len(child) > 0 {
+			arity = 1 // the child stream reduces to one stack entry
+		}
+		rel := uint32(0)
+		if pr.neg {
+			rel = 1
+		}
+		toks = append(toks, runtime.MakeExists(rel, arity))
+		stack++
+	}
+	if stack > 1 {
+		toks = append(toks, runtime.MakeGroup(runtime.KAnd, uint32(stack)))
+	}
+	if !count {
+		toks = h.q.OrderToks(toks)
+	}
+	return toks
+}
+
+// bind returns the arguments in STREAM order: parent predicates, then
+// each probe's, then the parent's paging. Each probe takes its own
+// binder — bindPreds resets the arenas it fills, so two probes sharing
+// one binder would have the second silently overwrite the first.
+func (h OutgoingWebhookDeliveryWebhookProbeQuery) bind(pb *outgoingwebhookdelivery.Binder, paging bool) ([]any, []*outgoingwebhook.Binder) {
+	args := h.q.BindPreds(pb, nil)
+	cbs := make([]*outgoingwebhook.Binder, 0, len(h.p))
+	for _, pr := range h.p {
+		cb := outgoingwebhook.GetBinder()
+		cbs = append(cbs, cb)
+		args = pr.c.BindPreds(cb, args)
+	}
+	if paging {
+		args = h.q.BindPaging(pb, args)
+	}
+	return args, cbs
+}
+
+func (h OutgoingWebhookDeliveryWebhookProbeQuery) err() error {
+	if err := h.q.Err(); err != nil {
+		return err
+	}
+	for _, pr := range h.p {
+		if err := pr.c.Err(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// All runs the composed statement.
+func (h OutgoingWebhookDeliveryWebhookProbeQuery) All(ctx context.Context, ex runtime.Executor) ([]outgoingwebhookdelivery.Row, error) {
+	if err := h.err(); err != nil {
+		return nil, err
+	}
+	st, _ := h.stmt(false)
+	if st.Err != nil {
+		return nil, st.Err
+	}
+	pb := outgoingwebhookdelivery.GetBinder()
+	defer outgoingwebhookdelivery.PutBinder(pb)
+	args, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			outgoingwebhook.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	var out []outgoingwebhookdelivery.Row
+	for rows.Next() {
+		out = append(out, outgoingwebhookdelivery.Row{})
+		if err := outgoingwebhookdelivery.Scan(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
+}
+
+// Count runs the composed count: no ordering, no paging.
+func (h OutgoingWebhookDeliveryWebhookProbeQuery) Count(ctx context.Context, ex runtime.Executor) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	st, _ := h.stmt(true)
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := outgoingwebhookdelivery.GetBinder()
+	defer outgoingwebhookdelivery.PutBinder(pb)
+	args, cbs := h.bind(pb, false)
+	defer func() {
+		for _, cb := range cbs {
+			outgoingwebhook.PutBinder(cb)
+		}
+	}()
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return 0, rows.Err()
+	}
+	return runtime.Int8(rows.RawValues()[0]), rows.Err()
+}
+
+var outgoingWebhookDeliveryWebhookProbeQueryDeleteBatchCache = runtime.NewTreeCache()
+
+// DeleteBatch is the outgoingwebhookdelivery package's method of that name over this
+// semi-join: it removes the outgoing_webhook_deliveries rows the composed read selects —
+// its predicates, probes, order and Limit — in ONE statement, and
+// reports how many. A row lock or an Offset is refused with
+// runtime.ErrPagedWrite.
+func (h OutgoingWebhookDeliveryWebhookProbeQuery) DeleteBatch(ctx context.Context, ex runtime.Executor) (int64, error) {
+	if err := h.err(); err != nil {
+		return 0, err
+	}
+	if h.q.Locked() || h.q.Paged() {
+		return 0, runtime.ErrPagedWrite
+	}
+	var buf [44]runtime.Tok
+	toks := h.tokens(buf[:0], false)
+	st := outgoingWebhookDeliveryWebhookProbeQueryDeleteBatchCache.Get(toks)
+	if st == nil {
+		_, _, limitSfx := outgoingwebhookdelivery.StmtPieces()
+		st = outgoingWebhookDeliveryWebhookProbeQueryDeleteBatchCache.Put(toks, runtime.SpliceTree(`DELETE FROM "outgoing_webhook_deliveries" WHERE ctid = ANY(ARRAY(SELECT ctid FROM "outgoing_webhook_deliveries"`, toks, outgoingWebhookDeliveryWebhookProbeQueryLowering, limitSfx+`))`))
+	}
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	pb := outgoingwebhookdelivery.GetBinder()
+	defer outgoingwebhookdelivery.PutBinder(pb)
+	args, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			outgoingwebhook.PutBinder(cb)
+		}
+	}()
+	return ex.Exec(ctx, st.SQL, args)
+}
+
+var outgoingWebhookDeliveryWebhookProbeQueryTakeCache = runtime.NewTreeCache()
+
+// Take is the outgoingwebhookdelivery package's Take over this semi-join: it writes m's
+// assigned columns to the outgoing_webhook_deliveries rows the composed read selects — its
+// predicates, probes, order, Limit and row lock — in ONE statement, and
+// returns them as they now stand. Nothing assigned issues no statement
+// and returns dst; an Offset is refused with runtime.ErrPagedWrite.
+func (h OutgoingWebhookDeliveryWebhookProbeQuery) Take(ctx context.Context, ex runtime.Executor, m outgoingwebhookdelivery.Mut, dst []outgoingwebhookdelivery.Row) ([]outgoingwebhookdelivery.Row, error) {
+	if err := h.err(); err != nil {
+		return dst, err
+	}
+	if h.q.Paged() {
+		return dst, runtime.ErrPagedWrite
+	}
+	head, open, close, key, args, ok := m.TakeHead(h.q)
+	if !ok {
+		return dst, nil
+	}
+	var buf [49]runtime.Tok
+	toks := h.tokens(append(buf[:0], key[:]...), false)
+	st := outgoingWebhookDeliveryWebhookProbeQueryTakeCache.Get(toks)
+	if st == nil {
+		if head.Err != nil {
+			return dst, head.Err
+		}
+		_, _, limitSfx := outgoingwebhookdelivery.StmtPieces()
+		st = outgoingWebhookDeliveryWebhookProbeQueryTakeCache.Put(toks, runtime.SpliceTreeFrom(head.SQL+open, toks[len(key):], outgoingWebhookDeliveryWebhookProbeQueryLowering, limitSfx+close, head.NArg))
+	}
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	pb := outgoingwebhookdelivery.GetBinder()
+	defer outgoingwebhookdelivery.PutBinder(pb)
+	read, cbs := h.bind(pb, true)
+	defer func() {
+		for _, cb := range cbs {
+			outgoingwebhook.PutBinder(cb)
+		}
+	}()
+	args = append(args, read...)
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	for rows.Next() {
+		dst = append(dst, outgoingwebhookdelivery.Row{})
+		if err := outgoingwebhookdelivery.Scan(rows.RawValues(), &dst[len(dst)-1], &sl); err != nil {
+			return dst, err
+		}
+	}
+	return dst, rows.Err()
 }
 
 // PlatformUserRolesProbeQuery is a parent query with one or more existence probes against
