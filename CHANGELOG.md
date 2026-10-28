@@ -142,6 +142,15 @@ does not undo a migration.
 
 ### Security
 
+- **The setup wizard asks for a setup token.** Setup is anonymous by
+  necessity, so whoever reached a fresh installation first became its
+  administrator, and its connection test answered anyone's network probes. A
+  server with no administrator now prints a one-time token in its log, or takes
+  `METIS_SETUP_TOKEN`, and refuses setup and the connection test without it.
+  Ten wrong tokens a minute stop it comparing. `scripts/dev.sh` chooses the
+  token and passes it to `scripts/seed-sample.sh`; run the seed script on its
+  own with `METIS_SETUP_TOKEN` set.
+
 - **A project's People directory is its organization's alone.** Listing a
   project's participants, importing or syncing people into it and removing
   them checked only that the caller was signed in, not that the project was

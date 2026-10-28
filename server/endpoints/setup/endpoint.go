@@ -55,6 +55,7 @@ func MakeSetupEndpoint(s contracts.SetupService) endpoint.Endpoint {
 			DBSSLEnabled:     req.DBSSLEnabled,
 			EncryptionKey:    req.EncryptionKey,
 			JWTSecret:        req.JWTSecret,
+			SetupToken:       req.SetupToken,
 		})
 		return SetupResponse{Err: err}, nil
 	}
@@ -73,6 +74,7 @@ func MakeTestConnectionEndpoint(s contracts.SetupService) endpoint.Endpoint {
 			}, nil
 		}
 		result := s.TestConnection(ctx, contracts.TestConnectionRequest{
+			SetupToken:     req.SetupToken,
 			DatabaseDriver: req.DatabaseDriver,
 			DBHost:         req.DBHost,
 			DBPort:         req.DBPort,

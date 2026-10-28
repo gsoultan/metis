@@ -20,6 +20,7 @@ export type SetupPeople = Pick<
   | 'admin_email'
   | 'organization_name'
   | 'project_name'
+  | 'setup_token'
 >;
 
 /**
@@ -54,5 +55,6 @@ export function setupRequestFor(values: SetupRequest, configuredByEnvironment: b
     admin_email: values.admin_email,
     organization_name: values.organization_name,
     project_name: values.project_name,
+    setup_token: values.setup_token,
   };
 }

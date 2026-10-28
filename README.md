@@ -115,6 +115,12 @@ and keys, so the wizard asks only for the organization and first administrator
 and writes no `config.yaml`. Either way it closes once the database holds an
 account.
 
+The wizard asks first for a **setup token**. A fresh server prints one in its
+log (`Metis is not set up yet … enter this setup token`), or takes the one in
+`METIS_SETUP_TOKEN`. Without it, whoever reached a new installation first
+would become its administrator. `scripts/dev.sh` chooses one for you and
+prints it beside the address.
+
 Release notes are in [`CHANGELOG.md`](CHANGELOG.md). What to check before and during an upgrade — from GoBPM, or from one release to the next — is [`docs/upgrading.md`](docs/upgrading.md); how a release is rehearsed, tagged and verified is [`docs/releasing.md`](docs/releasing.md).
 
 ### Configuration
@@ -128,6 +134,7 @@ Release notes are in [`CHANGELOG.md`](CHANGELOG.md). What to check before and du
 | `METIS_PEOPLE_TOKEN_KEY_PREVIOUS` | The People key being rotated away from. Tokens it sealed are still read until they expire (12 hours); nothing new is sealed with it. Remove it after that. |
 | `METIS_PUBLIC_URL` | The address people reach this server at, such as `https://metis.example.com`. Task links mailed to People are written against it, as `<address>/p/t#<token>`. Unset, no links are sent; set but not an absolute `http`/`https` address, the server refuses to start. Links are mailed through the `NOTIFICATION_SMTP_*` settings. |
 | `METIS_TASK_LINK_LIFETIME` | How long a task link is good for, as a duration from `1h` to `2160h`. Default `168h` (7 days). A link also stops working once used, or once its task is completed, withdrawn or given to somebody else, or its person is removed or deactivated. |
+| `METIS_SETUP_TOKEN` | The setup token the first-run wizard asks for, instead of the one a fresh server generates and prints in its log. Set it to automate installs, or when several replicas share one address and would each print a different token. Refused if weak, which closes the wizard rather than leaving it open. Useless once an administrator exists. |
 | `METIS_ALLOW_WEAK_SECRETS` | Start anyway with a secret that would be refused, while a weak `ENCRYPTION_KEY` is rotated to a strong one; warns on every boot. |
 | `DATABASE_URL` | PostgreSQL DSN. Required unless `config.yaml` names a database; there is no local-file fallback, because one that appears silently is one somebody starts using and then loses. |
 | `METIS_HTTP_ADDRESS` | HTTP listen address (default `:8080`). |

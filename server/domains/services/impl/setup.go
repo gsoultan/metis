@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -47,6 +48,9 @@ type setupService struct {
 	// is asked on every page load, so once it has been seen the question
 	// stops costing a query.
 	setUp atomic.Bool
+	// token is what makes the wizard the operator's rather than the first
+	// visitor's. See setupToken.
+	token *setupToken
 }
 
 // NewSetupService builds the first-run wizard.
@@ -57,8 +61,35 @@ type setupService struct {
 // read-only root, the wizard stayed open for good: anonymous, in front of a
 // database full of somebody's processes. Nil answers from the file alone, for
 // tests with no database to ask.
-func NewSetupService(installation contracts.InstallationProbe) contracts.SetupService {
-	return &setupService{installation: installation}
+//
+// token is the operator's chosen setup token (EnvSetupToken); empty generates
+// one, which AnnounceSetupToken prints.
+func NewSetupService(installation contracts.InstallationProbe, token string) contracts.SetupService {
+	return &setupService{installation: installation, token: newSetupToken(token)}
+}
+
+// AnnounceSetupToken says in the server's log how to open the wizard, while
+// there is a wizard to open.
+//
+// Printing a secret into the log is deliberate and narrow. The log is where
+// the operator of a fresh installation is already looking, and nobody else
+// should be able to read it; the token opens one thing, once, and is useless
+// the moment an administrator exists.
+func (s *setupService) AnnounceSetupToken(ctx context.Context) {
+	setUp, err := s.isSetUp(ctx)
+	if err != nil || setUp {
+		return
+	}
+	if s.token.unusable != nil {
+		log.Error().Err(s.token.unusable).Msg(EnvSetupToken + " is set but cannot be used, so the setup wizard is closed. Set a stronger token and restart")
+		return
+	}
+	plain, generated := s.token.printable()
+	if !generated {
+		log.Warn().Msg("Metis is not set up yet. Open it in a browser and enter the token in " + EnvSetupToken + " to create the first administrator")
+		return
+	}
+	log.Warn().Msg("Metis is not set up yet. Open it in a browser and enter this setup token to create the first administrator: " + plain)
 }
 
 func (s *setupService) GetSetupStatus(ctx context.Context) (contracts.SetupStatus, error) {
@@ -107,6 +138,9 @@ func (s *setupService) Setup(ctx context.Context, req contracts.SetupRequest) er
 	if status.IsInitialized {
 		return ErrAlreadySetUp
 	}
+	if err := s.token.admit(req.SetupToken); err != nil {
+		return err
+	}
 
 	target := setupTargetFor(req)
 	if err := validateSetupRequest(req, target); err != nil {
@@ -133,7 +167,7 @@ func (s *setupService) Setup(ctx context.Context, req contracts.SetupRequest) er
 	// The server already runs on this database with these secrets: there is
 	// no file to write and nothing to restart for.
 	if target.fromEnvironment {
-		s.setUp.Store(true)
+		s.markSetUp()
 		return nil
 	}
 
@@ -142,6 +176,7 @@ func (s *setupService) Setup(ctx context.Context, req contracts.SetupRequest) er
 	if err := saveConfiguration(req); err != nil {
 		return err
 	}
+	s.markSetUp()
 
 	// Nothing moves this process onto what it just wrote. The repositories, the
 	// engine and the signing key were built at boot from the database and keys it
@@ -176,6 +211,11 @@ func (s *setupService) TestConnection(ctx context.Context, req contracts.TestCon
 			Success: false,
 			Message: "This installation is already configured. Test a database connection from Settings → Environments.",
 		}
+	}
+	// Before anything is dialled: without the token this is a network probe
+	// for whoever reaches a fresh installation first.
+	if err := s.token.admit(req.SetupToken); err != nil {
+		return contracts.TestConnectionResult{Success: false, Message: strings.TrimPrefix(err.Error(), apierr.ErrForbidden.Error()+": ")}
 	}
 	// The wizard has no database step to test when the environment names the
 	// database, and a probe nobody needs is only a probe.
@@ -229,6 +269,13 @@ func (s *setupService) TestConnection(ctx context.Context, req contracts.TestCon
 	}
 
 	return contracts.TestConnectionResult{Success: true, Message: "Connection successful"}
+}
+
+// markSetUp closes the wizard for good in this process, and drops the token
+// that opened it.
+func (s *setupService) markSetUp() {
+	s.setUp.Store(true)
+	s.token.forget()
 }
 
 func validateSetupRequest(req contracts.SetupRequest, target setupTarget) error {

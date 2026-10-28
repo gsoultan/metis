@@ -384,6 +384,10 @@ func (a *App) Run() error {
 	// 4. Setup Transports
 	a.setupAuth(ctx)
 
+	// 4a. On a fresh installation, the one line that says how to open the
+	//     wizard — the setup token nobody else has.
+	a.svc.AnnounceSetupToken(ctx)
+
 	// 5. Start Servers using errgroup
 	return a.runServers(ctx)
 }

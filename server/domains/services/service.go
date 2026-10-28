@@ -1,6 +1,7 @@
 package services
 
 import (
+	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"time"
 
 	"github.com/google/uuid"
@@ -266,7 +267,7 @@ func NewServiceFacade(
 	messagingSvc := serviceimpl.NewMessagingService(engine, externalTaskSvc)
 	webhookSvc := serviceimpl.NewWebhookService(repo, engine)
 	adHocActivator := serviceimpl.NewAdHocActivator(engine, repo)
-	setupSvc := serviceimpl.NewSetupService(repo.User())
+	setupSvc := serviceimpl.NewSetupService(repo.User(), envvar.Get(serviceimpl.EnvSetupToken))
 	notificationSvc := serviceimpl.NewNotificationService(repo.Notification())
 
 	// Resolve circular collaborators via functional options so the wiring is
