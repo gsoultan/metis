@@ -63,3 +63,14 @@ func (a *AuditEntry) Schema(t *storm.Table) {
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&a.DeletedAt)
 }
+
+// Aggregates declares Visits: how often an instance's trail reached each node,
+// and where it first did — the moment, and the seq of the first entry in the
+// trail's order, created_at and then seq with the unnumbered entries first.
+func (a *AuditEntry) Aggregates(g *storm.Aggregates) {
+	visits := g.Named("Visits")
+	visits.By(&a.NodeID)
+	visits.Count("Visits")
+	visits.Min(&a.CreatedAt, "FirstAt")
+	visits.FirstOf(&a.Seq, "FirstSeq", g.Over().OrderByAsc(&a.CreatedAt).OrderByAscNullsFirst(&a.Seq))
+}

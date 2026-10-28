@@ -2319,6 +2319,102 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 	return q.readStmt(q.stream(&buf)).SQL, q.bind(b)
 }
 
+// VisitsRow is the "Visits" aggregation over audit_logs.
+//
+// One row per group. The grouping columns come first, in declaration
+// order, and the result is ordered by them: PostgreSQL promises no
+// order for a GROUP BY, and an unordered report shuffles between
+// requests for no reason anyone can see.
+type VisitsRow struct {
+	NodeID   runtime.Null[string]
+	Visits   int64
+	FirstAt  runtime.Null[time.Time]
+	FirstSeq runtime.Null[int64]
+}
+
+const visitsPrefix = `SELECT "node_id" AS "node_id", count(*) AS "visits", min("created_at") AS "first_at", (array_agg("seq" ORDER BY "created_at", "seq" NULLS FIRST))[1] AS "first_seq" FROM "audit_logs"`
+const visitsSuffix = ` GROUP BY "node_id" ORDER BY "node_id"`
+
+var (
+	visitsCache       = runtime.NewTreeCache()
+	visitsOffsetCache = runtime.NewTreeCache()
+)
+
+func visitsStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := visitsCache, visitsSuffix+limitSuffix
+	if withOffset {
+		c, suffix = visitsOffsetCache, visitsSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(visitsPrefix, softDeleteWhere, toks, lowering, suffix))
+}
+
+func scanVisits(rv [][]byte, r *VisitsRow, sl *runtime.Slab) error {
+	r.NodeID = runtime.NullText(rv[0], sl)
+	r.Visits = runtime.Int8(rv[1])
+	r.FirstAt = runtime.Nullable(rv[2], runtime.Timestamptz)
+	r.FirstSeq = runtime.Nullable(rv[3], runtime.Int8)
+	return nil
+}
+
+// AllVisits runs the "Visits" aggregation. Predicates compose exactly as on All —
+// they filter the rows that go INTO the groups, which is the WHERE clause
+// and not a HAVING. Limit and offset page the groups.
+func (q Query) AllVisits(ctx context.Context, ex runtime.Executor) ([]VisitsRow, error) {
+	var sl runtime.Slab
+	return q.AllVisitsInto(ctx, ex, nil, &sl)
+}
+
+// AllVisitsInto lets the caller own the output slice and the arena.
+func (q Query) AllVisitsInto(ctx context.Context, ex runtime.Executor, dst []VisitsRow, sl *runtime.Slab) ([]VisitsRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errVisitsOrdered
+	}
+	if q.lock != 0 {
+		return dst, errVisitsLocked
+	}
+	var buf [21]runtime.Tok
+	st := visitsStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, VisitsRow{})
+		if err := scanVisits(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// VisitsPieces is the "Visits" aggregation's statement around its
+// predicates, for the context package to splice a composed read into:
+// the SELECT … FROM, and the GROUP BY, ORDER BY and LIMIT after it.
+func VisitsPieces() (prefix, suffix string) { return visitsPrefix, visitsSuffix + limitSuffix }
+
+// ScanVisits decodes one row of the "Visits" aggregation.
+func ScanVisits(rv [][]byte, r *VisitsRow, sl *runtime.Slab) error { return scanVisits(rv, r, sl) }
+
+var errVisitsLocked = errors.New(
+	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
+
+var errVisitsOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and audit_logs.Visits is already ordered by its grouping columns; sort the returned slice if you need another order")
+
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
 const insertSQL = `INSERT INTO "audit_logs" ("id", "created_at", "updated_at", "project_id", "instance_id", "type", "node_id", "node_name", "message", "narrative", "data", "seq", "actor", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING "id", "created_at", "updated_at", "project_id", "instance_id", "type", "node_id", "node_name", "message", "narrative", "data", "seq", "actor", "deleted_at"`
