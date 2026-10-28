@@ -82,6 +82,10 @@ func TestAnInstancesWholeHistoryIsShownAndExported(t *testing.T) {
 	last.SetType(string(entities.EventNodeReached))
 	last.SetNodeID("review")
 	last.SetMessage("The review step was reached")
+	last.SetData(runtime.JSON(`null`))
+	now := time.Now()
+	last.SetCreatedAt(now)
+	last.SetUpdatedAt(now)
 	if _, err := last.Insert(ctx, h.ex()); err != nil {
 		t.Fatalf("record the step reached last: %v", err)
 	}

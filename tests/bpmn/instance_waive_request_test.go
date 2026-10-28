@@ -306,7 +306,7 @@ func TestAnApprovalHoldsItsRequestWhileItWaitsForTheInstance(t *testing.T) {
 	held := h.holdingTheInstance(t, id)
 	approval := w.sendApproval("budi", request)
 	h.waitForWaiters(t, held, 1, approval.answered)
-	if err := free(); err == nil || !strings.Contains(err.Error(), "55P03") && !strings.Contains(err.Error(), "could not obtain lock") {
+	if err := free(); !errors.Is(err, runtime.ErrLockNotAvailable) {
 		t.Fatalf("while the approval waits for the instance the request's row answers %v, want it held", err)
 	}
 	held.letGo(t, false)
