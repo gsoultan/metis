@@ -629,7 +629,7 @@ const en: Catalogue = {
   'settings.server.badValue': 'This value is not allowed for this setting.',
   'settings.server.reason': 'Reason',
   'settings.server.reasonPlaceholder': 'Why it changes, for the record',
-  'settings.server.appliesLive': 'Takes effect on every server within a minute.',
+  'settings.server.appliesLive': 'Takes effect without a restart, on every server within ten minutes.',
   'settings.server.appliesRestart': 'Takes effect when the server restarts.',
   'settings.server.save': 'Save',
   'settings.server.useDefault': 'Use default',

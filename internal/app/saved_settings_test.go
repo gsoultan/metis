@@ -10,7 +10,7 @@ func TestMergeLiveSettings(t *testing.T) {
 	boot := map[string]string{
 		"METIS_JOB_WORKERS":                       "10",
 		"METIS_RETENTION_FINISHED_INSTANCES_DAYS": "30",
-		"NOTIFICATION_SMTP_HOST":                  "old.example.com",
+		"METIS_RETENTION_COMPLETED_JOBS_DAYS":     "7",
 	}
 	latest := map[string]string{
 		"METIS_JOB_WORKERS":                       "50",
@@ -25,7 +25,7 @@ func TestMergeLiveSettings(t *testing.T) {
 	if merged["METIS_RETENTION_FINISHED_INSTANCES_DAYS"] != "90" {
 		t.Errorf("a live setting kept its old value: %q", merged["METIS_RETENTION_FINISHED_INSTANCES_DAYS"])
 	}
-	if _, kept := merged["NOTIFICATION_SMTP_HOST"]; kept {
+	if _, kept := merged["METIS_RETENTION_COMPLETED_JOBS_DAYS"]; kept {
 		t.Error("a live setting cleared on the page is still read")
 	}
 }

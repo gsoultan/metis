@@ -20,19 +20,20 @@ const (
 // administrator signed in to the UI may change it: see EnvironmentOnly before
 // making it.
 var catalog = []Definition{
-	// Email: where notifications and People's task links are sent from.
+	// Email: where notifications and People's task links are sent from. The
+	// mail channel is built once at start, so a change waits for a restart.
 	{Name: "NOTIFICATION_SMTP_HOST", Group: GroupEmail, Label: "Mail server",
 		Help: "The SMTP server notifications and task links are sent through. Email is off until this and the sender are set.",
-		Kind: KindText, Applies: Live},
+		Kind: KindText, Applies: AtRestart},
 	{Name: "NOTIFICATION_SMTP_PORT", Group: GroupEmail, Label: "Mail server port",
 		Help: "Usually 587 for STARTTLS or 465 for TLS.", Default: "587",
-		Kind: KindInteger, Min: 1, Max: 65_535, Applies: Live},
+		Kind: KindInteger, Min: 1, Max: 65_535, Applies: AtRestart},
 	{Name: "NOTIFICATION_SMTP_USERNAME", Group: GroupEmail, Label: "Mail username",
-		Help: "Left empty, mail is sent without signing in to the server.", Kind: KindText, Applies: Live},
+		Help: "Left empty, mail is sent without signing in to the server.", Kind: KindText, Applies: AtRestart},
 	{Name: "NOTIFICATION_SMTP_PASSWORD", Group: GroupEmail, Label: "Mail password",
-		Help: "Stored encrypted, and never shown again once saved.", Kind: KindText, Secret: true, Applies: Live},
+		Help: "Stored encrypted, and never shown again once saved.", Kind: KindText, Secret: true, Applies: AtRestart},
 	{Name: "NOTIFICATION_SMTP_FROM", Group: GroupEmail, Label: "Sender address",
-		Help: "The From address of every message, such as metis@example.com.", Kind: KindText, Applies: Live},
+		Help: "The From address of every message, such as metis@example.com.", Kind: KindText, Applies: AtRestart},
 	{Name: "NOTIFICATION_WEBHOOK_URL", Group: GroupEmail, Label: "Notification webhook",
 		Help: "An address every notification is also posted to.", Kind: KindURL, Applies: AtRestart},
 	{Name: "METIS_TASK_LINK_LIFETIME", Group: GroupEmail, Label: "Task link lifetime",

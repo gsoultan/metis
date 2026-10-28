@@ -583,7 +583,7 @@ const id: Catalogue = {
   'settings.server.badValue': 'Nilai ini tidak diizinkan untuk pengaturan ini.',
   'settings.server.reason': 'Alasan',
   'settings.server.reasonPlaceholder': 'Mengapa diubah, untuk catatan',
-  'settings.server.appliesLive': 'Berlaku di setiap server dalam satu menit.',
+  'settings.server.appliesLive': 'Berlaku tanpa mulai ulang, di setiap server dalam sepuluh menit.',
   'settings.server.appliesRestart': 'Berlaku saat server dimulai ulang.',
   'settings.server.save': 'Simpan',
   'settings.server.useDefault': 'Gunakan bawaan',
