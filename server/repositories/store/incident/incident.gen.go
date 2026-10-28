@@ -1985,6 +1985,108 @@ func batchTopByInstanceIDLateralSQL(order []Sort) string {
 	return batchTopByInstanceIDLateralCache.Put(toks, &runtime.Stmt{SQL: sql, NArg: 2}).SQL
 }
 
+// BatchTopByJobID fetches at most n rows for each id, ordered by order.
+//
+// ONE round trip regardless of how many ids are passed — the per-parent
+// limit is expressed in SQL, not by looping. It delegates to the lowering
+// chosen at BUILD time by measurement (bench/RESULTS.md); the strategy is
+// never sniffed at run time.
+func BatchTopByJobID(ctx context.Context, ex runtime.Executor, ids [][16]byte, n int64, order ...Sort) ([]Row, error) {
+	return BatchTopByJobIDLateral(ctx, ex, ids, n, order...)
+}
+
+// BatchTopByJobIDWindow runs the window lowering.
+//
+// Both forms are exported so a benchmark can compare them on identical
+// generated code rather than on two hand-written approximations, and so
+// a caller whose data defeats the default has a way out that does not
+// involve writing SQL.
+func BatchTopByJobIDWindow(ctx context.Context, ex runtime.Executor, ids [][16]byte, n int64, order ...Sort) ([]Row, error) {
+	return batchTopByJobIDRun(ctx, ex, batchTopByJobIDWindowSQL(order), ids, n)
+}
+
+// BatchTopByJobIDLateral runs the lateral lowering.
+//
+// Both forms are exported so a benchmark can compare them on identical
+// generated code rather than on two hand-written approximations, and so
+// a caller whose data defeats the default has a way out that does not
+// involve writing SQL.
+func BatchTopByJobIDLateral(ctx context.Context, ex runtime.Executor, ids [][16]byte, n int64, order ...Sort) ([]Row, error) {
+	return batchTopByJobIDRun(ctx, ex, batchTopByJobIDLateralSQL(order), ids, n)
+}
+
+// batchTopByJobIDRun executes one lowered statement.
+func batchTopByJobIDRun(ctx context.Context, ex runtime.Executor, sql string, ids [][16]byte, n int64) ([]Row, error) {
+	if len(ids) == 0 || n <= 0 {
+		return nil, nil
+	}
+	if sql == "" {
+		return nil, errNoTopOrder
+	}
+	rows, err := ex.Query(ctx, sql, []any{ids, n})
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sl runtime.Slab
+	out := make([]Row, 0, int64(len(ids))*n)
+	for rows.Next() {
+		out = append(out, Row{})
+		if err := scan(rows.RawValues(), &out[len(out)-1], &sl); err != nil {
+			return nil, err
+		}
+	}
+	return out, rows.Err()
+}
+
+var batchTopByJobIDWindowCache = runtime.NewTreeCache()
+
+// batchTopByJobIDWindowSQL compiles one ordering, once. The ordering is the key, exactly
+// as it is for an ordinary read; an empty ordering yields "", which the
+// runner turns into errNoTopOrder.
+func batchTopByJobIDWindowSQL(order []Sort) string {
+	if len(order) == 0 {
+		return ""
+	}
+	toks := make([]runtime.Tok, len(order))
+	for i, s := range order {
+		toks[i] = runtime.Tok(s)
+	}
+	if st := batchTopByJobIDWindowCache.Get(toks); st != nil {
+		return st.SQL
+	}
+	terms := make([]string, len(toks))
+	for i, t := range toks {
+		terms[i] = orderOf(t.Op(), t.Col())
+	}
+	sql := runtime.SpliceOrder("SELECT \"id\", \"created_at\", \"updated_at\", \"instance_id\", \"job_id\", \"definition_id\", \"node_id\", \"error\", \"status\", \"resolved_at\", \"deleted_at\" FROM (SELECT \"id\", \"created_at\", \"updated_at\", \"instance_id\", \"job_id\", \"definition_id\", \"node_id\", \"error\", \"status\", \"resolved_at\", \"deleted_at\", row_number() OVER (PARTITION BY \"job_id\"\x00order\x00) AS \"_storm_rn\" FROM \"incidents\" WHERE \"job_id\" = ANY($1) AND \"deleted_at\" IS NULL) \"_storm_t\" WHERE \"_storm_rn\" <= $2", terms, " ORDER BY ", ", ")
+	return batchTopByJobIDWindowCache.Put(toks, &runtime.Stmt{SQL: sql, NArg: 2}).SQL
+}
+
+var batchTopByJobIDLateralCache = runtime.NewTreeCache()
+
+// batchTopByJobIDLateralSQL compiles one ordering, once. The ordering is the key, exactly
+// as it is for an ordinary read; an empty ordering yields "", which the
+// runner turns into errNoTopOrder.
+func batchTopByJobIDLateralSQL(order []Sort) string {
+	if len(order) == 0 {
+		return ""
+	}
+	toks := make([]runtime.Tok, len(order))
+	for i, s := range order {
+		toks[i] = runtime.Tok(s)
+	}
+	if st := batchTopByJobIDLateralCache.Get(toks); st != nil {
+		return st.SQL
+	}
+	terms := make([]string, len(toks))
+	for i, t := range toks {
+		terms[i] = orderOf(t.Op(), t.Col())
+	}
+	sql := runtime.SpliceOrder("SELECT \"_storm_c\".\"id\", \"_storm_c\".\"created_at\", \"_storm_c\".\"updated_at\", \"_storm_c\".\"instance_id\", \"_storm_c\".\"job_id\", \"_storm_c\".\"definition_id\", \"_storm_c\".\"node_id\", \"_storm_c\".\"error\", \"_storm_c\".\"status\", \"_storm_c\".\"resolved_at\", \"_storm_c\".\"deleted_at\" FROM unnest($1::uuid[]) AS \"_storm_p\"(\"_storm_k\") CROSS JOIN LATERAL (SELECT \"id\", \"created_at\", \"updated_at\", \"instance_id\", \"job_id\", \"definition_id\", \"node_id\", \"error\", \"status\", \"resolved_at\", \"deleted_at\" FROM \"incidents\" WHERE \"job_id\" = \"_storm_p\".\"_storm_k\" AND \"deleted_at\" IS NULL\x00order\x00 LIMIT $2) \"_storm_c\"", terms, " ORDER BY ", ", ")
+	return batchTopByJobIDLateralCache.Put(toks, &runtime.Stmt{SQL: sql, NArg: 2}).SQL
+}
+
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
 const insertSQL = `INSERT INTO "incidents" ("id", "created_at", "updated_at", "instance_id", "job_id", "definition_id", "node_id", "error", "status", "resolved_at", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING "id", "created_at", "updated_at", "instance_id", "job_id", "definition_id", "node_id", "error", "status", "resolved_at", "deleted_at"`

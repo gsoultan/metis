@@ -45,6 +45,11 @@ type Job struct {
 	LastError        *string
 
 	DeletedAt *time.Time
+
+	// Incidents is the inverse of Incident.Job: no column here. It is what
+	// lets the retention sweep leave the failed jobs an open incident names
+	// in the same statement that removes the rest.
+	Incidents []Incident
 }
 
 func (j *Job) Schema(t *storm.Table) {
@@ -61,4 +66,6 @@ func (j *Job) Schema(t *storm.Table) {
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&j.DeletedAt)
+	// The retention sweep purges a batch at a time (HardDeleteBatch).
+	t.Takes()
 }

@@ -392,6 +392,7 @@ func _assertJobShape(m m0.Job) {
 		m.NextRunAt,
 		m.LastError,
 		m.DeletedAt,
+		m.Incidents,
 	}
 }
 

@@ -21,8 +21,6 @@ func Queries() []storm.RawDecl {
 		FairClaimableJobs,
 		InstanceOrganization,
 		LockJob,
-		ForgetCompletedJobs,
-		ForgetFailedJobs,
 		ForgetFinishedInstances,
 		ShortestRetentionPeriod,
 		ExistingInstances,
@@ -109,22 +107,6 @@ JOIN projects AS p ON p.id = i.project_id WHERE i.id = $1`)
 var LockJob = storm.SQLExec(`UPDATE jobs SET status = $1, locked_by = $2, lock_expires = $3, updated_at = now(),
         retries = retries + CASE WHEN status = $1 THEN 1 ELSE 0 END
   WHERE id = $4 AND (status = $5 OR (status = $1 AND lock_expires < $6))`)
-
-// ForgetCompletedJobs deletes one batch of completed jobs last touched before
-// $2: $1 completed, $3 the batch.
-var ForgetCompletedJobs = storm.SQLExec(`DELETE FROM jobs WHERE ctid = ANY(ARRAY(
-     SELECT ctid FROM jobs
-      WHERE status = $1 AND next_run_at < $2 AND updated_at < $2
-      LIMIT $3))`)
-
-// ForgetFailedJobs deletes one batch of failed jobs last touched before $2
-// that no open incident names: $1 failed, $3 resolved, $4 the batch.
-var ForgetFailedJobs = storm.SQLExec(`DELETE FROM jobs WHERE ctid = ANY(ARRAY(
-     SELECT j.ctid FROM jobs j
-      WHERE j.status = $1 AND j.next_run_at < $2 AND j.updated_at < $2
-        AND NOT EXISTS (
-            SELECT 1 FROM incidents i WHERE i.job_id = j.id AND i.status <> $3)
-      LIMIT $4))`)
 
 // ForgetFinishedInstances deletes one batch of finished instances and the
 // rows that exist only to run them, in one statement so a batch goes whole or

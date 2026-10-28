@@ -1,6 +1,7 @@
 package postgres_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -110,5 +111,68 @@ func TestTheDeliverySweepPurgesMarkedDeliveriesToo(t *testing.T) {
 	}
 	if left := countRows(t, db, "webhook_deliveries"); removed != 2 || left != 0 {
 		t.Errorf("removed %d and left %d; want both gone", removed, left)
+	}
+}
+
+func TestTheJobSweepKeepsWhatIsOwedAndWhatAnOpenIncidentNames(t *testing.T) {
+	db := testutils.SetupTestDB(t)
+	repo := repositories.NewRepository(testutils.StormConn(db))
+	ours, _, project := testutils.ScopedProject(t, repo)
+	definition := seedDefinition(t, db, project, 1)
+	instance := uuid.Must(uuid.NewV7())
+	if _, err := repo.Process().Create(ours, models.ProcessInstanceModel{
+		Base: models.Base{ID: models.FromUUID(instance)}, ProjectID: models.FromUUID(project),
+		DefinitionID: models.FromUUID(definition), Status: models.ProcessCompleted,
+	}); err != nil {
+		t.Fatalf("seed an instance: %v", err)
+	}
+	old, recent := time.Now().UTC().Add(-30*24*time.Hour), time.Now().UTC()
+	job := func(name, status string, at time.Time, marked bool, incidents ...string) {
+		t.Helper()
+		id := uuid.Must(uuid.NewV7())
+		var deletedAt any
+		if marked {
+			deletedAt = at
+		}
+		if err := db.Exec(`INSERT INTO jobs (id, created_at, updated_at, deleted_at, instance_id, definition_id, node_id, type, status,
+			payload, retries, max_retries, repeats_remaining, next_run_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 'timer', ?, '{}', 0, 0, 0, ?)`,
+			id, at, at, deletedAt, instance, definition, name, status, at).Error; err != nil {
+			t.Fatalf("seed %s: %v", name, err)
+		}
+		for _, incident := range incidents {
+			var incidentDeleted any
+			status := incident
+			if incident == "open, marked" {
+				status, incidentDeleted = "open", at
+			}
+			if err := db.Exec(`INSERT INTO incidents (id, created_at, updated_at, deleted_at, instance_id, job_id, node_id, error, status)
+				VALUES (?, now(), now(), ?, ?, ?, ?, 'boom', ?)`,
+				uuid.Must(uuid.NewV7()), incidentDeleted, instance, id, name, status).Error; err != nil {
+				t.Fatalf("seed %s's incident: %v", name, err)
+			}
+		}
+	}
+	job("old completed", "completed", old, false)
+	job("old completed, marked", "completed", old, true)
+	job("recent completed", "completed", recent, false)
+	job("old pending", "pending", old, false)
+	job("old failed", "failed", old, false)
+	job("old failed, resolved", "failed", old, false, "resolved")
+	job("old failed, open incident", "failed", old, false, "open", "resolved")
+	job("old failed, open incident marked", "failed", old, false, "open, marked")
+	job("recent failed", "failed", recent, false)
+
+	removed, err := repo.Job().ForgetFinishedBefore(entities.WithSystemContext(t.Context()), time.Now().Add(-7*24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	if err := db.Raw("SELECT node_id FROM jobs ORDER BY node_id").Scan(&left).Error; err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"old failed, open incident", "old pending", "recent completed", "recent failed"}
+	if removed != 5 || !slices.Equal(left, want) {
+		t.Errorf("removed %d and left %q; want %q", removed, left, want)
 	}
 }

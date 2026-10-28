@@ -14,6 +14,8 @@ import (
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/model"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store"
+	"github.com/gsoultan/metis/server/repositories/store/incident"
 	"github.com/gsoultan/metis/server/repositories/store/job"
 	"github.com/gsoultan/storm/runtime"
 )
@@ -247,8 +249,8 @@ func oldestDue(ctx context.Context, ex runtime.Executor, now time.Time, limit in
 // as well so a job finished after it was due is kept for the whole period
 // from when it finished.
 //
-// Raw SQL, as every sweep is: storm deletes by primary key, and naming every
-// row first would be a read of exactly the rows about to go.
+// An open incident is one a read of incidents returns: one marked deleted
+// cannot be resolved, so it does not keep its job.
 func (r *jobRepository) ForgetFinishedBefore(ctx context.Context, cutoff time.Time) (int64, error) {
 	if !entities.IsSystemContext(ctx) {
 		return 0, fmt.Errorf("%w: forgetting finished jobs spans every tenant", apierr.ErrForbidden)
@@ -258,13 +260,22 @@ func (r *jobRepository) ForgetFinishedBefore(ctx context.Context, cutoff time.Ti
 		return 0, err
 	}
 	cutoff = cutoff.UTC()
-	completed, err := db.DeleteDeclaredInBatches(ctx, ex, model.ForgetCompletedJobs,
-		string(models.JobCompleted), cutoff)
+	// Marked deleted or not: a purge of jobs nothing keeps.
+	finished := func(status models.JobStatus) job.Query {
+		return job.New().Where(job.Status.Eq(string(status)), job.NextRunAt.Lt(cutoff), job.UpdatedAt.Lt(cutoff))
+	}
+	completed, err := db.PruneInBatches(ctx, func(limit int64) (int64, error) {
+		return finished(models.JobCompleted).Limit(limit).HardDeleteBatch(ctx, ex)
+	})
 	if err != nil {
 		return completed, fmt.Errorf("could not forget completed jobs: %w", err)
 	}
-	failed, err := db.DeleteDeclaredInBatches(ctx, ex, model.ForgetFailedJobs,
-		string(models.JobFailed), cutoff, string(models.IncidentResolved))
+	// A failed job an open incident names is what the incident is about, so
+	// it stays until the incident is resolved.
+	failed, err := db.PruneInBatches(ctx, func(limit int64) (int64, error) {
+		return store.JobNotHavingIncidents(finished(models.JobFailed).Limit(limit),
+			incident.Status.NotEq(string(models.IncidentResolved))).HardDeleteBatch(ctx, ex)
+	})
 	if err != nil {
 		return completed + failed, fmt.Errorf("could not forget failed jobs: %w", err)
 	}

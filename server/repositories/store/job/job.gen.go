@@ -1083,6 +1083,13 @@ func (q *Query) leaf(p Pred) {
 	q.push(runtime.MakeLeaf(uint32(p.op), uint32(p.col)))
 }
 
+// Relation existence — the semi-join. HasPosts() matches rows with at
+// least one related row; HasNoPosts() matches the rest. Both compose
+// under Where/Any/Not like any predicate, because both lower to constant
+// fragments: no bound value, one compiled statement per structure.
+func HasIncidents() Pred   { return Pred{col: 19, op: opExists} }
+func HasNoIncidents() Pred { return Pred{col: 19, op: opNotExists} }
+
 // Chained predicate sugar. Identical to Where(Col.Op(v)).
 func (q Query) IDEq(v [16]byte) Query                   { return q.Where(ID.Eq(v)) }
 func (q Query) IDNotEq(v [16]byte) Query                { return q.Where(ID.NotEq(v)) }
@@ -1454,7 +1461,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [19][31]runtime.Frag{
+var fragTable = [20][31]runtime.Frag{
 	{ // id
 		{}, // opNone
 		{A: "\"id\" = $", B: ""},
@@ -2081,6 +2088,39 @@ var fragTable = [19][31]runtime.Frag{
 		{},
 		{},
 		{},
+	},
+	{ // relation Incidents (pseudo-column)
+		{}, // opNone
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{},
+		{A: "EXISTS (SELECT 1 FROM \"incidents\" AS \"_storm_e\" WHERE \"_storm_e\".\"job_id\" = \"jobs\".\"id\" AND \"_storm_e\".\"deleted_at\" IS NULL)"},
+		{A: "NOT EXISTS (SELECT 1 FROM \"incidents\" AS \"_storm_e\" WHERE \"_storm_e\".\"job_id\" = \"jobs\".\"id\" AND \"_storm_e\".\"deleted_at\" IS NULL)"},
 	},
 }
 
@@ -4379,6 +4419,181 @@ func (q Query) HardDeleteAll(ctx context.Context, ex runtime.Executor) (int64, e
 	b := binders.Get()
 	defer putBinder(b)
 	return ex.Exec(ctx, st.SQL, q.bindPreds(b))
+}
+
+var takeCache = runtime.NewTreeCache()
+
+// takeOpen narrows the UPDATE to the rows the read selects.
+const takeOpen = ` WHERE "id" IN (SELECT "id" FROM "jobs"`
+
+// takeStmtFor compiles one (assignments, lock, read) triple, once.
+func takeStmtFor(k runtime.MaskKey, lock uint8, toks []runtime.Tok) *runtime.Stmt {
+	var key [26]runtime.Tok
+	key[0], key[1] = runtime.Tok(k.Dirty), runtime.Tok(k.Dirty>>32)
+	key[2], key[3] = runtime.Tok(k.Expr), runtime.Tok(k.Expr>>32)
+	key[4] = runtime.Tok(lock)
+	n := 5 + copy(key[5:], toks)
+	if st := takeCache.Get(key[:n]); st != nil {
+		return st
+	}
+	set := make([]runtime.Frag, 0, nUpdatable+1)
+	for i := 0; i < nUpdatable; i++ {
+		switch {
+		case k.Expr&k.Dirty&(1<<uint(i)) != 0:
+			set = append(set, addFrags[i])
+		case k.Expr&(1<<uint(i)) != 0:
+			set = append(set, exprFrags[i])
+		case k.Dirty&(1<<uint(i)) != 0:
+			set = append(set, setFrags[i])
+		}
+	}
+	head := runtime.SpliceSections(updatePrefix, []runtime.Section{
+		{Lead: "", Sep: ", ", Frags: set},
+	}, "")
+	if head.Err != nil {
+		return head
+	}
+	suffix := limitSuffix + lockSuffix[lock] + `)` + updReturning
+	return takeCache.Put(key[:n], runtime.SpliceTreeWhereFrom(head.SQL+takeOpen, softDeleteWhere, toks, lowering, suffix, head.NArg))
+}
+
+// Take writes m's assigned columns to the rows the query would read —
+// its predicates, order, Limit and row lock all apply — in ONE
+// statement, and returns those rows as they now stand:
+//
+//	var m Mut
+//	m.Set…(leaseEnd)
+//	got, err := New().Where(…).Order(…).Limit(1).ForUpdateSkipLocked().Take(ctx, ex, m, nil)
+//
+// That is the queue claim: with ForUpdateSkipLocked two workers asking
+// at once take different rows, or one finds none, and neither waits.
+// Without a lock it is an UPDATE bounded by a read. Nothing assigned
+// issues no statement and returns dst. Offset is refused with
+// runtime.ErrPagedWrite: a claim that skips rows it could take is a
+// claim that leaves work behind.
+func (q Query) Take(ctx context.Context, ex runtime.Executor, m Mut, dst []Row) ([]Row, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.offset != 0 {
+		return dst, runtime.ErrPagedWrite
+	}
+	if m.dirty == 0 && m.expr == 0 {
+		return dst, nil
+	}
+	var buf [21]runtime.Tok
+	st := takeStmtFor(m.key(), q.lock, q.stream(&buf))
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	b := binders.Get()
+	defer putBinder(b)
+	args := make([]any, 0, st.NArg)
+	for i := 0; i < nUpdatable; i++ {
+		if m.dirty&(1<<uint(i)) == 0 {
+			continue
+		}
+		switch i {
+		case 0:
+			args = append(args, m.row.UpdatedAt)
+		case 1:
+			args = append(args, m.row.InstanceID)
+		case 2:
+			args = append(args, m.row.DefinitionID)
+		case 3:
+			args = append(args, m.row.OrganizationID.Arg())
+		case 4:
+			args = append(args, m.row.NodeID)
+		case 5:
+			args = append(args, m.row.IterationID.Arg())
+		case 6:
+			args = append(args, m.row.Type)
+		case 7:
+			args = append(args, m.row.Status)
+		case 8:
+			args = append(args, m.row.LockedBy.Arg())
+		case 9:
+			args = append(args, m.row.LockExpires.Arg())
+		case 10:
+			args = append(args, m.row.Payload)
+		case 11:
+			args = append(args, m.row.Retries)
+		case 12:
+			args = append(args, m.row.MaxRetries)
+		case 13:
+			args = append(args, m.row.RepeatsRemaining)
+		case 14:
+			args = append(args, m.row.NextRunAt)
+		case 15:
+			args = append(args, m.row.LastError.Arg())
+		case 16:
+			args = append(args, m.row.DeletedAt.Arg())
+		}
+	}
+	args = append(args, q.bind(b)...)
+	var sl runtime.Slab
+	sl.Reserve(st.SlabHint())
+	rows, err := ex.Query(ctx, st.SQL, args)
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, Row{})
+		if err := scan(rows.RawValues(), &dst[len(dst)-1], &sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+var trimCache = runtime.NewTreeCache()
+
+// trimStmtFor compiles one (lock, read) pair, once.
+func trimStmtFor(lock uint8, toks []runtime.Tok) *runtime.Stmt {
+	var key [22]runtime.Tok
+	key[0] = runtime.Tok(lock)
+	n := 1 + copy(key[1:], toks)
+	if st := trimCache.Get(key[:n]); st != nil {
+		return st
+	}
+	suffix := limitSuffix + lockSuffix[lock] + `))`
+	return trimCache.Put(key[:n], runtime.SpliceTree(deletePrefix+` WHERE ctid = ANY(ARRAY(SELECT ctid FROM "jobs"`, toks, lowering, suffix))
+}
+
+// HardDeleteBatch removes the rows the query would read, marked deleted or not, —
+// its predicates, order, Limit and row lock all apply — in ONE
+// statement, and reports how many it removed:
+//
+//	for {
+//		n, err := New().Where(…).Limit(1000).HardDeleteBatch(ctx, ex)
+//		if err != nil || n < 1000 {
+//			break
+//		}
+//	}
+//
+// That is the bounded purge: each run holds its locks for one batch.
+// The query must have a predicate — runtime.ErrUnfilteredWrite
+// otherwise — and Offset is refused with runtime.ErrPagedWrite.
+func (q Query) HardDeleteBatch(ctx context.Context, ex runtime.Executor) (int64, error) {
+	if err := q.Err(); err != nil {
+		return 0, err
+	}
+	if q.nt == 0 {
+		return 0, runtime.ErrUnfilteredWrite
+	}
+	if q.offset != 0 {
+		return 0, runtime.ErrPagedWrite
+	}
+	var buf [21]runtime.Tok
+	st := trimStmtFor(q.lock, q.stream(&buf))
+	if st.Err != nil {
+		return 0, st.Err
+	}
+	b := binders.Get()
+	defer putBinder(b)
+	return ex.Exec(ctx, st.SQL, q.bind(b))
 }
 
 // The step this table's UpdateAll is, and the statements written after
