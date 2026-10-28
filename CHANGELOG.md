@@ -1405,6 +1405,13 @@ does not undo a migration.
 
 ### Fixed
 
+- **The REST organization calls report their failures.** Reading, creating,
+  listing, renaming or deleting an organization answered 200 whatever happened:
+  the error was sent as `"err":{}`. Asking for an organization that is not the
+  caller's, or one that does not exist, looked like success to an integration.
+  They now answer with the status the error calls for, as every other route
+  does. The UI talks Connect, which already reported them.
+
 - **A migration reports an instance it skipped once.** When two runs of one
   migration overlapped, and the second moved an instance in the moment after
   the first had skipped its step, the first counted the instance as changed

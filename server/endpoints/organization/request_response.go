@@ -14,6 +14,8 @@ type CreateOrganizationResponse struct {
 	Err          error                 `json:"err,omitzero"`
 }
 
+func (r CreateOrganizationResponse) Failed() error { return r.Err }
+
 type GetOrganizationRequest struct {
 	ID string `json:"id"`
 }
@@ -23,12 +25,16 @@ type GetOrganizationResponse struct {
 	Err          error                 `json:"err,omitzero"`
 }
 
+func (r GetOrganizationResponse) Failed() error { return r.Err }
+
 type ListOrganizationsRequest struct{}
 
 type ListOrganizationsResponse struct {
 	Organizations []entities.Organization `json:"organizations"`
 	Err           error                   `json:"err,omitzero"`
 }
+
+func (r ListOrganizationsResponse) Failed() error { return r.Err }
 
 type UpdateOrganizationRequest struct {
 	ID          string `json:"id"`
@@ -40,6 +46,8 @@ type UpdateOrganizationResponse struct {
 	Err error `json:"err,omitzero"`
 }
 
+func (r UpdateOrganizationResponse) Failed() error { return r.Err }
+
 type DeleteOrganizationRequest struct {
 	ID string `json:"id"`
 }
@@ -47,3 +55,5 @@ type DeleteOrganizationRequest struct {
 type DeleteOrganizationResponse struct {
 	Err error `json:"err,omitzero"`
 }
+
+func (r DeleteOrganizationResponse) Failed() error { return r.Err }
