@@ -12,6 +12,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/model"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 )
 
 // lockRetentionHolds waits for every transaction that is placing or
@@ -132,11 +133,12 @@ func (r *processRepository) Existing(ctx context.Context, ids []uuid.UUID) (map[
 	if err != nil {
 		return nil, err
 	}
-	texts := make([]string, len(ids))
-	for i, id := range ids {
-		texts[i] = id.String()
-	}
-	rows, err := model.ExistingInstances.Query(ctx, ex, texts)
+	// WithDeleted: a removed instance still has a row, and it is not one to
+	// recreate.
+	rows, err := processinstance.New().WithDeleted().
+		Where(processinstance.ID.In(uuidsToRaw(ids)...)).
+		Limit(int64(len(ids))).
+		AllRef(ctx, ex)
 	if err != nil {
 		return nil, fmt.Errorf("could not read which instances exist: %w", err)
 	}

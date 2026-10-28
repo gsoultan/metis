@@ -15025,8 +15025,6 @@ func init() {
 	storm.RegisterScanner(scanClaimTurn)
 	storm.RegisterScanner(scanOrganizationOf)
 	storm.RegisterScanner(scanPeriodDays)
-	storm.RegisterScanner(scanInstanceID)
-	storm.RegisterStatement(`SELECT id FROM process_instances WHERE id = ANY($1::uuid[])`)
 	storm.RegisterStatement(`SELECT min(days) AS days FROM (
 	SELECT DISTINCT ON (project_id, process_key) days FROM retention_periods
 	 ORDER BY project_id, process_key, created_at DESC, id DESC
@@ -15141,10 +15139,5 @@ func scanOrganizationOf(rv [][]byte, r *model.OrganizationOf, sl *runtime.Slab) 
 
 func scanPeriodDays(rv [][]byte, r *model.PeriodDays, sl *runtime.Slab) error {
 	r.Days = runtime.Nullable(rv[0], runtime.Int4)
-	return nil
-}
-
-func scanInstanceID(rv [][]byte, r *model.InstanceID, sl *runtime.Slab) error {
-	copy(r.ID[:], rv[0])
 	return nil
 }

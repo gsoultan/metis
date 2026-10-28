@@ -345,7 +345,7 @@ func (q Query) readErr() error {
 }
 
 var errWithDeleted = errors.New(
-	"storm: WithDeleted() reaches All, One, Count, Exists and Take; every other terminal keeps the marked rows out, and running it as if it did not would answer a different question than the one asked")
+	"storm: WithDeleted() reaches All, One, Count, Exists, Take and the declared projections; every other terminal keeps the marked rows out, and running it as if it did not would answer a different question than the one asked")
 
 var errAfterUnordered = errors.New(
 	"storm: After() on an Unordered() query with no explicit Order — a keyset cursor without an ordering is a position in nothing")
@@ -1505,7 +1505,7 @@ func countStmtFor(toks []runtime.Tok) *runtime.Stmt {
 }
 
 // WithDeleted reads the marked rows as well as the live ones. All, One,
-// Count, Exists and Take honour it; every other terminal refuses it,
+// Count, Exists, Take and the projections honour it; every other terminal refuses it,
 // rather than quietly answering about the live rows only.
 func (q Query) WithDeleted() Query { q.deleted = true; return q }
 

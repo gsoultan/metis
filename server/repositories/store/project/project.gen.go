@@ -1748,7 +1748,7 @@ func (q Query) AllKey(ctx context.Context, ex runtime.Executor) ([]KeyRow, error
 // as AllInto does — a projection's terminals mirror the full read's, so a
 // hot loop reuses both and a benchmark compares like with like.
 func (q Query) AllKeyInto(ctx context.Context, ex runtime.Executor, dst []KeyRow, sl *runtime.Slab) ([]KeyRow, error) {
-	if err := q.Err(); err != nil {
+	if err := q.readErr(); err != nil {
 		return dst, err
 	}
 	var buf [21]runtime.Tok

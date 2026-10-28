@@ -74,6 +74,15 @@ func (i *ProcessInstance) Schema(t *storm.Table) {
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&i.DeletedAt)
+	// The payload sweep asks which instances still have a row, removed or
+	// not, before it forgets their kept values: a read of the marked rows.
+	t.ReadsDeleted()
+}
+
+// Projections declares Ref, the key alone, for reads that only ask whether
+// a row is there.
+func (i *ProcessInstance) Projections(p *storm.Projections) {
+	p.Named("Ref", &i.ID)
 }
 
 // Aggregates are the counts the instance list and the version history show.

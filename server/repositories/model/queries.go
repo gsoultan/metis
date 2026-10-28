@@ -23,7 +23,6 @@ func Queries() []storm.RawDecl {
 		LockJob,
 		ForgetFinishedInstances,
 		ShortestRetentionPeriod,
-		ExistingInstances,
 	}
 }
 
@@ -199,13 +198,3 @@ var ShortestRetentionPeriod = storm.SQL[PeriodDays](`SELECT min(days) AS days FR
 	SELECT DISTINCT ON (project_id, process_key) days FROM retention_periods
 	 ORDER BY project_id, process_key, created_at DESC, id DESC
 ) newest`)
-
-// InstanceID is one instance's id.
-type InstanceID struct {
-	ID [16]byte
-}
-
-// ExistingInstances is which of a list of ids have a row, read by the
-// primary key. It sees soft-deleted instances too: a row that is there is
-// not one to recreate.
-var ExistingInstances = storm.SQL[InstanceID](`SELECT id FROM process_instances WHERE id = ANY($1::uuid[])`)

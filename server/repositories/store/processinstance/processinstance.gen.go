@@ -121,6 +121,9 @@ type Query struct {
 	// noOrder suppresses the default ordering. See Unordered.
 	noOrder  bool
 	badAfter bool
+
+	// deleted reads the marked rows as well. See WithDeleted.
+	deleted bool
 }
 
 // New starts a query.
@@ -341,6 +344,9 @@ func (q Query) Order(ts ...Sort) Query {
 
 // Err reports a query that outgrew its buffers.
 func (q Query) Err() error {
+	if q.deleted {
+		return errWithDeleted
+	}
 	return q.readErr()
 }
 
@@ -357,6 +363,9 @@ func (q Query) readErr() error {
 	}
 	return nil
 }
+
+var errWithDeleted = errors.New(
+	"storm: WithDeleted() reaches All, One, Count, Exists, Take and the declared projections; every other terminal keeps the marked rows out, and running it as if it did not would answer a different question than the one asked")
 
 var errAfterUnordered = errors.New(
 	"storm: After() on an Unordered() query with no explicit Order — a keyset cursor without an ordering is a position in nothing")
@@ -1965,12 +1974,57 @@ func countStmtFor(toks []runtime.Tok) *runtime.Stmt {
 	return countCache.Put(toks, runtime.SpliceTreeWhere(countPrefix, softDeleteWhere, toks, lowering, ""))
 }
 
+// WithDeleted reads the marked rows as well as the live ones. All, One,
+// Count, Exists, Take and the projections honour it; every other terminal refuses it,
+// rather than quietly answering about the live rows only.
+func (q Query) WithDeleted() Query { q.deleted = true; return q }
+
+var (
+	deletedReads = func() [7][2]*runtime.TreeCache {
+		var cs [7][2]*runtime.TreeCache
+		for i := range cs {
+			cs[i][0], cs[i][1] = runtime.NewTreeCache(), runtime.NewTreeCache()
+		}
+		return cs
+	}()
+	deletedCount  = runtime.NewTreeCache()
+	deletedExists = runtime.NewTreeCache()
+)
+
 func (q Query) readStmt(toks []runtime.Tok) *runtime.Stmt {
-	return stmtFor(toks, q.offset > 0, q.lock)
+	if !q.deleted {
+		return stmtFor(toks, q.offset > 0, q.lock)
+	}
+	i, suffix := 0, limitSuffix
+	if q.offset > 0 {
+		i, suffix = 1, limitOffsetSuffix
+	}
+	c := deletedReads[q.lock][i]
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTree(selectPrefix, toks, lowering, suffix+lockSuffix[q.lock]))
 }
 
-func (q Query) countStmt(toks []runtime.Tok) *runtime.Stmt  { return countStmtFor(toks) }
-func (q Query) existsStmt(toks []runtime.Tok) *runtime.Stmt { return existsStmtFor(toks) }
+func (q Query) countStmt(toks []runtime.Tok) *runtime.Stmt {
+	if !q.deleted {
+		return countStmtFor(toks)
+	}
+	if st := deletedCount.Get(toks); st != nil {
+		return st
+	}
+	return deletedCount.Put(toks, runtime.SpliceTree(countPrefix, toks, lowering, ""))
+}
+
+func (q Query) existsStmt(toks []runtime.Tok) *runtime.Stmt {
+	if !q.deleted {
+		return existsStmtFor(toks)
+	}
+	if st := deletedExists.Get(toks); st != nil {
+		return st
+	}
+	return deletedExists.Put(toks, runtime.SpliceTree(existsPrefix, toks, lowering, existsSuffix))
+}
 
 // Composition seams, for the generated CONTEXT package and it alone:
 // cross-table statements (a filtered semi-join spans two packages) are
@@ -2392,6 +2446,105 @@ func (q Query) Exists(ctx context.Context, ex runtime.Executor) (bool, error) {
 func (q Query) Prepare(b *Binder) (string, []any) {
 	var buf [21]runtime.Tok
 	return q.readStmt(q.stream(&buf)).SQL, q.bind(b)
+}
+
+// RefRow is the "Ref" projection: the same read, 1 column(s) instead of
+// the whole row. Narrower tuples, no TOAST fetch for what nobody asked,
+// and an index-only scan becomes POSSIBLE — the full-row read forecloses
+// it by construction.
+type RefRow struct {
+	ID [16]byte
+}
+
+const refPrefix = `SELECT "id" FROM "process_instances"`
+
+var (
+	refCache       = runtime.NewTreeCache()
+	refOffsetCache = runtime.NewTreeCache()
+)
+
+func refStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := refCache, limitSuffix
+	if withOffset {
+		c, suffix = refOffsetCache, limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(refPrefix, softDeleteWhere, toks, lowering, suffix))
+}
+
+var refDeletedCaches = [2]*runtime.TreeCache{runtime.NewTreeCache(), runtime.NewTreeCache()}
+
+// refDeletedStmtFor is refStmtFor under WithDeleted: no soft-delete
+// predicate, because the model let this table's call sites ask for that.
+func refDeletedStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	i, suffix := 0, limitSuffix
+	if withOffset {
+		i, suffix = 1, limitOffsetSuffix
+	}
+	c := refDeletedCaches[i]
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTree(refPrefix, toks, lowering, suffix))
+}
+
+func scanRef(rv [][]byte, r *RefRow, sl *runtime.Slab) error {
+	copy(r.ID[:], rv[0])
+	return nil
+}
+
+// AllRef runs the query projected to RefRow. Predicates, ordering, limit,
+// offset and keyset all apply exactly as on All — a projection changes
+// what a row CARRIES, never which rows qualify. (After takes the full Row;
+// populate its ordering columns and the cursor works unchanged.)
+func (q Query) AllRef(ctx context.Context, ex runtime.Executor) ([]RefRow, error) {
+	var sl runtime.Slab
+	return q.AllRefInto(ctx, ex, nil, &sl)
+}
+
+// AllRefInto lets the caller own the output slice and the arena, exactly
+// as AllInto does — a projection's terminals mirror the full read's, so a
+// hot loop reuses both and a benchmark compares like with like.
+func (q Query) AllRefInto(ctx context.Context, ex runtime.Executor, dst []RefRow, sl *runtime.Slab) ([]RefRow, error) {
+	if err := q.readErr(); err != nil {
+		return dst, err
+	}
+	var buf [21]runtime.Tok
+	pick := refStmtFor
+	if q.deleted {
+		pick = refDeletedStmtFor
+	}
+	st := pick(q.stream(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, RefRow{})
+		if err := scanRef(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// OneRef is AllRef stopped at one row.
+func (q Query) OneRef(ctx context.Context, ex runtime.Executor) (RefRow, bool, error) {
+	out, err := q.Limit(1).AllRef(ctx, ex)
+	if err != nil || len(out) == 0 {
+		return RefRow{}, false, err
+	}
+	return out[0], true, nil
 }
 
 // ByStatusRow is the "ByStatus" aggregation over process_instances.

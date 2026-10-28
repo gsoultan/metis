@@ -2978,7 +2978,7 @@ func (q Query) AllQueue(ctx context.Context, ex runtime.Executor) ([]QueueRow, e
 // as AllInto does — a projection's terminals mirror the full read's, so a
 // hot loop reuses both and a benchmark compares like with like.
 func (q Query) AllQueueInto(ctx context.Context, ex runtime.Executor, dst []QueueRow, sl *runtime.Slab) ([]QueueRow, error) {
-	if err := q.Err(); err != nil {
+	if err := q.readErr(); err != nil {
 		return dst, err
 	}
 	var buf [21]runtime.Tok
