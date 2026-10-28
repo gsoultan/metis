@@ -16,6 +16,7 @@ import (
 // EnvSetupToken names the setup token an operator chooses instead of reading
 // the generated one out of the log: an automated install, or several replicas
 // behind one address, which would otherwise each print a token of their own.
+// #nosec G101 -- the name of an environment variable, not a credential.
 const EnvSetupToken = "METIS_SETUP_TOKEN"
 
 const (

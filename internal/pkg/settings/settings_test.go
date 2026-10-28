@@ -40,13 +40,17 @@ func TestEveryVariableTheServerReadsIsClassified(t *testing.T) {
 		}
 	}
 
-	root := filepath.Join("..", "..", "..")
+	root, err := os.OpenRoot(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatalf("open the repository: %v", err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
 	for _, dir := range []string{"internal", "server", "cmd/metis"} {
-		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, entry fs.DirEntry, err error) error {
+		err := fs.WalkDir(root.FS(), dir, func(path string, entry fs.DirEntry, err error) error {
 			if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 				return err
 			}
-			source, err := os.ReadFile(path) // #nosec G304 -- the repository's own source
+			source, err := fs.ReadFile(root.FS(), path)
 			if err != nil {
 				return err
 			}

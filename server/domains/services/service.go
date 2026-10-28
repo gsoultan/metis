@@ -1,11 +1,11 @@
 package services
 
 import (
-	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/server/domains/handlers/impl"
 	observercontracts "github.com/gsoultan/metis/server/domains/observers/contracts"
 	observerimpl "github.com/gsoultan/metis/server/domains/observers/impl"
