@@ -71,32 +71,5 @@ func stringOfValue(value driver.Value) string {
 	}
 }
 
-// scanInt reads a single integer column out of a raw result row.
-//
-// The values arrive in PostgreSQL's **binary** format, not as text: pgx asks
-// for binary and storm's decoders expect it. Parsing them as digits reads eight
-// zero bytes as the string "\x00..." and fails, which is what the first raw
-// aggregate here did.
-//
-// For the few aggregates that stay raw SQL — a MAX(version), a COUNT — where
-// the generated store has no declaration to read them through.
-func scanInt(values [][]byte, into *int64) error {
-	if len(values) == 0 || len(values[0]) == 0 {
-		*into = 0
-		return nil
-	}
-	switch len(values[0]) {
-	case 8:
-		*into = runtime.Int8(values[0])
-	case 4:
-		*into = int64(runtime.Int4(values[0]))
-	case 2:
-		*into = int64(runtime.Int2(values[0]))
-	default:
-		return fmt.Errorf("could not read a numeric result: unexpected width %d", len(values[0]))
-	}
-	return nil
-}
-
 // nowUTC is the moment a write happens, in the one zone the database stores.
 func nowUTC() time.Time { return time.Now().UTC() }

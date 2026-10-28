@@ -556,17 +556,6 @@ func instanceInProjects(ids []uuid.UUID) processinstance.Pred {
 	return processinstance.ProjectID.In(uuidsToRaw(ids)...)
 }
 
-// rawInProjects is instanceInProjects for the statements still written as
-// SQL here: column is in ids, as an equality when there is one.
-func rawInProjects(query string, args []any, column string, ids []uuid.UUID) (string, []any) {
-	if len(ids) == 1 {
-		args = append(args, ids[0][:])
-		return query + fmt.Sprintf(" AND %s = $%d", column, len(args)), args
-	}
-	args = append(args, uuidsToRaw(ids))
-	return query + fmt.Sprintf(" AND %s = ANY($%d)", column, len(args)), args
-}
-
 // list returns every instance matching, newest first.
 //
 // Every one, not the store's newest thousand: an instance's sub-processes and
@@ -767,56 +756,30 @@ func (r *processRepository) WaitingByStep(ctx context.Context, projectID uuid.UU
 	if err != nil {
 		return nil, err
 	}
-	query := `SELECT d.key,
-	                 (array_agg(d.name ORDER BY d.version DESC))[1],
-	                 COALESCE(t->>'node_id', ''),
-	                 count(*),
-	                 count(DISTINCT p.id),
-	                 GROUPING(t->>'node_id')
-	            FROM process_instances p
-	            JOIN process_definitions d ON d.id = p.definition_id
-	           CROSS JOIN LATERAL jsonb_array_elements(
-	                   CASE WHEN jsonb_typeof(p.tokens::jsonb) = 'array' THEN p.tokens::jsonb ELSE '[]'::jsonb END) AS t
-	           WHERE p.deleted_at IS NULL
-	             AND p.status IN ($1, $2)
-	             AND COALESCE(t->>'status', '') <> $3`
-	args := []any{string(models.ProcessActive), string(models.ProcessSuspended), string(models.TokenCompleted)}
+	q := processinstance.New().Where(processinstance.Status.In(
+		string(models.ProcessActive), string(models.ProcessSuspended)))
 	if scoped != nil {
-		query, args = rawInProjects(query, args, "p.project_id", scoped)
+		q = q.Where(instanceInProjects(scoped))
 	}
-	query += ` GROUP BY GROUPING SETS ((d.key, t->>'node_id'), (d.key))`
-
-	rows, err := ex.Query(ctx, query, args)
+	// Every group, in one statement: the store's default bound is for rows.
+	groups, err := q.Limit(math.MaxInt64).AllWaitingByStep(ctx, ex)
 	if err != nil {
 		return nil, fmt.Errorf("could not count the waiting work: %w", err)
 	}
-	defer rows.Close()
-	var out []contracts.WaitingRow
-	for rows.Next() {
-		values := rows.RawValues()
-		if len(values) < 6 {
-			continue
+	out := make([]contracts.WaitingRow, 0, len(groups))
+	for _, g := range groups {
+		row := contracts.WaitingRow{
+			ProcessKey:  g.Key.V,
+			ProcessName: g.Name.V,
+			Waiting:     g.Waiting,
+			Instances:   g.Instances,
 		}
-		var row contracts.WaitingRow
-		var grouped int64
-		row.ProcessKey, row.ProcessName = string(values[0]), string(values[1])
-		if err := scanInt(values[3:4], &row.Waiting); err != nil {
-			return nil, err
-		}
-		if err := scanInt(values[4:5], &row.Instances); err != nil {
-			return nil, err
-		}
-		if err := scanInt(values[5:6], &grouped); err != nil {
-			return nil, err
-		}
-		// A process total has no step; a step row names one.
-		if grouped == 0 {
-			row.NodeID = string(values[2])
+		// A process total has no step; a step row names one, or none when
+		// the token carries no node.
+		if g.Total == 0 {
+			row.NodeID = g.Node.V
 		}
 		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("could not count the waiting work: %w", err)
 	}
 	return out, nil
 }

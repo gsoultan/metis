@@ -109,6 +109,24 @@ func (i *ProcessInstance) Aggregates(a *storm.Aggregates) {
 	childrenByParent := a.Named("ChildrenByParent").AcrossDeleted()
 	childrenByParent.By(&i.ParentInstance)
 	childrenByParent.Count("Total")
+
+	// Where running work is sitting: the live tokens per process key and step,
+	// and in the rows with no step how many instances each key has. A token is
+	// live until it completes; an instance whose tokens are not an array holds
+	// none. The name is the newest version's, as the dashboard shows it. The
+	// call site says which instances are running and whose they are.
+	var d ProcessDefinition
+	waiting := a.Named("WaitingByStep").
+		Join(&d, &i.Definition).
+		Elements("t", &i.Tokens).
+		Where(a.Ne(a.Coalesce(a.Field("t", "status"), a.Lit("")), a.Lit("completed")))
+	waiting.By(&d.Key)
+	node := waiting.ByExpr("Node", a.Field("t", "node_id"))
+	waiting.Sets([]string{"Key", "Node"}, []string{"Key"})
+	waiting.FirstOf(&d.Name, "Name", a.Over().OrderByDesc(&d.Version))
+	waiting.Count("Waiting")
+	waiting.CountDistinct(&i.ID, "Instances")
+	waiting.GroupingOf("Total", node)
 }
 
 // Joins declares Organization: whose work an instance is, through its

@@ -3027,6 +3027,99 @@ var errChildrenByParentLocked = errors.New(
 var errChildrenByParentOrdered = errors.New(
 	"storm: Order() on an aggregation — its rows are groups, not table rows, and process_instances.ChildrenByParent is already ordered by its grouping columns; sort the returned slice if you need another order")
 
+// WaitingByStepRow is the "WaitingByStep" aggregation over process_instances.
+//
+// One row per group. The grouping columns come first, in declaration
+// order, and the result is ordered by them: PostgreSQL promises no
+// order for a GROUP BY, and an unordered report shuffles between
+// requests for no reason anyone can see.
+type WaitingByStepRow struct {
+	Key       runtime.Null[string]
+	Node      runtime.Null[string]
+	Name      runtime.Null[string]
+	Waiting   int64
+	Instances int64
+	Total     int32
+}
+
+const waitingByStepPrefix = `SELECT "process_definitions"."key" AS "key", "t"->>'node_id' AS "node", (array_agg("process_definitions"."name" ORDER BY "process_definitions"."version" DESC))[1] AS "name", count(*) AS "waiting", count(DISTINCT "process_instances"."id") AS "instances", GROUPING("t"->>'node_id') AS "total" FROM "process_instances" JOIN "process_definitions" ON ("process_instances"."definition_id" = "process_definitions"."id" AND "process_definitions"."deleted_at" IS NULL) CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof("process_instances"."tokens"::jsonb) = 'array' THEN "process_instances"."tokens"::jsonb ELSE '[]'::jsonb END) AS "t"`
+const waitingByStepSuffix = ` GROUP BY GROUPING SETS (("process_definitions"."key", "t"->>'node_id'), ("process_definitions"."key")) ORDER BY "key" NULLS FIRST, "node" NULLS FIRST`
+const waitingByStepWhere = `(coalesce("t"->>'status', '') <> 'completed') AND "process_instances"."deleted_at" IS NULL`
+
+var (
+	waitingByStepCache       = runtime.NewTreeCache()
+	waitingByStepOffsetCache = runtime.NewTreeCache()
+)
+
+func waitingByStepStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := waitingByStepCache, waitingByStepSuffix+limitSuffix
+	if withOffset {
+		c, suffix = waitingByStepOffsetCache, waitingByStepSuffix+limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhereFrom(waitingByStepPrefix, waitingByStepWhere, toks, joinLowering, suffix, 0))
+}
+
+func scanWaitingByStep(rv [][]byte, r *WaitingByStepRow, sl *runtime.Slab) error {
+	r.Key = runtime.NullText(rv[0], sl)
+	r.Node = runtime.NullText(rv[1], sl)
+	r.Name = runtime.NullText(rv[2], sl)
+	r.Waiting = runtime.Int8(rv[3])
+	r.Instances = runtime.Int8(rv[4])
+	r.Total = runtime.Int4(rv[5])
+	return nil
+}
+
+// AllWaitingByStep runs the "WaitingByStep" aggregation. Predicates compose exactly as on All —
+// they filter the rows that go INTO the groups, which is the WHERE clause
+// and not a HAVING. Limit and offset page the groups.
+func (q Query) AllWaitingByStep(ctx context.Context, ex runtime.Executor) ([]WaitingByStepRow, error) {
+	var sl runtime.Slab
+	return q.AllWaitingByStepInto(ctx, ex, nil, &sl)
+}
+
+// AllWaitingByStepInto lets the caller own the output slice and the arena.
+func (q Query) AllWaitingByStepInto(ctx context.Context, ex runtime.Executor, dst []WaitingByStepRow, sl *runtime.Slab) ([]WaitingByStepRow, error) {
+	if err := q.Err(); err != nil {
+		return dst, err
+	}
+	if q.no > 0 {
+		return dst, errWaitingByStepOrdered
+	}
+	if q.lock != 0 {
+		return dst, errWaitingByStepLocked
+	}
+	var buf [21]runtime.Tok
+	st := waitingByStepStmtFor(q.preds(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, WaitingByStepRow{})
+		if err := scanWaitingByStep(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+var errWaitingByStepLocked = errors.New(
+	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
+
+var errWaitingByStepOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and process_instances.WaitingByStep is already ordered by its grouping columns; sort the returned slice if you need another order")
+
 // joinFragTable is fragTable for a join: every column named with its table.
 var joinFragTable = [17][31]runtime.Frag{
 	{ // id
