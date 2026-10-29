@@ -13,9 +13,8 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/repositories"
-	"github.com/gsoultan/metis/server/repositories/gorms"
+	stormdb "github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
-	"github.com/rs/zerolog/log"
 )
 
 type environmentService struct {
@@ -211,21 +210,19 @@ func (s *environmentService) TestEnvironmentConnection(ctx context.Context, env 
 		SSLEnabled: boolOf(connection, "ssl_enabled"),
 	})
 
-	db, err := gorms.Open(env.Driver, dsn)
+	if !config.SupportedDriver(env.Driver) {
+		return entities.EnvironmentHealth{EnvironmentID: env.ID,
+			Detail: fmt.Sprintf("this runs on PostgreSQL; %q is not a database engine it supports", env.Driver)}
+	}
+	// Opening does not contact the server, so the pool is asked: that is the
+	// only way to learn the database answers. Closed after, because a
+	// connection test that leaks its own pool exhausts the server it checked.
+	pool, err := stormdb.NewPool(ctx, config.PostgresURL(dsn))
 	if err != nil {
 		return entities.EnvironmentHealth{EnvironmentID: env.ID, Detail: redaction.RedactError(err)}
 	}
-	defer func() {
-		// A connection test that leaks its own pool is a connection test that
-		// exhausts the server it was checking.
-		if sqlDB, handleErr := db.DB(); handleErr == nil {
-			if closeErr := sqlDB.Close(); closeErr != nil {
-				log.Warn().Err(closeErr).Msg("Could not close the connection opened to test an environment")
-			}
-		}
-	}()
-
-	if err := gorms.Ping(db); err != nil {
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
 		return entities.EnvironmentHealth{EnvironmentID: env.ID, Detail: redaction.RedactError(err)}
 	}
 	return entities.EnvironmentHealth{EnvironmentID: env.ID, Reachable: true}

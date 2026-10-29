@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gsoultan/metis/server/domains/entities"
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
 )
 
 // delegation reads back who holds a task, who it goes back to, and where the
@@ -288,9 +289,7 @@ func TestAnOwnerSeesWhatTheyDelegatedAndNobodyElseDoes(t *testing.T) {
 func TestADelegationWrittenBeforeTheUpgradeIsStillItsAssigneesToComplete(t *testing.T) {
 	h := newTaskHarness(t)
 	taskID := h.openTask(t, heldByAlice())
-	if err := h.db.Exec(`UPDATE tasks SET status = 'delegated' WHERE id = ?`, taskID).Error; err != nil {
-		t.Fatalf("write the delegation the old way: %v", err)
-	}
+	h.rewrite(t, taskID, func(m *taskstore.Mut) { m.SetStatus("delegated") })
 
 	if got := h.delegatedBy(t, "alice"); len(got) != 0 {
 		t.Fatalf("a delegation with no owner is listed for alice as one she made: %v", got)
@@ -312,9 +311,7 @@ func TestADelegationWrittenBeforeTheUpgradeIsStillItsAssigneesToComplete(t *test
 func TestAWithdrawnDelegationLeavesItsOwnersList(t *testing.T) {
 	h := newTaskHarness(t)
 	taskID := h.delegatedToMallory(t)
-	if err := h.db.Exec(`UPDATE tasks SET status = 'canceled' WHERE id = ?`, taskID).Error; err != nil {
-		t.Fatalf("withdraw the task as the engine does: %v", err)
-	}
+	h.withdraw(t, taskID)
 	if got := h.delegatedBy(t, "alice"); len(got) != 0 {
 		t.Fatalf("the task was withdrawn and alice is still shown %v as with her delegate", got)
 	}

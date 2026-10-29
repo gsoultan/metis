@@ -2,9 +2,12 @@ package bpmn_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/auditentry"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // entriesAhead is as many audit entries as one read of the generated store
@@ -15,11 +18,17 @@ const entriesAhead = 1000
 // on its trail — a loop that went round a thousand times — in one statement.
 func (h engineHarness) seedEarlierEntries(t *testing.T, instanceID uuid.UUID, nodeID string, n int) {
 	t.Helper()
-	if err := h.db.WithContext(h.Ctx()).Exec(`
-		INSERT INTO audit_logs (id, created_at, updated_at, project_id, instance_id, type, node_id, message)
-		SELECT gen_random_uuid(), now() - interval '1 day' + n * interval '1 second',
-		       now() - interval '1 day' + n * interval '1 second', ?, ?, ?, ?, 'The retry step was reached'
-		  FROM generate_series(1, ?) AS n`, h.projID, instanceID, entities.EventNodeReached, nodeID, n).Error; err != nil {
+	dayAgo := time.Now().Add(-24 * time.Hour)
+	entries := make([]auditentry.Row, n)
+	for i := range entries {
+		at := dayAgo.Add(time.Duration(i+1) * time.Second)
+		entries[i] = auditentry.Row{
+			ID: uuid.New(), CreatedAt: at, UpdatedAt: at, ProjectID: h.projID, InstanceID: instanceID,
+			Type: string(entities.EventNodeReached), NodeID: some(nodeID), Message: "The retry step was reached",
+			Data: runtime.JSON(`null`),
+		}
+	}
+	if _, err := auditentry.InsertAll(h.Ctx(), h.ex(), entries); err != nil {
 		t.Fatalf("seed %d audit entries: %v", n, err)
 	}
 }
@@ -28,12 +37,11 @@ func (h engineHarness) seedEarlierEntries(t *testing.T, instanceID uuid.UUID, no
 // the code under test.
 func (h engineHarness) trailLength(t *testing.T, instanceID uuid.UUID) int {
 	t.Helper()
-	var n int
-	if err := h.db.WithContext(h.Ctx()).Raw(
-		`SELECT count(*) FROM audit_logs WHERE instance_id = ? AND deleted_at IS NULL`, instanceID).Scan(&n).Error; err != nil {
+	n, err := auditentry.New().InstanceIDEq(instanceID).Count(h.Ctx(), h.ex())
+	if err != nil {
 		t.Fatalf("count the trail: %v", err)
 	}
-	return n
+	return int(n)
 }
 
 // An instance's history shows everything that happened to it, and the export
@@ -67,10 +75,18 @@ func TestAnInstancesWholeHistoryIsShownAndExported(t *testing.T) {
 	}
 	h.seedEarlierEntries(t, instanceID, "retry", entriesAhead)
 	// And where it is now, recorded the way the audit observer records it.
-	if err := h.db.WithContext(ctx).Exec(`
-		INSERT INTO audit_logs (id, created_at, updated_at, project_id, instance_id, type, node_id, message)
-		VALUES (gen_random_uuid(), now(), now(), ?, ?, ?, 'review', 'The review step was reached')`,
-		h.projID, instanceID, entities.EventNodeReached).Error; err != nil {
+	last := auditentry.Create()
+	last.SetID(uuid.New())
+	last.SetProjectID(h.projID)
+	last.SetInstanceID(instanceID)
+	last.SetType(string(entities.EventNodeReached))
+	last.SetNodeID("review")
+	last.SetMessage("The review step was reached")
+	last.SetData(runtime.JSON(`null`))
+	now := time.Now()
+	last.SetCreatedAt(now)
+	last.SetUpdatedAt(now)
+	if _, err := last.Insert(ctx, h.ex()); err != nil {
 		t.Fatalf("record the step reached last: %v", err)
 	}
 	want := h.trailLength(t, instanceID)

@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/userorganization"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // Whoever creates an organization administers it.
@@ -50,13 +52,12 @@ func TestTheCreatorOfAnOrganizationAdministersIt(t *testing.T) {
 	if members := h.members(globex); !slices.Equal(members, []string{"grace"}) {
 		t.Fatalf("Globex's members: %v, want [grace]", members)
 	}
-	var roles string
-	if err := h.db.WithContext(t.Context()).Raw(
-		`SELECT roles::text FROM user_organizations WHERE user_id = ? AND organization_id = ?`,
-		admin.ID, globex).Scan(&roles).Error; err != nil {
-		t.Fatalf("read grace's roles in Globex: %v", err)
+	membership, found, err := userorganization.New().UserIDEq(admin.ID).OrganizationIDEq(globex).
+		One(t.Context(), testutils.Executor(h.db))
+	if err != nil || !found {
+		t.Fatalf("read grace's roles in Globex: found %v, %v", found, err)
 	}
-	if roles != `["`+entities.RoleAdmin+`"]` {
+	if roles := string(membership.Roles); roles != `["`+entities.RoleAdmin+`"]` {
 		t.Fatalf("grace's roles in Globex: %s, want [%q]", roles, entities.RoleAdmin)
 	}
 

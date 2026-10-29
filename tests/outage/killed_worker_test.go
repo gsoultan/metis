@@ -7,6 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	"github.com/gsoultan/metis/server/repositories/store/servicecall"
+	"github.com/gsoultan/storm/pgstat"
+	"github.com/gsoultan/storm/runtime"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
@@ -14,7 +20,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // A worker's database connection killed in the middle of a job.
@@ -37,22 +42,32 @@ const faultTimeout = 15 * time.Second
 // heldRow is a row the test holds while the worker needs it.
 type heldRow struct {
 	// lock takes the row, in the test's transaction.
-	lock string
-	// statement is what the worker is running when it waits on the row.
+	lock func(ctx context.Context, tx runtime.Executor, instance uuid.UUID) error
+	// table is the table the worker is writing or reading when it waits on
+	// the row, and statement the words its query starts with there.
+	table     string
 	statement string
 }
 
 var (
 	// recordingTheAnswer is where callOnce records the partner's response.
 	recordingTheAnswer = heldRow{
-		lock:      `SELECT id FROM service_calls WHERE instance_id = ? FOR UPDATE`,
-		statement: `UPDATE "service_calls"`,
+		lock: func(ctx context.Context, tx runtime.Executor, instance uuid.UUID) error {
+			_, err := servicecall.New().InstanceIDEq(instance).ForUpdate().All(ctx, tx, nil)
+			return err
+		},
+		table:     "service_calls",
+		statement: "UPDATE",
 	}
 	// advancingTheProcess is the transaction that moves the token on and
 	// completes the job.
 	advancingTheProcess = heldRow{
-		lock:      `SELECT id FROM process_instances WHERE id = ? FOR UPDATE`,
-		statement: `FROM "process_instances"`,
+		lock: func(ctx context.Context, tx runtime.Executor, instance uuid.UUID) error {
+			_, err := processinstance.New().IDEq(instance).ForUpdate().All(ctx, tx, nil)
+			return err
+		},
+		table:     "process_instances",
+		statement: "SELECT",
 	}
 )
 
@@ -104,7 +119,7 @@ func TestAWorkerWhoseConnectionIsKilledMidJobFinishesTheJobOnce(t *testing.T) {
 // ---------------------------------------------------------------- the drill
 
 type killDrill struct {
-	db       *gorm.DB
+	db       *db.Conn
 	repo     repositories.Repository
 	engine   *serviceimpl.Engine
 	jobs     servicecontracts.JobService
@@ -178,11 +193,19 @@ func chargeDefinition(projectID uuid.UUID, partnerURL string) *entities.ProcessD
 // costs nothing — and why the faults below are aimed at the writes after it.
 func (d *killDrill) requireNothingHeldOpen(t *testing.T) {
 	t.Helper()
-	var named, busy int64
-	if err := d.db.Raw(`SELECT count(*), count(*) FILTER (WHERE state IS DISTINCT FROM 'idle')
-		  FROM pg_stat_activity WHERE application_name = ? AND pid <> pg_backend_pid()`, d.appName).
-		Row().Scan(&named, &busy); err != nil {
-		t.Fatalf("read pg_stat_activity: %v", err)
+	sessions, err := pgstat.Sessions(t.Context(), testutils.Executor(d.db))
+	if err != nil {
+		t.Fatalf("read the sessions: %v", err)
+	}
+	var named, busy int
+	for _, s := range sessions {
+		if s.ApplicationName != d.appName {
+			continue
+		}
+		named++
+		if s.State != "idle" {
+			busy++
+		}
 	}
 	if named == 0 {
 		t.Fatal("no connection carries this test's application_name, so nothing below can tell the worker's from any other")

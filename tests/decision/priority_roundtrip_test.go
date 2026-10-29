@@ -18,7 +18,7 @@ import (
 // else, so the adapter wrote a column definition with no priority order at all.
 func TestOutputPriorityOrderSurvivesASave(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := impl.NewDecisionService(repo, impl.NewDecisionTableEvaluator(impl.NewFEELEvaluator()))
 	// A decision belongs to a project, and a scoped read reaches it by joining
 	// through one. Seeded without, it belongs to nobody and is unreachable —

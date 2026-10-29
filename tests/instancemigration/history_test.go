@@ -37,7 +37,7 @@ type historyHarness struct {
 func newHistoryHarness(t *testing.T) *historyHarness {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
 		"migration-history-test", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)

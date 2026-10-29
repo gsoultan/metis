@@ -9,6 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/userorganization"
+	"github.com/gsoultan/storm/runtime"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/app"
 	"github.com/gsoultan/metis/internal/pkg/health"
@@ -20,7 +24,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/pg"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // orgRolesPassword is every account's password in these worlds.
@@ -31,7 +34,7 @@ const orgRolesPassword = "a-password-long-enough"
 // what decides which organization a request is for, and so which roles count.
 type orgRolesWorld struct {
 	t       *testing.T
-	db      *gorm.DB
+	db      *db.Conn
 	svc     services.ServiceFacade
 	handler http.Handler
 
@@ -57,7 +60,7 @@ func newOrgRolesWorld(t *testing.T, platformAdministrators ...string) *orgRolesW
 	t.Setenv("METIS_PLATFORM_ADMINS", strings.Join(named, ","))
 
 	db := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(db)
+	conn := db
 	repo := repositories.NewRepository(conn)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "organization-roles-test-secret",
@@ -128,11 +131,12 @@ func (w *orgRolesWorld) holdsIn(username string, organization uuid.UUID, roles .
 	if err != nil {
 		w.t.Fatalf("encode %v: %v", roles, err)
 	}
-	result := w.db.WithContext(w.t.Context()).Exec(
-		`UPDATE user_organizations SET roles = ?::jsonb WHERE user_id = ? AND organization_id = ?`,
-		string(encoded), w.ids[username], organization)
-	if result.Error != nil || result.RowsAffected != 1 {
-		w.t.Fatalf("give %s %v in %s: %v (%d rows)", username, roles, organization, result.Error, result.RowsAffected)
+	var granted userorganization.Mut
+	granted.SetRoles(runtime.JSON(encoded))
+	n, err := userorganization.New().UserIDEq(w.ids[username]).OrganizationIDEq(organization).
+		UpdateAll(w.t.Context(), testutils.Executor(w.db), granted)
+	if err != nil || n != 1 {
+		w.t.Fatalf("give %s %v in %s: %v (%d rows)", username, roles, organization, err, n)
 	}
 }
 

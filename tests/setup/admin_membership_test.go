@@ -16,11 +16,10 @@ import (
 	"github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	stormdb "github.com/gsoultan/metis/server/repositories/db"
-	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"gorm.io/gorm"
 )
 
 // TestSetupLeavesTheAdminAbleToSeeSomething is the check the wizard did not
@@ -162,29 +161,26 @@ func postgresCredentials(t *testing.T) (host string, port int, user, password st
 	return fields["host"], port, fields["user"], fields["password"]
 }
 
-func createDatabase(t *testing.T, host string, port int, user, password, database string) *gorm.DB {
+func createDatabase(t *testing.T, host string, port int, user, password, database string) *pgx.Conn {
 	t.Helper()
-	admin, err := gorms.Open("postgres", fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=postgres sslmode=disable", host, port, user, password))
+	admin, err := pgx.Connect(context.Background(), postgresURL(host, port, user, password, "postgres"))
 	if err != nil {
 		t.Fatalf("open the maintenance connection: %v", err)
 	}
-	if err := admin.Exec("CREATE DATABASE " + database).Error; err != nil {
+	if _, err := admin.Exec(context.Background(), "CREATE DATABASE "+database); err != nil {
 		t.Fatalf("create %s: %v", database, err)
 	}
 	return admin
 }
 
-func dropDatabase(t *testing.T, admin *gorm.DB, database string) {
+func dropDatabase(t *testing.T, admin *pgx.Conn, database string) {
 	t.Helper()
+	ctx := context.Background()
+	defer func() { _ = admin.Close(ctx) }()
 	// The connections setup opened are closed by then, but a pool that has not
 	// finished releasing them makes DROP DATABASE fail — and a leaked database
-	// on a shared server is somebody else's problem tomorrow.
-	_ = admin.Exec("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = ? AND pid <> pg_backend_pid()", database).Error
-	if err := admin.Exec("DROP DATABASE IF EXISTS " + database).Error; err != nil {
+	// on a shared server is somebody else's problem tomorrow. FORCE ends them.
+	if _, err := admin.Exec(ctx, "DROP DATABASE IF EXISTS "+database+" WITH (FORCE)"); err != nil {
 		t.Logf("could not drop %s: %v", database, err)
-	}
-	if sqlDB, err := admin.DB(); err == nil {
-		_ = sqlDB.Close()
 	}
 }

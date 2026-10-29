@@ -38,6 +38,18 @@ type DecisionDefinition struct {
 }
 
 func (d *DecisionDefinition) Schema(t *storm.Table) {
+	// GORM's defaults, kept. See fill.go.
+	t.Col(&d.Version).Default(zero)
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&d.Key).FillNulls(blank)
+	t.Col(&d.Name).FillNulls(blank)
+	t.Col(&d.HitPolicy).FillNulls(blank)
+	t.Col(&d.RequiredDecisions).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&d.Inputs).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&d.Outputs).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&d.Rules).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&d.Tests).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Col(&d.Key).Size(255)
 	t.Col(&d.Key).Index()
 	// Across the deleted rows, for the same reason process definitions are: a
@@ -52,7 +64,41 @@ func (d *DecisionDefinition) Schema(t *storm.Table) {
 
 // Aggregates declares HighestVersion over every row, deleted ones included:
 // the unique key covers them, so a version number once used is never
-// reissued.
+// reissued. Newest is each key's newest version and when it was last saved,
+// over the versions that are not deleted.
 func (d *DecisionDefinition) Aggregates(a *storm.Aggregates) {
 	a.Named("HighestVersion").AcrossDeleted().Max(&d.Version, "Version")
+	keys := a.Named("Newest")
+	keys.By(&d.Project, &d.Key)
+	keys.Max(&d.Version, "Newest")
+	keys.Max(&d.CreatedAt, "SavedAt")
+}
+
+// Joins declares Shown: one row per key, the version a release made live —
+// the newest release whose moment has come, when that version is not deleted
+// — or else the newest. The caller narrows the keys and the releases.
+func (d *DecisionDefinition) Joins(j *storm.Joins) {
+	var r DecisionRelease
+	var live DecisionDefinition
+	j.Named("Shown").
+		WithWhere("keys", d, "Newest").
+		WithWhere("released", &r, "Live").
+		InnerWith("keys", j.OnCols("keys", "project_id", &d.Project).And("keys", "key", &d.Key)).
+		LeftWith("released", j.OnCols("released", "project_id", &d.Project).And("released", "decision_key", &d.Key)).
+		LeftAs("live", &live, j.OnCols("decision_definitions", "project_id", &live.Project).
+			And("decision_definitions", "key", &live.Key).And("released", "version", &live.Version)).
+		Where(j.Eq(&d.Version, j.Coalesce(&live.Version, j.ColOf("keys", "newest")))).
+		Take(&d.ID, "ID").
+		Take(&d.Project, "ProjectID").
+		Take(&d.Key, "Key").
+		Take(&d.Name, "Name").
+		Take(&d.Version, "Version").
+		Take(&d.RequiredDecisions, "RequiredDecisions").
+		Take(&d.HitPolicy, "HitPolicy").
+		Take(&live.Version, "LiveVersion").
+		TakeFrom("keys", "newest", "Newest").
+		TakeFrom("keys", "saved_at", "SavedAt").
+		TakeFrom("released", "activate_at", "ActivatedAt").
+		OrderAsc(&d.Key).
+		OrderAsc(&d.Project)
 }

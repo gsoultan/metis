@@ -13,6 +13,8 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
+	"github.com/gsoultan/metis/server/repositories/store/processdefinition"
 )
 
 func (h *deviationHarness) sampleRequest(instanceID uuid.UUID, fingerprint string) entities.DeviationRequest {
@@ -47,13 +49,13 @@ func (h *deviationHarness) sampleMigration(t *testing.T, fingerprint string) ent
 func (h *deviationHarness) twoVersions(t *testing.T) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 	for {
-		var ids []string
-		if err := h.db.Raw(`SELECT id::text FROM process_definitions WHERE project_id = ? AND deleted_at IS NULL
-			ORDER BY created_at, id LIMIT 2`, h.projID).Scan(&ids).Error; err != nil {
+		ids, err := processdefinition.New().ProjectIDEq(h.projID).
+			Order(processdefinition.CreatedAt.Asc(), processdefinition.ID.Asc()).Limit(2).All(t.Context(), h.ex(), nil)
+		if err != nil {
 			t.Fatalf("read the project's versions: %v", err)
 		}
 		if len(ids) == 2 {
-			return uuid.MustParse(ids[0]), uuid.MustParse(ids[1])
+			return ids[0].ID, ids[1].ID
 		}
 		h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
 	}
@@ -161,22 +163,21 @@ type storedRequest struct {
 
 func (h *deviationHarness) storedRequest(t *testing.T, id uuid.UUID) storedRequest {
 	t.Helper()
-	var row storedRequest
-	if err := h.db.Raw(`SELECT status, command::text, plan::text, approved_instances::text, outcome::text, live_key
-		FROM deviation_requests WHERE id = ?`, id).Row().
-		Scan(&row.status, &row.command, &row.plan, &row.approvedInstances, &row.outcome, &row.liveKey); err != nil {
-		t.Fatalf("read the stored request: %v", err)
+	stored := h.requestRow(t, id)
+	return storedRequest{
+		status: stored.Status, command: text(stored.Command), plan: text(stored.Plan),
+		approvedInstances: text(stored.ApprovedInstances), outcome: text(stored.Outcome),
+		liveKey: sql.NullString{String: stored.LiveKey.V, Valid: stored.LiveKey.Valid},
 	}
-	return row
 }
 
 func (h *deviationHarness) requestCountIn(t *testing.T, projectID uuid.UUID) int {
 	t.Helper()
-	var n int
-	if err := h.db.Raw(`SELECT count(*) FROM deviation_requests WHERE project_id = ?`, projectID).Row().Scan(&n); err != nil {
+	n, err := deviationrequest.New().ProjectIDEq(projectID).Count(t.Context(), h.ex())
+	if err != nil {
 		t.Fatalf("count the requests: %v", err)
 	}
-	return n
+	return int(n)
 }
 
 // inAnotherProject is a second project of the harness's own organization.
@@ -296,11 +297,7 @@ func TestARequestIsWrittenInATransactionSealedScopedAndDecidedOnce(t *testing.T)
 // definitionOf is the version an instance runs on.
 func (h *deviationHarness) definitionOf(t *testing.T, instanceID uuid.UUID) uuid.UUID {
 	t.Helper()
-	var id string
-	if err := h.db.Raw(`SELECT definition_id::text FROM process_instances WHERE id = ?`, instanceID).Row().Scan(&id); err != nil {
-		t.Fatalf("read the instance's version: %v", err)
-	}
-	return uuid.MustParse(id)
+	return h.instanceRow(t, instanceID).DefinitionID
 }
 
 // sameRequest compares two requests field by field, instants as instants.

@@ -21,7 +21,7 @@ import (
 // back, and the inbox was still told the task was completed.
 func TestAHintIsSentOnlyForWorkThatCommitted(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := observersimpl.NewEventDispatcher()
 	sse := observersimpl.NewSSEObserver()
 	// Wired as internal/app wires it.

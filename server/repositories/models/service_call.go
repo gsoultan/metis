@@ -26,33 +26,33 @@ type ServiceCallModel struct {
 	//
 	// 191 rather than 255 because these make up a unique index and MySQL bounds
 	// an index key by bytes, not characters.
-	InstanceID  UUID   `gorm:"index;uniqueIndex:ux_service_calls_visit,priority:1" json:"instance_id,omitzero"`
-	NodeID      string `gorm:"size:191;uniqueIndex:ux_service_calls_visit,priority:2" json:"node_id"`
-	IterationID string `gorm:"size:191;uniqueIndex:ux_service_calls_visit,priority:3" json:"iteration_id,omitzero"`
+	InstanceID  UUID   `json:"instance_id,omitzero"`
+	NodeID      string `json:"node_id"`
+	IterationID string `json:"iteration_id,omitzero"`
 	// JobID is the visit. Null on a row written before it was part of the
 	// identity (migration 23).
-	JobID *UUID `gorm:"uniqueIndex:ux_service_calls_visit,priority:4" json:"job_id,omitzero"`
+	JobID *UUID `json:"job_id,omitzero"`
 
 	// ProjectID carries the tenant, so this table scopes like every other.
-	ProjectID UUID `gorm:"index" json:"project_id,omitzero"`
+	ProjectID UUID `json:"project_id,omitzero"`
 
 	// IdempotencyKey is what the downstream sees, and it does not change
 	// between attempts — that is the whole point. It is derived from the three
 	// identity columns rather than generated, so it survives a restart that
 	// loses whatever was in memory.
-	IdempotencyKey string `gorm:"size:128;index" json:"idempotency_key"`
+	IdempotencyKey string `json:"idempotency_key"`
 
 	// Status is ServiceCallInFlight or ServiceCallCompleted.
-	Status string `gorm:"size:32" json:"status"`
+	Status string `json:"status"`
 
 	// Attempts counts how many times the call has been started. A number above
 	// one means a previous attempt did not finish, which is the interesting
 	// case for anyone reading this table during an incident.
-	Attempts int `gorm:"not null;default:0" json:"attempts"`
+	Attempts int `json:"attempts"`
 
 	// Response is what the call returned, kept so a retry after a failed commit
 	// can finish the work without repeating the call.
-	Response map[string]any `gorm:"type:text;serializer:json" json:"response,omitzero"`
+	Response map[string]any `json:"response,omitzero"`
 
 	CompletedAt *time.Time `json:"completed_at,omitzero"`
 }

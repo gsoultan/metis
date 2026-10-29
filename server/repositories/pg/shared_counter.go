@@ -82,18 +82,16 @@ func (r *sharedCounterRepository) Totals(ctx context.Context, scope string, keys
 	return totals, nil
 }
 
-// Prune drops windows that have passed.
-//
-// Raw SQL because storm deletes by primary key and this is a sweep: naming
-// every row first would be a read of exactly the rows about to be deleted.
+// Prune drops windows that have passed, a batch at a time.
 func (r *sharedCounterRepository) Prune(ctx context.Context, before time.Time) (int64, error) {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return 0, err
 	}
-	removed, err := db.DeleteInBatches(ctx, ex,
-		`DELETE FROM shared_counters WHERE ctid = ANY(ARRAY(
-		     SELECT ctid FROM shared_counters WHERE window_start < $1 LIMIT $2))`, before.UTC())
+	passed := sharedcounter.New().Where(sharedcounter.WindowStart.Lt(before.UTC()))
+	removed, err := db.PruneInBatches(ctx, func(limit int64) (int64, error) {
+		return passed.Limit(limit).DeleteBatch(ctx, ex)
+	})
 	if err != nil {
 		return removed, fmt.Errorf("could not prune shared counters: %w", err)
 	}

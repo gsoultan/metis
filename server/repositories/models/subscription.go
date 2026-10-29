@@ -9,12 +9,12 @@ const (
 
 type Subscription struct {
 	Base
-	ProjectID      UUID             `gorm:"index" json:"project_id,omitzero"`
-	InstanceID     UUID             `gorm:"index" json:"instance_id,omitzero"`
+	ProjectID      UUID             `json:"project_id,omitzero"`
+	InstanceID     UUID             `json:"instance_id,omitzero"`
 	NodeID         string           `json:"node_id"`
-	Type           SubscriptionType `gorm:"index" json:"type"`
-	EventName      string           `gorm:"size:255;index" json:"event_name"`
-	CorrelationKey string           `gorm:"size:512;index" json:"correlation_key,omitzero"`
+	Type           SubscriptionType `json:"type"`
+	EventName      string           `json:"event_name"`
+	CorrelationKey string           `json:"correlation_key,omitzero"`
 }
 
 func (Subscription) TableName() string {

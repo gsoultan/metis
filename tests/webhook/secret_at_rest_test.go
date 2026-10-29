@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/gsoultan/metis/internal/pkg/crypto"
+	"github.com/gsoultan/metis/server/repositories/store/webhook"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // The secret is what authenticates a delivery, so the column must not hold it:
@@ -14,11 +16,11 @@ func TestAWebhookSecretIsSealedAtRest(t *testing.T) {
 	h := newWebhookHarness(t)
 	hook := h.register(t, "order.paid", "")
 
-	var stored string
-	if err := h.db.WithContext(t.Context()).Raw(
-		`SELECT secret FROM webhooks WHERE id = ?`, hook.ID).Row().Scan(&stored); err != nil {
+	row, _, err := webhook.New().IDEq(hook.ID).One(t.Context(), testutils.Executor(h.db))
+	if err != nil {
 		t.Fatalf("read the stored secret: %v", err)
 	}
+	stored := row.Secret
 	if !crypto.IsCiphertext(stored) || strings.Contains(stored, hook.Secret) {
 		t.Fatalf("the webhook's secret is stored in the clear: %q", stored)
 	}
@@ -33,8 +35,9 @@ func TestAWebhookSecretIsSealedAtRest(t *testing.T) {
 func TestAWebhookSecretWrittenInTheClearStillVerifies(t *testing.T) {
 	h := newWebhookHarness(t)
 	hook := h.register(t, "order.paid", "")
-	if err := h.db.WithContext(t.Context()).Exec(
-		`UPDATE webhooks SET secret = ? WHERE id = ?`, hook.Secret, hook.ID).Error; err != nil {
+	clear := webhook.MutateKey(hook.ID)
+	clear.SetSecret(hook.Secret)
+	if err := clear.Update(t.Context(), testutils.Executor(h.db)); err != nil {
 		t.Fatalf("store the secret as an older release did: %v", err)
 	}
 

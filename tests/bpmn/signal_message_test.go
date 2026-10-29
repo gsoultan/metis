@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/gsoultan/metis/server/repositories/db"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	handlersimpl "github.com/gsoultan/metis/server/domains/handlers/impl"
@@ -14,7 +16,6 @@ import (
 	service_impl2 "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // engineHarness wires the engine the same way bpmn_events_test.go does,
@@ -27,9 +28,9 @@ type engineHarness struct {
 	repo   repositories.Repository
 	jobSvc servicecontracts.JobService
 	projID uuid.UUID
-	// db is the schema's GORM handle, for a check that has to count in the
+	// db is the schema's connection, for a check that has to count in the
 	// database rather than through the code under test.
-	db *gorm.DB
+	db *db.Conn
 	// The tenant this harness acts inside. Tests take it with h.Ctx(t)
 	// rather than t.Context(), because a bare context carries no identity and
 	// every request in production carries one.
@@ -48,7 +49,7 @@ func newEngineHarness(t *testing.T, projectName string) engineHarness {
 	ctx := t.Context()
 	db := testutils.SetupTestDB(t)
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := impl.NewEventDispatcher()
 
 	orgSvc := service_impl2.NewOrganizationService(repo, nil)

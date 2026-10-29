@@ -18,7 +18,7 @@ import "time"
 type SharedCounterModel struct {
 	// Scope separates counters that share a key space — an HTTP client address
 	// and a connector target could otherwise collide.
-	Scope string `gorm:"size:64;not null;primaryKey"`
+	Scope string
 
 	// Key is what is being counted: a client address, a connector target.
 	//
@@ -27,23 +27,23 @@ type SharedCounterModel struct {
 	// same trap the idempotency store hit, which is why its column is
 	// record_key. Sized rather than unbounded text because it is part of the
 	// primary key, and MySQL cannot index an unbounded column.
-	Key string `gorm:"column:counter_key;size:255;not null;primaryKey"`
+	Key string
 
 	// Replica is which process contributed this count. Part of the key so that
 	// two replicas never write the same row.
-	Replica string `gorm:"size:64;not null;primaryKey"`
+	Replica string
 
 	// WindowStart is the start of the window this count belongs to, truncated
 	// to the window length. Part of the key so an expiring window is a
 	// different row rather than an update racing a reset.
-	WindowStart time.Time `gorm:"not null;primaryKey"`
+	WindowStart time.Time
 
 	// Count is this replica's own total for the window. Written absolutely
 	// rather than incrementally: the replica owns the row, so it knows the
 	// value, and an absolute write cannot lose an increment to a lost update.
-	Count int64 `gorm:"not null"`
+	Count int64
 
-	UpdatedAt time.Time `gorm:"not null;index:ix_shared_counters_updated_at"`
+	UpdatedAt time.Time
 }
 
 func (SharedCounterModel) TableName() string {

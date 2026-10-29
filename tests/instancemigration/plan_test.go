@@ -11,6 +11,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/gsoultan/metis/server/repositories/db"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	observercontracts "github.com/gsoultan/metis/server/domains/observers/contracts"
@@ -18,7 +20,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 type fixture struct {
@@ -30,7 +31,7 @@ type fixture struct {
 	// and that is the level a migration test can assert at.
 	dispatcher observercontracts.EventDispatcher
 	// db is the schema's GORM handle, for seeding rows in bulk.
-	db *gorm.DB
+	db *db.Conn
 	// listing is the hook on the listing of instances, in a fixture that has
 	// one: the helpers that ask for an approval take it off while they ask.
 	listing *hookedProcess
@@ -41,7 +42,7 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := observersimpl.NewEventDispatcher()
 	svc := services.NewServiceFacade(repo, dispatcher, observersimpl.NewSSEObserver(),
 		"migration-test", nil, nil, nil)

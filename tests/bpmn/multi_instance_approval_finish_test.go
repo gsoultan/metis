@@ -17,9 +17,7 @@ import (
 // migration 31 wrote them: no iteration recorded.
 func forgetIterations(t *testing.T, h engineHarness, instanceID uuid.UUID) {
 	t.Helper()
-	if err := h.db.Exec(`UPDATE tasks SET iteration_id = NULL WHERE instance_id = ?`, instanceID).Error; err != nil {
-		t.Fatalf("forget the iterations: %v", err)
-	}
+	h.forgetIterations(t, instanceID)
 }
 
 // finishRecording completes the step after the approval and expects the

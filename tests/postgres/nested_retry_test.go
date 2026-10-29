@@ -11,9 +11,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/processdefinition"
 	"github.com/gsoultan/metis/tests/testutils"
 	"github.com/gsoultan/storm/runtime"
-	"gorm.io/gorm"
 )
 
 // A failed statement poisons its PostgreSQL transaction: every later statement
@@ -27,10 +27,10 @@ import (
 // one transaction — recover from losing a version race.
 func TestAttemptLeavesAnEnclosingTransactionUsable(t *testing.T) {
 	db := testutils.SetupPostgresDB(t, 4)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	uow := repo.UnitOfWork()
 
-	project := models.UUID(uuid.New())
+	project := models.UUID(testutils.SeedProject(t, db))
 	seeded := models.UUID(uuid.New())
 
 	// System work: this test is about UnitOfWork's savepoint semantics, not
@@ -48,12 +48,9 @@ func TestAttemptLeavesAnEnclosingTransactionUsable(t *testing.T) {
 		if clash == nil {
 			return errors.New("a duplicate version was accepted inside the transaction")
 		}
-		// Either layer's way of saying the number is taken: GORM translates the
-		// constraint into ErrDuplicatedKey, storm classifies it as
-		// ErrUniqueViolation. Definitions moved to storm; the property under
-		// test is that the clash is recognisable and recoverable, not which
-		// package named it.
-		if !errors.Is(clash, gorm.ErrDuplicatedKey) && !errors.Is(clash, runtime.ErrUniqueViolation) {
+		// The property under test is that the clash is recognisable and
+		// recoverable: storm classifies it as ErrUniqueViolation.
+		if !errors.Is(clash, runtime.ErrUniqueViolation) {
 			return errors.New("the duplicate did not surface as a unique violation: " + clash.Error())
 		}
 
@@ -68,12 +65,14 @@ func TestAttemptLeavesAnEnclosingTransactionUsable(t *testing.T) {
 		t.Fatalf("the transaction did not survive a failed attempt: %v", err)
 	}
 
-	var versions []int
-	if err := db.Model(&models.ProcessDefinitionModel{}).
-		Where("project_id = ?", project).
-		Order("version").
-		Pluck("version", &versions).Error; err != nil {
+	rows, err := processdefinition.New().ProjectIDEq(project.ToUUID()).Order(processdefinition.Version.Asc()).
+		All(t.Context(), testutils.Executor(db), nil)
+	if err != nil {
 		t.Fatalf("read versions: %v", err)
+	}
+	var versions []int
+	for _, r := range rows {
+		versions = append(versions, int(r.Version))
 	}
 	if len(versions) != 2 || versions[0] != 1 || versions[1] != 2 {
 		t.Errorf("versions = %v, want [1 2] — the failed attempt must leave nothing behind", versions)

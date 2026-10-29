@@ -90,5 +90,8 @@ func All() []any {
 		&IdempotencyRecord{},
 		&SharedCounter{},
 		&BroadcastEvent{},
+
+		// Which migrations this database has had.
+		&SchemaMigration{},
 	}
 }

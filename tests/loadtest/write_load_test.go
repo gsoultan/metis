@@ -15,6 +15,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/task"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -261,14 +262,13 @@ func (w *writeLoad) openApprovals(t *testing.T, started []startedInstance) []app
 // at the store's thousand-row limit, and the paged one orders by creation time
 // alone, which the two tasks a split creates in one transaction share: a page
 // boundary between them repeats one and drops the other.
-func (w *writeLoad) tasksByInstance(t *testing.T) map[uuid.UUID][]taskRow {
+func (w *writeLoad) tasksByInstance(t *testing.T) map[uuid.UUID][]task.Row {
 	t.Helper()
-	var rows []taskRow
-	if err := w.db.Raw(`SELECT id, instance_id, node_id, status FROM tasks
-		 WHERE project_id = ? AND deleted_at IS NULL`, w.projID).Scan(&rows).Error; err != nil {
+	rows, err := task.New().ProjectIDEq(w.projID).Limit(everything).All(t.Context(), testutils.Executor(w.db), nil)
+	if err != nil {
 		t.Fatalf("read the tasks: %v", err)
 	}
-	byInstance := make(map[uuid.UUID][]taskRow, len(rows)/2)
+	byInstance := make(map[uuid.UUID][]task.Row, len(rows)/2)
 	for _, row := range rows {
 		byInstance[row.InstanceID] = append(byInstance[row.InstanceID], row)
 	}

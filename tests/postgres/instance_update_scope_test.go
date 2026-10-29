@@ -19,18 +19,12 @@ import (
 // answer.
 func TestAnInstanceUpdateStaysInsideTheCallersScope(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ours, _, project := testutils.ScopedProject(t, repo)
 	theirs, _, _ := testutils.ScopedProject(t, repo)
 	system := entities.WithSystemContext(t.Context())
 
-	definition := uuid.Must(uuid.NewV7())
-	if err := db.Create(&models.ProcessDefinitionModel{
-		Base: models.Base{ID: models.FromUUID(definition)}, ProjectID: models.FromUUID(project),
-		Key: "k", Name: "k", Version: 1,
-	}).Error; err != nil {
-		t.Fatalf("seed the definition: %v", err)
-	}
+	definition := testutils.SeedDefinition(t, db, project, "k")
 	instance := models.ProcessInstanceModel{
 		Base: models.Base{ID: models.FromUUID(uuid.Must(uuid.NewV7()))}, ProjectID: models.FromUUID(project),
 		DefinitionID: models.FromUUID(definition), Status: models.ProcessActive,

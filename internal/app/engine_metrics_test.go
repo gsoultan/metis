@@ -14,8 +14,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/services"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
-	"gorm.io/gorm"
+	"github.com/gsoultan/metis/server/repositories/store/incident"
+	"github.com/gsoultan/metis/server/repositories/store/job"
+	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // The engine's backlog gauges read the main database only. A job worker that
@@ -41,7 +45,7 @@ func TestTheMetricsEndpointReportsEachEnvironmentsBacklog(t *testing.T) {
 		_, serving := h.app.environments.serving(uuid.UUID(staging.ID))
 		return serving
 	})
-	stalled(t, behindTheServer(t, stagingDB))
+	stalled(t, behindTheServer(t, stagingDB), h.project)
 
 	var scrape map[string][]series
 	within(t, startLimit, "no scrape counted the job due in staging", func() bool {
@@ -93,22 +97,36 @@ type withoutWorkers struct{ services.ServiceFacade }
 func (withoutWorkers) StartWorkers(context.Context) {}
 
 // stalled leaves in a database what a worker that stopped claiming leaves: a
-// job an hour overdue, and an incident nobody has resolved.
-func stalled(t *testing.T, database *gorm.DB) {
+// job an hour overdue, and an incident nobody has resolved. Both belong to an
+// instance of project, which the database has to hold.
+func stalled(t *testing.T, database *db.Conn, project uuid.UUID) {
 	t.Helper()
-	job := models.JobModel{
-		InstanceID: models.UUID(uuid.New()), DefinitionID: models.UUID(uuid.New()),
-		NodeID: "remind", Type: models.JobTimer, Status: models.JobPending,
-		Payload: map[string]any{}, NextRunAt: time.Now().Add(-time.Hour),
-	}
-	if err := database.Create(&job).Error; err != nil {
+	ex := testutils.Executor(database)
+	definition := testutils.SeedDefinition(t, database, project, "remind")
+	instance := testutils.SeedInstance(t, database, project, definition, models.ProcessActive)
+	due := job.Create()
+	due.SetInstanceID(instance)
+	due.SetDefinitionID(definition)
+	due.SetNodeID("remind")
+	due.SetType(string(models.JobTimer))
+	due.SetStatus(string(models.JobPending))
+	due.SetPayload(runtime.JSON("{}"))
+	due.SetRetries(0)
+	due.SetMaxRetries(3)
+	due.SetRepeatsRemaining(0)
+	due.SetNextRunAt(time.Now().Add(-time.Hour))
+	left, err := due.Insert(t.Context(), ex)
+	if err != nil {
 		t.Fatalf("leave a due job: %v", err)
 	}
-	incident := models.IncidentModel{
-		JobID: job.ID, InstanceID: job.InstanceID, DefinitionID: job.DefinitionID,
-		NodeID: "remind", Error: "the partner did not answer", Status: models.IncidentOpen,
-	}
-	if err := database.Create(&incident).Error; err != nil {
+	open := incident.Create()
+	open.SetJobID(left.ID)
+	open.SetInstanceID(instance)
+	open.SetDefinitionID(definition)
+	open.SetNodeID("remind")
+	open.SetError("the partner did not answer")
+	open.SetStatus(string(models.IncidentOpen))
+	if _, err := open.Insert(t.Context(), ex); err != nil {
 		t.Fatalf("leave an open incident: %v", err)
 	}
 }

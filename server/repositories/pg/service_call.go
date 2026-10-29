@@ -64,6 +64,9 @@ func (r *serviceCallRepository) Begin(ctx context.Context, call models.ServiceCa
 	ins.SetIdempotencyKey(call.IdempotencyKey)
 	ins.SetStatus(models.ServiceCallInFlight)
 	ins.SetAttempts(1)
+	// No answer yet: JSON null, which is what the column holds for a call
+	// that has none. Assigned, not left out — the column is NOT NULL.
+	ins.SetResponse(nil)
 	row, err := ins.Insert(ctx, ex)
 	if err == nil {
 		return serviceCallFrom(row)

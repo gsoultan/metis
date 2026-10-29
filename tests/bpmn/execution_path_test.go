@@ -17,7 +17,7 @@ import (
 // so every path was reported end to start.
 func TestTheExecutionPathRunsFromStartToWhereTheInstanceIs(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := observersimpl.NewEventDispatcher()
 	// The path is read from the trail, so the trail is written as the server
 	// writes it.

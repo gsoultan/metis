@@ -6,7 +6,12 @@ import (
 	"strings"
 	"testing"
 
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
+
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // TestATaskWrittenWithoutAPriorityIsStillReadable is the regression for the
@@ -32,15 +37,26 @@ import (
 func TestATaskWrittenWithoutAPriorityIsStillReadable(t *testing.T) {
 	h := newTaskHarness(t)
 
-	// Columns named explicitly rather than through the model, because the
-	// model now carries the default that makes this safe — and the point is to
-	// write the row the way something that does not know about the model would.
-	id := uuid.New()
-	if err := h.db.Exec(`
-		INSERT INTO tasks (id, created_at, updated_at, project_id, instance_id,
-		                   node_id, name, type, status, assignee, variables)
-		VALUES (?, now(), now(), ?, ?, 'approve', 'Approve', 'userTask', 'unclaimed', 'alice', '')`,
-		id, h.projID, uuid.New()).Error; err != nil {
+	// Through the store, which writes only the columns it is given: priority
+	// is left out, the way a bulk import, a data migration or a column added to
+	// a table that already had rows leaves it.
+	ex := testutils.Executor(h.db)
+	definition := testutils.SeedDefinition(t, h.db, h.projID, "approve")
+	instance := testutils.SeedInstance(t, h.db, h.projID, definition, models.ProcessActive)
+	id := uuid.Must(uuid.NewV7())
+	ins := taskstore.Create()
+	ins.SetID(id)
+	ins.SetProjectID(h.projID)
+	ins.SetInstanceID(instance)
+	ins.SetNodeID("approve")
+	ins.SetName("Approve")
+	ins.SetType("userTask")
+	ins.SetStatus("unclaimed")
+	ins.SetAssignee("alice")
+	ins.SetCandidateUsers(runtime.JSON("[]"))
+	ins.SetCandidateGroups(runtime.JSON("[]"))
+	ins.SetVariables("")
+	if _, err := ins.Insert(t.Context(), ex); err != nil {
 		t.Fatalf("write a task without a priority: %v", err)
 	}
 
@@ -76,12 +92,14 @@ func TestATaskWrittenWithoutAPriorityIsStillReadable(t *testing.T) {
 func TestThePriorityColumnRefusesNull(t *testing.T) {
 	h := newTaskHarness(t)
 
-	err := h.db.Exec(`
-		INSERT INTO tasks (id, created_at, updated_at, project_id, instance_id,
-		                   node_id, name, type, status, priority, variables)
-		VALUES (?, now(), now(), ?, ?, 'approve', 'Approve', 'userTask', 'unclaimed', NULL, '')`,
-		uuid.New(), h.projID, uuid.New()).Error
-	if err == nil {
-		t.Fatal("the database accepted a NULL priority; the scanner cannot read one back")
+	priority := testutils.Held(t, h.db).Table("tasks").Column("priority")
+	if priority == nil {
+		t.Fatal("tasks has no priority column")
+	}
+	if !priority.NotNull {
+		t.Error("tasks.priority accepts NULL; the scanner cannot read one back")
+	}
+	if priority.Default == "" {
+		t.Error("tasks.priority has no default; a row written without one is refused")
 	}
 }

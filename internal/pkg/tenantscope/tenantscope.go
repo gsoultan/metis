@@ -59,7 +59,6 @@ var reportedSites sync.Map
 // prefix would also match every test in this package, so the walk would skip
 // past the caller it is supposed to name and report the test runner.
 var packagePrefixes = []string{
-	"/server/repositories/gorms.",
 	"/server/repositories/pg.",
 }
 

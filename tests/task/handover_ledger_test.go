@@ -20,7 +20,7 @@ import (
 // ledgerOf is the instance's deviation ledger, oldest first.
 func (h *taskHarness) ledgerOf(t *testing.T, instanceID uuid.UUID) []entities.Deviation {
 	t.Helper()
-	rows, err := repositories.NewRepository(testutils.StormConn(h.db)).Deviation().ListByInstance(h.tenantContext(), instanceID)
+	rows, err := repositories.NewRepository(h.db).Deviation().ListByInstance(h.tenantContext(), instanceID)
 	if err != nil {
 		t.Fatalf("read the ledger: %v", err)
 	}
@@ -221,7 +221,7 @@ func (unledgeredRepository) Deviation() repocontracts.DeviationRepository {
 // override nobody can find later is the thing the ledger exists to prevent.
 func TestAHandOverThatCannotBeLedgeredIsNotMade(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	engine := serviceimpl.NewExecutionEngine(repo, observerimpl.NewEventDispatcher())
 	svc := serviceimpl.NewTaskService(unledgeredRepository{repo}, engine, serviceimpl.NewAuditWriter(repo.Audit()))
 	ctx, _, projectID := testutils.ScopedProject(t, repo)

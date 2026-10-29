@@ -15,62 +15,35 @@ import (
 	"github.com/gsoultan/metis/server/repositories/pg"
 	"github.com/gsoultan/storm"
 	"github.com/gsoultan/storm/schema"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 )
 
-// openStorm connects the storm repositories to the same database GORM is using.
+// openStorm connects the repositories to the installation's database.
 //
-// Both layers run side by side while the port happens: a repository that has
-// moved reads through storm, the rest still read through GORM, and they are
-// looking at one database either way. Deciding which is used happens once, at
-// the composition root, so a repository can move without the service that calls
-// it changing.
-//
-// Storm is PostgreSQL-only, so on any other engine there is simply no storm
-// connection and the features built on it are unavailable — reported plainly at
-// boot rather than as a failure at the first request. That is the honest state
-// of a port in progress; it is not a silent fallback, because a fallback would
-// mean two layers disagreeing about where the data is.
+// Opened before the migrations run, because they run through it.
 func (a *App) openStorm(ctx context.Context) error {
-	_, dsn, err := a.resolveDSN()
+	dsn, err := a.resolveDSN()
 	if err != nil {
 		return err
 	}
-	if dsn == "" {
-		// Unreachable from Run, which refuses to start without a database
-		// (resolveDialector); kept so an App built without one has no storm
-		// connection rather than a failed one.
-		log.Info().Msg("No database configured; no storm connection.")
-		return nil
-	}
-
 	conn, err := db.Open(ctx, dsn)
 	if err != nil {
-		return fmt.Errorf("could not open the storm connection: %w", err)
+		return fmt.Errorf("could not open the database: %w", err)
 	}
 	a.storm = conn
-	log.Info().Msg("Storm connection open")
+	log.Info().Msg("Database connection open")
 	return nil
 }
 
-// ensureStormSchema creates the tables only storm knows about, and seeds the
-// platform roles.
+// ensureStormSchema reports how the tables differ from the model, and seeds
+// the platform roles.
 //
-// Runs after the GORM migrations, not with the connection that reaches them: it
-// reconciles column defaults on tables those migrations create, and creating
-// them first would be reconciling a schema that is one version behind.
-//
-// Both are idempotent and both run at every boot, for the same reason: an
-// installation upgraded into these features has neither, and an upgrade that
-// needs somebody to remember a manual step is an upgrade that half the
-// installations will not have had.
+// Both run at every boot: an installation upgraded into the roles has none,
+// and an upgrade that needs somebody to remember a manual step is an upgrade
+// that half the installations will not have had.
 func (a *App) ensureStormSchema(ctx context.Context) error {
 	want, err := stormModel()
 	if err != nil {
-		return err
-	}
-	if err := ensureStormTables(ctx, a.storm.Main(), want); err != nil {
 		return err
 	}
 
@@ -85,26 +58,34 @@ func (a *App) ensureStormSchema(ctx context.Context) error {
 	// Reported as one line plus the statements that would break a query, not
 	// one warning per difference.
 	//
-	// GORM's AutoMigrate and the storm model disagree about roughly sixty
-	// columns on a fresh installation — text where the model says varchar,
-	// nullable where it says NOT NULL, its own index names. None of it breaks a
-	// read or a write, and sixty warnings at every boot is how somebody learns
-	// to scroll past the one that would.
-	if len(drift) > 0 {
-		var breaking []string
-		for _, statement := range drift {
-			if strings.Contains(statement, "ADD COLUMN") || strings.Contains(statement, "DROP COLUMN") {
-				breaking = append(breaking, statement)
-			}
-			log.Debug().Str("statement", statement).Msg("Schema drift")
+	// The migrations leave every database in the model's shape, so there is
+	// none unless somebody changed a table by hand. What would break a read or
+	// a write is a column the one has and the other does not; the rest is said
+	// at debug, because a warning per difference at every boot is how
+	// somebody learns to scroll past the one that matters.
+	var breaking []string
+	for _, statement := range drift {
+		if strings.Contains(statement, "ADD COLUMN") || strings.Contains(statement, "DROP COLUMN") {
+			breaking = append(breaking, statement)
 		}
-		if len(breaking) > 0 {
-			log.Warn().Strs("statements", breaking).Int("total", len(drift)).
-				Msg("A storm table is missing a column the model names. Queries against it will fail; reconcile it with a migration.")
-		} else {
-			log.Info().Int("differences", len(drift)).
-				Msg("The schema differs from the model in ways that do not affect a query (types, nullability, index names). Run with debug logging to list them.")
-		}
+		log.Debug().Str("statement", statement).Msg("Schema drift")
+	}
+	a.schemaDrift.Store(int64(len(breaking)))
+	switch {
+	case len(breaking) > 0:
+		log.Warn().Strs("statements", breaking).Int("total", len(drift)).
+			Msg("A table is missing a column the model names. Queries against it will fail; reconcile it with a migration.")
+	case len(drift) > 0:
+		log.Info().Int("differences", len(drift)).
+			Msg("The schema differs from the model in ways that do not affect a query (types, nullability, index names). Run with debug logging to list them.")
+	}
+	// Refusing is opt-in. The default stays a warning because an operator
+	// restarting a service at 3am should not be blocked by a column the running
+	// code may never read — but an installation that would rather fail loudly at
+	// deploy time than serve a broken feature can say so.
+	if len(breaking) > 0 && refuseSchemaDrift() {
+		return fmt.Errorf("refusing to start: %d columns the model names are missing and %s is set",
+			len(breaking), envRefuseSchemaDrift)
 	}
 
 	accounts := pg.NewPlatformUserRepository(a.storm)
@@ -127,66 +108,72 @@ func stormModel() (*schema.Schema, error) {
 	return want, nil
 }
 
-// ensureStormTables gives one database what storm writes against: the tables
-// only storm knows about, and the column defaults it leaves to the database.
+// resolveDSN answers which database this installation uses: the one its
+// config.yaml names, or else DATABASE_URL.
 //
-// Every database the repositories reach needs it, the main one and each
-// environment's. An environment's used to have only the GORM migrations, so
-// the first job a process there scheduled failed on insert with a NULL where
-// storm expected the database to fill one in.
-func ensureStormTables(ctx context.Context, pool *pgxpool.Pool, want *schema.Schema) error {
-	created, err := db.EnsureTables(ctx, pool, want)
-	if err != nil {
-		return fmt.Errorf("could not create the storm tables: %w", err)
-	}
-	if len(created) > 0 {
-		log.Info().Strs("tables", created).Msg("Created tables for the storm repositories")
-	}
-
-	// The tables GORM made have no database defaults on the columns storm
-	// expects the database to supply. Reconciled here rather than left to drift,
-	// because the symptom is a decode panic on a NULL timestamp, or a refused
-	// insert, rather than anything that reads like a schema problem.
-	defaulted, err := db.EnsureColumnDefaults(ctx, pool, want)
-	if err != nil {
-		return fmt.Errorf("could not reconcile the storm column defaults: %w", err)
-	}
-	if len(defaulted) > 0 {
-		log.Info().Strs("columns", defaulted).Msg("Gave shared columns the defaults storm writes against")
-	}
-	return nil
-}
-
-// resolveDSN answers which database this installation uses, in the same order
-// resolveDialector does.
-//
-// Split out so GORM and storm cannot disagree about the answer. Two independent
-// resolutions is how one layer ends up talking to the configured database and
-// the other to a freshly created file beside it.
-func (a *App) resolveDSN() (driver, dsn string, err error) {
+// An unreadable config is a refusal, not a warning. It used to log and fall
+// through — and with no DATABASE_URL set, "fall through" meant creating a
+// fresh, empty SQLite file and serving from it. The process then passed its own
+// readiness probe while every list in the product was empty and every write
+// went somewhere nobody would look for it. An installation that has been set up
+// has a database; failing to read which one is not a reason to invent a
+// different answer.
+func (a *App) resolveDSN() (string, error) {
 	if config.Exists(config.DefaultConfigPath) {
 		cfg, err := config.Load(config.DefaultConfigPath)
 		if err != nil {
-			return "", "", fmt.Errorf("could not read %s: %w", config.DefaultConfigPath, err)
+			return "", fmt.Errorf(
+				"could not read %s, and this installation has been set up, so its database is the one "+
+					"named there. Fix the file or move it aside to run setup again: %w",
+				config.DefaultConfigPath, err)
 		}
-		encKey := cfg.EncryptionKey
-		if encKey == "" {
-			encKey = envvar.Get("ENCRYPTION_KEY")
-		}
-		connection, err := cfg.DecryptConnectionString(encKey)
-		if err != nil {
-			return "", "", fmt.Errorf("could not decrypt the connection string in %s: %w", config.DefaultConfigPath, err)
-		}
-		return cfg.Database.Driver, connection, nil
+		return dsnFromConfig(cfg)
 	}
 
-	if url := envvar.Get("DATABASE_URL"); url != "" {
-		return config.DriverPostgres, url, nil
+	if dsn := envvar.Get("DATABASE_URL"); dsn != "" {
+		log.Info().Msg("Using PostgreSQL database from DATABASE_URL...")
+		return dsn, nil
 	}
-	// No config and no DATABASE_URL means an installation that has not been set
-	// up. There is no file to fall back to any more: a database this creates
-	// silently is one somebody starts using and then loses.
-	return config.DriverPostgres, "", nil
+
+	// There is no file to fall back to. A server deployment that meant to set
+	// DATABASE_URL and did not used to come up healthy and empty on one, which
+	// is the worst way to be misconfigured: nothing to read, no error, and a
+	// readiness probe that passes. The setup wizard is served by a running
+	// server, so it cannot be the way out of this: it creates the first
+	// organization and administrator in the database DATABASE_URL names.
+	return "", fmt.Errorf(
+		"no database is configured. Set DATABASE_URL to a PostgreSQL connection string, "+
+			"or restore the %s a setup wrote; the setup wizard then runs on that database",
+		config.DefaultConfigPath)
+}
+
+// dsnFromConfig reads the connection a config.yaml stores.
+func dsnFromConfig(cfg *config.Config) (string, error) {
+	// Same precedence as setupEncryption: the key stored alongside the data
+	// wins, because it is the one the data was encrypted with.
+	encKey := cfg.EncryptionKey
+	if encKey == "" {
+		encKey = envvar.Get("ENCRYPTION_KEY")
+	}
+	dsn, err := cfg.DecryptConnectionString(encKey)
+	if err != nil {
+		return "", fmt.Errorf(
+			"could not decrypt the database connection string in %s — this almost always means the "+
+				"encryption key does not match the one used when the system was set up: %w",
+			config.DefaultConfigPath, err)
+	}
+	// Refused rather than defaulted. This used to fall through to SQLite for
+	// anything it did not recognise, so an installation whose config named MySQL
+	// would come up on a fresh empty file beside its real data — every process,
+	// task and definition apparently gone, with a successful startup log.
+	if !config.SupportedDriver(cfg.Database.Driver) {
+		return "", fmt.Errorf(
+			"this runs on PostgreSQL; %q is not a database engine it supports. "+
+				"Migrate the data to PostgreSQL and point %s at it; see docs/upgrading.md",
+			cfg.Database.Driver, config.DefaultConfigPath)
+	}
+	log.Info().Msg("Using PostgreSQL database from config...")
+	return dsn, nil
 }
 
 // participantService builds the storm-backed participant directory, or nothing.

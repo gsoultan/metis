@@ -136,11 +136,7 @@ func (h *deviationHarness) askToMigrate(t *testing.T, token string, m migration)
 // versionOf is the version an instance is running.
 func (h *deviationHarness) versionOf(t *testing.T, instanceID uuid.UUID) uuid.UUID {
 	t.Helper()
-	var version uuid.UUID
-	if err := h.db.Raw(`SELECT definition_id FROM process_instances WHERE id = ?`, instanceID).Row().Scan(&version); err != nil {
-		t.Fatalf("read the version of instance %s: %v", instanceID, err)
-	}
-	return version
+	return h.instanceRow(t, instanceID).DefinitionID
 }
 
 // requireSelfApprovedRun fails unless everything the run wrote on an instance

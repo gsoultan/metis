@@ -141,7 +141,7 @@ type soDHarness struct {
 func newSoDHarness(t *testing.T, guarded bool) *soDHarness {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
 		"sod-test", nil, nil, nil)
 

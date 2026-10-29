@@ -1,17 +1,16 @@
 package postgres_test
 
 import (
-	"database/sql"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/gsoultan/metis/internal/pkg/config"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	"github.com/gsoultan/storm/runtime/pgxdrv"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // PostgreSQL advisory locks are *session*-scoped, and PostgresLocker is handed a
@@ -28,28 +27,28 @@ import (
 // These tests pin the property that matters — release must actually release,
 // including when the release lands on a different connection than the acquire.
 
-// openPool returns a raw *sql.DB against the test PostgreSQL, skipping when no
-// DSN is configured, like every other test in this package.
-func openPool(t *testing.T, maxConns int) *sql.DB {
+// openPool returns a pool against the test PostgreSQL, skipping when no DSN
+// is configured, like every other test in this package.
+func openPool(t *testing.T, maxConns int) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv(testutils.PostgresDSNEnv)
 	if dsn == "" {
 		t.Skipf("set %s to run advisory lock tests against a live PostgreSQL", testutils.PostgresDSNEnv)
 	}
-	gormDB, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Discard})
+	cfg, err := pgxpool.ParseConfig(config.PostgresURL(dsn))
+	if err != nil {
+		t.Fatalf("read the DSN: %v", err)
+	}
+	cfg.MaxConns = int32(maxConns) //nolint:gosec // a handful
+	pool, err := pgxdrv.NewPoolConfig(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("open pool: %v", err)
 	}
-	db, err := gormDB.DB()
-	if err != nil {
-		t.Fatalf("sql.DB: %v", err)
-	}
-	db.SetMaxOpenConns(maxConns)
-	t.Cleanup(func() { _ = db.Close() })
-	if err := db.PingContext(t.Context()); err != nil {
+	t.Cleanup(pool.Close)
+	if err := pool.Ping(t.Context()); err != nil {
 		t.Fatalf("ping: %v", err)
 	}
-	return db
+	return pool
 }
 
 // TestAdvisoryLockReleasesWhenTheReleaseLandsOnAnotherConnection is the
@@ -119,9 +118,9 @@ func TestAdvisoryLockSurvivesPoolChurn(t *testing.T) {
 
 		// Churn the pool so the release is unlikely to reuse the acquiring
 		// connection: hold a few connections open across the release.
-		var held []*sql.Conn
+		var held []*pgxpool.Conn
 		for range 3 {
-			c, err := pool.Conn(ctx)
+			c, err := pool.Acquire(ctx)
 			if err != nil {
 				break
 			}
@@ -132,7 +131,7 @@ func TestAdvisoryLockSurvivesPoolChurn(t *testing.T) {
 			t.Fatalf("cycle %d release: %v", i, err)
 		}
 		for _, c := range held {
-			_ = c.Close()
+			c.Release()
 		}
 
 		// An independent pool proves the lock is free at the server, not just

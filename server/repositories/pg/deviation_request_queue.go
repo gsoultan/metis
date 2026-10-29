@@ -9,6 +9,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store"
 	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
 )
 
@@ -144,10 +145,9 @@ func (r *deviationRequestRepository) ListUnreported(ctx context.Context, now tim
 // BoundLockWait bounds, for the rest of the caller's transaction, how long a
 // statement waits for a row lock somebody else holds.
 //
-// The setting is local to the transaction (SET LOCAL), so it ends with it and
-// touches no other user of the connection. It takes no parameter the server
-// can bind, so the wait is written into the statement — as a whole number of
-// milliseconds, which is all a duration can become.
+// The setting is local to the transaction, so it ends with it and touches no
+// other user of the connection. It is a whole number of milliseconds, which
+// is all a duration can become.
 func (r *deviationRequestRepository) BoundLockWait(ctx context.Context, wait time.Duration) error {
 	if !db.InTransaction(ctx) {
 		return contracts.ErrDeviationRequestOutsideTransaction
@@ -159,7 +159,7 @@ func (r *deviationRequestRepository) BoundLockWait(ctx context.Context, wait tim
 	if err != nil {
 		return err
 	}
-	if _, err := ex.Exec(ctx, fmt.Sprintf("SET LOCAL lock_timeout = %d", wait.Milliseconds()), nil); err != nil {
+	if err := store.LockTimeout(ctx, ex, wait); err != nil {
 		return fmt.Errorf("could not bound the sweep's wait for a lock: %w", err)
 	}
 	return nil

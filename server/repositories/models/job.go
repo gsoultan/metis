@@ -22,20 +22,20 @@ const (
 
 type JobModel struct {
 	Base
-	InstanceID       UUID           `gorm:"index" json:"instance_id,omitzero"`
+	InstanceID       UUID           `json:"instance_id,omitzero"`
 	DefinitionID     UUID           `json:"definition_id,omitzero"`
 	OrganizationID   *UUID          `json:"organization_id,omitzero"`
 	NodeID           string         `json:"node_id"`
 	IterationID      string         `json:"iteration_id,omitzero"`
 	Type             JobType        `json:"type"`
-	Status           JobStatus      `gorm:"index" json:"status"`
+	Status           JobStatus      `json:"status"`
 	LockedBy         string         `json:"locked_by,omitzero"`
 	LockExpires      *time.Time     `json:"lock_expires,omitzero"`
-	Payload          map[string]any `gorm:"type:text;serializer:json" json:"payload,omitzero"`
-	Retries          int            `gorm:"not null;default:0" json:"retries"`
-	MaxRetries       int            `gorm:"not null;default:0" json:"max_retries"`
-	RepeatsRemaining int            `gorm:"not null;default:0" json:"repeats_remaining,omitzero"`
-	NextRunAt        time.Time      `gorm:"index;not null" json:"next_run_at,omitzero"`
+	Payload          map[string]any `json:"payload,omitzero"`
+	Retries          int            `json:"retries"`
+	MaxRetries       int            `json:"max_retries"`
+	RepeatsRemaining int            `json:"repeats_remaining,omitzero"`
+	NextRunAt        time.Time      `json:"next_run_at,omitzero"`
 	LastError        string         `json:"last_error,omitzero"`
 }
 

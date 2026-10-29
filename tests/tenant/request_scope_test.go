@@ -4,6 +4,13 @@ import (
 	"context"
 	"testing"
 
+	formstore "github.com/gsoultan/metis/server/repositories/store/form"
+	projectstore "github.com/gsoultan/metis/server/repositories/store/project"
+	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/runtime"
+
+	"github.com/gsoultan/metis/server/repositories/db"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/features"
 	"github.com/gsoultan/metis/internal/pkg/tenantscope"
@@ -11,8 +18,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/pg"
-	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // A request reads its organization's projects once and every scoped call in it
@@ -36,7 +41,7 @@ func (f tenantFixture) asRequestOfA(t *testing.T) context.Context {
 
 // eachScope runs body under the default scope and under the strict one. A
 // request that resolved a tenant must behave identically in both.
-func eachScope(t *testing.T, body func(t *testing.T, db *gorm.DB)) {
+func eachScope(t *testing.T, body func(t *testing.T, db *db.Conn)) {
 	t.Helper()
 	for _, scope := range []struct {
 		name   string
@@ -50,9 +55,9 @@ func eachScope(t *testing.T, body func(t *testing.T, db *gorm.DB)) {
 }
 
 func TestARequestsReusedScopeStillDeniesAnotherOrganization(t *testing.T) {
-	eachScope(t, func(t *testing.T, db *gorm.DB) {
+	eachScope(t, func(t *testing.T, db *db.Conn) {
 		f := seedTenantFixture(t, db)
-		repo := repositories.NewRepository(testutils.StormConn(db))
+		repo := repositories.NewRepository(db)
 		ctx := f.asRequestOfA(t)
 		reads := pg.ScopeReads()
 
@@ -100,7 +105,7 @@ func TestARequestsReusedScopeStillDeniesAnotherOrganization(t *testing.T) {
 				t.Errorf("%s: got %v, want a not-found", name, err)
 			}
 		}
-		if !rowExists(t, db, &models.FormModel{}, "forms", f.formB) {
+		if !stillThere(t)(formstore.New().IDEq(f.formB).One(t.Context(), testutils.Executor(db))) {
 			t.Fatal("the delete was refused but the other organization's form is gone")
 		}
 		if _, err := repo.Task().Get(ctx, f.taskA); err != nil {
@@ -118,9 +123,9 @@ func TestARequestsReusedScopeStillDeniesAnotherOrganization(t *testing.T) {
 // The account service asks each of an account's organizations in turn, inside
 // one request. Each is answered with its own projects.
 func TestAnotherTenantInsideARequestIsNotAnsweredFromTheRequestsScope(t *testing.T) {
-	eachScope(t, func(t *testing.T, db *gorm.DB) {
+	eachScope(t, func(t *testing.T, db *db.Conn) {
 		f := seedTenantFixture(t, db)
-		repo := repositories.NewRepository(testutils.StormConn(db))
+		repo := repositories.NewRepository(db)
 		ctx := f.asRequestOfA(t)
 
 		if _, err := repo.Task().List(ctx); err != nil {
@@ -147,9 +152,9 @@ func TestAnotherTenantInsideARequestIsNotAnsweredFromTheRequestsScope(t *testing
 // Creating a project and deploying into it is one conversation, and the scope
 // the request read before the project existed must not refuse the deploy.
 func TestAProjectCreatedInARequestIsInItsScopeAtOnce(t *testing.T) {
-	eachScope(t, func(t *testing.T, db *gorm.DB) {
+	eachScope(t, func(t *testing.T, db *db.Conn) {
 		f := seedTenantFixture(t, db)
-		repo := repositories.NewRepository(testutils.StormConn(db))
+		repo := repositories.NewRepository(db)
 		ctx := f.asRequestOfA(t)
 
 		if _, err := repo.Form().ListByProject(ctx, uuid.Nil); err != nil {
@@ -174,19 +179,28 @@ func TestAProjectCreatedInARequestIsInItsScopeAtOnce(t *testing.T) {
 }
 
 func TestAProjectDeletedInARequestLeavesItsScopeAtOnce(t *testing.T) {
-	eachScope(t, func(t *testing.T, db *gorm.DB) {
+	eachScope(t, func(t *testing.T, db *db.Conn) {
 		f := seedTenantFixture(t, db)
-		repo := repositories.NewRepository(testutils.StormConn(db))
+		repo := repositories.NewRepository(db)
 		ctx := f.asRequestOfA(t)
 
 		doomed, form := uuid.New(), uuid.New()
-		for _, row := range []any{
-			&models.ProjectModel{Base: models.Base{ID: models.FromUUID(doomed)}, OrganizationID: models.FromUUID(f.orgA), Name: "Doomed"},
-			&models.FormModel{Base: models.Base{ID: models.FromUUID(form)}, ProjectID: models.FromUUID(doomed), Key: "doomed-form"},
-		} {
-			if err := db.Create(row).Error; err != nil {
-				t.Fatalf("seed %T: %v", row, err)
-			}
+		ex := testutils.Executor(db)
+		project := projectstore.Create()
+		project.SetID(doomed)
+		project.SetOrganizationID(f.orgA)
+		project.SetName("Doomed")
+		if _, err := project.Insert(t.Context(), ex); err != nil {
+			t.Fatalf("seed the project: %v", err)
+		}
+		doomedForm := formstore.Create()
+		doomedForm.SetID(form)
+		doomedForm.SetProjectID(doomed)
+		doomedForm.SetKey("doomed-form")
+		doomedForm.SetName("")
+		doomedForm.SetFields(runtime.JSON("{}"))
+		if _, err := doomedForm.Insert(t.Context(), ex); err != nil {
+			t.Fatalf("seed the form: %v", err)
 		}
 		if _, err := repo.Form().Get(ctx, form); err != nil {
 			t.Fatalf("the form is in scope before its project is deleted: %v", err)
@@ -203,9 +217,9 @@ func TestAProjectDeletedInARequestLeavesItsScopeAtOnce(t *testing.T) {
 // A goroutine the request started can hold its context past the end. From
 // there it reads for itself, and sees what was created since.
 func TestARequestsScopeEndsWithTheRequest(t *testing.T) {
-	eachScope(t, func(t *testing.T, db *gorm.DB) {
+	eachScope(t, func(t *testing.T, db *db.Conn) {
 		f := seedTenantFixture(t, db)
-		repo := repositories.NewRepository(testutils.StormConn(db))
+		repo := repositories.NewRepository(db)
 		ctx, request := tenantscope.WithRequest(f.ctxAsA(t), f.orgA.String())
 
 		if _, err := repo.Form().ListByProject(ctx, uuid.Nil); err != nil {
@@ -233,9 +247,9 @@ func TestARequestsScopeEndsWithTheRequest(t *testing.T) {
 func TestARequestWithNoTenantIsNotAnIdentity(t *testing.T) {
 	defer features.OverrideForTest(features.StrictTenantScope, true)()
 
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
 		f := seedTenantFixture(t, db)
-		repo := repositories.NewRepository(testutils.StormConn(db))
+		repo := repositories.NewRepository(db)
 		ctx, request := tenantscope.WithRequest(t.Context(), f.orgA.String())
 		defer request.End()
 

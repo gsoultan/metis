@@ -33,6 +33,11 @@ type DecisionRelease struct {
 }
 
 func (r *DecisionRelease) Schema(t *storm.Table) {
+	// GORM's defaults, kept. See fill.go.
+	t.Col(&r.Version).Default(zero)
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&r.DecisionKey).FillNulls(blank)
 	// As long as the key it names can be: decision keys are 255 characters.
 	t.Col(&r.DecisionKey).Size(255)
 	// Two versions cannot claim the same instant, and making a version live
@@ -42,4 +47,14 @@ func (r *DecisionRelease) Schema(t *storm.Table) {
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&r.DeletedAt)
+}
+
+// Aggregates declares Live: each key's newest release, its version and its
+// moment. The caller says which releases count — the ones whose moment has
+// come.
+func (r *DecisionRelease) Aggregates(a *storm.Aggregates) {
+	live := a.Named("Live")
+	live.By(&r.Project, &r.DecisionKey)
+	live.FirstOf(&r.Version, "Version", a.Over().OrderByDesc(&r.ActivateAt))
+	live.Max(&r.ActivateAt, "ActivateAt")
 }

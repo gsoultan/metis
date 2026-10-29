@@ -2,7 +2,14 @@ package user_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
+
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/platformrole"
+	"github.com/gsoultan/metis/server/repositories/store/platformroleassignment"
+	"github.com/gsoultan/metis/server/repositories/store/platformuser"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -10,7 +17,6 @@ import (
 	service_impl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories/pg"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // grantsAheadOfTheAdministrator is as many role grants as one read of the
@@ -19,14 +25,14 @@ const grantsAheadOfTheAdministrator = 1000
 
 type platformWorld struct {
 	svc contracts.PlatformUserService
-	db  *gorm.DB
+	db  *db.Conn
 	ctx context.Context
 }
 
 func newPlatformWorld(t *testing.T) platformWorld {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	accounts := pg.NewPlatformUserRepository(testutils.StormConn(db))
+	accounts := pg.NewPlatformUserRepository(db)
 	ctx := entities.WithSystemContext(t.Context())
 	if err := accounts.EnsureBuiltInRoles(ctx); err != nil {
 		t.Fatalf("seed the built-in roles: %v", err)
@@ -39,17 +45,24 @@ func newPlatformWorld(t *testing.T) platformWorld {
 // the grants in key order meets all of theirs first.
 func (w platformWorld) seedDesigners(t *testing.T, n int) {
 	t.Helper()
-	if err := w.db.WithContext(w.ctx).Exec(`
-		INSERT INTO platform_users (id, created_at, updated_at, username, password_hash)
-		SELECT ('00000000-0000-7000-8000-' || lpad(n::text, 12, '0'))::uuid, now(), now(),
-		       format('designer-%s', n), 'not-a-real-hash'
-		  FROM generate_series(1, ?) AS n`, n).Error; err != nil {
+	ex, now := testutils.Executor(w.db), time.Now()
+	designer, found, err := platformrole.New().NameEq(entities.RoleDesigner).One(w.ctx, ex)
+	if err != nil || !found {
+		t.Fatalf("find the designer role: found %v, %v", found, err)
+	}
+	accounts := make([]platformuser.Row, n)
+	grants := make([]platformroleassignment.Row, n)
+	for i := range accounts {
+		accounts[i] = platformuser.Row{
+			ID:        uuid.MustParse(fmt.Sprintf("00000000-0000-7000-8000-%012d", i+1)),
+			CreatedAt: now, UpdatedAt: now, Username: fmt.Sprintf("designer-%d", i+1), PasswordHash: "not-a-real-hash",
+		}
+		grants[i] = platformroleassignment.Row{PlatformUserID: accounts[i].ID, PlatformRoleID: designer.ID}
+	}
+	if _, err := platformuser.InsertAll(w.ctx, ex, accounts); err != nil {
 		t.Fatalf("seed %d accounts: %v", n, err)
 	}
-	if err := w.db.WithContext(w.ctx).Exec(`
-		INSERT INTO platform_role_assignments (platform_user_id, platform_role_id)
-		SELECT u.id, r.id FROM platform_users u, platform_roles r
-		 WHERE u.username LIKE 'designer-%' AND r.name = ?`, entities.RoleDesigner).Error; err != nil {
+	if _, err := platformroleassignment.InsertAll(w.ctx, ex, grants); err != nil {
 		t.Fatalf("grant them the designer role: %v", err)
 	}
 }

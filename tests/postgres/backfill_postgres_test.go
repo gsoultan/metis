@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/gsoultan/metis/server/repositories/db"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	handlersimpl "github.com/gsoultan/metis/server/domains/handlers/impl"
@@ -11,7 +13,6 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // The correlation-key backfill against the database it will actually run on.
@@ -21,11 +22,11 @@ import (
 // correlation_key LIKE '%${%' — behaves differently across engines in ways that
 // are easy to assume away: wildcard handling, escape requirements, and case
 // sensitivity all differ between SQLite, PostgreSQL and MySQL.
-func newPostgresEngine(t *testing.T, db *gorm.DB) (repositories.Repository, *serviceimpl.Engine, uuid.UUID, context.Context) {
+func newPostgresEngine(t *testing.T, db *db.Conn) (repositories.Repository, *serviceimpl.Engine, uuid.UUID, context.Context) {
 	t.Helper()
 	ctx := t.Context()
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := observersimpl.NewEventDispatcher()
 	engine := serviceimpl.NewExecutionEngine(repo, dispatcher)
 	connectorSvc := serviceimpl.NewConnectorService(repo)

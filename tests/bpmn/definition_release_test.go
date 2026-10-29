@@ -22,7 +22,7 @@ import (
 func releaseFixture(t *testing.T) (services.ServiceFacade, uuid.UUID, context.Context) {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := impl.NewEventDispatcher()
 
 	engine := serviceimpl.NewExecutionEngine(repo, dispatcher)

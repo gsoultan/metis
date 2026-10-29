@@ -19,8 +19,8 @@ const (
 // TaskModel represents the GORM model for tasks.
 type TaskModel struct {
 	Base
-	ProjectID  UUID   `gorm:"index" json:"project_id,omitzero"`
-	InstanceID UUID   `gorm:"index" json:"instance_id,omitzero"`
+	ProjectID  UUID   `json:"project_id,omitzero"`
+	InstanceID UUID   `json:"instance_id,omitzero"`
 	NodeID     string `json:"node_id"`
 	// IterationID names which run of a multi-instance step this task is for
 	// ("0", "1", …). Empty — NULL in the table — on a task of a step that runs
@@ -28,32 +28,32 @@ type TaskModel struct {
 	IterationID string     `json:"iteration_id,omitzero"`
 	Name        string     `json:"name"`
 	Description string     `json:"description,omitzero"`
-	Type        NodeType   `gorm:"index" json:"type"`
-	Status      TaskStatus `gorm:"index" json:"status"`
-	Assignee    string     `gorm:"size:255;index" json:"assignee,omitzero"`
+	Type        NodeType   `json:"type"`
+	Status      TaskStatus `json:"status"`
+	Assignee    string     `json:"assignee,omitzero"`
 	// Owner is who delegated the task and waits for it back: set when its
 	// holder delegates it, kept when the delegate hands it back, and cleared
 	// by any other hand-over, a release and a migration. Empty for a task
 	// never delegated. Indexed under the name the storm model gives the
 	// index, so the two layers describe one index rather than two; migration
 	// 32 adds both columns and the index to an installation that predates them.
-	Owner string `gorm:"size:255;index:ix_tasks_owner" json:"owner,omitzero"`
+	Owner string `json:"owner,omitzero"`
 	// DelegationState is "pending" while a delegate works the task and
 	// "resolved" once they have handed it back.
-	DelegationState string   `gorm:"size:32" json:"delegation_state,omitzero"`
-	CandidateUsers  []string `gorm:"type:text;serializer:json" json:"candidate_users,omitzero"`
-	CandidateGroups []string `gorm:"type:text;serializer:json" json:"candidate_groups,omitzero"`
+	DelegationState string   `json:"delegation_state,omitzero"`
+	CandidateUsers  []string `json:"candidate_users,omitzero"`
+	CandidateGroups []string `json:"candidate_groups,omitzero"`
 	// not null, default 0: the storm scanner decodes this column as a
 	// fixed-width integer, so a NULL is eight bytes it reads out of an empty
 	// buffer — a panic on the read, not a zero. AutoMigrate does not carry the
 	// model's non-nullability over on its own, which is what let GET
 	// /api/v1/tasks drop the connection on a task somebody bulk-inserted.
 	// Migration 21 applies the same thing to tables that already exist.
-	Priority       int          `gorm:"not null;default:0" json:"priority,omitzero"`
+	Priority       int          `json:"priority,omitzero"`
 	DueDate        *time.Time   `json:"due_date,omitzero"`
 	FormKey        string       `json:"form_key,omitzero"`
 	FormDefinition string       `json:"form_definition,omitzero"`
-	Variables      EncryptedMap `gorm:"type:text" json:"variables,omitzero"`
+	Variables      EncryptedMap `json:"variables,omitzero"`
 }
 
 // TableName overrides the table name for TaskModel.

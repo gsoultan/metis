@@ -32,6 +32,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/metis/server/repositories/db"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/app"
 	"github.com/gsoultan/metis/internal/pkg/health"
@@ -41,7 +43,6 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // The targets, from .junie/roadmap.md §1.
@@ -59,7 +60,7 @@ type harness struct {
 	projID uuid.UUID
 }
 
-func openDB(t *testing.T) *gorm.DB {
+func openDB(t *testing.T) *db.Conn {
 	t.Helper()
 	// A real server database gives real concurrency; SQLite is capped at one
 	// connection here, which is correct for SQLite and does bound throughput.
@@ -74,11 +75,11 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 
 	db := openDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "slo-test-secret", nil, nil, nil)
 
-	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, testutils.StormConn(db))
+	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, db)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 

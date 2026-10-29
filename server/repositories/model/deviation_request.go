@@ -88,3 +88,11 @@ func (r *DeviationRequest) Projections(p *storm.Projections) {
 		&r.RequestedBy, &r.RequestedByUser, &r.Reason, &r.Fingerprint, &r.ExpiresAt,
 		&r.DecidedBy, &r.DecidedByUser, &r.DecisionReason, &r.DecidedAt, &r.Outcome)
 }
+
+// Aggregates declares ByInstance: how many requests name each instance. The
+// finished-instance purge keeps every instance with one.
+func (r *DeviationRequest) Aggregates(a *storm.Aggregates) {
+	byInstance := a.Named("ByInstance")
+	byInstance.By(&r.Instance)
+	byInstance.Count("Total")
+}

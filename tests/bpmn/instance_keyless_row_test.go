@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/instancedeviation"
 )
 
 // What stops an act being made twice on one visit is the replay an apply asks
@@ -33,9 +34,10 @@ func TestAnAppliedRowWithNoLiveKeyIsStillTheRecordOfItsVisit(t *testing.T) {
 			}
 
 			// The row as a server of the previous release wrote it.
-			keyless := h.db.Exec(`UPDATE instance_deviations SET live_visit_key = NULL WHERE id = ? AND live_visit_key IS NOT NULL`, first.Deviation.ID)
-			if keyless.Error != nil || keyless.RowsAffected != 1 {
-				t.Fatalf("take the live key off the row: %d row(s), %v", keyless.RowsAffected, keyless.Error)
+			var keyless instancedeviation.Mut
+			keyless.SetLiveVisitKeyNull()
+			if n, err := instancedeviation.New().IDEq(first.Deviation.ID).LiveVisitKeyIsNotNull().UpdateAll(h.Ctx(), h.ex(), keyless); err != nil || n != 1 {
+				t.Fatalf("take the live key off the row: %d row(s), %v", n, err)
 			}
 			before, raised := everyRow(t, h), events.count()
 

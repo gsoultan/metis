@@ -46,7 +46,7 @@ func (p periodSweep) finishedAgo(definition uuid.UUID, age time.Duration) uuid.U
 	}); err != nil {
 		p.t.Fatalf("seed an instance: %v", err)
 	}
-	p.exec(`UPDATE process_instances SET updated_at = ? WHERE id = ?`, time.Now().Add(-age), id)
+	p.finishedAt(id, time.Now().Add(-age), uuid.Nil)
 	return id
 }
 

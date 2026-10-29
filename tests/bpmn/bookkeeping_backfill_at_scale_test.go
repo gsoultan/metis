@@ -52,15 +52,7 @@ func TestTheBookkeepingUpgradeReachesARunningInstanceBehindAThousandNewerOnes(t 
 		t.Fatalf("stage the legacy shape: %v", err)
 	}
 
-	if err := h.db.WithContext(ctx).Exec(`
-		INSERT INTO process_instances (id, created_at, updated_at, project_id, definition_id, status, variables,
-		                               tokens, completed_nodes, compensated_nodes, multi_instance, joins)
-		SELECT gen_random_uuid(), now() + interval '1 minute', now() + interval '1 minute', ?,
-		       (SELECT definition_id FROM process_instances WHERE id = ?), 'completed', '',
-		       '[]', '[]', '[]', '{}', '{}'
-		  FROM generate_series(1, ?) AS n`, h.projID, instanceID, finishedSince).Error; err != nil {
-		t.Fatalf("seed %d newer instances: %v", finishedSince, err)
-	}
+	h.seedInstancesLike(ctx, t, instanceID, nil, "completed", finishedSince)
 
 	result, err := service_impl2.BackfillEngineBookkeeping(ctx, h.repo)
 	if err != nil {

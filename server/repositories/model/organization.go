@@ -22,6 +22,9 @@ type Organization struct {
 }
 
 func (o *Organization) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&o.Name).FillNulls(blank)
 	t.Col(&o.Name).Size(255)
 	t.Col(&o.DeletedAt).Index()
 	// Declared, so the predicate is compiled into every read of this table

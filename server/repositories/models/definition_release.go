@@ -23,7 +23,7 @@ import "time"
 // ProcessInstanceModel.DefinitionID.
 type ProcessDefinitionReleaseModel struct {
 	Base
-	ProjectID UUID `gorm:"index:idx_definition_release_timeline,unique,priority:2" json:"project_id,omitzero"`
+	ProjectID UUID `json:"project_id,omitzero"`
 	// The column is process_key, not key: `key` is reserved in MySQL, and every
 	// query that touches such a column has to be written as a map so GORM will
 	// quote it per dialect. Naming it out of the way costs nothing here.
@@ -37,14 +37,14 @@ type ProcessDefinitionReleaseModel struct {
 	// which runs on every process start and filters on process_key first — the
 	// tenant arrives as a join, not as a predicate on this table. Leading with
 	// project_id would leave that query no usable prefix and make it a scan.
-	ProcessKey string `gorm:"size:191;index:idx_definition_release_timeline,unique,priority:1" json:"process_key"`
+	ProcessKey string `json:"process_key"`
 	// ActivateAt is when this entry takes over, in UTC. A time in the past means
 	// it already has; a time in the future is a cutover somebody has arranged.
 	//
 	// Part of the unique key so that two versions cannot claim the same instant,
 	// and so that promoting again is a new entry rather than an overwrite of when
 	// the last change happened.
-	ActivateAt time.Time `gorm:"index:idx_definition_release_timeline,unique,priority:3;not null" json:"activate_at"`
+	ActivateAt time.Time `json:"activate_at"`
 	// Version is the version number rather than a definition ID so a release can
 	// be read against the same (project_id, key, version) series the definitions
 	// are indexed by, in one lookup.
@@ -52,7 +52,7 @@ type ProcessDefinitionReleaseModel struct {
 	// A release naming a version that has since been deleted is not an error:
 	// the reader falls back to the highest version, which is what the engine did
 	// before releases existed.
-	Version int `gorm:"not null;default:0" json:"version"`
+	Version int `json:"version"`
 }
 
 // TableName overrides the table name for ProcessDefinitionReleaseModel.

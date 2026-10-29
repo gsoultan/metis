@@ -31,6 +31,8 @@ type RetentionPeriod struct {
 
 func (p *RetentionPeriod) Schema(t *storm.Table) {
 	t.Name("retention_periods")
+	// The retention sweep locks the periods for each batch (LockTables).
+	t.Lockable()
 	t.Col(&p.ProcessKey).Size(255)
 	t.Col(&p.SetBy).Size(255)
 	t.Col(&p.SetByUser).Named("set_by_id").NoIndex().AcknowledgeNoFK("the history outlives the account that made the change")

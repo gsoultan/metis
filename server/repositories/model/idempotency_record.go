@@ -31,6 +31,13 @@ type IdempotencyRecord struct {
 }
 
 func (i *IdempotencyRecord) Schema(t *storm.Table) {
+	// GORM's defaults, kept. See fill.go.
+	t.Col(&i.StatusCode).Default(zero)
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&i.RequestHash).FillNulls(blank)
+	t.Col(&i.Completed).FillNulls(no)
+	t.Col(&i.Headers).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	// Renamed before the key is declared; see SharedCounter for why the order
 	// is not cosmetic.
 	t.Col(&i.Key).Named("record_key").Size(64)
@@ -38,4 +45,6 @@ func (i *IdempotencyRecord) Schema(t *storm.Table) {
 	t.Col(&i.RequestHash).Size(64)
 	t.Col(&i.Completed).Index()
 	t.Col(&i.CreatedAt).Index()
+	// The sweep removes expired records a batch at a time (DeleteBatch).
+	t.Takes()
 }

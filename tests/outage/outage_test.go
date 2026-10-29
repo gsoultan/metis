@@ -33,7 +33,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/metis/server/repositories/db"
+
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/config"
 	"github.com/gsoultan/metis/internal/pkg/health"
 	"github.com/gsoultan/metis/server/domains/entities"
 	handlersimpl "github.com/gsoultan/metis/server/domains/handlers/impl"
@@ -42,9 +45,6 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 // severableProxy is a TCP proxy the test can cut and restore. Severing closes
@@ -176,22 +176,18 @@ func proxiedDSN(t *testing.T) (string, *severableProxy) {
 func TestReadinessTellsTheTruthThroughAnOutage(t *testing.T) {
 	dsn, proxy := proxiedDSN(t)
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Discard})
+	pool, err := db.NewPool(t.Context(), config.PostgresURL(dsn))
 	if err != nil {
 		t.Fatalf("open through proxy: %v", err)
 	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("sql.DB: %v", err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
+	t.Cleanup(pool.Close)
 
 	// Mirrors App.readinessCheckers — if that shape changes, change both.
 	handler := health.Wrap(
 		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
 		map[string]health.Checker{
 			"database": health.CheckerFunc(func(ctx context.Context) error {
-				return sqlDB.PingContext(ctx)
+				return pool.Ping(ctx)
 			}),
 		},
 	)
@@ -231,11 +227,11 @@ func TestReadinessTellsTheTruthThroughAnOutage(t *testing.T) {
 // arbitrary database. Duplicated from tests/postgres deliberately: test
 // packages cannot import each other, and a shared harness in testutils would
 // couple every suite to the engine's constructor churn.
-func newEngine(t *testing.T, db *gorm.DB) (repositories.Repository, *serviceimpl.Engine, servicecontracts.JobService, uuid.UUID, context.Context) {
+func newEngine(t *testing.T, db *db.Conn) (repositories.Repository, *serviceimpl.Engine, servicecontracts.JobService, uuid.UUID, context.Context) {
 	t.Helper()
 	ctx := t.Context()
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := observersimpl.NewEventDispatcher()
 	engine := serviceimpl.NewExecutionEngine(repo, dispatcher)
 	connectorSvc := serviceimpl.NewConnectorService(repo)
@@ -337,20 +333,19 @@ func TestEngineSurvivesADatabaseOutage(t *testing.T) {
 
 	// The pool has to notice its dead connections and redial; give it a bounded
 	// window rather than asserting on the first attempt.
-	// Both pools. The engine reads through two connection layers while the
-	// storm port is under way, and they hold separate connections — so a probe
-	// that only touched one would report a recovered engine while the other was
-	// still handing out a socket that died during the outage.
+	// Through the engine and through a repository: each reads on whichever
+	// connection the pool lends, so either could be handed a socket that died
+	// during the outage.
 	var recovered bool
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
-		_, gormErr := engine.GetInstance(ctx, instanceID)
+		_, engineErr := engine.GetInstance(ctx, instanceID)
 		_, stormErr := repo.Subscription().ListByInstance(ctx, instanceID)
 		// A write as well as two reads. Every unit of work opens a storm
 		// transaction now, and a pool can hand out a live connection for a read
 		// and a dead one for the write that follows.
 		txErr := repo.UnitOfWork().Do(ctx, func(context.Context) error { return nil })
-		if gormErr == nil && stormErr == nil && txErr == nil {
+		if engineErr == nil && stormErr == nil && txErr == nil {
 			recovered = true
 			break
 		}

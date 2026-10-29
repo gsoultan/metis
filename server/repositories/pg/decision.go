@@ -193,7 +193,7 @@ func (r *decisionRepository) ListVersionsByKey(ctx context.Context, projectID uu
 	return decisionsFrom(rows)
 }
 
-// LockVersion reads one version FOR UPDATE. Outside a transaction the lock is
+// LockVersion reads one version FOR NO KEY UPDATE. Outside a transaction the lock is
 // released as soon as it is taken, so the callers that need it hold one.
 func (r *decisionRepository) LockVersion(ctx context.Context, projectID uuid.UUID, key string, version int) (models.DecisionDefinitionModel, error) {
 	return r.read(ctx, nil, []decisiondefinition.Pred{
@@ -221,7 +221,7 @@ func (r *decisionRepository) read(ctx context.Context, order []decisiondefinitio
 		q = q.Order(order...)
 	}
 	if lock {
-		q = q.ForUpdate()
+		q = q.ForNoKeyUpdate()
 	}
 	if !scope.unrestricted() {
 		if len(scope.projects) == 0 {

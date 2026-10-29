@@ -9,20 +9,20 @@ type DecisionDefinitionModel struct {
 	// ProcessDefinitionModel: the version is allocated read-then-write, and only
 	// the database can settle a race between two deployments of the same key.
 	// The constraint lives in a migration, not a tag — see that model.
-	ProjectID         UUID             `gorm:"index" json:"project_id,omitzero"`
-	Key               string           `gorm:"size:255;index" json:"key"`
+	ProjectID         UUID             `json:"project_id,omitzero"`
+	Key               string           `json:"key"`
 	Name              string           `json:"name"`
-	Version           int              `gorm:"not null;default:0" json:"version"`
+	Version           int              `json:"version"`
 	HitPolicy         string           `json:"hit_policy"`
 	Aggregation       string           `json:"aggregation,omitzero"`
-	RequiredDecisions []string         `gorm:"type:text;serializer:json" json:"required_decisions,omitzero"`
-	Inputs            []DecisionInput  `gorm:"type:text;serializer:json" json:"inputs,omitzero"`
-	Outputs           []DecisionOutput `gorm:"type:text;serializer:json" json:"outputs,omitzero"`
-	Rules             []DecisionRule   `gorm:"type:text;serializer:json" json:"rules,omitzero"`
+	RequiredDecisions []string         `json:"required_decisions,omitzero"`
+	Inputs            []DecisionInput  `json:"inputs,omitzero"`
+	Outputs           []DecisionOutput `json:"outputs,omitzero"`
+	Rules             []DecisionRule   `json:"rules,omitzero"`
 
 	// Tests are the examples this table is expected to get right — see
 	// entities.DecisionTest. Added by migration 6.
-	Tests []DecisionTest `gorm:"type:text;serializer:json" json:"tests,omitzero"`
+	Tests []DecisionTest `json:"tests,omitzero"`
 }
 
 // DecisionInput represents an input column in a decision table in the database.

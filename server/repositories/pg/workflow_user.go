@@ -1,8 +1,5 @@
-// Package pg is the storm-backed repository layer.
-//
-// It replaces server/repositories/gorms one repository at a time. Both exist
-// during the port; which one a service uses is decided at the composition root,
-// so a repository can move without the service that calls it changing.
+// Package pg is the storm-backed repository layer: every repository reads and
+// writes through the generated stores under server/repositories/store.
 package pg
 
 import (

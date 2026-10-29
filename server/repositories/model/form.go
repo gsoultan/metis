@@ -26,6 +26,11 @@ type Form struct {
 }
 
 func (f *Form) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&f.Key).FillNulls(blank)
+	t.Col(&f.Name).FillNulls(blank)
+	t.Col(&f.Fields).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Col(&f.Key).Size(255)
 	t.Col(&f.Key).Index()
 	t.Col(&f.DeletedAt).Index()

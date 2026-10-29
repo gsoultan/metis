@@ -65,7 +65,7 @@ func TestABrokerPasswordInsideAURLNeverReachesTheBrowser(t *testing.T) {
 func urlCredentialFixture(t *testing.T) (services.ServiceFacade, connector.Endpoints, context.Context, uuid.UUID) {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := services.NewServiceFacade(repo, nil, nil, "url-credential-test", nil, nil, nil)
 	org, err := svc.CreateOrganization(context.Background(), "Broker Org", "")
 	if err != nil {

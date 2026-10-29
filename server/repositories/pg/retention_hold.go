@@ -95,7 +95,7 @@ func (r *retentionHoldRepository) Release(ctx context.Context, instanceID uuid.U
 	if err != nil {
 		return entities.RetentionHold{}, err
 	}
-	row, found, err := retentionhold.New().Where(retentionhold.InstanceID.Eq(instanceID)).ForUpdate().One(ctx, ex)
+	row, found, err := retentionhold.New().Where(retentionhold.InstanceID.Eq(instanceID)).ForNoKeyUpdate().One(ctx, ex)
 	if err != nil {
 		return entities.RetentionHold{}, fmt.Errorf("could not read the hold: %w", err)
 	}

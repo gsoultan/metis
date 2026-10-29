@@ -68,7 +68,7 @@ func (p *hookedProcess) ListByDefinition(ctx context.Context, id uuid.UUID) ([]m
 // finished it, and their completed approval reappeared as work still to do.
 func TestAnInstanceThatFinishesMidMigrationIsNotResurrected(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	plain := repositories.NewRepository(testutils.StormConn(db))
+	plain := repositories.NewRepository(db)
 
 	hooked := &hookedRepository{
 		Repository: plain,

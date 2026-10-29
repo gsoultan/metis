@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
 )
 
 type pendingView struct {
@@ -180,17 +181,13 @@ func (h *deviationHarness) decide(t *testing.T, token, requestID, verb, reason s
 
 func (h *deviationHarness) requestStatus(t *testing.T, requestID string) string {
 	t.Helper()
-	var status string
-	if err := h.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, requestID).Row().Scan(&status); err != nil {
-		t.Fatalf("read the request: %v", err)
-	}
-	return status
+	return h.requestRow(t, uuid.MustParse(requestID)).Status
 }
 
 func (h *deviationHarness) requestCount(t *testing.T) int64 {
 	t.Helper()
-	var n int64
-	if err := h.db.Raw(`SELECT count(*) FROM deviation_requests`).Row().Scan(&n); err != nil {
+	n, err := deviationrequest.New().Count(t.Context(), h.ex())
+	if err != nil {
 		t.Fatalf("count the requests: %v", err)
 	}
 	return n
@@ -258,7 +255,5 @@ func (h *deviationHarness) queue(t *testing.T, token, query string) (int, queueR
 // passing makes, with no sweep having come round yet.
 func (h *deviationHarness) letTheDeadlinePass(t *testing.T, requestID string) {
 	t.Helper()
-	if err := h.db.Exec(`UPDATE deviation_requests SET expires_at = now() - interval '1 minute' WHERE id = ?`, requestID).Error; err != nil {
-		t.Fatalf("let time pass: %v", err)
-	}
+	h.rewriteRequest(t, uuid.MustParse(requestID), func(m *deviationrequest.Mut) { m.SetExpiresAt(time.Now().Add(-time.Minute)) })
 }

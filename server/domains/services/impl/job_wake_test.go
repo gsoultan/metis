@@ -23,7 +23,7 @@ func woken(s *jobService) bool {
 // else: a rolled-back step queued no job to find, and a job due later is the
 // tick's.
 func TestTheJobWorkerIsWokenOnlyByDueWorkThatCommitted(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	uow := repo.UnitOfWork()
 	rolledBack := errors.New("the step failed")
 

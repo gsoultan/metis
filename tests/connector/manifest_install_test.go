@@ -12,7 +12,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/transports/https/common"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // The gap this closes: the manifest executor was correct and tested, and
@@ -49,7 +48,7 @@ response:
 `)
 
 	// One service installs it…
-	installed, err := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.StormConn(db))).
+	installed, err := serviceimpl.NewConnectorService(repositories.NewRepository(db)).
 		InstallManifest(ctx, document)
 	if err != nil {
 		t.Fatalf("install: %v", err)
@@ -61,7 +60,7 @@ response:
 	// …and a completely separate one — a different replica, or this one after a
 	// restart — can call it, because the manifest is in the database rather than
 	// in the first service's memory.
-	afterRestart := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.StormConn(db)))
+	afterRestart := serviceimpl.NewConnectorService(repositories.NewRepository(db))
 	outputs, err := afterRestart.ExecuteConnector(ctx, "crm.create-lead", nil, map[string]any{"name": "Rex"})
 	if err != nil {
 		t.Fatalf("execute after restart: %v", err)
@@ -441,14 +440,13 @@ func TestABrokenManifestIsRefusedAtInstall(t *testing.T) {
 }
 
 var _ = errors.Is
-var _ = gorm.ErrRecordNotFound
 
 // A document that is not a connector is the sender's mistake, and a 400 says
 // so. It was a 500: that pages somebody over a typo, and spends the error
 // budget the engine's own failures are measured against.
 func TestADocumentThatIsNotAConnectorIsTheSendersMistake(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	svc := serviceimpl.NewConnectorService(repositories.NewRepository(testutils.StormConn(db)))
+	svc := serviceimpl.NewConnectorService(repositories.NewRepository(db))
 	ctx := t.Context()
 
 	for name, install := range map[string]func() error{

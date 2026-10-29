@@ -13,16 +13,16 @@ type BroadcastEventModel struct {
 	// A database-assigned sequence rather than a UUID: readers poll for "what
 	// is newer than what I have already delivered", which needs an ordering the
 	// database agrees on.
-	ID int64 `gorm:"primaryKey;autoIncrement"`
+	ID int64
 
 	// Origin is the replica that produced the event. A replica delivers its own
 	// events to its own clients immediately, so it skips its own rows here
 	// rather than delivering them twice.
-	Origin string `gorm:"size:64;not null;index:ix_broadcast_events_origin_id,priority:2"`
+	Origin string
 
 	// Payload is the already-encoded SSE `data:` body. Encoding once at the
 	// producer keeps this table indifferent to what an event contains.
-	Payload string `gorm:"type:text;not null"`
+	Payload string
 
 	// OrganizationID and EnvironmentID are who the event is for.
 	//
@@ -35,11 +35,11 @@ type BroadcastEventModel struct {
 	// Nullable so rows written before this column existed still read; they are
 	// dropped on delivery rather than broadcast, because an event whose
 	// audience is unknown has no safe audience.
-	OrganizationID *UUID `gorm:"index:ix_broadcast_events_org"`
+	OrganizationID *UUID
 	EnvironmentID  *UUID `json:"environment_id,omitzero"`
 
 	// CreatedAt is only for pruning. Delivery ordering is ID.
-	CreatedAt time.Time `gorm:"not null;index:ix_broadcast_events_created_at"`
+	CreatedAt time.Time
 }
 
 func (BroadcastEventModel) TableName() string {

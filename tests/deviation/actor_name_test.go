@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/user"
 )
 
 // actorOfRow is what the read route says about who made a row, and the account
@@ -25,13 +26,10 @@ func (h *deviationHarness) actorsOf(t *testing.T, token string, instanceID uuid.
 	}
 	out := make([]actorOfRow, 0, len(reply.Deviations))
 	for _, row := range reply.Deviations {
-		var stored *uuid.UUID
-		if err := h.db.Raw(`SELECT actor_id FROM instance_deviations WHERE id = ?`, row["id"]).Row().Scan(&stored); err != nil {
-			t.Fatalf("read the row's account id: %v", err)
-		}
+		stored := h.ledgerRow(t, uuid.MustParse(row["id"].(string)))
 		found := actorOfRow{kind: row["kind"].(string), actor: row["actor"], actorIsServer: row["actor_is_server"]}
-		if stored != nil {
-			found.stored = *stored
+		if stored.ActorID.Valid {
+			found.stored = stored.ActorID.V
 		}
 		out = append(out, found)
 	}
@@ -40,11 +38,11 @@ func (h *deviationHarness) actorsOf(t *testing.T, token string, instanceID uuid.
 
 func (h *deviationHarness) accountID(t *testing.T, username string) uuid.UUID {
 	t.Helper()
-	var id uuid.UUID
-	if err := h.db.Raw(`SELECT id FROM users WHERE username = ?`, username).Row().Scan(&id); err != nil {
-		t.Fatalf("read the account %q: %v", username, err)
+	account, found, err := user.New().UsernameEq(username).One(t.Context(), h.ex())
+	if err != nil || !found {
+		t.Fatalf("read the account %q: %v (found=%v)", username, err, found)
 	}
-	return id
+	return account.ID
 }
 
 // TestAnAccountWhoseNameHasASpaceAtItsEndIsRecordedAsItselfAndNotAsTheServer.

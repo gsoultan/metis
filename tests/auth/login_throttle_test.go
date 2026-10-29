@@ -26,7 +26,7 @@ import (
 // changing source is exactly what a stuffing campaign does.
 func TestLogin_SlowsRepeatedFailuresForOneAccount(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := serviceimpl.NewUserService(repo, "test-jwt-secret")
 	ctx := t.Context()
 
@@ -60,7 +60,7 @@ func TestLogin_SlowsRepeatedFailuresForOneAccount(t *testing.T) {
 // The correct password has to work even while the account is being guessed at.
 func TestLogin_ThrottlingIsNotALockout(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := serviceimpl.NewUserService(repo, "test-jwt-secret")
 	ctx := t.Context()
 
@@ -87,7 +87,7 @@ func TestLogin_ThrottlingIsNotALockout(t *testing.T) {
 // sign-in for everybody.
 func TestLogin_ThrottlingIsPerAccount(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := serviceimpl.NewUserService(repo, "test-jwt-secret")
 	ctx := t.Context()
 
@@ -109,7 +109,7 @@ func TestLogin_ThrottlingIsPerAccount(t *testing.T) {
 // already goes to some trouble to prevent.
 func TestLogin_CountsFailuresForAccountsThatDoNotExist(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := serviceimpl.NewUserService(repo, "test-jwt-secret")
 	ctx := t.Context()
 

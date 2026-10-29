@@ -12,7 +12,9 @@ import (
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store"
 	"github.com/gsoultan/metis/server/repositories/store/externaltask"
+	"github.com/gsoultan/metis/server/repositories/store/incident"
 	"github.com/gsoultan/storm/runtime"
 )
 
@@ -318,13 +320,13 @@ func (r *externalTaskRepository) ReofferStranded(ctx context.Context) (int64, er
 	if err != nil {
 		return 0, err
 	}
-	reoffered, err := ex.Exec(ctx, `
-		UPDATE external_tasks AS t SET retries = 1, updated_at = $1
-		WHERE t.retries <= 0
-		  AND NOT EXISTS (
-		    SELECT 1 FROM incidents AS i
-		    WHERE i.instance_id = t.instance_id AND i.node_id = t.node_id AND i.status = $2)`,
-		[]any{time.Now().UTC(), string(models.IncidentOpen)})
+	var reoffer externaltask.Mut
+	reoffer.SetRetries(1)
+	reoffer.SetUpdatedAt(time.Now().UTC())
+	reoffered, err := store.ExternalTaskNotHavingStepIncidents(
+		externaltask.New().Where(externaltask.Retries.Lte(0)),
+		incident.Status.Eq(string(models.IncidentOpen)),
+	).UpdateAll(ctx, ex, reoffer)
 	if err != nil {
 		return 0, fmt.Errorf("could not re-offer stranded external tasks: %w", err)
 	}

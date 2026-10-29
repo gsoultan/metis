@@ -11,7 +11,9 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/externaltask"
 	"github.com/gsoultan/metis/server/repositories/store/externaltaskworker"
+	"github.com/gsoultan/metis/server/repositories/store/project"
 )
 
 type externalTaskWorkerRepository struct{ conn }
@@ -31,15 +33,8 @@ const workerSeenEvery = 10 * time.Second
 // reads. An organization with more is answered from its most recently seen.
 const workersListed = 1_000
 
-// seenWorker writes a worker's row, or brings it up to date when the one
-// there is older than workerSeenEvery or says another version.
-const seenWorker = `INSERT INTO external_task_workers (organization_id, topic, worker_id, version, last_seen_at)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (organization_id, topic, worker_id) DO UPDATE
-SET last_seen_at = EXCLUDED.last_seen_at, version = EXCLUDED.version, updated_at = EXCLUDED.last_seen_at
-WHERE external_task_workers.last_seen_at < $6
-   OR external_task_workers.version IS DISTINCT FROM EXCLUDED.version`
-
+// Seen writes a worker's row, or brings it up to date when the one there is
+// older than workerSeenEvery or says another version.
 func (r *externalTaskWorkerRepository) Seen(ctx context.Context, topic, workerID, version string, at time.Time) error {
 	scope, err := r.scopeOf(ctx)
 	if err != nil {
@@ -52,30 +47,29 @@ func (r *externalTaskWorkerRepository) Seen(ctx context.Context, topic, workerID
 	if err != nil {
 		return err
 	}
-	var said any
-	if version != "" {
-		said = version
-	}
 	at = at.UTC()
-	if _, err := ex.Exec(ctx, seenWorker, []any{scope.organization, topic, workerID, said, at, at.Add(-workerSeenEvery)}); err != nil {
+	n := externaltaskworker.Create()
+	n.SetOrganizationID(scope.organization)
+	n.SetTopic(topic)
+	n.SetWorkerID(workerID)
+	n.SetLastSeenAt(at)
+	n.SetUpdatedAt(at)
+	// The row says another version than the worker: a different one, none
+	// where the worker gives one, or one where it gives none.
+	changed := []externaltaskworker.Pred{externaltaskworker.Version.IsNotNull()}
+	if version != "" {
+		n.SetVersion(version)
+		changed = []externaltaskworker.Pred{externaltaskworker.Version.IsNull(), externaltaskworker.Version.NotEq(version)}
+	} else {
+		n.SetVersionNull()
+	}
+	n.OnConflictOrganizationIDTopicWorkerID()
+	stale := externaltaskworker.New().Any(append(changed, externaltaskworker.LastSeenAt.Lt(at.Add(-workerSeenEvery)))...)
+	if _, err := n.UpsertWhere(ctx, ex, stale); err != nil {
 		return fmt.Errorf("could not record the worker: %w", err)
 	}
 	return nil
 }
-
-// openTasksByWorker counts the open tasks of a set of projects by topic and by
-// the worker holding them: those on offer under no worker, those locked under
-// the worker that holds them. A task waiting out a retry, or with no tries
-// left, is neither. Only open tasks are in the table, since completing one
-// deletes it, so the statement reads little.
-const openTasksByWorker = `SELECT topic, CASE WHEN lock_expiration > $1 THEN worker_id END AS holder,
-       count(*) FILTER (WHERE (lock_expiration IS NULL OR lock_expiration <= $1) AND retries > 0) AS waiting,
-       count(*) FILTER (WHERE lock_expiration > $1 AND worker_id IS NOT NULL) AS locked
-FROM external_tasks
-WHERE deleted_at IS NULL AND project_id = ANY($2)
-GROUP BY 1, 2
-ORDER BY 1, 2
-LIMIT $3`
 
 func (r *externalTaskWorkerRepository) Topics(ctx context.Context, now time.Time) ([]entities.ExternalTaskTopic, error) {
 	scope, err := r.scopeOf(ctx)
@@ -110,7 +104,7 @@ func (r *externalTaskWorkerRepository) Topics(ctx context.Context, now time.Time
 	}
 	// By index, not by pointer: a holder appended below can move a topic's
 	// workers to a new array.
-	held := map[[2]string]int{}
+	heldBy := map[[2]string]int{}
 	for _, row := range workers {
 		seen := row.LastSeenAt
 		topic := topicOf(row.Topic)
@@ -123,46 +117,46 @@ func (r *externalTaskWorkerRepository) Topics(ctx context.Context, now time.Time
 	}
 	for _, topic := range topics {
 		for i := range topic.Workers {
-			held[[2]string{topic.Topic, topic.Workers[i].WorkerID}] = i
+			heldBy[[2]string{topic.Topic, topic.Workers[i].WorkerID}] = i
 		}
 	}
 
+	// The open tasks of the scope's projects: those on offer under no worker,
+	// and those locked under the worker that holds them. A task waiting out a
+	// retry, or with no tries left, is neither. Only open tasks are in the
+	// table, since completing one deletes it, so both reads are small.
 	if len(scope.projects) > 0 {
-		rows, err := ex.Query(ctx, openTasksByWorker, []any{now, uuidsToRaw(scope.projects), int64(workersListed)})
+		projects := externaltask.ProjectID.In(uuidsToRaw(scope.projects)...)
+		waiting, err := externaltask.New().
+			Where(projects, externaltask.Retries.Gt(0)).
+			Any(externaltask.LockExpiration.IsNull(), externaltask.LockExpiration.Lte(now)).
+			Limit(workersListed).
+			AllWaitingByTopic(ctx, ex)
 		if err != nil {
 			return nil, fmt.Errorf("could not count the open external tasks: %w", err)
 		}
-		defer rows.Close()
-		for rows.Next() {
-			values := rows.RawValues()
-			if len(values) < 4 {
-				return nil, fmt.Errorf("could not count the open external tasks: %d columns", len(values))
-			}
-			var waiting, locked int64
-			if err := scanInt(values[2:3], &waiting); err != nil {
-				return nil, err
-			}
-			if err := scanInt(values[3:4], &locked); err != nil {
-				return nil, err
-			}
-			topic := topicOf(string(values[0]))
-			topic.Waiting += waiting
-			topic.Locked += locked
-			if values[1] == nil || locked == 0 {
-				continue
-			}
-			holder := string(values[1])
-			if i, ok := held[[2]string{topic.Topic, holder}]; ok {
-				topic.Workers[i].Locked += locked
+		for _, row := range waiting {
+			topicOf(row.Topic).Waiting += row.Total
+		}
+		held, err := externaltask.New().
+			Where(projects, externaltask.LockExpiration.Gt(now), externaltask.WorkerID.IsNotNull()).
+			Limit(workersListed).
+			AllHeldByWorker(ctx, ex)
+		if err != nil {
+			return nil, fmt.Errorf("could not count the open external tasks: %w", err)
+		}
+		for _, row := range held {
+			topic := topicOf(row.Topic)
+			topic.Locked += row.Total
+			holder := row.WorkerID.V
+			if i, ok := heldBy[[2]string{topic.Topic, holder}]; ok {
+				topic.Workers[i].Locked += row.Total
 				continue
 			}
 			// A lock taken before this worker was first recorded, or by a
 			// worker since forgotten: it is serving the topic now all the same.
-			held[[2]string{topic.Topic, holder}] = len(topic.Workers)
-			topic.Workers = append(topic.Workers, entities.ExternalTaskWorker{WorkerID: holder, Locked: locked})
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("could not count the open external tasks: %w", err)
+			heldBy[[2]string{topic.Topic, holder}] = len(topic.Workers)
+			topic.Workers = append(topic.Workers, entities.ExternalTaskWorker{WorkerID: holder, Locked: row.Total})
 		}
 	}
 
@@ -179,18 +173,11 @@ func (r *externalTaskWorkerRepository) Topics(ctx context.Context, now time.Time
 	return listed, nil
 }
 
-// unservedTopics counts the topics, by organization, with tasks on offer and
-// no worker heard from since $2. Projects are in every database: an
-// environment's has its own project's row, so the join holds there too.
-const unservedTopics = `SELECT count(*) FROM (
-  SELECT DISTINCT p.organization_id, t.topic
-  FROM external_tasks AS t JOIN projects AS p ON p.id = t.project_id
-  WHERE t.deleted_at IS NULL AND t.retries > 0 AND (t.lock_expiration IS NULL OR t.lock_expiration <= $1)
-) AS waiting
-WHERE NOT EXISTS (
-  SELECT 1 FROM external_task_workers AS w
-  WHERE w.organization_id = waiting.organization_id AND w.topic = waiting.topic AND w.last_seen_at > $2)`
-
+// CountUnserved counts the topics, by organization, with tasks on offer and
+// no worker heard from inside the live window. Three paged reads: the topics
+// on offer by project, the organization of each of those projects, and the
+// topics a live worker serves. Projects are in every database: an
+// environment's has its own project's row, so the lookup holds there too.
 func (r *externalTaskWorkerRepository) CountUnserved(ctx context.Context, now time.Time) (int64, error) {
 	if !entities.IsSystemContext(ctx) {
 		return 0, fmt.Errorf("%w: the topics nobody serves span every tenant", apierr.ErrForbidden)
@@ -200,21 +187,64 @@ func (r *externalTaskWorkerRepository) CountUnserved(ctx context.Context, now ti
 		return 0, err
 	}
 	now = now.UTC()
-	rows, err := ex.Query(ctx, unservedTopics, []any{now, now.Add(-entities.WorkerLiveWindow)})
+	waiting, err := everyGroup(func(offset int64) ([]externaltask.WaitingByProjectRow, error) {
+		return externaltask.New().
+			Where(externaltask.Retries.Gt(0)).
+			Any(externaltask.LockExpiration.IsNull(), externaltask.LockExpiration.Lte(now)).
+			Limit(everyRowBatch).Offset(offset).
+			AllWaitingByProject(ctx, ex)
+	})
 	if err != nil {
 		return 0, fmt.Errorf("could not count the topics nobody serves: %w", err)
 	}
-	defer rows.Close()
-	var unserved int64
-	if rows.Next() {
-		if err := scanInt(rows.RawValues(), &unserved); err != nil {
-			return 0, err
+	if len(waiting) == 0 {
+		return 0, nil
+	}
+	projectIDs := make([][16]byte, 0, len(waiting))
+	seen := make(map[[16]byte]bool, len(waiting))
+	for _, row := range waiting {
+		if !seen[row.ProjectID] {
+			seen[row.ProjectID] = true
+			projectIDs = append(projectIDs, row.ProjectID)
 		}
 	}
-	if err := rows.Err(); err != nil {
+	projects, err := everyRow[project.Row](ctx, ex, project.New().WithDeleted().Where(project.ID.In(projectIDs...)))
+	if err != nil {
 		return 0, fmt.Errorf("could not count the topics nobody serves: %w", err)
 	}
-	return unserved, nil
+	organizationOf := make(map[[16]byte][16]byte, len(projects))
+	for _, p := range projects {
+		organizationOf[p.ID] = p.OrganizationID
+	}
+	served, err := everyGroup(func(offset int64) ([]externaltaskworker.ServedRow, error) {
+		return externaltaskworker.New().
+			Where(externaltaskworker.LastSeenAt.Gt(now.Add(-entities.WorkerLiveWindow))).
+			Limit(everyRowBatch).Offset(offset).
+			AllServed(ctx, ex)
+	})
+	if err != nil {
+		return 0, fmt.Errorf("could not count the topics nobody serves: %w", err)
+	}
+	type orgTopic struct {
+		organization [16]byte
+		topic        string
+	}
+	live := make(map[orgTopic]bool, len(served))
+	for _, row := range served {
+		live[orgTopic{row.OrganizationID, row.Topic}] = true
+	}
+	unserved := make(map[orgTopic]bool)
+	for _, row := range waiting {
+		organization, ok := organizationOf[row.ProjectID]
+		if !ok {
+			continue
+		}
+		key := orgTopic{organization, row.Topic}
+		if !live[key] {
+			unserved[key] = true
+		}
+	}
+	return int64(len(unserved)), nil
 }
 
 func (r *externalTaskWorkerRepository) ForgetIdle(ctx context.Context, before time.Time) (int64, error) {
@@ -225,9 +255,10 @@ func (r *externalTaskWorkerRepository) ForgetIdle(ctx context.Context, before ti
 	if err != nil {
 		return 0, err
 	}
-	removed, err := db.DeleteInBatches(ctx, ex,
-		`DELETE FROM external_task_workers WHERE id = ANY(ARRAY(
-		     SELECT id FROM external_task_workers WHERE last_seen_at < $1 LIMIT $2))`, before.UTC())
+	idle := externaltaskworker.New().Where(externaltaskworker.LastSeenAt.Lt(before.UTC()))
+	removed, err := db.PruneInBatches(ctx, func(limit int64) (int64, error) {
+		return idle.Limit(limit).DeleteBatch(ctx, ex)
+	})
 	if err != nil {
 		return removed, fmt.Errorf("could not forget idle workers: %w", err)
 	}

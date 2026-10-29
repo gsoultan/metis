@@ -2,12 +2,15 @@ package deviation_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
 	"slices"
 	"testing"
 	"time"
+
+	projectstore "github.com/gsoultan/metis/server/repositories/store/project"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -107,9 +110,7 @@ func (h *deviationHarness) requestOfShape(t *testing.T, instanceID uuid.UUID, sh
 		request = moved
 	}
 	if shape.undated {
-		if err := h.db.Exec(`UPDATE deviation_requests SET decided_at = NULL WHERE id = ?`, request.ID).Error; err != nil {
-			t.Fatalf("%s: take the time of the approval away: %v", shape.name, err)
-		}
+		h.rewriteRequest(t, request.ID, func(m *deviationrequest.Mut) { m.SetDecidedAtNull() })
 		request = h.mustGetRequest(t, request.ID)
 	}
 	if request.Status != shape.stored || request.EffectiveStatus(now) != shape.readsAs {
@@ -456,7 +457,7 @@ func TestTheSweepReachesARequestWhoseProjectWasDeleted(t *testing.T) {
 	// Soft-deleted by SQL: the state deleting a project leaves in its row,
 	// written here without the service, which would refuse or cascade for
 	// reasons that are not this test's.
-	if err := h.db.Exec(`UPDATE projects SET deleted_at = now() WHERE id = ?`, h.projID).Error; err != nil {
+	if err := projectstore.Delete(t.Context(), h.ex(), h.projID); err != nil {
 		t.Fatalf("delete the project: %v", err)
 	}
 	if _, err := h.repo.DeviationRequest().Get(h.tenantContext(), overdue.ID); !errors.Is(err, apierr.ErrNotFound) {
@@ -509,10 +510,15 @@ func TestTheSweepReachesARequestWhoseProjectWasDeleted(t *testing.T) {
 // writes one; a key that was lost or a row restored from somewhere else would.
 func (h *deviationHarness) breakThePlanOf(t *testing.T, id uuid.UUID) {
 	t.Helper()
-	if err := h.db.Exec(`UPDATE deviation_requests
-		SET plan = to_jsonb(left(plan #>> '{}', length(plan #>> '{}') - 8) || 'AAAAAAAA') WHERE id = ?`, id).Error; err != nil {
+	var sealed string
+	if err := json.Unmarshal(h.requestRow(t, id).Plan, &sealed); err != nil {
+		t.Fatalf("read the sealed plan: %v", err)
+	}
+	broken, err := json.Marshal(sealed[:len(sealed)-8] + "AAAAAAAA")
+	if err != nil {
 		t.Fatalf("break the plan: %v", err)
 	}
+	h.rewriteRequest(t, id, func(m *deviationrequest.Mut) { m.SetPlan(broken) })
 	if _, err := h.repo.DeviationRequest().Get(h.tenantContext(), id); !isTheWritersMistake(err) {
 		t.Fatalf("a request whose plan was overwritten still reads whole (%v); the fixture broke nothing", err)
 	}

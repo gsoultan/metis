@@ -18,7 +18,7 @@ type environmentContextKey struct{}
 //
 // Everything downstream reads it through the repository layer: a query made
 // under this context runs against that environment's database. See
-// gorms.ResolveDBFor.
+// db.Conn.Executor.
 func WithEnvironment(ctx context.Context, environmentID uuid.UUID) context.Context {
 	return context.WithValue(ctx, environmentContextKey{}, environmentID)
 }

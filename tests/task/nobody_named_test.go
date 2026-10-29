@@ -14,7 +14,9 @@ import (
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
 	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // A task nobody was named for — no assignee, no candidate users, no candidate
@@ -294,12 +296,12 @@ func TestTheInboxOffersATaskNobodyWasNamedForOnlyToThoseWhoMayTakeIt(t *testing.
 		CandidateUsers: []*entities.User{{Username: "mallory"}},
 	})
 	// A row written some other way than by this server can hold its empty
-	// lists as NULL or as the JSON null rather than []. It names nobody all
-	// the same.
+	// lists as the JSON null rather than []. It names nobody all the same.
 	stored := h.openTask(t, nobodyNamed[0])
-	if err := h.db.Exec(`UPDATE tasks SET candidate_users = NULL, candidate_groups = 'null' WHERE id = ?`, stored).Error; err != nil {
-		t.Fatalf("store the candidate lists as NULL: %v", err)
-	}
+	h.rewrite(t, stored, func(m *taskstore.Mut) {
+		m.SetCandidateUsers(runtime.JSON("null"))
+		m.SetCandidateGroups(runtime.JSON("null"))
+	})
 	unnamed = append(unnamed, stored)
 
 	mallorys := h.availableToClaim(t, "mallory")

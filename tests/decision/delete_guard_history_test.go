@@ -2,9 +2,14 @@ package decision_test
 
 import (
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/processdefinition"
+	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // finishedBehind is the store's default limit on one read: storm starts every
@@ -78,10 +83,16 @@ func TestADecisionAnOldVersionStillConsultsCannotBeDeleted(t *testing.T) {
 	stored := h.decisionByKey(t, table.Key)
 
 	// Newer versions of an unrelated process, deployed after the one above.
-	if err := h.db.WithContext(h.ctx).Exec(`
-		INSERT INTO process_definitions (id, created_at, updated_at, project_id, key, name, version, nodes, flows)
-		SELECT gen_random_uuid(), now() + interval '1 minute', now() + interval '1 minute', ?, 'unrelated', 'Unrelated', n, '[]', '[]'
-		  FROM generate_series(1, ?) AS n`, h.projectID, finishedBehind).Error; err != nil {
+	later := time.Now().Add(time.Minute)
+	newer := make([]processdefinition.Row, finishedBehind)
+	for n := range newer {
+		newer[n] = processdefinition.Row{
+			ID: uuid.Must(uuid.NewV7()), CreatedAt: later, UpdatedAt: later, ProjectID: h.projectID,
+			Key: "unrelated", Name: "Unrelated", Version: int64(n + 1),
+			Nodes: runtime.JSON("[]"), Flows: runtime.JSON("[]"),
+		}
+	}
+	if _, err := processdefinition.InsertAll(h.ctx, testutils.Executor(h.db), newer); err != nil {
 		t.Fatalf("seed newer versions: %v", err)
 	}
 

@@ -11,6 +11,7 @@ import (
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/store/instancedeviation"
 )
 
 type deviationsReply struct {
@@ -116,8 +117,8 @@ func TestTheReadRouteReturnsNoAccountIds(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("record: %v", err)
 	}
-	var stored int64
-	if err := h.db.Raw(`SELECT count(*) FROM instance_deviations WHERE actor_id = ?`, account).Scan(&stored).Error; err != nil || stored != 1 {
+	stored, err := instancedeviation.New().ActorIDEq(account).Count(t.Context(), h.ex())
+	if err != nil || stored != 1 {
 		t.Fatalf("the row does not keep the account id (%d, %v); this test would prove nothing", stored, err)
 	}
 	_, _, body := h.readDeviations(t, h.signIn(t, "member", entities.RoleUser), instanceID.String())

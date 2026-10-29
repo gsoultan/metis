@@ -4,50 +4,14 @@ import (
 	"database/sql/driver"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
-	"gorm.io/gorm/schema"
 )
 
-// UUID is uuid.UUID carrying a database column type that every supported engine
-// understands.
-//
-// The models used to pin these columns with `gorm:"type:uuid"`. PostgreSQL and
-// SQLite accept that; MySQL has no uuid type, so AutoMigrate failed on the first
-// table and the server could not start against MySQL at all — even though MySQL
-// is offered in the config and the setup wizard. Nothing caught it because every
-// test ran on SQLite.
-//
-// GORM asks the field's type for its column type before falling back to the
-// `type:` tag, so putting the decision here keeps it with the data rather than
-// repeated across 30-odd struct tags. PostgreSQL and SQLite still get `uuid`, so
-// existing deployments see no schema change.
+// UUID is uuid.UUID as the models carry it: written as its canonical string,
+// and marshalled to JSON as one.
 type UUID uuid.UUID
 
 // NilUUID is the zero value, matching uuid.Nil.
 var NilUUID = UUID(uuid.Nil)
-
-// GormDBDataType gives each dialect a column type it actually has.
-func (u UUID) GormDBDataType(db *gorm.DB, _ *schema.Field) string {
-	if db == nil || db.Dialector == nil {
-		return "uuid"
-	}
-	switch db.Name() {
-	case "mysql", "sqlserver":
-		// Neither has a uuid type. char(36) holds the canonical hyphenated form
-		// that Value below writes, and compares as a fixed-width string.
-		//
-		// SQL Server does have uniqueidentifier, and it is deliberately not used
-		// here: it stores the first three groups little-endian, so the bytes it
-		// hands back are not the bytes that went in unless every reader agrees
-		// on the swap. Value writes text and Scan reads text, so char(36) keeps
-		// the question from arising at all — and it is the same column MySQL has
-		// been running on.
-		return "char(36)"
-	default:
-		// postgres, sqlite and anything else that understood the previous tag.
-		return "uuid"
-	}
-}
 
 // Value writes the canonical string form, exactly as uuid.UUID did before.
 func (u UUID) Value() (driver.Value, error) {

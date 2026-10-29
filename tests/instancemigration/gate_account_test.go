@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
 )
 
 // The gate admits a run under an approved request on the account that asked,
@@ -33,7 +35,7 @@ func TestTheGateAdmitsAnApprovedRunOnTheRequestersAccountNotTheName(t *testing.T
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
 			_, v1, v2, requestID := f.askToSkipOps(t)
-			f.leftApproved(t, requestID, "1 minute")
+			f.leftApproved(t, requestID, time.Minute)
 			under := append(slices.Clip(skipOps("the role was eliminated")), naming...)
 			under = append(under, servicecontracts.WithApprovedRequest(requestID))
 			for range 2 {
@@ -57,10 +59,8 @@ func TestTheGateAdmitsAnApprovedRunOnTheRequestersAccountNotTheName(t *testing.T
 	t.Run("a request with no account behind it", func(t *testing.T) {
 		f := newFixture(t)
 		_, v1, v2, requestID := f.askToSkipOps(t)
-		f.leftApproved(t, requestID, "1 minute")
-		if err := f.db.Exec(`UPDATE deviation_requests SET requested_by_id = ? WHERE id = ?`, uuid.Nil, requestID).Error; err != nil {
-			t.Fatalf("take the account off the request: %v", err)
-		}
+		f.leftApproved(t, requestID, time.Minute)
+		f.rewriteRequest(t, requestID, func(m *deviationrequest.Mut) { m.SetRequestedByID(uuid.Nil) })
 		for name, naming := range map[string][]servicecontracts.MigrationOption{
 			"no account":             nil,
 			"the nil account":        {servicecontracts.WithActorAccount(uuid.Nil)},
@@ -81,7 +81,7 @@ func TestTheGateAdmitsAnApprovedRunOnTheRequestersAccountNotTheName(t *testing.T
 	t.Run("the requester's account", func(t *testing.T) {
 		f := newFixture(t)
 		_, v1, v2, requestID := f.askToSkipOps(t)
-		f.leftApproved(t, requestID, "1 minute")
+		f.leftApproved(t, requestID, time.Minute)
 		under := append(slices.Clip(skipOps("the role was eliminated")), asDita(), servicecontracts.WithApprovedRequest(requestID))
 		result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, under...)
 		if err != nil || result.Changed != 1 {
@@ -95,7 +95,7 @@ func TestTheGateAdmitsAnApprovedRunOnTheRequestersAccountNotTheName(t *testing.T
 	t.Run("the requester's account under another name", func(t *testing.T) {
 		f := newFixture(t)
 		_, v1, v2, requestID := f.askToSkipOps(t)
-		f.leftApproved(t, requestID, "1 minute")
+		f.leftApproved(t, requestID, time.Minute)
 		under := append(slices.Clip(skipOps("the role was eliminated")), servicecontracts.WithActor("dita.renamed"),
 			asDita(), servicecontracts.WithApprovedRequest(requestID))
 		result, err := f.svc.ApplyInstanceMigration(f.ctx, v1, v2, nil, under...)

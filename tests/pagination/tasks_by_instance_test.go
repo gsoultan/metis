@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/task"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -38,11 +39,12 @@ func seedTasksForInstance(t *testing.T, repo repositories.Repository, ctx contex
 
 func TestListByInstancePaged_WindowsAndCountsOneInstance(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
-	wanted := uuid.Must(uuid.NewV7())
-	other := uuid.Must(uuid.NewV7())
+	process := testutils.ProcessIn(t, repo, ctx, projectID)
+	wanted := process.Instance
+	other := process.Another(t, repo, models.ProcessActive)
 
 	seedTasksForInstance(t, repo, ctx, projectID, wanted, 73)
 	// A second instance in the same project: the filter has to be the instance,
@@ -76,10 +78,10 @@ func TestListByInstancePaged_WindowsAndCountsOneInstance(t *testing.T) {
 // human step — and must not be a failure or somebody else's rows.
 func TestListByInstancePaged_UnknownInstanceIsEmpty(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
-	seedTasksForInstance(t, repo, ctx, projectID, uuid.Must(uuid.NewV7()), 5)
+	seedTasksForInstance(t, repo, ctx, projectID, testutils.ProcessIn(t, repo, ctx, projectID).Instance, 5)
 
 	page, err := repo.Task().ListByInstancePaged(ctx, uuid.Must(uuid.NewV7()), contracts.Pagination{Page: 1, PageSize: 25})
 	if err != nil {

@@ -3,10 +3,11 @@ package impl
 import (
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -25,7 +26,7 @@ func TestCreateIncidentRedactsTheStoredError(t *testing.T) {
 	secret := "sk-live-" + strings.Repeat("a1b2c3d4", 3)
 
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	service := &jobService{repo: repo}
 	// System work: this exercises the repository's incident write and the
 	// redaction of its error text, against ids that belong to no project. It
@@ -33,9 +34,17 @@ func TestCreateIncidentRedactsTheStoredError(t *testing.T) {
 	// the scope failing open.
 	ctx := entities.WithSystemContext(t.Context())
 
-	instanceID, definitionID := uuid.New(), uuid.New()
+	process := testutils.SeedProcess(t, repo)
+	instanceID, definitionID := process.Instance, process.Definition
+	jobID, err := repo.Job().Create(ctx, models.JobModel{
+		InstanceID: models.FromUUID(instanceID), DefinitionID: models.FromUUID(definitionID),
+		NodeID: "charge", Type: models.JobServiceTask, Status: models.JobFailed, NextRunAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("seed the job: %v", err)
+	}
 	job := &entities.Job{
-		ID:         uuid.New(),
+		ID:         jobID,
 		Instance:   &entities.ProcessInstance{ID: instanceID},
 		Definition: &entities.ProcessDefinition{ID: definitionID},
 		Node:       &entities.Node{ID: "charge"},

@@ -7,28 +7,18 @@ import (
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
-// GORM connects only to migrate.
+// Migrating at boot goes through the pool that serves every request, and a
+// database already at the baseline is left as it is.
 //
-// Its pool stayed open for the life of the process after the migrations, read
-// by nothing but the readiness ping and a metrics collector, and held a second
-// set of server sessions beside the storm pool that serves every request.
-func TestTheMigrationPoolIsClosedOnceTheMigrationsFinish(t *testing.T) {
-	gormDB, conn := testutils.SetupTestStore(t)
-	sqlDB, err := gormDB.DB()
-	if err != nil {
-		t.Fatalf("reach the GORM pool: %v", err)
-	}
-	a := &App{db: gormDB, storm: conn, repo: repositories.NewRepository(conn)}
+// There used to be a second pool here, GORM's, opened to migrate and closed
+// after. There is one now, so the thing to prove is that migrating does not
+// take it away.
+func TestMigratingAtBootKeepsTheServingPool(t *testing.T) {
+	conn := testutils.SetupTestDB(t)
+	a := &App{storm: conn, repo: repositories.NewRepository(conn)}
 
-	if err := a.migrate(); err != nil {
+	if err := a.migrate(t.Context()); err != nil {
 		t.Fatalf("migrate: %v", err)
-	}
-
-	if a.db != nil {
-		t.Error("the app still holds the GORM handle after migrating")
-	}
-	if err := sqlDB.PingContext(t.Context()); err == nil {
-		t.Error("the GORM pool still answers after the migrations; it should have been closed")
 	}
 	if err := conn.Main().Ping(t.Context()); err != nil {
 		t.Errorf("the storm pool must stay open: %v", err)

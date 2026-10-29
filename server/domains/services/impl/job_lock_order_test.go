@@ -70,11 +70,14 @@ func (l *countingLocker) Release(_ context.Context, key string) error {
 func seedPendingJob(t *testing.T, repo repositories.Repository) uuid.UUID {
 	t.Helper()
 	id := uuid.Must(uuid.NewV7())
+	process := testutils.SeedProcess(t, repo)
 	job := models.JobModel{
-		Base:      models.Base{ID: models.FromUUID(id)},
-		Type:      models.JobTimer,
-		Status:    models.JobPending,
-		NextRunAt: time.Now().Add(-time.Minute),
+		Base:         models.Base{ID: models.FromUUID(id)},
+		InstanceID:   models.FromUUID(process.Instance),
+		DefinitionID: models.FromUUID(process.Definition),
+		Type:         models.JobTimer,
+		Status:       models.JobPending,
+		NextRunAt:    time.Now().Add(-time.Minute),
 	}
 	created, err := repo.Job().Create(t.Context(), job)
 	if err != nil {

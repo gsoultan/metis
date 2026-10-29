@@ -22,7 +22,7 @@ import (
 // list of accounts known to exist here.
 func TestLogin_DoesNotRevealWhetherTheAccountExists(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := serviceimpl.NewUserService(repo, "test-jwt-secret")
 	ctx := t.Context()
 
@@ -56,7 +56,7 @@ func TestLogin_DoesNotRevealWhetherTheAccountExists(t *testing.T) {
 
 func TestLogin_SucceedsWithTheCorrectPassword(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := serviceimpl.NewUserService(repo, "test-jwt-secret")
 	ctx := t.Context()
 

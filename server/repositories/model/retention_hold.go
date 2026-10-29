@@ -29,6 +29,8 @@ type RetentionHold struct {
 
 func (h *RetentionHold) Schema(t *storm.Table) {
 	t.Name("retention_holds")
+	// The retention sweep locks the holds for each batch (LockTables).
+	t.Lockable()
 	t.Col(&h.Instance).AcknowledgeNoFK("placing a hold must not wait on the lock a completing instance holds")
 	t.Col(&h.PlacedBy).Size(255)
 	t.Col(&h.PlacedByUser).Named("placed_by_id").NoIndex().AcknowledgeNoFK("a hold outlives the account that placed it")

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // Rulings §6: nobody decides a request that has expired, one that no longer
@@ -152,10 +153,7 @@ func (h *deviationHarness) requireOnlyTheClosing(t *testing.T, before map[string
 	if !slices.Equal(changed, []string{"audit_logs", "deviation_requests", "instance_deviations"}) {
 		t.Fatalf("%s changed %v, want the request, its ledger row and one trail entry", after, changed)
 	}
-	var entries int
-	if err := h.db.Raw(`SELECT count(*) FROM audit_logs`).Row().Scan(&entries); err != nil {
-		t.Fatalf("count the trail: %v", err)
-	}
+	entries := testutils.RowsIn(t, h.db, "audit_logs")
 	if was := strings.SplitN(before["audit_logs"], " ", 2)[0]; fmt.Sprint(entries-1) != was {
 		t.Fatalf("%s left %d trail entries where there were %s, want one more", after, entries, was)
 	}
