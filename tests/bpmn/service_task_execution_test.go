@@ -209,7 +209,7 @@ func newServiceTaskHarness(t *testing.T) *serviceTaskHarness {
 		serviceimpl.WithJobService(jobSvc),
 	)
 
-	org, err := serviceimpl.NewOrganizationService(repo).CreateOrganization(ctx, "Acme", "")
+	org, err := serviceimpl.NewOrganizationService(repo, nil).CreateOrganization(ctx, "Acme", "")
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}

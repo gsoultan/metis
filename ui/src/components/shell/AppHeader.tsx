@@ -22,6 +22,7 @@ import {
   Sun,
   User,
 } from 'lucide-react';
+import { processService } from '../../services/api';
 import { useAppStore } from '../../store/useAppStore';
 import { NotificationCenter } from '../NotificationCenter';
 import classes from './AppHeader.module.css';
@@ -75,7 +76,11 @@ export function AppHeader({
   const navigate = useNavigate();
   // Signing out stayed on the page, still showing the last person's data and
   // still receiving their live events until the next navigation.
+  // The server is told first so the token stops working everywhere; the
+  // request has read the token before it is cleared, and the browser signs out
+  // whether or not the server answers.
   const signOut = () => {
+    void processService.signOut().catch(() => undefined);
     clearAuth();
     void navigate({ to: '/login' });
   };

@@ -39,7 +39,7 @@ func releaseFixture(t *testing.T) (services.ServiceFacade, uuid.UUID, context.Co
 	)
 
 	svc := services.NewService(services.ServiceParams{
-		OrganizationService: serviceimpl.NewOrganizationService(repo),
+		OrganizationService: serviceimpl.NewOrganizationService(repo, nil),
 		ProjectService:      serviceimpl.NewProjectService(repo),
 		DefinitionService:   serviceimpl.NewDefinitionService(repo),
 		TaskService:         taskSvc,

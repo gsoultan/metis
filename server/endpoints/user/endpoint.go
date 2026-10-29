@@ -34,6 +34,9 @@ type Endpoints struct {
 
 	// ResetUserPassword sets the password of an account the caller administers.
 	ResetUserPassword endpoint.Endpoint
+
+	// SignOut ends every session of the caller's own account.
+	SignOut endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -53,6 +56,8 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		SetOrganizationRoles: MakeSetOrganizationRolesEndpoint(s),
 
 		ResetUserPassword: MakeResetPasswordEndpoint(s),
+
+		SignOut: MakeSignOutEndpoint(s),
 	}
 }
 
@@ -225,4 +230,15 @@ func ownAccountID(ctx context.Context) (uuid.UUID, error) {
 		return id, nil
 	}
 	return uuid.Nil, pkgauth.ErrUnauthorized
+}
+
+// MakeSignOutEndpoint ends the caller's sessions. Whose comes from the
+// session, as for ChangePassword: there is nobody else's to name.
+func MakeSignOutEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		if _, ok := request.(SignOutRequest); !ok {
+			return nil, fmt.Errorf("user: expected a SignOutRequest, got %T", request)
+		}
+		return SignOutResponse{Err: s.SignOut(ctx)}, nil
+	}
 }

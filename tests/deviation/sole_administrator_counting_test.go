@@ -29,7 +29,7 @@ type candidate struct {
 	administers bool
 	// refused is what the approve route answers the account's own approval,
 	// sent for the organization under test, when it does not administer it:
-	// 401 for an account that is gone or does not belong, 403 for a member
+	// 401 for an account that is gone, 403 for one that does not belong or a member
 	// without the role.
 	refused int
 }
@@ -64,7 +64,7 @@ func TestWhoCountsAsAnotherAdministratorIsWhoCouldApprove(t *testing.T) {
 		{name: "an operator and designer here",
 			spec: enrolled{here: true, rolesHere: []string{entities.RoleOperator, entities.RoleDesigner}}, refused: http.StatusForbidden},
 		{name: "an administrator of another organization only, by a role held on the account",
-			spec: enrolled{global: admin, elsewhere: true}, refused: http.StatusUnauthorized},
+			spec: enrolled{global: admin, elsewhere: true}, refused: http.StatusForbidden},
 		{name: "a member here who administers another organization, by a role held there",
 			spec: enrolled{here: true, elsewhere: true, rolesElsewhere: admin}, refused: http.StatusForbidden},
 		{name: "an account whose role is ADMINISTRATOR, which is no role",
@@ -76,7 +76,7 @@ func TestWhoCountsAsAnotherAdministratorIsWhoCouldApprove(t *testing.T) {
 		{name: "a platform administrator who is a plain member here",
 			spec: enrolled{id: named, global: user, here: true}, platform: true, refused: http.StatusForbidden},
 		{name: "a platform administrator who does not belong here",
-			spec: enrolled{id: namedOutsider, global: admin, elsewhere: true}, platform: true, refused: http.StatusUnauthorized},
+			spec: enrolled{id: namedOutsider, global: admin, elsewhere: true}, platform: true, refused: http.StatusForbidden},
 	}
 	// The list is read when the server is put together.
 	var listed []string

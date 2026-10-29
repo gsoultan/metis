@@ -200,7 +200,7 @@ func buildBusinessRuleHarness(t *testing.T, audit servicecontracts.AuditWriter) 
 		serviceimpl.WithJobService(jobSvc),
 	)
 
-	org, err := serviceimpl.NewOrganizationService(repo).CreateOrganization(ctx, "Audit Org", "")
+	org, err := serviceimpl.NewOrganizationService(repo, nil).CreateOrganization(ctx, "Audit Org", "")
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}

@@ -54,6 +54,15 @@ type ChangePasswordResponse struct {
 
 func (r ChangePasswordResponse) Failed() error { return r.Err }
 
+// SignOutRequest carries nothing: whose sessions end is the session's.
+type SignOutRequest struct{}
+
+type SignOutResponse struct {
+	Err error `json:"err,omitzero"`
+}
+
+func (r SignOutResponse) Failed() error { return r.Err }
+
 type ListUsersRequest struct {
 	OrganizationID uuid.UUID `json:"organization_id"`
 }

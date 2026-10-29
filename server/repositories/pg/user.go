@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -496,6 +497,25 @@ func (r *userRepository) SetPasswordHash(ctx context.Context, id uuid.UUID, pass
 	return nil
 }
 
+// EndSessions moves the account's credential cutoff to from, so every token
+// issued before it is refused, and changes nothing else about the account.
+func (r *userRepository) EndSessions(ctx context.Context, id uuid.UUID, from time.Time) error {
+	ex, err := r.conn.conn.MainExecutor(ctx)
+	if err != nil {
+		return err
+	}
+	row, err := r.row(ctx, user.ID.Eq(id))
+	if err != nil {
+		return err
+	}
+	mut := user.Mutate(row)
+	mut.SetTokensValidFrom(from.UTC())
+	if err := mut.Update(ctx, ex); err != nil {
+		return fmt.Errorf("could not end the account's sessions: %w", err)
+	}
+	return nil
+}
+
 // SetProfile writes how an account is named and reached, and nothing else.
 //
 // The UPDATE names three columns. Update would write every one from what its
@@ -570,6 +590,10 @@ func (r *userRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *userRepository) AddOrganization(ctx context.Context, userID, organizationID uuid.UUID) error {
 	return r.addMembership(ctx, userID, organizationID, nil)
+}
+
+func (r *userRepository) AddOrganizationWithRoles(ctx context.Context, userID, organizationID uuid.UUID, roles []string) error {
+	return r.addMembership(ctx, userID, organizationID, roles)
 }
 
 // addMembership puts an account in an organization, holding roles there. With

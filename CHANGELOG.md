@@ -151,6 +151,23 @@ does not undo a migration.
   token and passes it to `scripts/seed-sample.sh`; run the seed script on its
   own with `METIS_SETUP_TOKEN` set.
 
+- **A new account needs a password it can sign in with.** Creating an account
+  through the API, Connect or the SDK took any password, an empty one
+  included, and the account then signed in with it; only the UI's form
+  refused one shorter than 8 characters. Creating an account, and the first
+  administrator at setup, now take the floor a reset or a change does: at
+  least 8 characters, at most 72 bytes, refused with a 400. A password over 72
+  bytes was a 500. Accounts that already exist are not touched.
+
+- **Signing out ends the session on the server.** Signing out cleared the
+  token in the one browser it was in, and the token went on working for the
+  rest of its 24 hours wherever else it had been copied. `POST /api/v1/logout`
+  now ends every session a local account has, on every device, and the UI
+  calls it when somebody signs out. An account that signs in through an
+  identity provider is refused with a 400 and signs out there. On a server
+  with replicas the other replicas refuse the old token within
+  `METIS_AUTH_CACHE_TTL`, 5 seconds by default.
+
 - **A project's People directory is its organization's alone.** Listing a
   project's participants, importing or syncing people into it and removing
   them checked only that the caller was signed in, not that the project was
@@ -1415,6 +1432,37 @@ does not undo a migration.
   to anybody who is not an operator or an administrator.
 
 ### Fixed
+
+- **Asking for somebody else's organization is a 403, not a 401.** A request
+  for an organization the caller is not a member of, or one naming another
+  organization in what it sends, answered 401, which says the token is no good:
+  the UI signed out, and an integration would sign in again and repeat it. An
+  account that belongs to no organization at all was a 500. All three are 403
+  now, with the reason; 401 is kept for a token that proves nothing.
+
+- **An organization is deleted only once it is empty.** Deleting an
+  organization only hid it: its members went on signing in to it and its
+  projects went on running, on one administrator's click. The delete is now
+  refused with a 400 that names what is still there, while anybody but the
+  caller is a member or any project is in it. Once it is empty it is deleted,
+  and the caller stops being a member of it.
+
+- **Whoever creates an organization administers it.** A new organization was
+  created with nobody in it: its creator could not see it in their list,
+  could not reach it, and was refused with "that organization is not yours"
+  when they added its first member. Its creator is now an administrator of it,
+  in the same transaction that creates it, and can reach it straight away.
+  An organization created before this is left as it is: nobody is made a
+  member of it on upgrade, so one that is still empty needs its first member
+  added in the database, as before. An organization with no name is refused with a 400
+  instead of a 500.
+
+- **The REST organization calls report their failures.** Reading, creating,
+  listing, renaming or deleting an organization answered 200 whatever happened:
+  the error was sent as `"err":{}`. Asking for an organization that is not the
+  caller's, or one that does not exist, looked like success to an integration.
+  They now answer with the status the error calls for, as every other route
+  does. The UI talks Connect, which already reported them.
 
 - **A migration reports an instance it skipped once.** When two runs of one
   migration overlapped, and the second moved an instance in the moment after

@@ -112,6 +112,12 @@ func (s *userService) CreateUser(ctx context.Context, u entities.User, password 
 		return err
 	}
 	u.RolesByOrganization = rolesHere
+	// The same floor a reset and a change apply. Without it an integration
+	// could create an account with an empty password, which then signed in
+	// with an empty password; only the UI's form refused one.
+	if err := checkNewPassword(password); err != nil {
+		return err
+	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {

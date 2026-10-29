@@ -46,6 +46,26 @@ describe('processService identity endpoints', () => {
     expect(receivedAuthorization).toBe('Bearer token-123')
   })
 
+  it('signs out on the server with the session token', async () => {
+    let receivedURL = ''
+    let receivedMethod = ''
+    let receivedAuthorization = ''
+
+    globalThis.fetch = (async (input, init) => {
+      receivedURL = String(input)
+      receivedMethod = init?.method ?? ''
+      receivedAuthorization = ((init?.headers as Record<string, string>)?.Authorization ?? '')
+
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }) as typeof fetch
+
+    await processService.signOut()
+
+    expect(receivedURL).toBe(`${API_BASE_URL}/logout`)
+    expect(receivedMethod).toBe('POST')
+    expect(receivedAuthorization).toBe('Bearer token-123')
+  })
+
   it('uses organization groups REST endpoint', async () => {
     let receivedURL = ''
 

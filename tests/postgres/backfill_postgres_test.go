@@ -40,7 +40,7 @@ func newPostgresEngine(t *testing.T, db *gorm.DB) (repositories.Repository, *ser
 		serviceimpl.WithJobService(jobSvc),
 	)
 
-	orgSvc := serviceimpl.NewOrganizationService(repo)
+	orgSvc := serviceimpl.NewOrganizationService(repo, nil)
 	projectSvc := serviceimpl.NewProjectService(repo)
 	org, err := orgSvc.CreateOrganization(ctx, "PG Org", "")
 	if err != nil {

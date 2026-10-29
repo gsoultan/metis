@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -64,6 +65,10 @@ type UserRepository interface {
 	// blanking whatever the caller did not supply.
 	SetPasswordHash(ctx context.Context, id uuid.UUID, passwordHash string) error
 
+	// EndSessions refuses every token issued to the account before from, and
+	// touches nothing else.
+	EndSessions(ctx context.Context, id uuid.UUID, from time.Time) error
+
 	// SetProfile writes an account's full name, display name and email — read
 	// from u, with u.ID naming the account — and touches nothing else. For the
 	// account's owner: Update writes every column from what its caller read,
@@ -73,6 +78,11 @@ type UserRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 
 	AddOrganization(ctx context.Context, userID, organizationID uuid.UUID) error
+
+	// AddOrganizationWithRoles puts an account in an organization holding
+	// roles there, as AddOrganization does with none. A membership that is
+	// already there is left as it is.
+	AddOrganizationWithRoles(ctx context.Context, userID, organizationID uuid.UUID, roles []string) error
 	RemoveOrganization(ctx context.Context, userID, organizationID uuid.UUID) error
 	AddProject(ctx context.Context, userID, projectID uuid.UUID) error
 	RemoveProject(ctx context.Context, userID, projectID uuid.UUID) error

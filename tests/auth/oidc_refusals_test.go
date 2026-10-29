@@ -46,7 +46,13 @@ func TestAnOIDCUserWhoseTokenLacksTheClaimIsRefusedWith403NamingIt(t *testing.T)
 func TestAnOIDCUserWhoseClaimNamesNoOrganizationHereIsRefusedWith403NamingIt(t *testing.T) {
 	h := newOIDCHarness(t, organizationClaim)
 	acme := h.organization("Acme")
-	gone := h.organization("Initech")
+	// Without the project h.organization would give it: one still in it
+	// would keep it from being deleted.
+	initech, err := h.svc.CreateOrganization(t.Context(), "Initech", "")
+	if err != nil {
+		t.Fatalf("create Initech: %v", err)
+	}
+	gone := initech.ID
 	if err := h.svc.DeleteOrganization(inOrganization(t.Context(), gone), gone); err != nil {
 		t.Fatalf("delete Initech: %v", err)
 	}

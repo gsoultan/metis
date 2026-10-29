@@ -23,7 +23,7 @@ func fixture(t *testing.T) (servicecontracts.EnvironmentService, uuid.UUID, cont
 	repo := repositories.NewRepository(testutils.StormConn(db))
 	ctx := context.Background()
 
-	org, err := serviceimpl.NewOrganizationService(repo).CreateOrganization(ctx, "Org", "")
+	org, err := serviceimpl.NewOrganizationService(repo, nil).CreateOrganization(ctx, "Org", "")
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}
