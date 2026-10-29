@@ -64,11 +64,11 @@ func (d *DecisionDefinition) Schema(t *storm.Table) {
 
 // Aggregates declares HighestVersion over every row, deleted ones included:
 // the unique key covers them, so a version number once used is never
-// reissued. Keys is each key's newest version and when it was last saved,
+// reissued. Newest is each key's newest version and when it was last saved,
 // over the versions that are not deleted.
 func (d *DecisionDefinition) Aggregates(a *storm.Aggregates) {
 	a.Named("HighestVersion").AcrossDeleted().Max(&d.Version, "Version")
-	keys := a.Named("Keys")
+	keys := a.Named("Newest")
 	keys.By(&d.Project, &d.Key)
 	keys.Max(&d.Version, "Newest")
 	keys.Max(&d.CreatedAt, "SavedAt")
@@ -81,7 +81,7 @@ func (d *DecisionDefinition) Joins(j *storm.Joins) {
 	var r DecisionRelease
 	var live DecisionDefinition
 	j.Named("Shown").
-		WithWhere("keys", d, "Keys").
+		WithWhere("keys", d, "Newest").
 		WithWhere("released", &r, "Live").
 		InnerWith("keys", j.OnCols("keys", "project_id", &d.Project).And("keys", "key", &d.Key)).
 		LeftWith("released", j.OnCols("released", "project_id", &d.Project).And("released", "decision_key", &d.Key)).

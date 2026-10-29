@@ -2463,39 +2463,39 @@ func (q Query) OneHighestVersion(ctx context.Context, ex runtime.Executor) (High
 	return out[0], nil
 }
 
-// KeysRow is the "Keys" aggregation over decision_definitions.
+// NewestRow is the "Newest" aggregation over decision_definitions.
 //
 // One row per group. The grouping columns come first, in declaration
 // order, and the result is ordered by them: PostgreSQL promises no
 // order for a GROUP BY, and an unordered report shuffles between
 // requests for no reason anyone can see.
-type KeysRow struct {
+type NewestRow struct {
 	ProjectID [16]byte
 	Key       string
 	Newest    runtime.Null[int64]
 	SavedAt   runtime.Null[time.Time]
 }
 
-const keysPrefix = `SELECT "project_id" AS "project_id", "key" AS "key", max("version") AS "newest", max("created_at") AS "saved_at" FROM "decision_definitions"`
-const keysSuffix = ` GROUP BY "project_id", "key" ORDER BY "project_id", "key"`
+const newestPrefix = `SELECT "project_id" AS "project_id", "key" AS "key", max("version") AS "newest", max("created_at") AS "saved_at" FROM "decision_definitions"`
+const newestSuffix = ` GROUP BY "project_id", "key" ORDER BY "project_id", "key"`
 
 var (
-	keysCache       = runtime.NewTreeCache()
-	keysOffsetCache = runtime.NewTreeCache()
+	newestCache       = runtime.NewTreeCache()
+	newestOffsetCache = runtime.NewTreeCache()
 )
 
-func keysStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
-	c, suffix := keysCache, keysSuffix+limitSuffix
+func newestStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := newestCache, newestSuffix+limitSuffix
 	if withOffset {
-		c, suffix = keysOffsetCache, keysSuffix+limitOffsetSuffix
+		c, suffix = newestOffsetCache, newestSuffix+limitOffsetSuffix
 	}
 	if st := c.Get(toks); st != nil {
 		return st
 	}
-	return c.Put(toks, runtime.SpliceTreeWhere(keysPrefix, softDeleteWhere, toks, lowering, suffix))
+	return c.Put(toks, runtime.SpliceTreeWhere(newestPrefix, softDeleteWhere, toks, lowering, suffix))
 }
 
-func scanKeys(rv [][]byte, r *KeysRow, sl *runtime.Slab) error {
+func scanNewest(rv [][]byte, r *NewestRow, sl *runtime.Slab) error {
 	copy(r.ProjectID[:], rv[0])
 	r.Key = sl.Str(rv[1])
 	r.Newest = runtime.Nullable(rv[2], runtime.Int8)
@@ -2503,27 +2503,27 @@ func scanKeys(rv [][]byte, r *KeysRow, sl *runtime.Slab) error {
 	return nil
 }
 
-// AllKeys runs the "Keys" aggregation. Predicates compose exactly as on All —
+// AllNewest runs the "Newest" aggregation. Predicates compose exactly as on All —
 // they filter the rows that go INTO the groups, which is the WHERE clause
 // and not a HAVING. Limit and offset page the groups.
-func (q Query) AllKeys(ctx context.Context, ex runtime.Executor) ([]KeysRow, error) {
+func (q Query) AllNewest(ctx context.Context, ex runtime.Executor) ([]NewestRow, error) {
 	var sl runtime.Slab
-	return q.AllKeysInto(ctx, ex, nil, &sl)
+	return q.AllNewestInto(ctx, ex, nil, &sl)
 }
 
-// AllKeysInto lets the caller own the output slice and the arena.
-func (q Query) AllKeysInto(ctx context.Context, ex runtime.Executor, dst []KeysRow, sl *runtime.Slab) ([]KeysRow, error) {
+// AllNewestInto lets the caller own the output slice and the arena.
+func (q Query) AllNewestInto(ctx context.Context, ex runtime.Executor, dst []NewestRow, sl *runtime.Slab) ([]NewestRow, error) {
 	if err := q.Err(); err != nil {
 		return dst, err
 	}
 	if q.no > 0 {
-		return dst, errKeysOrdered
+		return dst, errNewestOrdered
 	}
 	if q.lock != 0 {
-		return dst, errKeysLocked
+		return dst, errNewestLocked
 	}
 	var buf [21]runtime.Tok
-	st := keysStmtFor(q.preds(&buf), q.offset > 0)
+	st := newestStmtFor(q.preds(&buf), q.offset > 0)
 	if st.Err != nil {
 		return dst, st.Err
 	}
@@ -2536,8 +2536,8 @@ func (q Query) AllKeysInto(ctx context.Context, ex runtime.Executor, dst []KeysR
 	}
 	defer rows.Close()
 	for rows.Next() {
-		dst = append(dst, KeysRow{})
-		if err := scanKeys(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+		dst = append(dst, NewestRow{})
+		if err := scanNewest(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
 			return dst, err
 		}
 	}
@@ -2545,19 +2545,19 @@ func (q Query) AllKeysInto(ctx context.Context, ex runtime.Executor, dst []KeysR
 	return dst, rows.Err()
 }
 
-// KeysPieces is the "Keys" aggregation's statement around its
+// NewestPieces is the "Newest" aggregation's statement around its
 // predicates, for the context package to splice a composed read into:
 // the SELECT … FROM, and the GROUP BY, ORDER BY and LIMIT after it.
-func KeysPieces() (prefix, suffix string) { return keysPrefix, keysSuffix + limitSuffix }
+func NewestPieces() (prefix, suffix string) { return newestPrefix, newestSuffix + limitSuffix }
 
-// ScanKeys decodes one row of the "Keys" aggregation.
-func ScanKeys(rv [][]byte, r *KeysRow, sl *runtime.Slab) error { return scanKeys(rv, r, sl) }
+// ScanNewest decodes one row of the "Newest" aggregation.
+func ScanNewest(rv [][]byte, r *NewestRow, sl *runtime.Slab) error { return scanNewest(rv, r, sl) }
 
-var errKeysLocked = errors.New(
+var errNewestLocked = errors.New(
 	"storm: a grouped read cannot be row-locked — the server refuses a row lock with a GROUP BY, and locking the rows a group summarises is not what the caller asked for; lock the base read instead")
 
-var errKeysOrdered = errors.New(
-	"storm: Order() on an aggregation — its rows are groups, not table rows, and decision_definitions.Keys is already ordered by its grouping columns; sort the returned slice if you need another order")
+var errNewestOrdered = errors.New(
+	"storm: Order() on an aggregation — its rows are groups, not table rows, and decision_definitions.Newest is already ordered by its grouping columns; sort the returned slice if you need another order")
 
 // joinFragTable is fragTable for a join: every column named with its table.
 var joinFragTable = [15][31]runtime.Frag{
