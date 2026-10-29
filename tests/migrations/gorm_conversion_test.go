@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/migrations"
 	"github.com/gsoultan/metis/server/repositories/store/auditentry"
+	"github.com/gsoultan/metis/server/repositories/store/installationsetting"
 	"github.com/gsoultan/metis/server/repositories/store/organization"
 	"github.com/gsoultan/metis/server/repositories/store/processdefinition"
 	"github.com/gsoultan/metis/server/repositories/store/task"
@@ -44,6 +45,9 @@ func gormDatabase(t *testing.T, rows ...string) *pgxpool.Pool {
 	if _, err := migrate.AutoPool(ctx, pool, &shape, migrate.AutoOptions{Schema: db.Namespace(pool)}); err != nil {
 		t.Fatalf("create GORM's tables: %v", err)
 	}
+	// Migration 49, the last GORM release's, made the server settings by hand
+	// rather than from GORM's models, so its table is not in the snapshot.
+	rows = append(installationSettingsV49[:len(installationSettingsV49):len(installationSettingsV49)], rows...)
 	rows = append(rows, `INSERT INTO schema_migrations (version, name, applied_at, duration_ms)
 		SELECT v, 'gorm ' || v, now(), 1 FROM generate_series(1, 49) AS v`)
 	for _, row := range rows {
@@ -54,6 +58,23 @@ func gormDatabase(t *testing.T, rows ...string) *pgxpool.Pool {
 	return pool
 }
 
+// installationSettingsV49 is the table migration 49 made, as it made it.
+var installationSettingsV49 = []string{
+	`CREATE TABLE installation_settings (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    updated_at timestamptz DEFAULT now() NOT NULL,
+    name varchar(100) NOT NULL,
+    value text,
+    sealed boolean NOT NULL,
+    reason text NOT NULL,
+    set_by varchar(255) NOT NULL,
+    set_by_id uuid NOT NULL,
+    PRIMARY KEY (id)
+)`,
+	`CREATE INDEX ix_installation_settings_name ON installation_settings (name, created_at, id)`,
+}
+
 const (
 	gormOrg      = "0190a3c1-0000-7000-8000-000000000001"
 	gormProject  = "0190a3c1-0000-7000-8000-000000000002"
@@ -61,11 +82,14 @@ const (
 	gormInstance = "0190a3c1-0000-7000-8000-000000000004"
 	gormTask     = "0190a3c1-0000-7000-8000-000000000005"
 	gormAudit    = "0190a3c1-0000-7000-8000-000000000006"
+	gormSetting  = "0190a3c1-0000-7000-8000-000000000007"
 )
 
 // The rows GORM left: NULL where it wrote nothing, and JSON as text, the empty
 // string included, which GORM wrote for an empty list.
 var gormRows = []string{
+	`INSERT INTO installation_settings (id, name, value, sealed, reason, set_by, set_by_id)
+		VALUES ('` + gormSetting + `', 'NOTIFICATION_SMTP_HOST', 'smtp.example.com', false, 'moved', 'ada', gen_random_uuid())`,
 	`INSERT INTO organizations (id, created_at, updated_at, name) VALUES ('` + gormOrg + `', now(), now(), NULL)`,
 	`INSERT INTO projects (id, created_at, updated_at, organization_id, name) VALUES ('` + gormProject + `', now(), now(), '` + gormOrg + `', 'P')`,
 	`INSERT INTO process_definitions (id, created_at, updated_at, project_id, key, name, version, nodes, flows)
@@ -130,6 +154,11 @@ func TestAGORMDatabaseIsConvertedToTheModel(t *testing.T) {
 	}
 	if string(entry.Data) != "null" {
 		t.Errorf("the audit entry's data reads %s, want null", entry.Data)
+	}
+
+	setting, _, err := installationsetting.New().Where(installationsetting.ID.Eq(uuid.MustParse(gormSetting))).One(ctx, ex)
+	if err != nil || setting.Name != "NOTIFICATION_SMTP_HOST" || setting.Value.V != "smtp.example.com" {
+		t.Errorf("the setting migration 49's table held reads %q = %q (%v), want it carried across", setting.Name, setting.Value.V, err)
 	}
 
 	again, err := migrations.Run(ctx, pool, nil)

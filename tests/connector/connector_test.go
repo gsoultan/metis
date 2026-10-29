@@ -120,11 +120,14 @@ func (m *MockRepository) DeviationRequest() contracts.DeviationRequestRepository
 func (m *MockRepository) DeviationDecider() contracts.DeviationDecider         { return nil }
 func (m *MockRepository) RetentionHold() contracts.RetentionHoldRepository     { return nil }
 func (m *MockRepository) RetentionPeriod() contracts.RetentionPeriodRepository { return nil }
-func (m *MockRepository) SimulationCase() contracts.SimulationCaseRepository   { return nil }
-func (m *MockRepository) BatchOperation() contracts.BatchOperationRepository   { return nil }
-func (m *MockRepository) Broadcast() contracts.BroadcastRepository             { return nil }
-func (m *MockRepository) SharedCounter() contracts.SharedCounterRepository     { return nil }
-func (m *MockRepository) Connector() contracts.ConnectorRepository             { return m.connector }
+func (m *MockRepository) InstallationSetting() contracts.InstallationSettingRepository {
+	return nil
+}
+func (m *MockRepository) SimulationCase() contracts.SimulationCaseRepository { return nil }
+func (m *MockRepository) BatchOperation() contracts.BatchOperationRepository { return nil }
+func (m *MockRepository) Broadcast() contracts.BroadcastRepository           { return nil }
+func (m *MockRepository) SharedCounter() contracts.SharedCounterRepository   { return nil }
+func (m *MockRepository) Connector() contracts.ConnectorRepository           { return m.connector }
 func (m *MockRepository) ConnectorInstance() contracts.ConnectorInstanceRepository {
 	return m.connectorInstance
 }

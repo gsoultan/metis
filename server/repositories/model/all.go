@@ -73,6 +73,8 @@ func All() []any {
 		// One-use links that let a person act on a task without signing in.
 		&TaskLink{},
 		&PersonAPIKey{},
+		// What administrators set on the Settings page, and who set it.
+		&InstallationSetting{},
 		// Acts asked for on many instances at once, and what came of each.
 		&BatchOperation{},
 		&BatchOperationItem{},

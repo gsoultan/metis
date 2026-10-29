@@ -28,6 +28,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/form"
 	"github.com/gsoultan/metis/server/repositories/store/group"
 	"github.com/gsoultan/metis/server/repositories/store/incident"
+	"github.com/gsoultan/metis/server/repositories/store/installationsetting"
 	"github.com/gsoultan/metis/server/repositories/store/instancedeviation"
 	"github.com/gsoultan/metis/server/repositories/store/job"
 	"github.com/gsoultan/metis/server/repositories/store/membership"
@@ -72,57 +73,58 @@ var FlushOrder = map[string]int{
 	"connector_manifests":         0,
 	"connectors":                  1,
 	"idempotency_records":         2,
-	"organizations":               3,
-	"platform_roles":              4,
-	"platform_users":              5,
-	"projects":                    6,
-	"retention_holds":             7,
-	"retention_periods":           8,
-	"schema_migrations":           9,
-	"shared_counters":             10,
-	"simulation_cases":            11,
-	"task_links":                  12,
-	"users":                       13,
-	"webhooks":                    14,
-	"workflow_groups":             15,
-	"workflow_users":              16,
-	"audit_logs":                  17,
-	"batch_operations":            18,
-	"connector_instances":         19,
-	"decision_definitions":        20,
-	"decision_releases":           21,
-	"deployments":                 22,
-	"environments":                23,
-	"external_task_workers":       24,
-	"forms":                       25,
-	"groups":                      26,
-	"memberships":                 27,
-	"outgoing_webhooks":           28,
-	"participant_sources":         29,
-	"person_api_keys":             30,
-	"platform_role_assignments":   31,
-	"process_definition_releases": 32,
-	"process_definitions":         33,
-	"process_instances":           34,
-	"service_calls":               35,
-	"tasks":                       36,
-	"user_organizations":          37,
-	"user_projects":               38,
-	"variable_snapshots":          39,
-	"webhook_deliveries":          40,
-	"workflow_group_memberships":  41,
-	"batch_operation_items":       42,
-	"broadcast_events":            43,
-	"compensatable_activities":    44,
-	"deployment_resources":        45,
-	"deviation_requests":          46,
-	"event_subscriptions":         47,
-	"external_tasks":              48,
-	"instance_deviations":         49,
-	"jobs":                        50,
-	"notifications":               51,
-	"outgoing_webhook_deliveries": 52,
-	"incidents":                   53,
+	"installation_settings":       3,
+	"organizations":               4,
+	"platform_roles":              5,
+	"platform_users":              6,
+	"projects":                    7,
+	"retention_holds":             8,
+	"retention_periods":           9,
+	"schema_migrations":           10,
+	"shared_counters":             11,
+	"simulation_cases":            12,
+	"task_links":                  13,
+	"users":                       14,
+	"webhooks":                    15,
+	"workflow_groups":             16,
+	"workflow_users":              17,
+	"audit_logs":                  18,
+	"batch_operations":            19,
+	"connector_instances":         20,
+	"decision_definitions":        21,
+	"decision_releases":           22,
+	"deployments":                 23,
+	"environments":                24,
+	"external_task_workers":       25,
+	"forms":                       26,
+	"groups":                      27,
+	"memberships":                 28,
+	"outgoing_webhooks":           29,
+	"participant_sources":         30,
+	"person_api_keys":             31,
+	"platform_role_assignments":   32,
+	"process_definition_releases": 33,
+	"process_definitions":         34,
+	"process_instances":           35,
+	"service_calls":               36,
+	"tasks":                       37,
+	"user_organizations":          38,
+	"user_projects":               39,
+	"variable_snapshots":          40,
+	"webhook_deliveries":          41,
+	"workflow_group_memberships":  42,
+	"batch_operation_items":       43,
+	"broadcast_events":            44,
+	"compensatable_activities":    45,
+	"deployment_resources":        46,
+	"deviation_requests":          47,
+	"event_subscriptions":         48,
+	"external_tasks":              49,
+	"instance_deviations":         50,
+	"jobs":                        51,
+	"notifications":               52,
+	"outgoing_webhook_deliveries": 53,
+	"incidents":                   54,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -4307,6 +4309,123 @@ func (p IncidentWithJobQuery) All(ctx context.Context, ex runtime.Executor) ([]I
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "incidents", "jobs")
 		}
 		out[i].Job = &targets[j]
+	}
+	return out, nil
+}
+
+// InstallationSettingWithSetByUserRow is installation_settings with its SetByUser loaded.
+type InstallationSettingWithSetByUserRow struct {
+	installationsetting.Row
+	// A pointer because nothing keeps the target there: the column has no
+	// foreign key. nil means the row it names is gone.
+	SetByUser *user.Row
+}
+
+type InstallationSettingWithSetByUserQuery struct {
+	q installationsetting.Query
+}
+
+// InstallationSettingWithSetByUser starts the plan.
+func InstallationSettingWithSetByUser() InstallationSettingWithSetByUserQuery {
+	return InstallationSettingWithSetByUserQuery{q: installationsetting.New()}
+}
+
+func (p InstallationSettingWithSetByUserQuery) Where(ps ...installationsetting.Pred) InstallationSettingWithSetByUserQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p InstallationSettingWithSetByUserQuery) WhereIf(cond bool, pr installationsetting.Pred) InstallationSettingWithSetByUserQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p InstallationSettingWithSetByUserQuery) Any(ps ...installationsetting.Pred) InstallationSettingWithSetByUserQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p InstallationSettingWithSetByUserQuery) Not(pr installationsetting.Pred) InstallationSettingWithSetByUserQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p InstallationSettingWithSetByUserQuery) NotAny(ps ...installationsetting.Pred) InstallationSettingWithSetByUserQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p InstallationSettingWithSetByUserQuery) Order(ts ...installationsetting.Sort) InstallationSettingWithSetByUserQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p InstallationSettingWithSetByUserQuery) Limit(n int64) InstallationSettingWithSetByUserQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p InstallationSettingWithSetByUserQuery) Offset(n int64) InstallationSettingWithSetByUserQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p InstallationSettingWithSetByUserQuery) After(r InstallationSettingWithSetByUserRow) InstallationSettingWithSetByUserQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p InstallationSettingWithSetByUserQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p InstallationSettingWithSetByUserQuery) All(ctx context.Context, ex runtime.Executor) ([]InstallationSettingWithSetByUserRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]InstallationSettingWithSetByUserRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = InstallationSettingWithSetByUserRow{Row: r}
+		key := r.SetByID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := user.New().Unordered().
+		Where(user.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.SetByID
+		j, ok := by[key]
+		if !ok {
+			continue // no foreign key: the row it names may be gone
+		}
+		out[i].SetByUser = &targets[j]
 	}
 	return out, nil
 }

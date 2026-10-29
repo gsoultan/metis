@@ -51,10 +51,11 @@ func TestSetupLeavesTheAdminAbleToSeeSomething(t *testing.T) {
 	// configured".
 	t.Chdir(t.TempDir())
 
-	svc := impl.NewSetupService(nil)
+	svc := impl.NewSetupService(nil, testSetupToken)
 	ctx := context.Background()
 	logged := serverLog(t)
 	if err := svc.Setup(ctx, contracts.SetupRequest{
+		SetupToken:       testSetupToken,
 		AdminUsername:    "admin",
 		AdminPassword:    "correct-horse-battery-staple",
 		AdminFullName:    "Development Admin",

@@ -30,6 +30,7 @@ type SetupRequest struct {
 	DBSSLEnabled     bool   `json:"db_ssl_enabled"`
 	EncryptionKey    string `json:"encryption_key"`
 	JWTSecret        string `json:"jwt_secret"`
+	SetupToken       string `json:"setup_token"`
 }
 
 type SetupResponse struct {
@@ -39,6 +40,7 @@ type SetupResponse struct {
 func (r SetupResponse) Failed() error { return r.Err }
 
 type TestConnectionRequest struct {
+	SetupToken     string `json:"setup_token"`
 	DatabaseDriver string `json:"database_driver"`
 	DBHost         string `json:"db_host"`
 	DBPort         int    `json:"db_port"`

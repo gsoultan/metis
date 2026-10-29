@@ -385,6 +385,13 @@ load_dev_env() {
     unset ENCRYPTION_KEY
     unset JWT_SECRET
   fi
+  # The setup wizard asks for the token the server prints on a fresh install.
+  # Chosen here instead, so scripts/seed-sample.sh — started by this script,
+  # with this environment — can run the wizard for you.
+  if [[ -z "${METIS_SETUP_TOKEN:-}" ]]; then
+    METIS_SETUP_TOKEN="$(random_secret)"
+  fi
+  export METIS_SETUP_TOKEN
 }
 
 # --- processes -------------------------------------------------------------
@@ -561,6 +568,7 @@ main() {
                ok "Open ${C_BOLD}http://localhost:${UI_PORT}${C_RESET} — sign in as admin / admin"
              else
                ok "Open ${C_BOLD}http://localhost:${UI_PORT}${C_RESET} — first run shows the setup wizard"
+               printf '%s     Its setup token: %s%s\n' "$C_DIM" "$METIS_SETUP_TOKEN" "$C_RESET"
                # Said here rather than only in --help: an empty installation is
                # a poor first impression, every list reads "nothing here yet",
                # and the flag that fixes it is easy to miss.

@@ -47,7 +47,7 @@ func TestTheWizardClosesOnceTheDatabaseItRunsOnHoldsAnInstallation(t *testing.T)
 	asWizard(t)
 	t.Chdir(t.TempDir())
 
-	svc := impl.NewSetupService(heldInstallation(true))
+	svc := impl.NewSetupService(heldInstallation(true), testSetupToken)
 
 	status, err := svc.GetSetupStatus(t.Context())
 	if err != nil {
@@ -58,6 +58,7 @@ func TestTheWizardClosesOnceTheDatabaseItRunsOnHoldsAnInstallation(t *testing.T)
 	}
 
 	err = svc.Setup(t.Context(), contracts.SetupRequest{
+		SetupToken:    testSetupToken,
 		AdminUsername: "intruder", AdminPassword: "intruder-password", AdminFullName: "I",
 		AdminPublicName: "I", OrganizationName: "Mine now", DatabaseDriver: "postgres",
 	})
@@ -66,6 +67,7 @@ func TestTheWizardClosesOnceTheDatabaseItRunsOnHoldsAnInstallation(t *testing.T)
 	}
 
 	result := svc.TestConnection(t.Context(), contracts.TestConnectionRequest{
+		SetupToken:     testSetupToken,
 		DatabaseDriver: "postgres", DBHost: "127.0.0.1", DBPort: 1, DBName: "probe",
 	})
 	if result.Success || !strings.Contains(result.Message, "already configured") {
@@ -79,7 +81,7 @@ func TestTheWizardStaysOpenOnAnEmptyDatabase(t *testing.T) {
 	asWizard(t)
 	t.Chdir(t.TempDir())
 
-	status, err := impl.NewSetupService(heldInstallation(false)).GetSetupStatus(t.Context())
+	status, err := impl.NewSetupService(heldInstallation(false), testSetupToken).GetSetupStatus(t.Context())
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -103,6 +105,7 @@ func TestSetupWillNotSeedADatabaseThatIsAlreadyInUse(t *testing.T) {
 
 	request := func(org, username string) contracts.SetupRequest {
 		return contracts.SetupRequest{
+			SetupToken:    testSetupToken,
 			AdminUsername: username, AdminPassword: "correct-horse-battery-staple",
 			AdminFullName: "Admin", AdminPublicName: "Admin", AdminEmail: "admin@example.invalid",
 			OrganizationName: org, DatabaseDriver: "postgres",
@@ -112,13 +115,13 @@ func TestSetupWillNotSeedADatabaseThatIsAlreadyInUse(t *testing.T) {
 	}
 
 	t.Chdir(t.TempDir())
-	if err := impl.NewSetupService(nil).Setup(t.Context(), request("First Co", "first-admin")); err != nil {
+	if err := impl.NewSetupService(nil, testSetupToken).Setup(t.Context(), request("First Co", "first-admin")); err != nil {
 		t.Fatalf("the first setup of an empty database: %v", err)
 	}
 
 	// A second server, never set up, pointed at the same database.
 	t.Chdir(t.TempDir())
-	err := impl.NewSetupService(nil).Setup(t.Context(), request("Second Co", "second-admin"))
+	err := impl.NewSetupService(nil, testSetupToken).Setup(t.Context(), request("Second Co", "second-admin"))
 	if !errors.Is(err, impl.ErrDatabaseInUse) {
 		t.Fatalf("setup seeded a database that already held an installation, got %v", err)
 	}
@@ -152,7 +155,7 @@ func TestAServerConfiguredByItsEnvironmentSeedsItsOwnDatabaseAndWritesNothing(t 
 	conn := openStorm(t, host, port, user, password, database)
 	migrateAsBootDoes(t, conn, database)
 	repo := repositories.NewRepository(conn)
-	svc := impl.NewSetupService(repo.User())
+	svc := impl.NewSetupService(repo.User(), testSetupToken)
 
 	before, err := svc.GetSetupStatus(t.Context())
 	if err != nil {
@@ -164,6 +167,7 @@ func TestAServerConfiguredByItsEnvironmentSeedsItsOwnDatabaseAndWritesNothing(t 
 
 	// Only the people: the environment has said everything else.
 	if err := svc.Setup(t.Context(), contracts.SetupRequest{
+		SetupToken:    testSetupToken,
 		AdminUsername: "admin", AdminPassword: "correct-horse-battery-staple",
 		AdminFullName: "Admin", AdminPublicName: "Admin", AdminEmail: "admin@example.invalid",
 		OrganizationName: "Example Co",

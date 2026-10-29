@@ -31,6 +31,10 @@ type SetupRequest struct {
 	OrganizationName string `json:"organization_name"`
 	ProjectName      string `json:"project_name"`
 
+	// SetupToken proves the caller is the installation's operator: it is
+	// printed in the server's log, or chosen with METIS_SETUP_TOKEN.
+	SetupToken string `json:"setup_token"`
+
 	// Database configuration
 	DatabaseDriver string `json:"database_driver"`
 	DBHost         string `json:"db_host"`
@@ -49,6 +53,7 @@ type SetupRequest struct {
 
 // TestConnectionRequest contains the database connection parameters for testing connectivity.
 type TestConnectionRequest struct {
+	SetupToken     string `json:"setup_token"`
 	DatabaseDriver string `json:"database_driver"`
 	DBHost         string `json:"db_host"`
 	DBPort         int    `json:"db_port"`
@@ -69,4 +74,7 @@ type SetupService interface {
 	GetSetupStatus(ctx context.Context) (SetupStatus, error)
 	Setup(ctx context.Context, req SetupRequest) error
 	TestConnection(ctx context.Context, req TestConnectionRequest) TestConnectionResult
+
+	// AnnounceSetupToken logs how to open the wizard, while it is open.
+	AnnounceSetupToken(ctx context.Context)
 }
