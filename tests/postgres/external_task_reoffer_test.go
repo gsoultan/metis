@@ -28,7 +28,7 @@ func TestAnExternalTaskAtZeroRetriesIsOfferedAgainUnlessAnIncidentHoldsIt(t *tes
 	_, _, project := testutils.ScopedProject(t, repo)
 	park := func(retries int) uuid.UUID {
 		t.Helper()
-		definition, instance := caseIn(t, repo, project)
+		definition, instance := caseIn(ctx, t, repo, project)
 		task := &models.ExternalTaskModel{
 			Base:                models.Base{ID: models.UUID(uuid.New())},
 			ProjectID:           models.UUID(project),

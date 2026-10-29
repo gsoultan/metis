@@ -2,7 +2,7 @@ package instancemigration
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"testing"
@@ -127,7 +127,7 @@ func told[T any](v runtime.Null[T]) string {
 func stamp(at time.Time) string { return at.UTC().Format(time.RFC3339Nano) }
 
 func digest(s string) string {
-	sum := md5.Sum([]byte(s))
+	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
 }
 

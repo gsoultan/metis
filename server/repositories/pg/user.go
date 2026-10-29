@@ -225,7 +225,7 @@ func membershipRoles(raw []byte) ([]string, error) {
 var adminSpellings = func() []string {
 	role := entities.RoleAdmin
 	out := make([]string, 0, 1<<len(role))
-	for mask := 0; mask < 1<<len(role); mask++ {
+	for mask := range 1 << len(role) {
 		b := []byte(role)
 		for i, c := range b {
 			lower, upper := c|0x20, c&^0x20

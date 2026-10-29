@@ -150,7 +150,7 @@ func TestStoredAnswersAreEncryptedAtRest(t *testing.T) {
 	ctx := entities.WithSystemContext(t.Context())
 
 	_, org, project := testutils.ScopedProject(t, repo)
-	_, instanceID := caseIn(t, repo, project)
+	_, instanceID := caseIn(ctx, t, repo, project)
 	visit := models.UUID(uuid.New())
 	call, err := repo.ServiceCall().Begin(ctx, models.ServiceCallModel{
 		ProjectID: models.UUID(project), InstanceID: models.UUID(instanceID), NodeID: "charge", JobID: &visit,

@@ -805,7 +805,7 @@ func TestTenantIsolation_ProjectsAreScoped(t *testing.T) {
 			if err := repo.Delete(ctx, f.projectB); !errors.Is(err, apierr.ErrNotFound) {
 				t.Errorf("got %v, want %v", err, apierr.ErrNotFound)
 			}
-			if !stillThere(t)(projectstore.New().IDEq(f.projectB).One(t.Context(), testutils.Executor(db))) {
+			if !stillThere(t)(projectstore.New().IDEq(f.projectB).One(ctx, testutils.Executor(db))) {
 				t.Fatal("the delete was refused but the project is gone")
 			}
 		})

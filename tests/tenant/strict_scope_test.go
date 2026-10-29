@@ -48,7 +48,7 @@ func TestStrictScope_DeniesAContextWithNoIdentity(t *testing.T) {
 			if err := pg.NewFormRepository(db).Delete(ctx, f.formA); !isNotFound(err) {
 				t.Errorf("delete: got %v, want a not-found", err)
 			}
-			if !stillThere(t)(form.New().IDEq(f.formA).One(t.Context(), testutils.Executor(db))) {
+			if !stillThere(t)(form.New().IDEq(f.formA).One(ctx, testutils.Executor(db))) {
 				t.Fatal("the delete was refused but the row is gone")
 			}
 		})

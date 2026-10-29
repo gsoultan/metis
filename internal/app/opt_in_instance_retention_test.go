@@ -69,7 +69,7 @@ func TestTheInstanceSweepRemovesOnlyFinishedInstancesNothingStillNeeds(t *testin
 		if parent != uuid.Nil {
 			changes.SetParentInstanceID(parent)
 		}
-		must("date the instance", changes.Update(t.Context(), ex))
+		must("date the instance", changes.Update(tenant, ex))
 		// Something of every kind the instance owns, and its audit trail.
 		step := task.Create()
 		step.SetProjectID(projectID)
@@ -82,7 +82,7 @@ func TestTheInstanceSweepRemovesOnlyFinishedInstancesNothingStillNeeds(t *testin
 		step.SetCandidateGroups(runtime.JSON("[]"))
 		step.SetPriority(0)
 		step.SetVariables("")
-		_, err := step.Insert(t.Context(), ex)
+		_, err := step.Insert(tenant, ex)
 		must("seed a task", err)
 		call := servicecall.Create()
 		call.SetProjectID(projectID)
@@ -93,7 +93,7 @@ func TestTheInstanceSweepRemovesOnlyFinishedInstancesNothingStillNeeds(t *testin
 		call.SetIdempotencyKey(uuid.NewString())
 		call.SetIterationID("")
 		call.SetResponse(runtime.JSON("{}"))
-		_, err = call.Insert(t.Context(), ex)
+		_, err = call.Insert(tenant, ex)
 		must("seed a service call", err)
 		note := notification.Create()
 		note.SetProjectID(projectID)
@@ -103,7 +103,7 @@ func TestTheInstanceSweepRemovesOnlyFinishedInstancesNothingStillNeeds(t *testin
 		note.SetType("info")
 		note.SetMessage("")
 		note.SetIsRead(false)
-		_, err = note.Insert(t.Context(), ex)
+		_, err = note.Insert(tenant, ex)
 		must("seed a notification", err)
 		entry := auditentry.Create()
 		entry.SetProjectID(projectID)
@@ -111,7 +111,7 @@ func TestTheInstanceSweepRemovesOnlyFinishedInstancesNothingStillNeeds(t *testin
 		entry.SetType("PROCESS_COMPLETED")
 		entry.SetMessage("done")
 		entry.SetData(runtime.JSON("{}"))
-		_, err = entry.Insert(t.Context(), ex)
+		_, err = entry.Insert(tenant, ex)
 		must("seed an audit entry", err)
 		instances[name] = id
 		return id

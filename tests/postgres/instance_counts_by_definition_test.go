@@ -71,5 +71,5 @@ func TestEachVersionCountsItsOwnInstancesByState(t *testing.T) {
 
 func seedDefinition(t *testing.T, db *db.Conn, project uuid.UUID, version int) uuid.UUID {
 	t.Helper()
-	return testutils.SeedDefinitionVersion(t, db, project, "counted-"+uuid.NewString(), version)
+	return testutils.SeedDefinitionVersion(t.Context(), t, db, project, "counted-"+uuid.NewString(), version)
 }

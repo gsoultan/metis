@@ -36,9 +36,9 @@ func TestTheSweepKeepsWhatAFinishedInstanceIsStillNeededFor(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("seed the %s instance: %v", name, err)
 		}
-		ageInstance(t, db, id, 60*24*time.Hour)
+		ageInstance(ctx, t, db, id, 60*24*time.Hour)
 		if parent != uuid.Nil {
-			rewriteInstance(t, db, id, func(m *processinstance.Mut) { m.SetParentInstanceID(parent) })
+			rewriteInstance(ctx, t, db, id, func(m *processinstance.Mut) { m.SetParentInstanceID(parent) })
 		}
 		instances[name] = id
 		return id

@@ -284,7 +284,7 @@ func TestInstanceFilter_DoesNotReachAnotherTenantsRows(t *testing.T) {
 }
 
 // seedIncident raises an unresolved incident against an instance.
-func seedIncident(t *testing.T, db *db.Conn, instanceID, definitionID uuid.UUID) {
+func seedIncident(ctx context.Context, t *testing.T, db *db.Conn, instanceID, definitionID uuid.UUID) {
 	t.Helper()
 	// No job: the incident is what is being counted, not what raised it.
 	row := incident.Create()
@@ -293,7 +293,7 @@ func seedIncident(t *testing.T, db *db.Conn, instanceID, definitionID uuid.UUID)
 	row.SetNodeID("Activity_ChargeCard")
 	row.SetError("the payment gateway refused the connection")
 	row.SetStatus(string(models.IncidentOpen))
-	if _, err := row.Insert(t.Context(), testutils.Executor(db)); err != nil {
+	if _, err := row.Insert(ctx, testutils.Executor(db)); err != nil {
 		t.Fatalf("seed incident: %v", err)
 	}
 }
@@ -329,7 +329,7 @@ func TestInstanceAttention_IsNotTheStatusColumn(t *testing.T) {
 	}
 
 	broken := uuid.UUID(page.Items[0].ID)
-	seedIncident(t, db, broken, definitionID)
+	seedIncident(ctx, t, db, broken, definitionID)
 
 	t.Run("the row is marked", func(t *testing.T) {
 		ids := []uuid.UUID{broken, uuid.UUID(page.Items[1].ID)}
@@ -377,7 +377,7 @@ func TestInstanceAttention_IsNotTheStatusColumn(t *testing.T) {
 	t.Run("a resolved incident stops counting", func(t *testing.T) {
 		var resolved incident.Mut
 		resolved.SetStatus(string(models.IncidentResolved))
-		if _, err := incident.New().InstanceIDEq(broken).UpdateAll(t.Context(), testutils.Executor(db), resolved); err != nil {
+		if _, err := incident.New().InstanceIDEq(broken).UpdateAll(ctx, testutils.Executor(db), resolved); err != nil {
 			t.Fatalf("resolve: %v", err)
 		}
 		total, err := repo.Process().CountInstancesNeedingAttention(
@@ -399,8 +399,8 @@ func TestInstanceAttention_IsNotTheStatusColumn(t *testing.T) {
 
 	t.Run("a deleted instance is not marked", func(t *testing.T) {
 		gone := uuid.UUID(page.Items[2].ID)
-		seedIncident(t, db, gone, definitionID)
-		seedIncident(t, db, gone, definitionID)
+		seedIncident(ctx, t, db, gone, definitionID)
+		seedIncident(ctx, t, db, gone, definitionID)
 		counts, err := repo.Process().OpenIncidentsByInstance(ctx, []uuid.UUID{gone})
 		if err != nil {
 			t.Fatalf("open incidents: %v", err)
@@ -408,7 +408,7 @@ func TestInstanceAttention_IsNotTheStatusColumn(t *testing.T) {
 		if counts[gone] != 2 {
 			t.Fatalf("the instance with two incidents reports %d", counts[gone])
 		}
-		if err := processinstance.Delete(t.Context(), testutils.Executor(db), gone); err != nil {
+		if err := processinstance.Delete(ctx, testutils.Executor(db), gone); err != nil {
 			t.Fatalf("delete: %v", err)
 		}
 		if counts, err = repo.Process().OpenIncidentsByInstance(ctx, []uuid.UUID{gone}); err != nil {
@@ -455,8 +455,8 @@ func TestInstanceAttention_IsTenantScoped(t *testing.T) {
 		t.Fatalf("list B: %v", err)
 	}
 	foreign := uuid.UUID(b.Items[0].ID)
-	seedIncident(t, db, foreign, definitionB)
-	seedIncident(t, db, uuid.UUID(a.Items[0].ID), definitionA)
+	seedIncident(ctx, t, db, foreign, definitionB)
+	seedIncident(ctx, t, db, uuid.UUID(a.Items[0].ID), definitionA)
 
 	// Asking about the other tenant's instance by id must not answer, even
 	// though the caller supplied the id and the row exists.

@@ -1,6 +1,7 @@
 package testutils
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -21,11 +22,11 @@ import (
 // an instance has to name a definition that exists.
 func SeedDefinition(t *testing.T, conn *db.Conn, project uuid.UUID, key string) uuid.UUID {
 	t.Helper()
-	return SeedDefinitionVersion(t, conn, project, key, 1)
+	return SeedDefinitionVersion(t.Context(), t, conn, project, key, 1)
 }
 
 // SeedDefinitionVersion is SeedDefinition at a version of the caller's choosing.
-func SeedDefinitionVersion(t *testing.T, conn *db.Conn, project uuid.UUID, key string, version int) uuid.UUID {
+func SeedDefinitionVersion(ctx context.Context, t *testing.T, conn *db.Conn, project uuid.UUID, key string, version int) uuid.UUID {
 	t.Helper()
 	id := uuid.Must(uuid.NewV7())
 	row := processdefinition.Create()
@@ -36,7 +37,7 @@ func SeedDefinitionVersion(t *testing.T, conn *db.Conn, project uuid.UUID, key s
 	row.SetVersion(int64(version))
 	row.SetNodes(runtime.JSON("[]"))
 	row.SetFlows(runtime.JSON("[]"))
-	if _, err := row.Insert(t.Context(), Executor(conn)); err != nil {
+	if _, err := row.Insert(ctx, Executor(conn)); err != nil {
 		t.Fatalf("seed the definition %s: %v", key, err)
 	}
 	return id

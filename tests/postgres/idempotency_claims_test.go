@@ -35,7 +35,7 @@ func TestAnIdempotencyAnswerIsKeptOnce(t *testing.T) {
 	if err != nil || out.Owned || out.Response == nil {
 		t.Fatalf("a retry was not replayed: %+v %v", out, err)
 	}
-	if r := out.Response; r.StatusCode != 201 || string(r.Body) != "first" || r.Header.Get("Location") != "/instances/1" {
+	if r := out.Response; r.StatusCode != http.StatusCreated || string(r.Body) != "first" || r.Header.Get("Location") != "/instances/1" {
 		t.Errorf("replayed %d %q %v, want the first answer", r.StatusCode, r.Body, r.Header)
 	}
 

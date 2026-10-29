@@ -45,7 +45,7 @@ func TestWaitingWorkIsCountedPerKeyAndStep(t *testing.T) {
 
 	def := func(project uuid.UUID, key, name string, version int) uuid.UUID {
 		t.Helper()
-		id := testutils.SeedDefinitionVersion(t, db, project, key, version)
+		id := testutils.SeedDefinitionVersion(ctx, t, db, project, key, version)
 		rename := processdefinition.MutateKey(id)
 		rename.SetName(name)
 		if err := rename.Update(ctx, ex); err != nil {

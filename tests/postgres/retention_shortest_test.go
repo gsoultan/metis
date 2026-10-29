@@ -40,7 +40,7 @@ func TestTheSweepReadsEachProcesssNewestPeriod(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed an instance: %v", err)
 	}
-	ageInstance(t, db, id, 2*24*time.Hour)
+	ageInstance(t.Context(), t, db, id, 2*24*time.Hour)
 
 	removed, err := repo.Process().ForgetFinished(entities.WithSystemContext(t.Context()), time.Now(), 0)
 	if err != nil {
