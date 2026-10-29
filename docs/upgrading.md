@@ -18,6 +18,42 @@ The first version of one of them silently left every form without its
 definition. `tests/upgrade` is the automated version of the same rehearsal and
 runs in CI; this is the one that uses your data.
 
+## Migration 50: the database takes the storm model's shape
+
+Releases up to 0.6.0 kept the schema with GORM and recorded migrations 1 to
+49. From 0.7.0 the schema is the storm model's. At its first boot against a
+0.6.0 database, the server converts the database once and records it as
+version 50:
+
+- text columns that hold JSON become `jsonb`;
+- columns the model declares NOT NULL are made so;
+- GORM's index, unique and foreign-key names are replaced by the model's;
+- text columns are narrowed to the model's width.
+
+The conversion is one transaction: all of it applies, or none of it does. A
+row still NULL where the model declares no fill, or a value too long for its
+new width, rolls it back and the server does not start; the log names the
+step. Tables the model does not declare are left as they are, and a step
+that would drop a table or a column is refused. Replicas that start together wait
+for the one converting, for up to five minutes.
+
+Changing a column's type rewrites its table under an exclusive lock, so the
+conversion takes as long as your largest tables take to rewrite. Rehearse it
+on a copy of production with `scripts/upgrade-rehearsal.sh` and use the time
+it takes to size a maintenance window.
+
+**A database before migration 49 is refused**, with nothing changed:
+
+```
+this database is older than the oldest schema this release can upgrade: it is at version 36. Upgrade it with the last release that still has the migrations up to version 49, start that once so it applies them, then start this one
+```
+
+Start 0.6.0 against it once, let it apply migrations 37 to 49, then start
+this release.
+
+**Rolling back** means restoring the backup taken before the upgrade: 0.6.0
+was not written against the converted schema.
+
 ## A group's roles grant what they say
 
 A group's `roles` were stored and shown in the group editor, which said that

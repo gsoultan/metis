@@ -8,6 +8,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Upgrading
+
+- **Upgrade to 0.6.0 first.** This release upgrades only a database at
+  migration 49, the last one 0.6.0 applies. A database on 0.5.0 or earlier is
+  refused at boot, with nothing changed, until 0.6.0 has been started against
+  it once ([Migration 50](docs/upgrading.md#migration-50-the-database-takes-the-storm-models-shape)).
+- **50** converts the database to the storm model's tables, in one
+  transaction: text holding JSON becomes `jsonb`, columns the model declares
+  NOT NULL become so, and GORM's index and key names give way to the model's.
+  A row the new constraints refuse rolls the whole conversion back, and the
+  server does not start. It rewrites tables, so plan a maintenance window
+  sized by the rehearsal, and take a backup first.
+
+### Changed
+
+- **GORM is gone.** The schema, its migrations and every query go through
+  storm.
+
 ## [0.6.0] - 2026-10-29
 
 A minor release whose upgrade is quiet unless you rely on one of the changes
