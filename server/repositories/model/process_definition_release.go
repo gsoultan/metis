@@ -33,6 +33,11 @@ type ProcessDefinitionRelease struct {
 }
 
 func (r *ProcessDefinitionRelease) Schema(t *storm.Table) {
+	// GORM's defaults, kept. See fill.go.
+	t.Col(&r.Version).Default(zero)
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&r.ProcessKey).FillNulls(blank)
 	t.Col(&r.ProcessKey).Size(191)
 	// The triple is unique so two versions cannot claim the same instant, and
 	// promoting again is a new entry rather than an overwrite of the history.

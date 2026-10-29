@@ -35,7 +35,7 @@ const decisionAPIPassword = "decision-api-test-password"
 func newDecisionAPI(t *testing.T) *decisionAPI {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(db)
+	conn := db
 	repo := repositories.NewRepository(conn)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "decision-api-test-secret", nil, nil, nil)

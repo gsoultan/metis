@@ -128,38 +128,29 @@ func (r *connectorRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// restoreConnectorByKeySQL clears the removal mark on the entry removed last
-// under a key and returns it. Raw SQL because every generated read hides
-// removed rows, and this has to find one by its key.
-const restoreConnectorByKeySQL = `UPDATE "connectors" SET "deleted_at" = NULL, "updated_at" = now()
-WHERE "id" = (SELECT "id" FROM "connectors" WHERE "key" = $1 AND "deleted_at" IS NOT NULL
-	ORDER BY "deleted_at" DESC LIMIT 1)
-RETURNING "id", "created_at", "updated_at", "key", "name", "description", "icon", "type", "properties", "deleted_at"`
-
+// RestoreByKey clears the removal mark on the entry removed last under a key
+// and returns it, in one statement: a Take over a read that sees the marked
+// rows, which this table's model allows.
 func (r *connectorRepository) RestoreByKey(ctx context.Context, key string) (models.Connector, error) {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return models.Connector{}, err
 	}
-	rows, err := ex.Query(ctx, restoreConnectorByKeySQL, []any{key})
+	var restore connector.Mut
+	restore.SetDeletedAtNull()
+	restore.SetUpdatedAtNow()
+	rows, err := connector.New().WithDeleted().
+		Where(connector.Key.Eq(key), connector.DeletedAt.IsNotNull()).
+		Order(connector.DeletedAt.Desc()).
+		Limit(1).
+		Take(ctx, ex, restore, nil)
 	if err != nil {
 		return models.Connector{}, fmt.Errorf("could not restore the connector: %w", err)
 	}
-	defer rows.Close()
-	if !rows.Next() {
-		// pgx reports a failed statement when the rows are drained, not when
-		// the query is sent, so an empty result is only "none" once Err says so.
-		if err := rows.Err(); err != nil {
-			return models.Connector{}, fmt.Errorf("could not restore the connector: %w", err)
-		}
+	if len(rows) == 0 {
 		return models.Connector{}, fmt.Errorf("%w: no connector called %q was removed", apierr.ErrNotFound, key)
 	}
-	var row connector.Row
-	var slab runtime.Slab
-	if err := connector.Scan(rows.RawValues(), &row, &slab); err != nil {
-		return models.Connector{}, fmt.Errorf("could not read the restored connector: %w", err)
-	}
-	return connectorFrom(row)
+	return connectorFrom(rows[0])
 }
 
 func (r *connectorRepository) one(ctx context.Context, preds ...connector.Pred) (models.Connector, error) {

@@ -3,10 +3,15 @@ package bpmn_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
+	"github.com/gsoultan/storm/runtime"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -562,15 +567,15 @@ func TestAPreviewChangesNothingAndWaitsForNobody(t *testing.T) {
 
 	// Somebody else holds the instance and its task, as an apply does and a
 	// completion does. A preview that asked for either would wait here.
-	holder := h.db.Begin()
-	defer holder.Rollback()
-	var heldInstances, heldTasks []string
-	if err := holder.Raw(`SELECT id::text FROM process_instances WHERE id = ? FOR UPDATE`, id).Scan(&heldInstances).Error; err != nil || len(heldInstances) != 1 {
-		t.Fatalf("hold the instance: %d row(s), %v", len(heldInstances), err)
-	}
-	if err := holder.Raw(`SELECT id::text FROM tasks WHERE instance_id = ? FOR UPDATE`, id).Scan(&heldTasks).Error; err != nil || len(heldTasks) != 1 {
-		t.Fatalf("hold the task: %d row(s), %v", len(heldTasks), err)
-	}
+	holder := h.holding(t, func(ctx context.Context, tx runtime.Executor) (int, error) {
+		if n, err := taken(processinstance.New().IDEq(id).ForUpdate().All(ctx, tx, nil)); err != nil || n != 1 {
+			return 0, fmt.Errorf("hold the instance: %d row(s), %w", n, err)
+		}
+		if n, err := taken(taskstore.New().InstanceIDEq(id).ForUpdate().All(ctx, tx, nil)); err != nil || n != 1 {
+			return 0, fmt.Errorf("hold the task: %d row(s), %w", n, err)
+		}
+		return 2, nil
+	})
 
 	applicable := map[string]entities.DeviationCommand{
 		"a waive":  deviationCommand(entities.DeviationWaive, id, "opsApprove", map[string]any{"approved": true}),
@@ -602,9 +607,7 @@ func TestAPreviewChangesNothingAndWaitsForNobody(t *testing.T) {
 			}
 		}
 	}
-	if err := holder.Rollback().Error; err != nil {
-		t.Fatalf("let the rows go: %v", err)
-	}
+	holder.letGo(t, false)
 
 	if changed := tablesThatDiffer(before, everyRow(t, h)); len(changed) != 0 {
 		t.Fatalf("previews changed %v", changed)

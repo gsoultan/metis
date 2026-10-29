@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -13,6 +14,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/definition"
 	"github.com/gsoultan/metis/server/endpoints/deviation"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -58,8 +60,8 @@ func asDita() servicecontracts.MigrationOption {
 // requestCount is how many requests for a second administrator there are.
 func (f *fixture) requestCount(t *testing.T) int64 {
 	t.Helper()
-	var n int64
-	if err := f.db.Raw(`SELECT count(*) FROM deviation_requests`).Row().Scan(&n); err != nil {
+	n, err := deviationrequest.New().Count(f.ctx, f.ex())
+	if err != nil {
 		t.Fatalf("count the requests: %v", err)
 	}
 	return n
@@ -69,11 +71,11 @@ func (f *fixture) requestCount(t *testing.T) int64 {
 // would be told it reads as now.
 func (f *fixture) storedStatus(t *testing.T, requestID uuid.UUID) string {
 	t.Helper()
-	var stored string
-	if err := f.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, requestID).Row().Scan(&stored); err != nil {
-		t.Fatalf("read the request: %v", err)
+	row, found, err := deviationrequest.New().IDEq(requestID).One(f.ctx, f.ex())
+	if err != nil || !found {
+		t.Fatalf("read the request: %v (found=%v)", err, found)
 	}
-	return stored
+	return row.Status
 }
 
 // assertNothingMoved fails unless the one instance is still running v1 with
@@ -106,9 +108,9 @@ func (p *hookedProcess) atTheApprovedApplysListing(fire func()) {
 // time passing creates.
 func (f *fixture) letTimePass(t *testing.T, requestID uuid.UUID, minutes int) {
 	t.Helper()
-	if err := f.db.Exec(`UPDATE deviation_requests SET expires_at = now() - make_interval(mins => ?) WHERE id = ?`, minutes, requestID).Error; err != nil {
-		t.Fatalf("move the deadline of request %s: %v", requestID, err)
-	}
+	f.rewriteRequest(t, requestID, func(m *deviationrequest.Mut) {
+		m.SetExpiresAt(time.Now().Add(-time.Duration(minutes) * time.Minute))
+	})
 }
 
 // A test that hooks "the apply's listing" counts listings from the moment it

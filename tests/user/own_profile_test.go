@@ -40,12 +40,12 @@ type profileWorld struct {
 func newProfileWorld(t *testing.T) profileWorld {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "own-profile-test-secret",
 		nil, nil, nil)
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil,
-		map[string]health.Checker{}, testutils.StormConn(db))
+		map[string]health.Checker{}, db)
 
 	w := profileWorld{handler: handler, repo: repo, orgID: seedOrganization(t, repo, "Profile Org")}
 	w.dana = entities.User{

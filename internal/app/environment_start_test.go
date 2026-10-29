@@ -9,8 +9,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
-	"gorm.io/gorm"
+	"github.com/gsoultan/metis/server/repositories/store/organization"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // Creating an environment used to record a row and nothing else: its port was
@@ -57,11 +59,6 @@ func TestARePointedEnvironmentServesItsNewDatabase(t *testing.T) {
 	h := newEnvironmentHarness(t)
 	before, after := scratchDatabase(t), scratchDatabase(t)
 	beforeDB, afterDB := behindTheServer(t, before), behindTheServer(t, after)
-	for _, database := range []*gorm.DB{beforeDB, afterDB} {
-		if err := database.Exec("CREATE TABLE written_here (note text)").Error; err != nil {
-			t.Fatalf("prepare a database: %v", err)
-		}
-	}
 	staging := h.environment("staging", before)
 	h.serve(writesTheNote(h))
 
@@ -77,7 +74,13 @@ func TestARePointedEnvironmentServesItsNewDatabase(t *testing.T) {
 
 	within(t, startLimit, "after the environment was pointed at another database, what is written through its port still lands in the old one", func() bool {
 		note := uuid.NewString()
-		return answers(t, staging.Port, "/?note="+note) && countNotes(t, afterDB, note) == 1
+		// The new database has no tables until the environment is moved onto
+		// it and migrates it, so a count that fails is a count not yet made.
+		if !answers(t, staging.Port, "/?note="+note) {
+			return false
+		}
+		n, err := organization.New().NameEq(note).Count(t.Context(), testutils.Executor(afterDB))
+		return err == nil && n == 1
 	})
 }
 
@@ -131,8 +134,9 @@ func attempts(logs *logTap, environment string) int {
 	return total
 }
 
-// writesTheNote stores ?note= through the executor the request's environment
-// binding resolves — the way every repository reaches its database.
+// writesTheNote stores ?note=, as an organization of that name, through the
+// executor the request's environment binding resolves — the way every
+// repository reaches its database.
 func writesTheNote(h *environmentHarness) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		executor, err := h.conn.Executor(r.Context())
@@ -140,8 +144,10 @@ func writesTheNote(h *environmentHarness) http.Handler {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		if _, err := executor.Exec(r.Context(), "INSERT INTO written_here (note) VALUES ($1)",
-			[]any{r.URL.Query().Get("note")}); err != nil {
+		note := organization.Create()
+		note.SetName(r.URL.Query().Get("note"))
+		note.SetDescription("")
+		if _, err := note.Insert(r.Context(), executor); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -149,10 +155,10 @@ func writesTheNote(h *environmentHarness) http.Handler {
 	})
 }
 
-func countNotes(t *testing.T, database *gorm.DB, note string) int64 {
+func countNotes(t *testing.T, database *db.Conn, note string) int64 {
 	t.Helper()
-	var n int64
-	if err := database.Raw("SELECT count(*) FROM written_here WHERE note = ?", note).Scan(&n).Error; err != nil {
+	n, err := organization.New().NameEq(note).Count(t.Context(), testutils.Executor(database))
+	if err != nil {
 		t.Fatalf("count the notes: %v", err)
 	}
 	return n
@@ -190,8 +196,24 @@ func schedulesAJob(h *environmentHarness) http.Handler {
 			return
 		}
 		ctx := entities.WithSystemContext(r.Context())
+		definition := models.ProcessDefinitionModel{
+			Base: models.Base{ID: models.UUID(uuid.Must(uuid.NewV7()))}, ProjectID: models.UUID(h.project),
+			Key: "timed", Name: "Timed", Version: 1,
+		}
+		if err := h.app.repo.Definition().Create(ctx, definition); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		instance, err := h.app.repo.Process().Create(ctx, models.ProcessInstanceModel{
+			ProjectID: definition.ProjectID, DefinitionID: definition.ID, Status: models.ProcessActive,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		if _, err := h.app.repo.Job().Create(ctx, models.JobModel{
 			Base: models.Base{ID: models.UUID(uuid.New())}, Type: "timer", Status: models.JobPending,
+			InstanceID: models.UUID(instance), DefinitionID: definition.ID,
 			NextRunAt: time.Now().Add(time.Hour),
 		}); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

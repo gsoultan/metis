@@ -22,10 +22,10 @@ import (
 
 func TestEventStreamRequiresAToken(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "sse-probe-secret", nil, nil, nil)
-	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, testutils.StormConn(db))
+	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, db)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 

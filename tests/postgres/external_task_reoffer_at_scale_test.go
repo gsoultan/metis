@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -10,7 +11,9 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/externaltask"
 	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // tasksAhead is as many external tasks as one read of the generated store
@@ -27,19 +30,23 @@ const tasksAhead = 1000
 // resolved and the task stayed off offer until a sweep came round to it.
 func TestResolvingAnIncidentOffersItsExternalTaskAgainPastAThousand(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx := entities.WithSystemContext(t.Context())
 	engine := serviceimpl.NewExecutionEngine(repo, observersimpl.NewEventDispatcher())
 	jobs := serviceimpl.NewJobService(repo, engine, serviceimpl.NewConnectorService(repo),
 		serviceimpl.NewNoOpLocker(), handlersimpl.NewErrorBoundaryMatcher())
 
-	instanceID, projectID, definitionID := uuid.New(), uuid.New(), uuid.New()
-	if err := db.WithContext(ctx).Exec(`
-		INSERT INTO external_tasks (id, created_at, updated_at, project_id, instance_id, definition_id,
-		                            node_id, topic, retries, retry_timeout, variables)
-		SELECT gen_random_uuid(), now() - interval '1 hour', now() - interval '1 hour', ?, ?, ?,
-		       'pick', 'warehouse', 3, 0, '{}'
-		  FROM generate_series(1, ?) AS n`, projectID, instanceID, definitionID, tasksAhead).Error; err != nil {
+	projectID := testutils.SeedProject(t, db)
+	definitionID := testutils.SeedDefinition(t, db, projectID, "warehouse")
+	instanceID := testutils.SeedInstance(t, db, projectID, definitionID, models.ProcessActive)
+	earlier := time.Now().Add(-time.Hour)
+	ahead := make([]externaltask.Row, tasksAhead)
+	for i := range ahead {
+		ahead[i] = externaltask.Row{ID: uuid.Must(uuid.NewV7()), CreatedAt: earlier, UpdatedAt: earlier,
+			ProjectID: projectID, InstanceID: instanceID, DefinitionID: definitionID,
+			NodeID: "pick", Topic: "warehouse", Retries: 3, Variables: runtime.JSON("{}")}
+	}
+	if _, err := externaltask.InsertAll(ctx, testutils.Executor(db), ahead); err != nil {
 		t.Fatalf("seed %d earlier tasks: %v", tasksAhead, err)
 	}
 	stranded := &models.ExternalTaskModel{

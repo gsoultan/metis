@@ -73,3 +73,21 @@ func everyBatch[R any, Q keysetQuery[R, Q]](ctx context.Context, ex runtime.Exec
 		next = q.Limit(size).After(batch[len(batch)-1])
 	}
 }
+
+// everyGroup returns every group a declared aggregation yields, a page at a
+// time. page reads the groups from offset on, at most everyRowBatch of them;
+// an aggregation is ordered by its grouping columns, so an offset is a
+// position.
+func everyGroup[R any](page func(offset int64) ([]R, error)) ([]R, error) {
+	var groups []R
+	for {
+		batch, err := page(int64(len(groups)))
+		if err != nil {
+			return nil, err
+		}
+		groups = append(groups, batch...)
+		if int64(len(batch)) < everyRowBatch {
+			return groups, nil
+		}
+	}
+}

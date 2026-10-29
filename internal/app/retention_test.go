@@ -10,7 +10,11 @@ import (
 	"github.com/gsoultan/metis/server/domains/observers/impl"
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/store/idempotencyrecord"
+	"github.com/gsoultan/metis/server/repositories/store/sharedcounter"
+	"github.com/gsoultan/metis/server/repositories/store/webhookdelivery"
 	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // Three tables keep a row only for as long as it can answer something: has
@@ -21,35 +25,57 @@ import (
 // as long as the server ran, two of them keyed by whatever callers chose to
 // send.
 func TestARunningServerForgetsWhatCanNoLongerBeAsked(t *testing.T) {
-	gormDB := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(gormDB)
+	conn := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
-	a := &App{db: gormDB, storm: conn, repo: repo, sse: sse,
+	a := &App{storm: conn, repo: repo, sse: sse,
 		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "retention-test", nil, nil, nil)}
 
-	seed := func(stmt string, args ...any) {
+	ex := testutils.Executor(conn)
+	seeded := func(_ any, err error) {
 		t.Helper()
-		if err := gormDB.WithContext(t.Context()).Exec(stmt, args...).Error; err != nil {
+		if err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
+	claim := func(completed bool, status int64, at time.Time) {
+		t.Helper()
+		record := idempotencyrecord.Create()
+		record.SetRecordKey(uuid.NewString())
+		record.SetRequestHash("hash")
+		record.SetCompleted(completed)
+		record.SetStatusCode(status)
+		record.SetHeaders(runtime.JSON("{}"))
+		record.SetBody([]byte{})
+		record.SetCreatedAt(at)
+		seeded(record.Insert(t.Context(), ex))
+	}
+	_, _, project := testutils.ScopedProject(t, repo)
+	hook := testutils.SeedWebhook(t, conn, project)
 	monthAgo, now := time.Now().Add(-30*24*time.Hour), time.Now()
 	for _, at := range []time.Time{monthAgo, now} {
-		seed(`INSERT INTO webhook_deliveries (id, created_at, updated_at, webhook_id, delivery_id, received_at)
-		      VALUES (?, ?, ?, ?, ?, ?)`, uuid.New(), at, at, uuid.New(), uuid.NewString(), at)
-		seed(`INSERT INTO idempotency_records (record_key, request_hash, completed, status_code, created_at)
-		      VALUES (?, 'hash', true, 200, ?)`, uuid.NewString(), at)
-		seed(`INSERT INTO shared_counters (scope, counter_key, replica, window_start, count, updated_at)
-		      VALUES ('http-rate', ?, 'replica-1', ?, 1, ?)`, uuid.NewString(), at.Truncate(time.Minute), at)
+		delivery := webhookdelivery.Create()
+		delivery.SetCreatedAt(at)
+		delivery.SetUpdatedAt(at)
+		delivery.SetWebhookID(hook)
+		delivery.SetDeliveryID(uuid.NewString())
+		delivery.SetReceivedAt(at)
+		seeded(delivery.Insert(t.Context(), ex))
+		claim(true, 200, at)
+		counter := sharedcounter.Create()
+		counter.SetScope("http-rate")
+		counter.SetCounterKey(uuid.NewString())
+		counter.SetReplica("replica-1")
+		counter.SetWindowStart(at.Truncate(time.Minute))
+		counter.SetCount(1)
+		counter.SetUpdatedAt(at)
+		seeded(counter.Insert(t.Context(), ex))
 	}
 	// A claim nobody answered, left by a replica that died a month ago.
-	seed(`INSERT INTO idempotency_records (record_key, request_hash, completed, status_code, created_at)
-	      VALUES (?, 'hash', false, 0, ?)`, uuid.NewString(), monthAgo)
+	claim(false, 0, monthAgo)
 	// A claim past the TTL and still being worked on: nothing bounds how long a
 	// request runs, so an hour-old claim may still be answered.
-	seed(`INSERT INTO idempotency_records (record_key, request_hash, completed, status_code, created_at)
-	      VALUES (?, 'hash', false, 0, ?)`, uuid.NewString(), now.Add(-time.Hour))
+	claim(false, 0, now.Add(-time.Hour))
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -58,9 +84,13 @@ func TestARunningServerForgetsWhatCanNoLongerBeAsked(t *testing.T) {
 	want := map[string]int64{"webhook_deliveries": 1, "idempotency_records": 2, "shared_counters": 1}
 	left := map[string]int64{}
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		for table := range want {
-			var n int64
-			if err := gormDB.WithContext(t.Context()).Raw("SELECT count(*) FROM " + table).Scan(&n).Error; err != nil {
+		for table, count := range map[string]func() (int64, error){
+			"webhook_deliveries":  func() (int64, error) { return webhookdelivery.New().Unordered().Count(t.Context(), ex) },
+			"idempotency_records": func() (int64, error) { return idempotencyrecord.New().Unordered().Count(t.Context(), ex) },
+			"shared_counters":     func() (int64, error) { return sharedcounter.New().Unordered().Count(t.Context(), ex) },
+		} {
+			n, err := count()
+			if err != nil {
 				t.Fatalf("count %s: %v", table, err)
 			}
 			left[table] = n

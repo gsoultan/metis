@@ -24,6 +24,9 @@ type Project struct {
 }
 
 func (p *Project) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&p.Name).FillNulls(blank)
 	t.Col(&p.Name).Size(255)
 	// A project's name is unique inside its organization, not globally: two
 	// tenants both having a "Payments" project is normal.
@@ -33,6 +36,9 @@ func (p *Project) Schema(t *storm.Table) {
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&p.DeletedAt)
+	// The unserved-topic count names the organization of every project with
+	// a task on offer, removed or not.
+	t.ReadsDeleted()
 }
 
 // Projections declares the tenant scope's read: an organization's projects by

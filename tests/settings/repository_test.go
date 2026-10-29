@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/pg"
+	"github.com/gsoultan/metis/server/repositories/store/installationsetting"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -53,7 +54,7 @@ func TestTheNewestChangeIsTheSettingsValue(t *testing.T) {
 // A secret is sealed in its row, opened for the server that runs on it, and
 // never opened for a history.
 func TestASecretIsSealedAtRestAndLeftOutOfItsHistory(t *testing.T) {
-	gormDB, conn := testutils.SetupTestStore(t)
+	conn := testutils.SetupTestDB(t)
 	repo := pg.NewInstallationSettingRepository(conn)
 	ctx := entities.WithSystemContext(t.Context())
 	const password = "mail-password-in-the-clear"
@@ -64,10 +65,11 @@ func TestASecretIsSealedAtRestAndLeftOutOfItsHistory(t *testing.T) {
 		t.Fatalf("record: %v", err)
 	}
 
-	var stored string
-	if err := gormDB.Raw(`SELECT value FROM installation_settings WHERE name = 'NOTIFICATION_SMTP_PASSWORD'`).Scan(&stored).Error; err != nil {
-		t.Fatalf("read the row: %v", err)
+	row, found, err := installationsetting.New().NameEq("NOTIFICATION_SMTP_PASSWORD").One(ctx, testutils.Executor(conn))
+	if err != nil || !found {
+		t.Fatalf("read the row: %v (found=%v)", err, found)
 	}
+	stored := row.Value.V
 	if stored == password || stored == "" {
 		t.Fatalf("the secret is stored in the clear: %q", stored)
 	}

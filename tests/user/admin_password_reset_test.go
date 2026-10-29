@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/user"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // An administrator sets a colleague's password from the account form. Before
@@ -105,9 +107,10 @@ func TestAnAccountAProviderSignsInHasNoPasswordToSet(t *testing.T) {
 	w.account("ana", nil, w.acme)
 	w.holdsIn("ana", w.acme, entities.RoleAdmin)
 	w.account("kim", nil, w.acme)
-	if err := w.db.WithContext(t.Context()).Exec(
-		`UPDATE users SET identity_issuer = ?, identity_subject = ? WHERE id = ?`,
-		"https://id.example.com", "kim-subject", w.ids["kim"]).Error; err != nil {
+	linked := user.MutateKey(w.ids["kim"])
+	linked.SetIdentityIssuer("https://id.example.com")
+	linked.SetIdentitySubject("kim-subject")
+	if err := linked.Update(t.Context(), testutils.Executor(w.db)); err != nil {
 		t.Fatalf("link Kim to a provider: %v", err)
 	}
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/gsoultan/storm/pgstat"
+	"github.com/gsoultan/storm/runtime/pgxdrv"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -16,12 +18,8 @@ type storageProbe struct {
 	conn *pgx.Conn
 }
 
-const (
-	databaseSizeQuery = `SELECT pg_database_size(current_database())`
-	tableSizesQuery   = `SELECT c.relname, pg_total_relation_size(c.oid)
-		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE c.relkind = 'r' AND n.nspname = 'public'`
-)
+// storageSchema is the schema whose tables are measured.
+const storageSchema = "public"
 
 func openStorageProbe(ctx context.Context, dsn string) (*storageProbe, error) {
 	if dsn == "" {
@@ -35,24 +33,16 @@ func openStorageProbe(ctx context.Context, dsn string) (*storageProbe, error) {
 }
 
 func (p *storageProbe) snapshot(ctx context.Context) (snapshot, error) {
-	out := snapshot{tables: make(map[string]int64)}
-	if err := p.conn.QueryRow(ctx, databaseSizeQuery).Scan(&out.database); err != nil {
-		return out, fmt.Errorf("reading the database size: %w", err)
-	}
-	rows, err := p.conn.Query(ctx, tableSizesQuery)
+	ex := pgxdrv.Conn{C: p.conn}
+	database, err := pgstat.DatabaseSize(ctx, ex)
 	if err != nil {
-		return out, fmt.Errorf("reading table sizes: %w", err)
+		return snapshot{}, fmt.Errorf("reading the database size: %w", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var name string
-		var size int64
-		if err := rows.Scan(&name, &size); err != nil {
-			return out, err
-		}
-		out.tables[name] = size
+	tables, err := pgstat.TableSizes(ctx, ex, storageSchema)
+	if err != nil {
+		return snapshot{}, fmt.Errorf("reading table sizes: %w", err)
 	}
-	return out, rows.Err()
+	return snapshot{database: database, tables: tables}, nil
 }
 
 func (p *storageProbe) close(ctx context.Context) error {

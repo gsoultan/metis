@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -264,10 +266,14 @@ func TestATaskWhoseStepCannotBeReadIsNotHandedOn(t *testing.T) {
 		t.Fatalf("bo claiming the approval: %d (%s)", status, reply)
 	}
 
-	write := func(statement string, args ...any) {
+	ex := testutils.Executor(h.db)
+	moveTo := func(node string) func() {
+		return func() { h.rewrite(t, approve, func(m *taskstore.Mut) { m.SetNodeID(node) }) }
+	}
+	must := func(err error) {
 		t.Helper()
-		if err := h.db.Exec(statement, args...).Error; err != nil {
-			t.Fatalf("%s: %v", statement, err)
+		if err != nil {
+			t.Fatal(err)
 		}
 	}
 	for _, broken := range []struct {
@@ -278,15 +284,15 @@ func TestATaskWhoseStepCannotBeReadIsNotHandedOn(t *testing.T) {
 	}{
 		{
 			name:    "the step is no longer in the definition",
-			breakIt: func() { write(`UPDATE tasks SET node_id = 'a-step-that-was-removed' WHERE id = ?`, approve) },
-			mend:    func() { write(`UPDATE tasks SET node_id = 'approve' WHERE id = ?`, approve) },
+			breakIt: moveTo("a-step-that-was-removed"),
+			mend:    moveTo("approve"),
 			status:  http.StatusBadRequest,
 			says:    "no longer part of its process",
 		},
 		{
 			name:    "the case cannot be read",
-			breakIt: func() { write(`UPDATE process_instances SET deleted_at = now() WHERE id = ?`, instanceID) },
-			mend:    func() { write(`UPDATE process_instances SET deleted_at = NULL WHERE id = ?`, instanceID) },
+			breakIt: func() { must(processinstance.Delete(t.Context(), ex, instanceID)) },
+			mend:    func() { must(processinstance.Restore(t.Context(), ex, instanceID)) },
 			status:  http.StatusNotFound,
 		},
 	} {
@@ -363,7 +369,7 @@ func TestSomebodyInSeveralOrganizationsIsHandedATaskInOneOfThem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read dana: %v", err)
 	}
-	repo := repositories.NewRepository(testutils.StormConn(h.db))
+	repo := repositories.NewRepository(h.db)
 	if err := repo.User().AddOrganization(context.Background(), dana.ID, other.ID); err != nil {
 		t.Fatalf("put dana in the other organization as well: %v", err)
 	}

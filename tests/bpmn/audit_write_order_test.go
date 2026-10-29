@@ -5,13 +5,15 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/auditentry"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	observersimpl "github.com/gsoultan/metis/server/domains/observers/impl"
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // auditedEngine is the service facade with the audit trail written the way the
@@ -19,7 +21,7 @@ import (
 // describes.
 type auditedEngine struct {
 	svc       services.ServiceFacade
-	db        *gorm.DB
+	db        *db.Conn
 	ctx       context.Context
 	projectID uuid.UUID
 }
@@ -27,7 +29,7 @@ type auditedEngine struct {
 func newAuditedEngine(t *testing.T, name string) auditedEngine {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := observersimpl.NewEventDispatcher()
 	dispatcher.Register(observersimpl.NewAuditLogObserver(repo.Audit()))
 	svc := services.NewServiceFacade(repo, dispatcher, observersimpl.NewSSEObserver(), name, nil, nil, nil)
@@ -166,11 +168,14 @@ func (e auditedEngine) runToTheEnd(t *testing.T) uuid.UUID {
 // test.
 func (e auditedEngine) reachedInIDOrder(t *testing.T, instanceID uuid.UUID) []string {
 	t.Helper()
-	var nodes []string
-	if err := e.db.WithContext(e.ctx).Raw(
-		`SELECT node_id FROM audit_logs WHERE instance_id = ? AND type = ? ORDER BY created_at, id`,
-		instanceID, entities.EventNodeReached).Scan(&nodes).Error; err != nil {
+	entries, err := auditentry.New().InstanceIDEq(instanceID).TypeEq(string(entities.EventNodeReached)).
+		Order(auditentry.CreatedAt.Asc(), auditentry.ID.Asc()).All(e.ctx, testutils.Executor(e.db), nil)
+	if err != nil {
 		t.Fatalf("read the steps in id order: %v", err)
+	}
+	var nodes []string
+	for _, entry := range entries {
+		nodes = append(nodes, entry.NodeID.V)
 	}
 	return nodes
 }
@@ -180,7 +185,8 @@ func (e auditedEngine) reachedInIDOrder(t *testing.T, instanceID uuid.UUID) []st
 // is stored.
 func (e auditedEngine) storeTheTrailInIDOrder(t *testing.T) {
 	t.Helper()
-	if err := e.db.WithContext(e.ctx).Exec(`CLUSTER audit_logs USING audit_logs_pkey`).Error; err != nil {
+	// Maintenance, not a query: kept as the statement an operator runs.
+	if _, err := e.db.Main().Exec(e.ctx, `CLUSTER audit_logs USING audit_logs_pkey`); err != nil {
 		t.Fatalf("cluster the audit table on its primary key: %v", err)
 	}
 }

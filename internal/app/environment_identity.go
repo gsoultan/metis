@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/models"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
+	organizationstore "github.com/gsoultan/metis/server/repositories/store/organization"
+	projectstore "github.com/gsoultan/metis/server/repositories/store/project"
+	"github.com/gsoultan/storm/runtime/pgxdrv"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // SeedEnvironmentIdentity copies the organization and project an environment
@@ -33,46 +36,34 @@ import (
 // created, enabled again or pointed at another database — because it has to be
 // true of a database that was just pointed at, not only of one that existed
 // when the feature was first switched on.
-func SeedEnvironmentIdentity(ctx context.Context, environmentDB *gorm.DB, project models.ProjectModel, organization models.OrganizationModel) error {
-	// Two independent statements rather than one shared session: a *gorm.DB
-	// carries the conditions chained onto it, so reusing one for both writes
-	// applies the first's Select to the second.
-	//
-	// Select names the columns explicitly, which both excludes the association
-	// fields — GORM would otherwise try to write a ProjectModel's embedded
-	// Organization as a column — and says exactly what an environment is
-	// allowed to learn about a tenant.
-	onConflict := clause.OnConflict{
-		Columns: []clause.Column{{Name: "id"}},
-		// Refreshed so a project renamed in the main database does not read
-		// differently here. Nothing authorizes on the name; this is so anything
-		// that displays one is not showing what it was called when the
-		// environment was created.
-		DoUpdates: clause.AssignmentColumns([]string{"name", "description", "updated_at"}),
-	}
-
-	org := models.OrganizationModel{
-		Base:        models.Base{ID: organization.ID},
-		Name:        organization.Name,
-		Description: organization.Description,
-	}
-	if err := environmentDB.WithContext(ctx).
-		Clauses(onConflict).
-		Select("id", "created_at", "updated_at", "name", "description").
-		Create(&org).Error; err != nil {
+func SeedEnvironmentIdentity(ctx context.Context, environmentDB *pgxpool.Pool, project models.ProjectModel, organization models.OrganizationModel) error {
+	ex := pgxdrv.Pool{P: environmentDB}
+	// Upserts on the key that assign only what an environment is allowed to
+	// learn about a tenant. A row already there keeps every column these do
+	// not assign — when it was first copied, above all — and has the rest
+	// refreshed, so a project renamed in the main database does not read
+	// differently here. Nothing authorizes on the name; this is so anything
+	// that displays one is not showing what it was called when the
+	// environment was created.
+	now := time.Now().UTC()
+	org := organizationstore.Create()
+	org.SetID(uuid.UUID(organization.ID))
+	org.SetUpdatedAt(now)
+	org.SetName(organization.Name)
+	org.SetDescription(organization.Description)
+	org.OnConflictID()
+	if _, err := org.Insert(ctx, ex); err != nil {
 		return fmt.Errorf("could not copy the organization into this environment: %w", err)
 	}
 
-	proj := models.ProjectModel{
-		Base:           models.Base{ID: project.ID},
-		OrganizationID: project.OrganizationID,
-		Name:           project.Name,
-		Description:    project.Description,
-	}
-	if err := environmentDB.WithContext(ctx).
-		Clauses(onConflict).
-		Select("id", "created_at", "updated_at", "organization_id", "name", "description").
-		Create(&proj).Error; err != nil {
+	proj := projectstore.Create()
+	proj.SetID(uuid.UUID(project.ID))
+	proj.SetUpdatedAt(now)
+	proj.SetOrganizationID(uuid.UUID(project.OrganizationID))
+	proj.SetName(project.Name)
+	proj.SetDescription(project.Description)
+	proj.OnConflictID()
+	if _, err := proj.Insert(ctx, ex); err != nil {
 		return fmt.Errorf("could not copy the project into this environment: %w", err)
 	}
 	return nil

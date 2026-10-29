@@ -25,8 +25,7 @@ func TestResealMovesEverySealedValueOntoTheNewKey(t *testing.T) {
 		newKey   = "the-key-that-replaces-it-4be81d07c2f9a653"
 		thirdKey = "a-key-nobody-configured-2e5d90c1a7f8b346"
 	)
-	gormDB := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(gormDB)
+	conn := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(conn)
 	ctx := entities.WithSystemContext(t.Context())
 	t.Cleanup(crypto.ResetForTest)
@@ -42,9 +41,12 @@ func TestResealMovesEverySealedValueOntoTheNewKey(t *testing.T) {
 			}
 		}
 	}
+	// The pass reads every text-like column of every table, so the probe is a
+	// table no model declares, holding a sealed value in each form one is
+	// stored in. Written in SQL because no model could declare it.
 	exec := func(stmt string, args ...any) {
 		t.Helper()
-		if err := gormDB.WithContext(ctx).Exec(stmt, args...).Error; err != nil {
+		if _, err := conn.Main().Exec(ctx, stmt, args...); err != nil {
 			t.Fatalf("%s: %v", stmt, err)
 		}
 	}
@@ -58,19 +60,23 @@ func TestResealMovesEverySealedValueOntoTheNewKey(t *testing.T) {
 	}
 
 	configure(oldKey)
+	_, _, project := testutils.ScopedProject(t, repo)
+	definition := testutils.SeedDefinition(t, conn, project, "reseal")
+	instance := testutils.SeedInstance(t, conn, project, definition, models.ProcessActive)
 	jobID := uuid.New()
 	if _, err := repo.Job().Create(ctx, models.JobModel{
 		Base: models.Base{ID: models.UUID(jobID)}, Type: "timer", Status: models.JobPending,
+		InstanceID: models.UUID(instance), DefinitionID: models.UUID(definition),
 		NextRunAt: time.Now().Add(time.Hour), Payload: map[string]any{"amount": 40000},
 	}); err != nil {
 		t.Fatalf("create a job: %v", err)
 	}
 	exec(`CREATE TABLE reseal_probe (id serial PRIMARY KEY, t text, v varchar(300), j jsonb, js json, b bytea, plain text)`)
 	exec(`INSERT INTO reseal_probe (t, v, j, js, b, plain)
-	      VALUES (?, ?, to_jsonb(?::text), to_json(?::text), convert_to(?, 'UTF8'), 'gcm1:a step somebody named this way')`,
+	      VALUES ($1, $2, to_jsonb($3::text), to_json($4::text), convert_to($5, 'UTF8'), 'gcm1:a step somebody named this way')`,
 		seal("text"), seal("varchar"), seal("jsonb"), seal("json"), seal("bytea"))
 	configure(thirdKey)
-	exec(`INSERT INTO reseal_probe (t) VALUES (?)`, seal("sealed by somebody else"))
+	exec(`INSERT INTO reseal_probe (t) VALUES ($1)`, seal("sealed by somebody else"))
 
 	// The rotation.
 	configure(newKey, oldKey)
@@ -111,8 +117,8 @@ func TestResealMovesEverySealedValueOntoTheNewKey(t *testing.T) {
 		t.Fatalf("the job's payload does not read under the new key alone: %v, %v", job.Payload, err)
 	}
 	var text, bytea string
-	if err := gormDB.WithContext(ctx).Raw(
-		`SELECT t, convert_from(b, 'UTF8') FROM reseal_probe WHERE b IS NOT NULL`).Row().Scan(&text, &bytea); err != nil {
+	if err := conn.Main().QueryRow(ctx,
+		`SELECT t, convert_from(b, 'UTF8') FROM reseal_probe WHERE b IS NOT NULL`).Scan(&text, &bytea); err != nil {
 		t.Fatalf("read the probe: %v", err)
 	}
 	for want, sealed := range map[string]string{"text": text, "bytea": bytea} {

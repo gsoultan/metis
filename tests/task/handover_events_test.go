@@ -30,7 +30,7 @@ func (s *seenEvents) OnEvent(_ context.Context, event entities.ProcessEvent) {
 // type. Recording who made a hand-over must not change which event that is.
 func TestObserversStillSeeTheEventsHandOversAlwaysRaised(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	seen := &seenEvents{}
 	dispatcher := observerimpl.NewEventDispatcher()
 	dispatcher.Register(seen)

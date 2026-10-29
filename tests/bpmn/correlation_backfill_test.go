@@ -7,6 +7,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	service_impl2 "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // The upgrade path for a process that is already waiting.
@@ -247,8 +248,10 @@ func TestEmptyCorrelationKeyMatchesEverySubscription(t *testing.T) {
 	}
 
 	// Two instances of different conversations.
+	definition := testutils.SeedDefinition(t, h.db, h.projID, "payment")
 	for _, key := range []string{"order-a", "order-b"} {
-		if err := h.repo.Subscription().Create(ctx, subscriptionRow(h.projID, "PaymentReceived", key)); err != nil {
+		instance := testutils.SeedInstance(t, h.db, h.projID, definition, models.ProcessActive)
+		if err := h.repo.Subscription().Create(ctx, subscriptionRow(h.projID, instance, "PaymentReceived", key)); err != nil {
 			t.Fatalf("create subscription %s: %v", key, err)
 		}
 	}
@@ -270,12 +273,12 @@ func TestEmptyCorrelationKeyMatchesEverySubscription(t *testing.T) {
 	}
 }
 
-func subscriptionRow(projectID uuid.UUID, messageName, correlationKey string) models.Subscription {
+func subscriptionRow(projectID, instanceID uuid.UUID, messageName, correlationKey string) models.Subscription {
 	id, _ := uuid.NewV7()
 	return models.Subscription{
 		Base:           models.Base{ID: models.UUID(id)},
 		ProjectID:      models.UUID(projectID),
-		InstanceID:     models.UUID(uuid.New()),
+		InstanceID:     models.UUID(instanceID),
 		NodeID:         "await-payment",
 		Type:           models.SubscriptionMessage,
 		EventName:      messageName,

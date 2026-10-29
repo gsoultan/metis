@@ -41,6 +41,14 @@ type Environment struct {
 }
 
 func (e *Environment) Schema(t *storm.Table) {
+	// GORM's defaults, kept. See fill.go.
+	t.Col(&e.Port).Default(zero)
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&e.Name).FillNulls(blank)
+	t.Col(&e.Driver).FillNulls(blank)
+	t.Col(&e.Connection).FillNulls(blank)
+	t.Col(&e.Enabled).FillNulls(no)
 	t.Col(&e.Name).Size(63)
 	t.Col(&e.Driver).Size(32)
 	// Both scoped to the live rows, which is what SoftDelete makes them: a

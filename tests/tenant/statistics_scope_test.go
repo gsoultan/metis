@@ -25,7 +25,7 @@ func TestTenantIsolation_StatisticsCountersAreScoped(t *testing.T) {
 	ctx := f.ctxAsA(t)
 
 	t.Run("instances", func(t *testing.T) {
-		count, err := pg.NewProcessRepository(testutils.StormConn(db)).CountByStatus(ctx, uuid.Nil, models.ProcessActive)
+		count, err := pg.NewProcessRepository(db).CountByStatus(ctx, uuid.Nil, models.ProcessActive)
 		if err != nil {
 			t.Fatalf("count instances: %v", err)
 		}
@@ -35,7 +35,7 @@ func TestTenantIsolation_StatisticsCountersAreScoped(t *testing.T) {
 	})
 
 	t.Run("tasks", func(t *testing.T) {
-		count, err := pg.NewTaskRepository(testutils.StormConn(db)).CountByStatus(ctx, uuid.Nil, "")
+		count, err := pg.NewTaskRepository(db).CountByStatus(ctx, uuid.Nil, "")
 		if err != nil {
 			t.Fatalf("count tasks: %v", err)
 		}
@@ -47,7 +47,7 @@ func TestTenantIsolation_StatisticsCountersAreScoped(t *testing.T) {
 	// Naming the tenant's own project still works — the scope is added to the
 	// project filter, not swapped for it.
 	t.Run("with a project named", func(t *testing.T) {
-		count, err := pg.NewProcessRepository(testutils.StormConn(db)).CountByStatus(ctx, f.projectA, models.ProcessActive)
+		count, err := pg.NewProcessRepository(db).CountByStatus(ctx, f.projectA, models.ProcessActive)
 		if err != nil {
 			t.Fatalf("count instances in project A: %v", err)
 		}
@@ -58,7 +58,7 @@ func TestTenantIsolation_StatisticsCountersAreScoped(t *testing.T) {
 
 	// Naming another tenant's project counts nothing rather than counting theirs.
 	t.Run("with a foreign project named", func(t *testing.T) {
-		count, err := pg.NewProcessRepository(testutils.StormConn(db)).CountByStatus(ctx, f.projectB, models.ProcessActive)
+		count, err := pg.NewProcessRepository(db).CountByStatus(ctx, f.projectB, models.ProcessActive)
 		if err != nil {
 			t.Fatalf("count instances in project B: %v", err)
 		}

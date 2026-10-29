@@ -6,9 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/pgstat"
 
 	"github.com/gsoultan/metis/server/domains/entities"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
@@ -74,19 +79,17 @@ func (h *taskHarness) send(token, path string, body any) answer {
 // returned, and at the end of the test whatever happens.
 func (h *taskHarness) hold(t *testing.T, table string) (release func()) {
 	t.Helper()
-	tx := h.db.Begin()
-	if tx.Error != nil {
-		t.Fatalf("open the transaction that holds %s: %v", table, tx.Error)
-	}
-	if err := tx.Exec("LOCK TABLE " + table + " IN ACCESS EXCLUSIVE MODE").Error; err != nil {
-		tx.Rollback()
+	tx := testutils.Begin(t, h.db)
+	// Kept as SQL: a table lock is the test's instrument, not something the
+	// product does, so the store has no statement for it.
+	if _, err := tx.Exec(t.Context(), "LOCK TABLE "+table+" IN ACCESS EXCLUSIVE MODE", nil); err != nil {
 		t.Fatalf("hold %s: %v", table, err)
 	}
 	released := false
 	release = func() {
 		if !released {
 			released = true
-			tx.Rollback()
+			_ = tx.Rollback(context.Background())
 		}
 	}
 	t.Cleanup(release)
@@ -99,18 +102,18 @@ const raceWait = 20 * time.Second
 
 // heldAt waits for a request to be waiting for the table, and returns the
 // database session it is waiting in.
-func (h *taskHarness) heldAt(t *testing.T, table string) int {
+func (h *taskHarness) heldAt(t *testing.T, table string) int32 {
 	t.Helper()
+	schema := db.Namespace(h.db.Main())
 	for deadline := time.Now().Add(raceWait); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-		var pids []int
-		if err := h.db.Raw(`SELECT l.pid FROM pg_locks l
-			JOIN pg_class c ON c.oid = l.relation
-			JOIN pg_namespace n ON n.oid = c.relnamespace
-			WHERE n.nspname = current_schema() AND c.relname = ? AND NOT l.granted`, table).Scan(&pids).Error; err != nil {
+		sessions, err := pgstat.Sessions(t.Context(), testutils.Executor(h.db))
+		if err != nil {
 			t.Fatalf("look for the request waiting for %s: %v", table, err)
 		}
-		if len(pids) > 0 {
-			return pids[0]
+		for _, s := range sessions {
+			if s.WaitsFor("relation", schema, table) {
+				return s.PID
+			}
 		}
 	}
 	t.Fatalf("no request came to wait for %s", table)
@@ -119,7 +122,7 @@ func (h *taskHarness) heldAt(t *testing.T, table string) int {
 
 // doneOrWaitingBehind waits until the request has been answered, or is waiting
 // for something the session holds — and returns the answer when there is one.
-func (h *taskHarness) doneOrWaitingBehind(t *testing.T, session int, answered <-chan answer) (answer, bool) {
+func (h *taskHarness) doneOrWaitingBehind(t *testing.T, session int32, answered <-chan answer) (answer, bool) {
 	t.Helper()
 	for deadline := time.Now().Add(raceWait); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		select {
@@ -127,12 +130,11 @@ func (h *taskHarness) doneOrWaitingBehind(t *testing.T, session int, answered <-
 			return got, true
 		default:
 		}
-		var waiting int
-		if err := h.db.Raw(`SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))`, session).
-			Scan(&waiting).Error; err != nil {
+		sessions, err := pgstat.Sessions(t.Context(), testutils.Executor(h.db))
+		if err != nil {
 			t.Fatalf("look for a request waiting behind the held one: %v", err)
 		}
-		if waiting > 0 {
+		if slices.ContainsFunc(sessions, func(s pgstat.Session) bool { return s.WaitsBehind(session) }) {
 			return answer{}, false
 		}
 	}

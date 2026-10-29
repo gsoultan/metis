@@ -5,7 +5,7 @@ type OrganizationModel struct {
 	Base
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitzero"`
-	Projects    []ProjectModel `gorm:"foreignKey:OrganizationID" json:"projects,omitzero"`
+	Projects    []ProjectModel `json:"projects,omitzero"`
 }
 
 // TableName overrides the table name for OrganizationModel.

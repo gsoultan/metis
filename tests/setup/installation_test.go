@@ -19,11 +19,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	stormdb "github.com/gsoultan/metis/server/repositories/db"
-	"github.com/gsoultan/metis/server/repositories/gorms"
 	"github.com/gsoultan/metis/server/repositories/migrations"
-	"github.com/gsoultan/metis/server/repositories/model"
-	"github.com/gsoultan/metis/server/repositories/models"
-	"github.com/gsoultan/storm"
 )
 
 // heldInstallation answers the one question setup asks of the running database.
@@ -157,7 +153,7 @@ func TestAServerConfiguredByItsEnvironmentSeedsItsOwnDatabaseAndWritesNothing(t 
 	readOnlyWorkingDirectory(t)
 
 	conn := openStorm(t, host, port, user, password, database)
-	migrateAsBootDoes(t, conn, host, port, user, password, database)
+	migrateAsBootDoes(t, conn, database)
 	repo := repositories.NewRepository(conn)
 	svc := impl.NewSetupService(repo.User(), testSetupToken)
 
@@ -216,27 +212,11 @@ func readOnlyWorkingDirectory(t *testing.T) {
 }
 
 // migrateAsBootDoes brings a fresh database to the schema a server has before
-// it answers its first request: the versioned migrations, then storm's tables.
-func migrateAsBootDoes(t *testing.T, conn *stormdb.Conn, host string, port int, user, password, database string) {
+// it answers its first request.
+func migrateAsBootDoes(t *testing.T, conn *stormdb.Conn, database string) {
 	t.Helper()
-	gormDB, err := gorms.Open("postgres", postgresURL(host, port, user, password, database))
-	if err != nil {
-		t.Fatalf("open %s to migrate it: %v", database, err)
-	}
-	t.Cleanup(func() {
-		if sqlDB, err := gormDB.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-	})
-	if _, err := migrations.Run(t.Context(), gormDB, migrations.Schema(models.MigrationModels())); err != nil {
+	if _, err := migrations.Run(t.Context(), conn.Main(), migrations.Steps()); err != nil {
 		t.Fatalf("migrate %s: %v", database, err)
-	}
-	want, err := storm.Build(model.All()...)
-	if err != nil {
-		t.Fatalf("build the storm model: %v", err)
-	}
-	if _, err := stormdb.EnsureTables(t.Context(), conn.Main(), want); err != nil {
-		t.Fatalf("create the storm tables: %v", err)
 	}
 }
 

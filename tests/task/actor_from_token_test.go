@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gsoultan/metis/server/repositories/db"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/app"
 	"github.com/gsoultan/metis/internal/pkg/health"
@@ -17,7 +19,6 @@ import (
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // TestActorComesFromTheTokenNotTheBody is the regression for the impersonation
@@ -64,7 +65,7 @@ type taskHarness struct {
 	svc    services.ServiceFacade
 	// db is the raw handle, for the tests that have to write a row the way
 	// something other than the engine would.
-	db     *gorm.DB
+	db     *db.Conn
 	tokens map[string]string
 	projID uuid.UUID
 	orgID  uuid.UUID
@@ -73,14 +74,14 @@ type taskHarness struct {
 func newTaskHarness(t *testing.T) *taskHarness {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	sse := observersimpl.NewSSEObserver()
 	dispatcher := observersimpl.NewEventDispatcher()
 	svc := services.NewServiceFacade(repo, dispatcher, sse, "actor-test-secret", nil, nil, nil)
 	// As the server wires it: whoever work arrives for is told.
 	dispatcher.Register(observersimpl.NewNotificationObserver(svc))
 
-	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, testutils.StormConn(db))
+	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, db)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 

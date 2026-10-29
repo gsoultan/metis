@@ -5,14 +5,19 @@ package notification_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
+
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/notification"
+	"github.com/gsoultan/storm/runtime"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // The inbox the bell reads, seeded in one statement.
@@ -32,7 +37,7 @@ const (
 // world is one organization with a project, acted in by ctx, and the
 // notification service over it.
 type world struct {
-	db        *gorm.DB
+	db        *db.Conn
 	repo      repositories.Repository
 	svc       contracts.NotificationService
 	ctx       context.Context
@@ -42,7 +47,7 @@ type world struct {
 func newWorld(t *testing.T) world {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 	return world{db: db, repo: repo, svc: impl.NewNotificationService(repo.Notification()), ctx: ctx, projectID: projectID}
 }
@@ -66,15 +71,20 @@ func (w world) seedInbox(t *testing.T, userID string, projectID uuid.UUID, count
 // group of sameMoment, and rows 1 to unread are unread. Ids are random, so the
 // order among rows that share a created_at is up to the database unless a
 // query settles it.
-func seedInbox(t *testing.T, db *gorm.DB, userID string, projectID uuid.UUID, count, unread int) {
+func seedInbox(t *testing.T, db *db.Conn, userID string, projectID uuid.UUID, count, unread int) {
 	t.Helper()
-	if err := db.WithContext(t.Context()).Exec(`
-		INSERT INTO notifications (id, created_at, updated_at, user_id, type, title, message, is_read, project_id)
-		SELECT gen_random_uuid(), at, at, ?, 'TaskAssignment', 'Approve request ' || n,
-		       'Request ' || n || ' is waiting for you', n > ?, ?
-		  FROM generate_series(1, ?) AS n,
-		       LATERAL (SELECT timestamptz '2026-01-01 00:00:00+00' + ((n - 1) / ?) * interval '1 minute' AS at) AS moment`,
-		userID, unread, projectID, count, sameMoment).Error; err != nil {
+	first := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	rows := make([]notification.Row, count)
+	for i := range rows {
+		n := i + 1
+		at := first.Add(time.Duration((n-1)/sameMoment) * time.Minute)
+		rows[i] = notification.Row{
+			ID: uuid.New(), CreatedAt: at, UpdatedAt: at, UserID: userID, Type: "TaskAssignment",
+			Title: fmt.Sprintf("Approve request %d", n), Message: fmt.Sprintf("Request %d is waiting for you", n),
+			IsRead: n > unread, ProjectID: runtime.Null[[16]byte]{V: projectID, Valid: true},
+		}
+	}
+	if _, err := notification.InsertAll(t.Context(), testutils.Executor(db), rows); err != nil {
 		t.Fatalf("seed %d notifications for %s: %v", count, userID, err)
 	}
 }
@@ -83,17 +93,10 @@ func seedInbox(t *testing.T, db *gorm.DB, userID string, projectID uuid.UUID, co
 // project.
 func (w world) oneUnread(t *testing.T, userID string, projectID uuid.UUID) uuid.UUID {
 	t.Helper()
-	var id string
-	if err := w.db.WithContext(t.Context()).Raw(`
-		SELECT id::text FROM notifications
-		 WHERE user_id = ? AND project_id = ? AND is_read = false
-		 ORDER BY created_at, id LIMIT 1`,
-		userID, projectID).Scan(&id).Error; err != nil {
-		t.Fatalf("find an unread notification for %s: %v", userID, err)
+	row, found, err := notification.New().UserIDEq(userID).ProjectIDEq(projectID).IsReadEq(false).
+		Order(notification.CreatedAt.Asc(), notification.ID.Asc()).One(t.Context(), testutils.Executor(w.db))
+	if err != nil || !found {
+		t.Fatalf("%s has no unread notification: found %v, %v", userID, found, err)
 	}
-	parsed, err := uuid.Parse(id)
-	if err != nil {
-		t.Fatalf("%s has no unread notification: %v", userID, err)
-	}
-	return parsed
+	return row.ID
 }

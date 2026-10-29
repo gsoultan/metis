@@ -19,8 +19,6 @@ import (
 	"time"
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
-	"github.com/rs/zerolog/log"
-	"gorm.io/gorm"
 )
 
 const (
@@ -68,32 +66,6 @@ func Resolve(dialect string) Settings {
 		ConnMaxLifetime: envDuration(envConnLifetime, defaultConnLifetime),
 		ConnMaxIdleTime: envDuration(envConnIdleTime, defaultConnIdleTime),
 	}
-}
-
-// Apply sizes the pool behind a GORM handle.
-func Apply(db *gorm.DB) {
-	settings := Resolve(db.Name())
-	sqlDB, err := db.DB()
-	if err != nil {
-		log.Warn().Err(err).Msg("Could not size the database connection pool")
-		return
-	}
-	sqlDB.SetMaxOpenConns(settings.MaxOpenConns)
-	sqlDB.SetMaxIdleConns(settings.MaxIdleConns)
-	if settings.ConnMaxLifetime > 0 {
-		// A bounded lifetime is what lets a failover or a rolling restart of
-		// the database be picked up without restarting this process.
-		sqlDB.SetConnMaxLifetime(settings.ConnMaxLifetime)
-	}
-	if settings.ConnMaxIdleTime > 0 {
-		sqlDB.SetConnMaxIdleTime(settings.ConnMaxIdleTime)
-	}
-	log.Info().
-		Str("dialect", db.Name()).
-		Int("max_open", settings.MaxOpenConns).
-		Int("max_idle", settings.MaxIdleConns).
-		Dur("max_lifetime", settings.ConnMaxLifetime).
-		Msg("Database connection pool sized")
 }
 
 func envInt(name string, fallback int) int {

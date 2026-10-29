@@ -48,12 +48,12 @@ type matrixWorld struct {
 func newMatrixWorld(t *testing.T) matrixWorld {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "role-matrix-test-secret",
 		nil, nil, nil)
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil,
-		map[string]health.Checker{}, testutils.StormConn(db))
+		map[string]health.Checker{}, db)
 
 	w := matrixWorld{handler: handler, svc: svc, tokens: map[string]string{}}
 	w.acme = seedOrganization(t, repo, "Acme")

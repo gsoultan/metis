@@ -30,7 +30,7 @@ type decisionWorld struct {
 func newDecisionWorld(t *testing.T) decisionWorld {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
 		"decision-resolution-secret", nil, nil, nil)
 	return decisionWorld{svc: svc, repo: repo}

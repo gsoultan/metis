@@ -66,17 +66,18 @@ func TestNamedNode(t *testing.T) {
 // claimed task "unknown"` about a task named "Approve the refund".
 func TestClaimNarrativeNamesTheTask(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	// A real project and a caller inside its organization: CreateTaskForNode
 	// is a service call, and in production one always arrives with a tenant.
-	projectID, ctx := seedProject(t, repo)
+	process := testutils.SeedProcess(t, repo)
+	projectID, ctx := process.Project, process.Tenant
 	engine := NewExecutionEngine(repo, observersimpl.NewEventDispatcher())
 	svc := NewTaskService(repo, engine, NewAuditWriter(repo.Audit()))
 
 	instance := entities.ProcessInstance{
-		ID:         uuid.New(),
+		ID:         process.Instance,
 		Project:    &entities.Project{ID: projectID},
-		Definition: &entities.ProcessDefinition{ID: uuid.New()},
+		Definition: &entities.ProcessDefinition{ID: process.Definition},
 	}
 	node := entities.Node{ID: "approve", Name: "Approve the refund", Type: entities.UserTask}
 	if err := svc.CreateTaskForNode(ctx, instance, node, ""); err != nil {

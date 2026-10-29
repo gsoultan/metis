@@ -20,7 +20,7 @@ import (
 // and a mining export counted every activity twice.
 func TestEachTaskActionIsAuditedOnce(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := observersimpl.NewEventDispatcher()
 	// As the server wires it.
 	dispatcher.Register(observersimpl.NewAuditLogObserver(repo.Audit()))

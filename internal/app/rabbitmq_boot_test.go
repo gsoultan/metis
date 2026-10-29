@@ -63,8 +63,7 @@ func (m *recordingMessaging) StopAll() { m.stops.Add(1) }
 // rabbitMQTestApp is an App over a test database, with the facade wrapped.
 func rabbitMQTestApp(t *testing.T) (*App, *recordingMessaging) {
 	t.Helper()
-	gormDB := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(gormDB)
+	conn := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
 	facade := services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "rabbitmq-boot-test", nil, nil, nil)
@@ -73,7 +72,7 @@ func rabbitMQTestApp(t *testing.T) (*App, *recordingMessaging) {
 		bridges:       make(chan startedBridge, 4),
 		consumers:     make(chan startedConsumer, 4),
 	}
-	return &App{db: gormDB, storm: conn, repo: repo, sse: sse, svc: recorder}, recorder
+	return &App{storm: conn, repo: repo, sse: sse, svc: recorder}, recorder
 }
 
 // seededRabbitMQConnection is a project with a RabbitMQ connection configured

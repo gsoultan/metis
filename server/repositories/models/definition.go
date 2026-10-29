@@ -75,7 +75,7 @@ type FlowNode struct {
 	Height     int            `json:"height,omitzero"`
 	IsExpanded bool           `json:"is_expanded,omitzero"`
 	Condition  string         `json:"condition,omitzero"`
-	Properties map[string]any `json:"properties,omitzero" gorm:"serializer:json"`
+	Properties map[string]any `json:"properties,omitzero"`
 	Nodes      []FlowNode     `json:"nodes,omitzero"`
 	Flows      []SequenceFlow `json:"flows,omitzero"`
 }
@@ -110,13 +110,13 @@ type ProcessDefinitionModel struct {
 	// here. A tag would put it in the baseline AutoMigrate, which runs before
 	// the migration that repairs pre-existing duplicates — so the upgrade would
 	// fail on exactly the installations that need it.
-	ProjectID    UUID           `gorm:"index" json:"project_id,omitzero"`
-	Key          string         `gorm:"size:255;index" json:"key"`
+	ProjectID    UUID           `json:"project_id,omitzero"`
+	Key          string         `json:"key"`
 	Name         string         `json:"name"`
-	Version      int            `gorm:"not null;default:0" json:"version"`
-	Nodes        []FlowNode     `gorm:"type:text;serializer:json" json:"nodes,omitzero"`
-	Flows        []SequenceFlow `gorm:"type:text;serializer:json" json:"flows,omitzero"`
-	DeploymentID UUID           `gorm:"index" json:"deployment_id,omitzero"`
+	Version      int            `json:"version"`
+	Nodes        []FlowNode     `json:"nodes,omitzero"`
+	Flows        []SequenceFlow `json:"flows,omitzero"`
+	DeploymentID UUID           `json:"deployment_id,omitzero"`
 }
 
 // TableName overrides the table name for ProcessDefinitionModel.

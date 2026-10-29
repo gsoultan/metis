@@ -23,7 +23,7 @@ func TestBPMNFlow(t *testing.T) {
 	ctx := t.Context()
 	db := testutils.SetupTestDB(t)
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := impl.NewEventDispatcher()
 
 	orgSvc := service_impl2.NewOrganizationService(repo, nil)
@@ -142,7 +142,7 @@ func TestExclusiveGatewayFlow(t *testing.T) {
 	ctx := t.Context()
 	db := testutils.SetupTestDB(t)
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := impl.NewEventDispatcher()
 
 	orgSvc := service_impl2.NewOrganizationService(repo, nil)
@@ -257,7 +257,7 @@ func TestParallelGatewayJoin(t *testing.T) {
 	ctx := t.Context()
 	db := testutils.SetupTestDB(t)
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := impl.NewEventDispatcher()
 
 	orgSvc := service_impl2.NewOrganizationService(repo, nil)
@@ -373,7 +373,7 @@ func TestParallelGatewayFlow(t *testing.T) {
 	ctx := t.Context()
 	db := testutils.SetupTestDB(t)
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := impl.NewEventDispatcher()
 
 	orgSvc := service_impl2.NewOrganizationService(repo, nil)
@@ -456,7 +456,7 @@ func TestTaskServiceEnhancements(t *testing.T) {
 	ctx := t.Context()
 	db := testutils.SetupTestDB(t)
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := impl.NewEventDispatcher()
 
 	orgSvc := service_impl2.NewOrganizationService(repo, nil)
@@ -583,7 +583,7 @@ func TestExecutionEnhancements(t *testing.T) {
 	ctx := t.Context()
 	db := testutils.SetupTestDB(t)
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := impl.NewEventDispatcher()
 
 	orgSvc := service_impl2.NewOrganizationService(repo, nil)

@@ -180,7 +180,7 @@ func (r *deviationRequestRepository) GetForUpdateWithoutDocuments(ctx context.Co
 	return queuedRequestFrom(queueRowOf(row))
 }
 
-// GetForUpdate answers one request and holds its row (FOR UPDATE) until the
+// GetForUpdate answers one request and holds its row (FOR NO KEY UPDATE) until the
 // transaction ends.
 //
 // A request's row is locked before the instance's, everywhere — request, then
@@ -219,7 +219,7 @@ func (r *deviationRequestRepository) one(ctx context.Context, id uuid.UUID, forU
 		q = q.Where(deviationrequest.ProjectID.In(uuidsToRaw(scope.projects)...))
 	}
 	if forUpdate {
-		q = q.ForUpdate()
+		q = q.ForNoKeyUpdate()
 	}
 	row, found, err := q.One(ctx, ex)
 	if err != nil {
@@ -267,7 +267,7 @@ func (r *deviationRequestRepository) FindLive(ctx context.Context, projectID uui
 // Transition moves a request from the status the caller read it at to
 // change.Status.
 //
-// It takes the row (FOR UPDATE — request before instance, as GetForUpdate)
+// It takes the row (FOR NO KEY UPDATE — request before instance, as GetForUpdate)
 // and only then looks at the status, so a move that waited for another reads
 // what the other left: of two made at once, one is written and the other is
 // ErrDeviationRequestDecided. Nothing here compares against a copy read

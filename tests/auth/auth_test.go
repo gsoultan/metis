@@ -19,7 +19,7 @@ func TestUserAuthentication(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 
 	// 2. Setup Repo & Service
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	jwtSecret := "test-secret"
 	userSvc := impl.NewUserService(repo, jwtSecret)
 
@@ -71,7 +71,7 @@ func TestGroupManagement(t *testing.T) {
 	db := testutils.SetupTestDB(t)
 
 	// 2. Setup Repo & Service
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	userSvc := impl.NewUserService(repo, "test-secret")
 	groupSvc := impl.NewGroupService(repo, nil)
 

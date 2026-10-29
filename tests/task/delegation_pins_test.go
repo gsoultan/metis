@@ -39,9 +39,7 @@ func TestAWithdrawnDelegatedTaskIsToldItWasWithdrawnWhoeverAsks(t *testing.T) {
 	if status, reply := h.post(t, h.tokens["alice"], "/api/v1/tasks/"+taskID+"/delegate", map[string]any{"user_id": "mallory"}); status != http.StatusOK {
 		t.Fatalf("alice delegating to mallory: %d (%s)", status, strings.TrimSpace(reply))
 	}
-	if err := h.db.Exec(`UPDATE tasks SET status = 'canceled' WHERE id = ?`, taskID).Error; err != nil {
-		t.Fatalf("withdraw the task as the engine does: %v", err)
-	}
+	h.withdraw(t, taskID)
 	for _, who := range []string{"mallory", "alice"} {
 		status, reply := h.complete(t, who, taskID, map[string]any{"approved": true})
 		if status != http.StatusBadRequest || !strings.Contains(reply, "withdrawn") || strings.Contains(reply, "hand it back") {
@@ -74,9 +72,7 @@ func TestADelegatedTaskIsAlreadyClaimedToAnybodyWhoTries(t *testing.T) {
 func TestAStalePendingMarkOnATaskThatIsNoLongerDelegatedBlocksNothing(t *testing.T) {
 	h := newTaskHarness(t)
 	taskID := h.openTask(t, heldByAlice())
-	if err := h.db.Exec(`UPDATE tasks SET owner = 'mallory', delegation_state = 'pending' WHERE id = ?`, taskID).Error; err != nil {
-		t.Fatalf("leave the row as an old pod would: %v", err)
-	}
+	h.markStale(t, taskID)
 	if got := h.taskStatus(t, taskID); got != "claimed" {
 		t.Fatalf("the task is %q, want claimed", got)
 	}

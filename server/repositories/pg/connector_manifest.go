@@ -64,7 +64,7 @@ func (r *connectorManifestRepository) one(ctx context.Context, pred connectorman
 	}
 	q := connectormanifest.New().Where(pred)
 	if forUpdate {
-		q = q.ForUpdate()
+		q = q.ForNoKeyUpdate()
 	}
 	row, found, err := q.One(ctx, ex)
 	if err != nil {

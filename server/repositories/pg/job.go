@@ -12,9 +12,11 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
-	"github.com/gsoultan/metis/server/repositories/model"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store"
+	"github.com/gsoultan/metis/server/repositories/store/incident"
 	"github.com/gsoultan/metis/server/repositories/store/job"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 	"github.com/gsoultan/storm/runtime"
 )
 
@@ -247,8 +249,8 @@ func oldestDue(ctx context.Context, ex runtime.Executor, now time.Time, limit in
 // as well so a job finished after it was due is kept for the whole period
 // from when it finished.
 //
-// Raw SQL, as every sweep is: storm deletes by primary key, and naming every
-// row first would be a read of exactly the rows about to go.
+// An open incident is one a read of incidents returns: one marked deleted
+// cannot be resolved, so it does not keep its job.
 func (r *jobRepository) ForgetFinishedBefore(ctx context.Context, cutoff time.Time) (int64, error) {
 	if !entities.IsSystemContext(ctx) {
 		return 0, fmt.Errorf("%w: forgetting finished jobs spans every tenant", apierr.ErrForbidden)
@@ -258,13 +260,22 @@ func (r *jobRepository) ForgetFinishedBefore(ctx context.Context, cutoff time.Ti
 		return 0, err
 	}
 	cutoff = cutoff.UTC()
-	completed, err := db.DeleteDeclaredInBatches(ctx, ex, model.ForgetCompletedJobs,
-		string(models.JobCompleted), cutoff)
+	// Marked deleted or not: a purge of jobs nothing keeps.
+	finished := func(status models.JobStatus) job.Query {
+		return job.New().Where(job.Status.Eq(string(status)), job.NextRunAt.Lt(cutoff), job.UpdatedAt.Lt(cutoff))
+	}
+	completed, err := db.PruneInBatches(ctx, func(limit int64) (int64, error) {
+		return finished(models.JobCompleted).Limit(limit).HardDeleteBatch(ctx, ex)
+	})
 	if err != nil {
 		return completed, fmt.Errorf("could not forget completed jobs: %w", err)
 	}
-	failed, err := db.DeleteDeclaredInBatches(ctx, ex, model.ForgetFailedJobs,
-		string(models.JobFailed), cutoff, string(models.IncidentResolved))
+	// A failed job an open incident names is what the incident is about, so
+	// it stays until the incident is resolved.
+	failed, err := db.PruneInBatches(ctx, func(limit int64) (int64, error) {
+		return store.JobNotHavingIncidents(finished(models.JobFailed).Limit(limit),
+			incident.Status.NotEq(string(models.IncidentResolved))).HardDeleteBatch(ctx, ex)
+	})
 	if err != nil {
 		return completed + failed, fmt.Errorf("could not forget failed jobs: %w", err)
 	}
@@ -323,33 +334,37 @@ type turnOf struct {
 const claimOwnersPerRound = 1000
 
 // claimable reads the due jobs in one status whose lease is free, never taken
-// or expired, in the turns model.FairClaimableJobs gives them, looking at the
-// organizations from the first at or after from.
+// or expired, at most limit of each organization's, numbered in each by age,
+// and the first limit of them by turn and then age, in one statement.
+//
+// The organizations are those with any job in the status, found by skipping
+// along ix_jobs_claim_by_organization a seek at a time, not read from the
+// organizations table: a job whose organization has no row there is still
+// owed. At most claimOwnersPerRound of them, from the first at or after from,
+// wrapping round to the start. Jobs with no organization, made before
+// migration 44, are one more queue.
 func claimable(ctx context.Context, ex runtime.Executor, status models.JobStatus, now time.Time, limit int, from uuid.UUID) ([]turnOf, error) {
-	due, err := model.FairClaimableJobs.Query(ctx, ex, string(status), now, int64(limit), from, int64(claimOwnersPerRound))
-	if err != nil || len(due) == 0 {
-		return nil, err
-	}
-	ids := make([][16]byte, len(due))
-	turns := make(map[[16]byte]int64, len(due))
-	for i, d := range due {
-		ids[i] = d.ID
-		turns[d.ID] = d.Turn
-	}
-	found, err := job.New().Where(job.ID.In(ids...)).All(ctx, ex, nil)
-	if err != nil {
+	due := job.New().
+		Where(job.Status.Eq(string(status)), job.NextRunAt.Lte(now)).
+		Any(job.LockExpires.IsNull(), job.LockExpires.Lt(now)).
+		Order(job.NextRunAt.Asc(), job.ID.Asc()).
+		Limit(int64(limit))
+	owners := job.New().Where(job.Status.Eq(string(status)))
+	found, err := due.AllTurns(ctx, ex, owners, from, claimOwnersPerRound, nil)
+	if err != nil || len(found) == 0 {
 		return nil, err
 	}
 	offered := make([]turnOf, 0, len(found))
 	for _, row := range found {
-		offered = append(offered, turnOf{row: row, turn: turns[row.ID]})
+		offered = append(offered, turnOf{row: row.Row, turn: row.Turn})
 	}
 	return offered, nil
 }
 
 // organizationOf is whose work a job is: the one the caller named, or the
 // organization of its instance's project. uuid.Nil when the instance or its
-// project is not there to say, which the claim treats as one more queue.
+// project is not there to say, or is deleted, which the claim treats as one
+// more queue.
 func (r *jobRepository) organizationOf(ctx context.Context, ex runtime.Executor, j models.JobModel) (uuid.UUID, error) {
 	if j.OrganizationID != nil && uuid.UUID(*j.OrganizationID) != uuid.Nil {
 		return uuid.UUID(*j.OrganizationID), nil
@@ -357,11 +372,14 @@ func (r *jobRepository) organizationOf(ctx context.Context, ex runtime.Executor,
 	if uuid.UUID(j.InstanceID) == uuid.Nil {
 		return uuid.Nil, nil
 	}
-	found, _, err := model.InstanceOrganization.One(ctx, ex, uuid.UUID(j.InstanceID))
+	found, err := processinstance.New().Where(processinstance.ID.Eq(uuid.UUID(j.InstanceID))).Limit(1).AllOrganization(ctx, ex)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("could not read whose work the job is: %w", err)
 	}
-	return uuid.UUID(found.OrganizationID), nil
+	if len(found) == 0 {
+		return uuid.Nil, nil
+	}
+	return uuid.UUID(found[0].OrganizationID), nil
 }
 
 // ListByInstance returns every job an instance has, soonest first.
@@ -392,24 +410,28 @@ func (r *jobRepository) ListByInstance(ctx context.Context, instanceID uuid.UUID
 // the loser sees no rows changed. Reading first and updating second would let
 // both read "pending" and both proceed.
 //
-// Raw SQL because the predicate is part of the write. Reading the row, deciding
-// in Go and writing back is exactly the pattern this avoids.
-//
 // Reclaiming a job whose worker died is counted as an attempt, in the same
 // statement: the attempt it died in never reached the code that counts
 // failures. Otherwise a job that kills its worker every time — a script that
 // runs a pod out of memory — would be picked up by the next pod, and the next,
-// forever, instead of ending as an incident somebody can look at. The SET reads
-// the row as it was, so only a claim of a running job counts.
+// forever, instead of ending as an incident somebody can look at. The guard
+// reads the row as it was, so only a claim of a running job counts.
 func (r *jobRepository) Lock(ctx context.Context, id uuid.UUID, lockDuration time.Duration, workerID string) (bool, error) {
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return false, err
 	}
 	now := time.Now().UTC()
-	claimed, err := model.LockJob.Exec(ctx, ex,
-		string(models.JobRunning), workerID, now.Add(lockDuration),
-		id, string(models.JobPending), now)
+	running, pending := string(models.JobRunning), string(models.JobPending)
+	var claim job.Mut
+	claim.SetStatus(running)
+	claim.SetLockedBy(workerID)
+	claim.SetLockExpires(now.Add(lockDuration))
+	claim.SetUpdatedAtNow()
+	claim.IncRetriesWhenStatus(running)
+	claimed, err := job.New().Where(job.ID.Eq(id)).
+		AnyOf(job.And(job.Status.Eq(pending)), job.And(job.Status.Eq(running), job.LockExpires.Lt(now))).
+		UpdateAll(ctx, ex, claim)
 	if err != nil {
 		return false, fmt.Errorf("could not lock the job: %w", err)
 	}

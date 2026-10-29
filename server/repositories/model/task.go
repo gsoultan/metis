@@ -57,7 +57,18 @@ type Task struct {
 }
 
 func (t2 *Task) Schema(t *storm.Table) {
-	t.Col(&t2.NodeID).Size(255)
+	// GORM's defaults, kept. See fill.go.
+	t.Col(&t2.Priority).Default(zero)
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&t2.NodeID).FillNulls(blank)
+	t.Col(&t2.Name).FillNulls(blank)
+	t.Col(&t2.Type).FillNulls(blank)
+	t.Col(&t2.Status).FillNulls(blank)
+	t.Col(&t2.CandidateUsers).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&t2.CandidateGroups).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&t2.Variables).FillNulls(blank)
+	// No size: a step's id is the definition's, and nothing at deploy limits how long it is.
 	t.Col(&t2.Type).Size(64)
 	t.Col(&t2.Type).Index()
 	t.Col(&t2.Status).Size(32)
@@ -69,7 +80,40 @@ func (t2 *Task) Schema(t *storm.Table) {
 	t.Col(&t2.Owner).Index()
 	t.Col(&t2.DelegationState).Size(32)
 	t.Col(&t2.DeletedAt).Index()
+	// The task list: a project's newest first, the id breaking ties.
+	t.Index(&t2.Project, storm.Desc(&t2.CreatedAt), storm.Desc(&t2.ID)).Named("ix_tasks_project_created")
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&t2.DeletedAt)
+}
+
+// Aggregates are the counts the dashboard's deadline report heads its list
+// with: of the open tasks the caller's predicates choose, how many have a due
+// date and how many do not. One pass over the rows, not one per count.
+func (t2 *Task) Aggregates(a *storm.Aggregates) {
+	deadlines := a.Named("Deadlines")
+	deadlines.Count("WithDeadline").Filter(a.IsNotNull(&t2.DueDate))
+	deadlines.Count("WithoutDeadline").Filter(a.IsNull(&t2.DueDate))
+}
+
+// Joins are the deadline report's rows: a task with the key and name of the
+// process it is part of. Left joins, so a task whose instance or definition is
+// gone still shows, with no process.
+func (t2 *Task) Joins(j *storm.Joins) {
+	var instance ProcessInstance
+	var definition ProcessDefinition
+	j.Named("Deadline").
+		Left(&instance, &t2.Instance).
+		Left(&definition, j.OnCols("process_instances", "definition_id", &definition.ID)).
+		Take(&t2.ID, "ID").
+		Take(&t2.Name, "Name").
+		Take(&t2.NodeID, "NodeID").
+		Take(&t2.Status, "Status").
+		Take(&t2.Priority, "Priority").
+		Take(&t2.Assignee, "Assignee").
+		Take(&t2.DueDate, "DueDate").
+		Take(&definition.Key, "ProcessKey").
+		Take(&definition.Name, "ProcessName").
+		OrderAsc(&t2.DueDate).
+		OrderAsc(&t2.ID)
 }

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/metis/server/repositories/db"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/webhooksig"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -17,7 +19,6 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // A webhook endpoint is public: a partner's configuration screen has nowhere to
@@ -219,7 +220,7 @@ type webhookHarness struct {
 	// db is the same schema the repositories read, for the few things a test
 	// has to arrange that no service offers — a webhook as an older release
 	// left it.
-	db        *gorm.DB
+	db        *db.Conn
 	repo      repositories.Repository
 	engine    servicecontracts.ExecutionEngine
 	service   servicecontracts.WebhookService
@@ -233,7 +234,7 @@ func newWebhookHarness(t *testing.T) *webhookHarness {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
 	ctx := t.Context()
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 
 	dispatcher := observersimpl.NewEventDispatcher()
 	engine := serviceimpl.NewExecutionEngine(repo, dispatcher)

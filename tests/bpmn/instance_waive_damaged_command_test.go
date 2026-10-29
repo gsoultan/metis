@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
 )
 
 // breakTheCommandOf makes a request's sealed command one that no longer
@@ -19,10 +20,8 @@ import (
 // lost, or a row restored from somewhere else, would. Its plan still opens.
 func breakTheCommandOf(t *testing.T, h engineHarness, requestID uuid.UUID) {
 	t.Helper()
-	if err := h.db.Exec(`UPDATE deviation_requests
-		SET command = to_jsonb(left(command #>> '{}', length(command #>> '{}') - 8) || 'AAAAAAAA') WHERE id = ?`, requestID).Error; err != nil {
-		t.Fatalf("break the command: %v", err)
-	}
+	broken := breakSealed(t, h.requestRow(t, requestID).Command)
+	h.rewriteRequest(t, requestID, func(m *deviationrequest.Mut) { m.SetCommand(broken) })
 	if _, err := h.repo.DeviationRequest().Get(h.Ctx(), requestID); err == nil {
 		t.Fatal("a request whose command was overwritten still reads whole; the fixture broke nothing")
 	}

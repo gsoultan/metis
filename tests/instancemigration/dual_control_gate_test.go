@@ -13,6 +13,9 @@ import (
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/repositories"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 )
 
 // The gate is in the service: no skip, and no migration that drops a control,
@@ -357,15 +360,18 @@ func TestASkipOverAVersionWithNothingRunningAsksNobody(t *testing.T) {
 // whichever comes first — no apply may run under it, and every reader is told
 // it was interrupted. No sweep runs anywhere in this test.
 func TestAnApprovedRequestPastItsWindowIsRefusedByTheGateWithNoSweep(t *testing.T) {
-	for name, left := range map[string]string{
+	for name, left := range map[string]func(*deviationrequest.Mut){
 		// Approved ten minutes ago — inside the hour a run is given — with the
 		// request's own deadline since passed.
-		"past its own deadline": `decided_at = now() - interval '10 minutes', expires_at = now() - interval '1 minute'`,
+		"past its own deadline": func(m *deviationrequest.Mut) {
+			m.SetDecidedAt(time.Now().Add(-10 * time.Minute))
+			m.SetExpiresAt(time.Now().Add(-time.Minute))
+		},
 		// Approved two hours ago, its deadline still days away.
-		"an hour after the approval": `decided_at = now() - interval '2 hours'`,
+		"an hour after the approval": func(m *deviationrequest.Mut) { m.SetDecidedAt(time.Now().Add(-2 * time.Hour)) },
 		// Approved at no recorded time: a window that starts at no known
 		// moment is not open.
-		"approved at no recorded time": `decided_at = NULL`,
+		"approved at no recorded time": func(m *deviationrequest.Mut) { m.SetDecidedAtNull() },
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
@@ -378,10 +384,12 @@ func TestAnApprovedRequestPastItsWindowIsRefusedByTheGateWithNoSweep(t *testing.
 				t.Fatalf("ask: %v", err)
 			}
 			// What a stop between the approval and the run's report leaves.
-			if err := f.db.Exec(`UPDATE deviation_requests SET status = 'approved', decided_by = 'omar', decided_by_id = ?, `+left+` WHERE id = ?`,
-				accountOf("omar"), pending.RequestID).Error; err != nil {
-				t.Fatalf("leave the request approved: %v", err)
-			}
+			f.rewriteRequest(t, pending.RequestID, func(m *deviationrequest.Mut) {
+				m.SetStatus("approved")
+				m.SetDecidedBy("omar")
+				m.SetDecidedByID(accountOf("omar"))
+				left(m)
+			})
 
 			under := append(slices.Clip(opts), servicecontracts.WithApprovedRequest(pending.RequestID))
 			for range 2 {
@@ -427,7 +435,9 @@ func TestASkipOverAVersionWhoseOnlyInstanceIsSuspendedStillAsks(t *testing.T) {
 	first, second := f.parkedOnOpsApprove(t)
 	v1, v2 := uuidOf(t, first), uuidOf(t, second)
 	instance := f.onlyInstance(t)
-	if err := f.db.Exec(`UPDATE process_instances SET status = 'suspended' WHERE id = ?`, instance.ID).Error; err != nil {
+	suspend := processinstance.MutateKey(instance.ID)
+	suspend.SetStatus(string(models.ProcessSuspended))
+	if err := suspend.Update(f.ctx, f.ex()); err != nil {
 		t.Fatalf("suspend the instance: %v", err)
 	}
 	opts := skipOps("the role was eliminated")
@@ -548,7 +558,7 @@ func TestAnInstanceThatArrivesAfterTheApprovalStopsTheRunAtTheGate(t *testing.T)
 		if err != nil {
 			t.Fatalf("ask: %v", err)
 		}
-		f.leftApproved(t, pending.RequestID, "1 minute")
+		f.leftApproved(t, pending.RequestID, time.Minute)
 		newcomer, err := f.svc.StartProcess(f.ctx, f.project, "quotation", nil)
 		if err != nil {
 			t.Fatalf("start the newcomer: %v", err)
@@ -593,7 +603,7 @@ func TestAnApprovalACallerWritesIsRecordedNowhere(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ask: %v", err)
 		}
-		f.leftApproved(t, pending.RequestID, "1 minute")
+		f.leftApproved(t, pending.RequestID, time.Minute)
 		// The real request's id, and everything else made up.
 		made := mallory
 		made.RequestID = pending.RequestID

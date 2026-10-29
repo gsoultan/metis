@@ -39,7 +39,7 @@ type settingsHarness struct {
 
 func newSettingsHarness(t *testing.T) *settingsHarness {
 	t.Helper()
-	conn := testutils.StormConn(testutils.SetupTestDB(t))
+	conn := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(conn)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "settings-test-secret", nil, nil, nil)

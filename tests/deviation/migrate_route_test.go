@@ -1,6 +1,7 @@
 package deviation_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,7 +13,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 	"github.com/gsoultan/metis/tests/testutils"
+	stormruntime "github.com/gsoultan/storm/runtime"
 )
 
 // What the migrate route answers, read off the wire: its statuses, the shape
@@ -597,7 +600,10 @@ func TestTheMigrateRouteSaysWhichInstanceItPassedOverAndWhy(t *testing.T) {
 	instanceID := h.waitingAtTheApproval(t)
 	taskID := h.openTaskOf(t, instanceID)
 
-	row := h.holdOpen(t, `SELECT 1 FROM process_instances WHERE id = ? FOR UPDATE`, instanceID)
+	row := h.holdOpen(t, func(ctx context.Context, ex stormruntime.Executor) error {
+		_, err := processinstance.New().IDEq(instanceID).ForUpdate().All(ctx, ex, nil)
+		return err
+	})
 	completed := make(chan error, 1)
 	go func() { completed <- h.svc.CompleteTask(h.tenantContext(), taskID, "ollie", nil) }()
 	row.untilBehind(completed)
@@ -642,12 +648,9 @@ func TestTheMigrateRouteSaysWhichInstanceItPassedOverAndWhy(t *testing.T) {
 }
 
 // sessionBehind is the one session waiting for a lock the session given holds.
-func (h *deviationHarness) sessionBehind(t *testing.T, session int) int {
+func (h *deviationHarness) sessionBehind(t *testing.T, session int32) int32 {
 	t.Helper()
-	var waiting []int
-	if err := h.db.Raw(`SELECT a.pid FROM pg_stat_activity a WHERE ? = ANY(pg_blocking_pids(a.pid))`, session).Scan(&waiting).Error; err != nil {
-		t.Fatalf("look for the session waiting: %v", err)
-	}
+	waiting := h.waitingBehind(t, session)
 	if len(waiting) != 1 {
 		t.Fatalf("%d sessions wait behind the one that holds the row, want the one", len(waiting))
 	}
@@ -657,7 +660,7 @@ func (h *deviationHarness) sessionBehind(t *testing.T, session int) int {
 // untilSomebodyIsBehind waits until a session waits for a lock the session
 // given holds or is in line for. It fails the test if what was sent finishes
 // first: then it never waited.
-func (h *deviationHarness) untilSomebodyIsBehind(t *testing.T, session int, finished <-chan error) {
+func (h *deviationHarness) untilSomebodyIsBehind(t *testing.T, session int32, finished <-chan error) {
 	t.Helper()
 	for deadline := time.Now().Add(raceWait); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		select {
@@ -665,11 +668,7 @@ func (h *deviationHarness) untilSomebodyIsBehind(t *testing.T, session int, fini
 			t.Fatalf("what was sent finished (%v) without waiting", err)
 		default:
 		}
-		var waiting int
-		if err := h.db.Raw(`SELECT count(*) FROM pg_stat_activity a WHERE ? = ANY(pg_blocking_pids(a.pid))`, session).Scan(&waiting).Error; err != nil {
-			t.Fatalf("look for the session waiting: %v", err)
-		}
-		if waiting > 0 {
+		if len(h.waitingBehind(t, session)) > 0 {
 			return
 		}
 	}

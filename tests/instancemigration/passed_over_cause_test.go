@@ -227,14 +227,7 @@ func TestAPassedOverInstanceCarriesItsCauseAndItsStepsName(t *testing.T) {
 	t.Run("it has a task where the migration decides, and does not wait there", func(t *testing.T) {
 		f := newFixture(t)
 		v1, v2 := f.waitingAtSupervisorReview(t)
-		if err := f.db.WithContext(f.ctx).Exec(`
-			INSERT INTO tasks (id, created_at, updated_at, project_id, instance_id, node_id, name, type, status, assignee,
-			                   candidate_users, candidate_groups, priority, variables)
-			SELECT gen_random_uuid(), now(), now(), project_id, instance_id, 'opsApprove', 'Operations approve', type, 'claimed', 'ollie',
-			       candidate_users, candidate_groups, priority, variables
-			  FROM tasks WHERE instance_id = ? AND node_id = 'supervisorReview'`, f.onlyInstance(t).ID).Error; err != nil {
-			t.Fatalf("leave a task on the operations approval: %v", err)
-		}
+		f.leaveTaskOn(t, f.onlyInstance(t).ID, "supervisorReview", "opsApprove", "Operations approve", "ollie")
 		result, err := f.applyWithApproval(t, v1, v2, nil, skipOps("the role was eliminated")...)
 		if err != nil {
 			t.Fatalf("apply: %v", err)

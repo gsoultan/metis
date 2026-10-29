@@ -5,6 +5,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/externaltask"
+	"github.com/gsoultan/metis/server/repositories/store/subscription"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -115,10 +117,8 @@ func TestAnAdHocSubProcessToldToKeepItsStepsWaitsForThem(t *testing.T) {
 // the database.
 func parkedFor(t *testing.T, h engineHarness, instanceID uuid.UUID, nodeID string) int {
 	t.Helper()
-	var count int64
-	if err := h.db.Raw(`SELECT count(*) FROM external_tasks
-		 WHERE instance_id = ? AND node_id = ? AND deleted_at IS NULL`,
-		instanceID, nodeID).Scan(&count).Error; err != nil {
+	count, err := externaltask.New().InstanceIDEq(instanceID).NodeIDEq(nodeID).Count(h.Ctx(), h.ex())
+	if err != nil {
 		t.Fatalf("count external tasks: %v", err)
 	}
 	return int(count)
@@ -197,11 +197,13 @@ func TestAnAdHocSubProcessWithdrawsTheWorkParkedForAWorkerWhenItsConditionIsMet(
 // subscription, in the database.
 func waitingEventsOf(t *testing.T, h engineHarness, instanceID uuid.UUID) []string {
 	t.Helper()
-	var nodes []string
-	if err := h.db.Raw(`SELECT node_id FROM event_subscriptions
-		 WHERE instance_id = ? AND deleted_at IS NULL ORDER BY node_id`,
-		instanceID).Scan(&nodes).Error; err != nil {
+	waits, err := subscription.New().InstanceIDEq(instanceID).Order(subscription.NodeID.Asc()).All(h.Ctx(), h.ex(), nil)
+	if err != nil {
 		t.Fatalf("list event subscriptions: %v", err)
+	}
+	var nodes []string
+	for _, wait := range waits {
+		nodes = append(nodes, wait.NodeID)
 	}
 	return nodes
 }

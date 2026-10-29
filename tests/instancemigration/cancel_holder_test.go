@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -129,32 +130,19 @@ func TestACancellationRecordsTheHolderItWaitedFor(t *testing.T) {
 	claimed := open[1].ID
 
 	// carol's claim, written and not yet committed: the row is hers to let go.
-	claim := f.db.Begin()
-	if claim.Error != nil {
-		t.Fatalf("open the transaction that holds the claim: %v", claim.Error)
-	}
-	committed := false
-	t.Cleanup(func() {
-		if !committed {
-			claim.Rollback()
-		}
+	claim := f.holdTask(t, claimed, func(m *taskstore.Mut) {
+		m.SetStatus("claimed")
+		m.SetAssignee("carol")
 	})
-	var session int
-	if err := claim.Raw("SELECT pg_backend_pid()").Scan(&session).Error; err != nil {
-		t.Fatalf("read the claim's session: %v", err)
-	}
-	if err := claim.Exec("UPDATE tasks SET status = 'claimed', assignee = 'carol' WHERE id = ?", claimed).Error; err != nil {
-		t.Fatalf("claim the task: %v", err)
-	}
+	session := claim.session
 
 	cancelled := make(chan error, 1)
 	go func() { cancelled <- f.svc.MigrateInstances(f.ctx, v1, v2, nil, cancellingAtApprove()...) }()
 
 	f.waitUntilHeldBehind(t, session, cancelled)
-	if err := claim.Commit().Error; err != nil {
+	if err := claim.commit(); err != nil {
 		t.Fatalf("commit the claim: %v", err)
 	}
-	committed = true
 
 	select {
 	case err := <-cancelled:

@@ -22,16 +22,18 @@ import (
 // still running it during a rolling deploy leaves more. The sweep gives each
 // the one try it had.
 func TestAnExternalTaskAtZeroRetriesIsOfferedAgainUnlessAnIncidentHoldsIt(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	ctx := entities.WithSystemContext(t.Context())
 
+	_, _, project := testutils.ScopedProject(t, repo)
 	park := func(retries int) uuid.UUID {
 		t.Helper()
+		definition, instance := caseIn(ctx, t, repo, project)
 		task := &models.ExternalTaskModel{
 			Base:                models.Base{ID: models.UUID(uuid.New())},
-			ProjectID:           models.UUID(uuid.New()),
-			ProcessInstanceID:   models.UUID(uuid.New()),
-			ProcessDefinitionID: models.UUID(uuid.New()),
+			ProjectID:           models.UUID(project),
+			ProcessInstanceID:   models.UUID(instance),
+			ProcessDefinitionID: models.UUID(definition),
 			NodeID:              "ship",
 			Topic:               "shipping",
 			Retries:             retries,
@@ -96,7 +98,7 @@ func TestAnExternalTaskAtZeroRetriesIsOfferedAgainUnlessAnIncidentHoldsIt(t *tes
 
 // It changes every tenant's tasks, so no tenant may start it.
 func TestReofferingStrandedExternalTasksIsNotATenantsToDo(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	ctx, _ := testutils.ScopedContext(t, repo)
 
 	if _, err := repo.ExternalTask().ReofferStranded(ctx); !errors.Is(err, apierr.ErrForbidden) {

@@ -82,11 +82,8 @@ func TestARecordedDeviationKeepsItsBusinessDataSealed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	var before, after, details string
-	if err := h.db.Raw(`SELECT before::text, after::text, details::text FROM instance_deviations WHERE id = ?`, written.ID).
-		Row().Scan(&before, &after, &details); err != nil {
-		t.Fatalf("read the stored row: %v", err)
-	}
+	stored := h.ledgerRow(t, written.ID)
+	before, after, details := text(stored.Before), text(stored.After), text(stored.Details)
 	for name, stored := range map[string]string{"before": before, "after": after} {
 		if strings.Contains(stored, "thousand") {
 			t.Errorf("%s is stored in clear: %s", name, stored)
@@ -290,11 +287,8 @@ func TestADeviationWithNothingToCarryIsRecordedWithEmptyMaps(t *testing.T) {
 			written.Details == nil || len(written.Details) != 0 {
 			t.Errorf("%s maps: the row returned by the write carries before=%v after=%v details=%v, want empty maps", name, written.Before, written.After, written.Details)
 		}
-		var before, after, details string
-		if err := h.db.Raw(`SELECT before::text, after::text, details::text FROM instance_deviations WHERE id = ?`, written.ID).
-			Row().Scan(&before, &after, &details); err != nil {
-			t.Fatalf("%s maps: read the stored row: %v", name, err)
-		}
+		stored := h.ledgerRow(t, written.ID)
+		before, after, details := text(stored.Before), text(stored.After), text(stored.Details)
 		if before != "{}" || after != "{}" || details != "{}" {
 			t.Errorf("%s maps: stored as before=%s after=%s details=%s, want {} for each", name, before, after, details)
 		}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"time"
 
@@ -14,6 +15,9 @@ import (
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store"
+	"github.com/gsoultan/metis/server/repositories/store/group"
+	"github.com/gsoultan/metis/server/repositories/store/membership"
 	"github.com/gsoultan/metis/server/repositories/store/user"
 	"github.com/gsoultan/metis/server/repositories/store/userorganization"
 	"github.com/gsoultan/metis/server/repositories/store/userproject"
@@ -213,27 +217,36 @@ func membershipRoles(raw []byte) ([]string, error) {
 	return roles, nil
 }
 
-// otherAdministratorCandidates reads the roles of an organization's members,
-// other than one account, whose roles could name the administrator role: the
-// ones it holds in every organization, and the ones it holds in this one.
-//
-// A narrowing, not the decision: HasAnotherAdministrator decides with
-// entities.HasRole, the same test that grants an administrator their access.
-// translate() folds exactly the letters of ADMIN, as HasRole folds ASCII;
-// lower() would follow the database's locale, and a Turkish one lowers 'I' to
-// a dotless 'ı' and would hide every administrator. The quotes keep
-// "ADMINISTRATOR" and the like out.
-const otherAdministratorCandidates = `SELECT u.roles::text, m.roles::text
-	  FROM users u
-	  JOIN user_organizations m ON m.user_id = u.id
-	 WHERE m.organization_id = $1
-	   AND u.id <> $2
-	   AND u.deleted_at IS NULL
-	   AND (translate(u.roles::text, 'ADMIN', 'admin') LIKE '%"admin"%'
-	     OR translate(m.roles::text, 'ADMIN', 'admin') LIKE '%"admin"%')`
+// adminSpellings is every way of writing the administrator role that
+// entities.HasRole accepts: each of its letters in either case, and nothing
+// else. A role list holding one of them is a role list HasRole grants the role
+// to, so a read narrowed by them decides what HasRole would, in the database.
+// ASCII folding, as HasRole folds; the database's locale is never asked, so a
+// Turkish one that lowers 'I' to a dotless 'ı' hides nobody.
+var adminSpellings = func() []string {
+	role := entities.RoleAdmin
+	out := make([]string, 0, 1<<len(role))
+	for mask := range 1 << len(role) {
+		b := []byte(role)
+		for i, c := range b {
+			lower, upper := c|0x20, c&^0x20
+			if c < 'A' || (c > 'Z' && c < 'a') || c > 'z' {
+				continue
+			}
+			if mask&(1<<i) != 0 {
+				b[i] = upper
+			} else {
+				b[i] = lower
+			}
+		}
+		out = append(out, string(b))
+	}
+	return out
+}()
 
 // HasAnotherAdministrator reports whether an organization has an administrator
-// besides one account.
+// besides one account: a live member holding the role in every organization,
+// or in this one.
 //
 // Asked of the database rather than of a list of the members. The list stops
 // at the store's thousand rows, so in a larger organization the other
@@ -254,63 +267,60 @@ func (r *userRepository) HasAnotherAdministrator(ctx context.Context, organizati
 	if err != nil {
 		return false, err
 	}
-	rows, err := ex.Query(ctx, otherAdministratorCandidates, []any{organizationID, except})
+	member := userorganization.OrganizationID.Eq(organizationID)
+	everywhere, err := store.UserHavingOrganizations(
+		user.New().Where(user.ID.NotEq(except), user.Roles.HasAnyKey(adminSpellings...)), member).Count(ctx, ex)
 	if err != nil {
 		return false, fmt.Errorf("could not look for another administrator: %w", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		administers, err := administersFrom(rows.RawValues())
-		if err != nil {
-			return false, err
-		}
-		if administers {
-			return true, nil
-		}
+	if everywhere > 0 {
+		return true, nil
 	}
-	if err := rows.Err(); err != nil {
+	here, err := store.UserHavingOrganizations(
+		user.New().Where(user.ID.NotEq(except)), member, userorganization.Roles.HasAnyKey(adminSpellings...)).Count(ctx, ex)
+	if err != nil {
 		return false, fmt.Errorf("could not look for another administrator: %w", err)
 	}
-	return false, nil
+	return here > 0, nil
 }
 
-// groupRolesOfAccount reads the roles of the live groups an account is in, for
-// the organizations it is still a member of. The join on user_organizations is
-// the rule, not a narrowing: a membership left behind in a group of an
-// organization the account has since left grants nothing there.
-const groupRolesOfAccount = `SELECT g.organization_id::text, g.roles::text
-	  FROM memberships m
-	  JOIN groups g ON g.id = m.group_id
-	  JOIN user_organizations uo ON uo.user_id = m.user_id AND uo.organization_id = g.organization_id
-	 WHERE m.user_id = $1
-	   AND g.deleted_at IS NULL`
-
 // GroupRolesByOrganization returns the roles an account holds through its
-// groups, by organization, each role once.
+// live groups, by organization, each role once. Only the groups of the
+// organizations it is still a member of count: a membership left behind in a
+// group of an organization the account has since left grants nothing there.
 func (r *userRepository) GroupRolesByOrganization(ctx context.Context, userID uuid.UUID) (map[uuid.UUID][]string, error) {
 	ex, err := r.conn.conn.MainExecutor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := ex.Query(ctx, groupRolesOfAccount, []any{userID})
+	memberships, err := userorganization.New().Where(userorganization.UserID.Eq(userID)).
+		Unordered().Limit(math.MaxInt64).All(ctx, ex, nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not read the roles the account's groups grant: %w", err)
 	}
-	defer rows.Close()
+	if len(memberships) == 0 {
+		return nil, nil
+	}
+	organizations := make([][16]byte, len(memberships))
+	for i, m := range memberships {
+		organizations[i] = m.OrganizationID
+	}
+	groups, err := store.GroupHavingMembers(
+		group.New().Where(group.OrganizationID.In(organizations...)).Unordered().Limit(math.MaxInt64),
+		membership.UserID.Eq(userID)).All(ctx, ex)
+	if err != nil {
+		return nil, fmt.Errorf("could not read the roles the account's groups grant: %w", err)
+	}
 	var out map[uuid.UUID][]string
-	for rows.Next() {
-		values := rows.RawValues()
-		if len(values) != 2 || len(values[1]) == 0 {
+	for _, g := range groups {
+		if len(g.Roles) == 0 {
 			continue
 		}
-		organization, err := uuid.ParseBytes(values[0])
-		if err != nil {
-			return nil, fmt.Errorf("could not read the organization of a group: %w", err)
-		}
 		var roles []string
-		if err := json.Unmarshal(values[1], &roles); err != nil {
+		if err := json.Unmarshal(g.Roles, &roles); err != nil {
 			return nil, fmt.Errorf("could not decode a group's roles: %w", err)
 		}
+		organization := uuid.UUID(g.OrganizationID)
 		for _, role := range roles {
 			if out == nil {
 				out = map[uuid.UUID][]string{}
@@ -320,23 +330,11 @@ func (r *userRepository) GroupRolesByOrganization(ctx context.Context, userID uu
 			}
 		}
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("could not read the roles the account's groups grant: %w", err)
-	}
 	return out, nil
 }
 
-// otherGlobalAdministratorCandidates reads the roles of the live accounts,
-// other than one, whose own roles could name the administrator role. Narrowed
-// as otherAdministratorCandidates is, and decided the same way.
-const otherGlobalAdministratorCandidates = `SELECT u.roles::text
-	  FROM users u
-	 WHERE u.id <> $1
-	   AND u.deleted_at IS NULL
-	   AND translate(u.roles::text, 'ADMIN', 'admin') LIKE '%"admin"%'`
-
-// HasAnotherGlobalAdministrator reports whether an account besides one holds
-// the administrator role in every organization.
+// HasAnotherGlobalAdministrator reports whether a live account besides one
+// holds the administrator role in every organization.
 //
 // Unscoped, like Count and HasAccounts: the answer is one bit about the
 // installation, and it has to count accounts in organizations the caller is
@@ -347,39 +345,11 @@ func (r *userRepository) HasAnotherGlobalAdministrator(ctx context.Context, exce
 	if err != nil {
 		return false, err
 	}
-	rows, err := ex.Query(ctx, otherGlobalAdministratorCandidates, []any{except})
+	found, err := user.New().Where(user.ID.NotEq(except), user.Roles.HasAnyKey(adminSpellings...)).Exists(ctx, ex)
 	if err != nil {
 		return false, fmt.Errorf("could not look for another administrator of every organization: %w", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		administers, err := administersFrom(rows.RawValues())
-		if err != nil {
-			return false, err
-		}
-		if administers {
-			return true, nil
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return false, fmt.Errorf("could not look for another administrator of every organization: %w", err)
-	}
-	return false, nil
-}
-
-// administersFrom decides one candidate: the administrator role held in every
-// organization, or in the one asked about.
-func administersFrom(values [][]byte) (bool, error) {
-	for _, raw := range values {
-		var roles []string
-		if err := json.Unmarshal(raw, &roles); err != nil {
-			return false, fmt.Errorf("could not decode an account's roles: %w", err)
-		}
-		if entities.HasRole(roles, entities.RoleAdmin) {
-			return true, nil
-		}
-	}
-	return false, nil
+	return found, nil
 }
 
 // SetOrganizationRoles writes the roles an account holds in one organization,
@@ -434,6 +404,22 @@ func (r *userRepository) HasAccounts(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("could not tell whether any account exists: %w", err)
 	}
 	return len(ever) == 1 && ever[0].Accounts > 0, nil
+}
+
+// LockAccounts takes the accounts table until the transaction ends. Outside
+// one it would be released as soon as it was taken, so that is refused.
+func (r *userRepository) LockAccounts(ctx context.Context) error {
+	if !db.InTransaction(ctx) {
+		return errors.New("the accounts can only be held inside a transaction")
+	}
+	ex, err := r.conn.conn.MainExecutor(ctx)
+	if err != nil {
+		return err
+	}
+	if err := store.LockTables(ctx, ex, store.LockExclusive, store.TableUser); err != nil {
+		return fmt.Errorf("could not hold the accounts: %w", err)
+	}
+	return nil
 }
 
 func (r *userRepository) Create(ctx context.Context, u models.UserModel, passwordHash string) error {

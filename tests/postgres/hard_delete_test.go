@@ -7,6 +7,7 @@ import (
 
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/store/subscription"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -33,14 +34,12 @@ func TestClearingANodesWaitLeavesNoRowBehind(t *testing.T) {
 		t.Fatalf("delete by node: %v", err)
 	}
 
-	var gone, left int64
-	if err := db.Raw(`SELECT count(*) FROM event_subscriptions WHERE instance_id = ?`, cleared).Scan(&gone).Error; err != nil {
-		t.Fatalf("count the cleared instance's rows: %v", err)
+	// Every row the table holds, marked or not, is the other instance's one.
+	if rows := testutils.RowsIn(t, db, "event_subscriptions"); rows != 1 {
+		t.Errorf("%d subscription rows remain, deleted or not; want only the other instance's", rows)
 	}
-	if gone != 0 {
-		t.Errorf("%d subscription rows remain for the cleared node, deleted or not; want none", gone)
-	}
-	if err := db.Raw(`SELECT count(*) FROM event_subscriptions WHERE instance_id = ? AND deleted_at IS NULL`, kept).Scan(&left).Error; err != nil {
+	left, err := subscription.New().InstanceIDEq(kept).Count(ctx, testutils.Executor(db))
+	if err != nil {
 		t.Fatalf("count the other instance's rows: %v", err)
 	}
 	if left != 1 {
@@ -79,10 +78,7 @@ func TestCancellingAScheduledReleaseRemovesOnlyOneStillAhead(t *testing.T) {
 		t.Errorf("cancelling it twice: err %v, want ErrNotFound", err)
 	}
 
-	var rows int64
-	if err := db.Raw(`SELECT count(*) FROM process_definition_releases WHERE project_id = ?`, projID).Scan(&rows).Error; err != nil {
-		t.Fatalf("count releases: %v", err)
-	}
+	rows := testutils.RowsIn(t, db, "process_definition_releases")
 	if rows != 1 {
 		t.Errorf("%d release rows, deleted or not; want only the one in effect", rows)
 	}

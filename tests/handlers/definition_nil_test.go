@@ -26,7 +26,7 @@ import (
 // a response either.
 func TestCreateDefinition_RejectsANilDefinitionInsteadOfPanicking(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	svc := serviceimpl.NewDefinitionService(repositories.NewRepository(testutils.StormConn(db)))
+	svc := serviceimpl.NewDefinitionService(repositories.NewRepository(db))
 
 	// Fails the test rather than the process: without the recover the panic
 	// takes the whole run down and reports nothing useful about where it came

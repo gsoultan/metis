@@ -17,15 +17,19 @@ import (
 	"github.com/gsoultan/metis/server/domains/observers/impl"
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
+	"github.com/gsoultan/metis/server/repositories/store/instancedeviation"
+	"github.com/gsoultan/metis/server/repositories/store/task"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // waitingWaive is a server with one instance waiting at a step, and a request
 // to waive that step waiting for a second administrator.
 type waitingWaive struct {
 	app      *App
-	db       *gorm.DB
+	db       *db.Conn
 	tenant   context.Context
 	project  uuid.UUID
 	instance uuid.UUID
@@ -74,11 +78,10 @@ func (w waitingWaive) another(t *testing.T, outputs map[string]any) (instance, r
 // or "reject" and has no default, so a waive has to say what it counts as.
 func askForAWaive(t *testing.T, outputs map[string]any) waitingWaive {
 	t.Helper()
-	gormDB := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(gormDB)
+	conn := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(conn)
 	sse := impl.NewSSEObserver()
-	w := waitingWaive{db: gormDB, app: &App{db: gormDB, storm: conn, repo: repo, sse: sse,
+	w := waitingWaive{db: conn, app: &App{storm: conn, repo: repo, sse: sse,
 		svc: services.NewServiceFacade(repo, impl.NewEventDispatcher(), sse, "retention-deviation-test", nil, nil, nil)}}
 	svc := w.app.svc
 
@@ -122,6 +125,26 @@ func askForAWaive(t *testing.T, outputs map[string]any) waitingWaive {
 	return w
 }
 
+// requestStatus is how request is stored.
+func (w waitingWaive) requestStatus(t *testing.T, request uuid.UUID) string {
+	t.Helper()
+	row, found, err := deviationrequest.New().IDEq(request).One(t.Context(), testutils.Executor(w.db))
+	if err != nil || !found {
+		t.Fatalf("read request %s: found %v, %v", request, found, err)
+	}
+	return row.Status
+}
+
+// expiredBefore moves request's deadline to ago before now.
+func (w waitingWaive) expiredBefore(t *testing.T, request uuid.UUID, ago time.Duration) {
+	t.Helper()
+	deadline := deviationrequest.MutateKey(request)
+	deadline.SetExpiresAt(time.Now().Add(-ago))
+	if err := deadline.Update(t.Context(), testutils.Executor(w.db)); err != nil {
+		t.Fatalf("let time pass: %v", err)
+	}
+}
+
 // said is the lines kept that carry a fragment of a message, each as the
 // fields it was logged with.
 func (l *logTap) said(fragment string) []map[string]any {
@@ -151,13 +174,11 @@ func TestTheRetentionPassExpiresOverdueDeviationRequests(t *testing.T) {
 	logs := captureLogs(t)
 	stored := func() (request, row string) {
 		t.Helper()
-		if err := w.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, w.request).Scan(&request).Error; err != nil {
-			t.Fatalf("read the request: %v", err)
+		ledger, found, err := instancedeviation.New().RequestIDEq(w.request).One(t.Context(), testutils.Executor(w.db))
+		if err != nil || !found {
+			t.Fatalf("read the ledger row: found %v, %v", found, err)
 		}
-		if err := w.db.Raw(`SELECT status FROM instance_deviations WHERE request_id = ?`, w.request).Scan(&row).Error; err != nil {
-			t.Fatalf("read the ledger row: %v", err)
-		}
-		return request, row
+		return w.requestStatus(t, w.request), ledger.Status
 	}
 
 	// A pass before the deadline leaves it waiting, and says nothing of it.
@@ -178,65 +199,10 @@ func TestTheRetentionPassExpiresOverdueDeviationRequests(t *testing.T) {
 		t.Fatalf("the pass that expired a request said %v, want one line at info with expired = 1 for the main database", lines)
 	}
 	// The step is where it was: an expiry changes nothing of the instance.
-	var open int
-	if err := w.db.Raw(`SELECT count(*) FROM tasks WHERE instance_id = ? AND status IN ('unclaimed', 'claimed')`, w.instance).Scan(&open).Error; err != nil || open != 1 {
+	open, err := task.New().InstanceIDEq(w.instance).
+		StatusIn(string(models.TaskUnclaimed), string(models.TaskClaimed)).Count(t.Context(), testutils.Executor(w.db))
+	if err != nil || open != 1 {
 		t.Fatalf("%d task(s) are open on the instance (%v), want the one that was", open, err)
-	}
-}
-
-// A ledger row written by a pod of the previous release holds its visit and
-// has no live key, so the database's own guard does not see it. Migration 34
-// fills those once; a row written after it ran — during a rolling upgrade, or
-// after a rollback — is filled by the retention pass.
-func TestTheRetentionPassGivesALiveLedgerRowItsKey(t *testing.T) {
-	w := askForAWaive(t, map[string]any{"verdict": "accept"})
-	if err := w.db.Exec(`UPDATE instance_deviations SET live_visit_key = NULL WHERE request_id = ?`, w.request).Error; err != nil {
-		t.Fatalf("write the row as the previous release does: %v", err)
-	}
-	logs := captureLogs(t)
-	keys := func() (visit, live *string) {
-		t.Helper()
-		var row struct{ VisitKey, LiveVisitKey *string }
-		if err := w.db.Raw(`SELECT visit_key, live_visit_key FROM instance_deviations WHERE request_id = ?`, w.request).Scan(&row).Error; err != nil {
-			t.Fatalf("read the row: %v", err)
-		}
-		return row.VisitKey, row.LiveVisitKey
-	}
-	system := entities.WithSystemContext(t.Context())
-
-	// The search for such rows reads the ledger with no index to serve it, so
-	// it is made only for the first hour after the process started its
-	// sweeps: a process that never started them, and a pass past that hour,
-	// look for nothing.
-	began := time.Now()
-	w.app.sweepRetention(system, began, optInRetention{})
-	if _, live := keys(); live != nil {
-		t.Fatalf("a pass of a process that never started its sweeps filled the key (%q)", *live)
-	}
-	w.app.sweepsBegan = began
-	// (Each well inside the request's own deadline, so that it still waits.)
-	for _, late := range []time.Duration{liveKeyFillFor, liveKeyFillFor + time.Minute, 48 * time.Hour} {
-		w.app.sweepRetention(system, began.Add(late), optInRetention{})
-		if _, live := keys(); live != nil {
-			t.Fatalf("a pass %s after the sweeps began filled the key; the fill is for the first %s", late, liveKeyFillFor)
-		}
-	}
-	if lines := logs.said("the key that holds"); len(lines) != 0 {
-		t.Fatalf("passes that looked for nothing said %v", lines)
-	}
-
-	w.app.sweepRetention(system, began.Add(liveKeyFillFor-time.Minute), optInRetention{})
-	if visit, live := keys(); visit == nil || live == nil || *live != *visit {
-		t.Fatalf("after a pass within the hour the row's live key is %v and its visit key %v; want the live key filled", live, visit)
-	}
-	lines := logs.said("the key that holds")
-	if len(lines) != 1 || lines[0]["level"] != "warn" || lines[0]["filled"] != float64(1) {
-		t.Fatalf("the pass that filled a key said %v, want one warning with filled = 1", lines)
-	}
-	// With nothing to fill it says nothing: every pass would say it otherwise.
-	w.app.sweepRetention(system, began.Add(time.Minute), optInRetention{})
-	if lines := logs.said("the key that holds"); len(lines) != 1 {
-		t.Fatalf("a pass with no key to fill said something: %v", lines)
 	}
 }
 
@@ -318,52 +284,8 @@ func TestARefusedSelfApprovalAndAnApprovalThatCouldNotAdvanceLeaveATrace(t *test
 		t.Fatalf("budi approving a waive its gateway cannot follow: %v, want it refused with the request still waiting", err)
 	}
 	named(logs.said("could not be applied"), "budi")
-	var status string
-	if err := w.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, w.request).Scan(&status).Error; err != nil || status != "pending_approval" {
-		t.Fatalf("after both the request is stored as %q (%v), want it still waiting", status, err)
-	}
-}
-
-// Two live ledger rows that hold one visit of one instance is what the live
-// key exists to make impossible, and nothing in the product leaves it behind.
-// Should a pod of the previous release have — here it is written by hand: the
-// waiting row's twin, applied and keyless — the fill cannot give the twin its
-// key, and says what that means, as an error and in words, rather than as a
-// sweep that merely failed. Neither row is changed: no pass can choose which
-// of the two is the true one.
-func TestALiveKeyThatCannotBeGivenBecauseTheVisitIsHeldTwiceIsSaidAsThat(t *testing.T) {
-	w := askForAWaive(t, map[string]any{"verdict": "accept"})
-	err := w.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(`CREATE TEMP TABLE twin ON COMMIT DROP AS SELECT * FROM instance_deviations WHERE request_id = ?`, w.request).Error; err != nil {
-			return err
-		}
-		if err := tx.Exec(`UPDATE twin SET id = gen_random_uuid(), status = 'applied', live_visit_key = NULL`).Error; err != nil {
-			return err
-		}
-		return tx.Exec(`INSERT INTO instance_deviations SELECT * FROM twin`).Error
-	})
-	if err != nil {
-		t.Fatalf("write the twin row: %v", err)
-	}
-	logs := captureLogs(t)
-	w.app.sweepsBegan = time.Now()
-	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now(), optInRetention{})
-
-	lines := logs.said("hold one visit of one instance")
-	if len(lines) != 1 || lines[0]["level"] != "error" || lines[0]["database"] != "main" {
-		t.Fatalf("the pass said %v; want one error that names two live rows holding one visit", lines)
-	}
-	// One pair stops the fill for the whole database, and the line says so.
-	if said, _ := lines[0]["message"].(string); !strings.Contains(said, "any other row of this database written without its key was not given it either") {
-		t.Fatalf("the line does not say that nothing behind the pair was filled: %s", said)
-	}
-	if generic := logs.said("Could not give ledger rows"); len(generic) != 0 {
-		t.Fatalf("it was also said as a sweep that merely failed: %v", generic)
-	}
-	var keyless, live int
-	if err := w.db.Raw(`SELECT count(*) FILTER (WHERE live_visit_key IS NULL), count(*) FILTER (WHERE live_visit_key IS NOT NULL)
-		FROM instance_deviations WHERE instance_id = ?`, w.instance).Row().Scan(&keyless, &live); err != nil || keyless != 1 || live != 1 {
-		t.Fatalf("after the pass the instance has %d keyless and %d keyed row(s) (%v); want both rows as they were", keyless, live, err)
+	if status := w.requestStatus(t, w.request); status != "pending_approval" {
+		t.Fatalf("after both the request is stored as %q, want it still waiting", status)
 	}
 }
 
@@ -383,20 +305,24 @@ func TestAPassThatLeavesRequestsBehindSaysHowManyItClosedAndHowManyItCouldNot(t 
 		requests = append(requests, request)
 	}
 	for i, request := range requests {
-		if err := w.db.Exec(`UPDATE deviation_requests SET expires_at = now() - make_interval(mins => ?) WHERE id = ?`, len(requests)-i, request).Error; err != nil {
-			t.Fatalf("let time pass: %v", err)
-		}
+		w.expiredBefore(t, request, time.Duration(len(requests)-i)*time.Minute)
 	}
 	healthy := requests[broken]
-	if err := w.db.Exec(`UPDATE instance_deviations SET status = 'rejected', live_visit_key = NULL WHERE request_id IN ?`, requests[:broken]).Error; err != nil {
+	var rejected instancedeviation.Mut
+	rejected.SetStatus("rejected")
+	rejected.SetLiveVisitKeyNull()
+	keys := make([][16]byte, broken)
+	for i, request := range requests[:broken] {
+		keys[i] = request
+	}
+	if _, err := instancedeviation.New().RequestIDIn(keys...).UpdateAll(t.Context(), testutils.Executor(w.db), rejected); err != nil {
 		t.Fatalf("break the ledger rows of the first %d: %v", broken, err)
 	}
 	logs := captureLogs(t)
 	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now(), optInRetention{})
 
-	var status string
-	if err := w.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, healthy).Scan(&status).Error; err != nil || status != "expired" {
-		t.Fatalf("behind %d requests that cannot be closed, the one that can is stored as %q (%v) after a pass; want expired", broken, status, err)
+	if status := w.requestStatus(t, healthy); status != "expired" {
+		t.Fatalf("behind %d requests that cannot be closed, the one that can is stored as %q after a pass; want expired", broken, status)
 	}
 	end := logs.said("left some as they were")
 	if len(end) != 1 || end[0]["level"] != "warn" || end[0]["closed"] != float64(1) || end[0]["not_closed"] != float64(broken) || end[0]["budget_spent"] != false {
@@ -427,25 +353,19 @@ func TestAPassCountsARequestSomebodyHoldsApartFromOneItCannotClose(t *testing.T)
 	w := askForAWaive(t, map[string]any{"verdict": "accept"})
 	_, free := w.another(t, map[string]any{"verdict": "accept"})
 	for i, request := range []uuid.UUID{w.request, free} {
-		if err := w.db.Exec(`UPDATE deviation_requests SET expires_at = now() - make_interval(mins => ?) WHERE id = ?`, 10-i, request).Error; err != nil {
-			t.Fatalf("let time pass: %v", err)
-		}
+		w.expiredBefore(t, request, time.Duration(10-i)*time.Minute)
 	}
-	holder := w.db.Begin()
-	if err := holder.Exec(`SELECT 1 FROM instance_deviations WHERE request_id = ? FOR UPDATE`, w.request).Error; err != nil {
+	holder := testutils.Begin(t, w.db)
+	if _, err := instancedeviation.New().RequestIDEq(w.request).ForUpdate().All(t.Context(), holder, nil); err != nil {
 		t.Fatalf("hold the ledger row of the first request: %v", err)
 	}
-	t.Cleanup(func() { holder.Rollback() })
 
 	logs := captureLogs(t)
 	w.app.sweepRetention(entities.WithSystemContext(t.Context()), time.Now(), optInRetention{})
 
-	stored := func(request uuid.UUID) (status string) {
+	stored := func(request uuid.UUID) string {
 		t.Helper()
-		if err := w.db.Raw(`SELECT status FROM deviation_requests WHERE id = ?`, request).Scan(&status).Error; err != nil {
-			t.Fatalf("read request %s: %v", request, err)
-		}
-		return status
+		return w.requestStatus(t, request)
 	}
 	if stored(w.request) != "pending_approval" || stored(free) != "expired" {
 		t.Fatalf("the held request is stored as %q and the free one as %q; want the first as it was and the second expired", stored(w.request), stored(free))
@@ -467,7 +387,7 @@ func TestAPassCountsARequestSomebodyHoldsApartFromOneItCannotClose(t *testing.T)
 	}
 
 	// Let go, the next pass closes it and has nothing to say.
-	if err := holder.Rollback().Error; err != nil {
+	if err := holder.Rollback(t.Context()); err != nil {
 		t.Fatalf("let go of the ledger row: %v", err)
 	}
 	logs = captureLogs(t)

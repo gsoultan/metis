@@ -60,13 +60,15 @@ func TestTheGeneratedStoreComesFromTheStormTheModuleBuildsAgainst(t *testing.T) 
 // The builder bug itself, against a real database: a row whose lease expired
 // must match "no lease, or an expired one", whichever way round it is asked.
 func TestANullTestInsideAnyKeepsThePredicateAfterIt(t *testing.T) {
-	_, conn := testutils.SetupTestStore(t)
+	conn := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(conn)
 	ctx := entities.WithSystemContext(t.Context())
+	process := testutils.SeedProcess(t, repo)
 
 	expired := time.Now().Add(-time.Minute)
 	if _, err := repo.Job().Create(ctx, models.JobModel{
 		Base: models.Base{ID: models.UUID(uuid.New())}, Type: "timer", Status: models.JobRunning,
+		InstanceID: models.UUID(process.Instance), DefinitionID: models.UUID(process.Definition),
 		NextRunAt: expired, LockExpires: &expired, LockedBy: "a worker that died",
 	}); err != nil {
 		t.Fatalf("seed a job: %v", err)

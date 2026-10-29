@@ -19,7 +19,6 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/interceptors/tenant"
-	"github.com/gsoultan/metis/tests/testutils"
 )
 
 const (
@@ -61,7 +60,7 @@ func (h *deviationHarness) restarted(t *testing.T) *deviationHarness {
 	organizations, _ := serviceimpl.SoleAdministratorOrganizations()
 	svc := services.NewServiceFacade(h.repo, dispatcher, sse, "deviation-test-secret", nil, nil, nil,
 		services.WithSoleAdministratorOrganizations(organizations))
-	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, testutils.StormConn(h.db))
+	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, h.db)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	again := *h

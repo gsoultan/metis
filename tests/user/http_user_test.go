@@ -27,7 +27,7 @@ func setupHTTPTestService(t *testing.T) (services.ServiceFacade, http.Handler) {
 	// runs on and which has no storm connection for the ported repositories.
 	db := testutils.SetupTestDB(t)
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	dispatcher := impl.NewEventDispatcher()
 
 	orgSvc := service_impl.NewOrganizationService(repo, nil)

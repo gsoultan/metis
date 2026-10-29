@@ -13,6 +13,8 @@ import (
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/payloads"
+	"github.com/gsoultan/metis/server/repositories/store"
+	"github.com/gsoultan/metis/server/repositories/store/incident"
 	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 	"github.com/gsoultan/storm/runtime"
 )
@@ -76,7 +78,14 @@ func (r *processRepository) Get(ctx context.Context, id uuid.UUID) (models.Proce
 // This is what makes advancing a token safe. Two workers reaching the same
 // instance — a job firing while a person completes a task — would otherwise
 // both read the same tokens, both decide what happens next, and the second
-// write would silently discard the first. FOR UPDATE makes the second wait.
+// write would silently discard the first. The lock makes the second wait.
+//
+// FOR NO KEY UPDATE rather than FOR UPDATE: an instance is the parent of its
+// tasks, notifications, deviations and jobs, and inserting any of them checks
+// the instance's key. Under FOR UPDATE that check waits for the lock, so a
+// completion holding the instance and waiting for a task deadlocked with a
+// hand-over holding the task and notifying somebody about the instance. The
+// key never changes, so nothing the stronger lock adds is needed.
 func (r *processRepository) GetForUpdate(ctx context.Context, id uuid.UUID) (models.ProcessInstanceModel, error) {
 	row, err := r.one(ctx, id, true)
 	if err != nil {
@@ -230,12 +239,13 @@ func (r *processRepository) ListByProjectPaged(ctx context.Context, projectID uu
 	return r.pagedWithAttention(ctx, projectID, scoped, f, p)
 }
 
-// pagedWithAttention resolves the "needs attention" filter, then pages.
+// pagedWithAttention pages the instances, narrowed to those holding an open
+// incident when the filter asks for them.
 //
-// It is a separate step because "holds an unresolved incident" lives in another
-// table, and the generated query builder reaches a correlated subquery only
-// through a declared relation — which would put a report in the schema. Naming
-// the matching instances is the same answer with a bound on it.
+// The narrowing is a semi-join, so it reaches every such instance: the list's
+// total is the same number the "needs attention" count reports, however many
+// there are. It used to name the matching instances first and page over those
+// ids, and stopped at a thousand of them.
 func (r *processRepository) pagedWithAttention(
 	ctx context.Context,
 	projectID uuid.UUID,
@@ -246,17 +256,35 @@ func (r *processRepository) pagedWithAttention(
 	if !f.NeedsAttention {
 		return r.paged(ctx, scoped, f, nil, p, nil)
 	}
-	ids, _, err := r.InstancesNeedingAttention(ctx, projectID, f, contracts.AttentionLimit)
+	empty := contracts.NewPage([]models.ProcessInstanceModel{}, 0, p)
+	q, ok, err := r.scopedQuery(ctx, scoped, filterPreds(f))
+	if err != nil || !ok {
+		return empty, err
+	}
+	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
-		return contracts.NewPage([]models.ProcessInstanceModel{}, 0, p), err
+		return empty, err
 	}
-	// Nothing needs attention. Short-circuited rather than passed on as an empty
-	// IN list, which is a predicate two dialects disagree about and one this
-	// build has no reason to emit.
-	if len(ids) == 0 {
-		return contracts.NewPage([]models.ProcessInstanceModel{}, 0, p), nil
+	total, err := needingAttention(q).Count(ctx, ex)
+	if err != nil {
+		return empty, fmt.Errorf("could not count process instances: %w", err)
 	}
-	return r.paged(ctx, scoped, f, ids, p, nil)
+	if total == 0 || int64(p.Offset()) >= total {
+		return contracts.NewPage([]models.ProcessInstanceModel{}, total, p), nil
+	}
+	n := p.Normalize()
+	rows, err := needingAttention(q.
+		Order(processinstance.CreatedAt.Desc(), processinstance.ID.Desc()).
+		Limit(int64(n.PageSize)).
+		Offset(int64(p.Offset()))).All(ctx, ex)
+	if err != nil {
+		return empty, fmt.Errorf("could not list process instances: %w", err)
+	}
+	items, err := instancesFrom(ctx, rows)
+	if err != nil {
+		return empty, err
+	}
+	return contracts.NewPage(items, total, p), nil
 }
 
 // filterPreds turns a caller's filter into predicates.
@@ -328,39 +356,20 @@ func (r *processRepository) OpenIncidentsByInstance(ctx context.Context, instanc
 		return nil, err
 	}
 
-	query := `SELECT i.instance_id, COUNT(*) AS total
-	            FROM incidents i
-	            JOIN process_instances p ON p.id = i.instance_id
-	           WHERE i.status = $1
-	             AND i.deleted_at IS NULL
-	             AND p.deleted_at IS NULL
-	             AND i.instance_id = ANY($2)`
-	args := []any{string(models.IncidentOpen), uuidsToRaw(instanceIDs)}
+	var scope []processinstance.Pred
 	if scoped != nil {
-		query, args = rawInProjects(query, args, "p.project_id", scoped)
+		scope = append(scope, instanceInProjects(scoped))
 	}
-	query += " GROUP BY i.instance_id"
-
-	rows, err := ex.Query(ctx, query, args)
+	open := incident.New().Where(
+		incident.Status.Eq(string(models.IncidentOpen)),
+		incident.InstanceID.In(uuidsToRaw(instanceIDs)...),
+	).Limit(int64(len(instanceIDs))) // a group per instance at most
+	groups, err := store.IncidentHavingInstance(open, scope...).AllByInstance(ctx, ex)
 	if err != nil {
 		return nil, fmt.Errorf("could not count open incidents: %w", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		values := rows.RawValues()
-		if len(values) < 2 {
-			continue
-		}
-		var instanceID uuid.UUID
-		copy(instanceID[:], values[0])
-		var total int64
-		if err := scanInt(values[1:], &total); err != nil {
-			return nil, err
-		}
-		counts[instanceID] += total
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("could not count open incidents: %w", err)
+	for _, g := range groups {
+		counts[uuid.UUID(g.InstanceID)] += g.Total
 	}
 	return counts, nil
 }
@@ -371,89 +380,19 @@ func (r *processRepository) CountInstancesNeedingAttention(ctx context.Context, 
 	if err != nil || !visible {
 		return 0, err
 	}
+	q, ok, err := r.scopedQuery(ctx, scoped, filterPreds(contracts.InstanceFilter{DefinitionID: f.DefinitionID, Status: f.Status}))
+	if err != nil || !ok {
+		return 0, err
+	}
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return 0, err
 	}
-	query, args := needsAttentionQuery("COUNT(DISTINCT i.instance_id)", scoped, f)
-	rows, err := ex.Query(ctx, query, args)
+	total, err := needingAttention(q).Count(ctx, ex)
 	if err != nil {
-		return 0, fmt.Errorf("could not count instances needing attention: %w", err)
-	}
-	defer rows.Close()
-	var total int64
-	if rows.Next() {
-		if err := scanInt(rows.RawValues(), &total); err != nil {
-			return 0, err
-		}
-	}
-	if err := rows.Err(); err != nil {
 		return 0, fmt.Errorf("could not count instances needing attention: %w", err)
 	}
 	return total, nil
-}
-
-// InstancesNeedingAttention lists the instances holding an open incident.
-func (r *processRepository) InstancesNeedingAttention(ctx context.Context, projectID uuid.UUID, f contracts.InstanceFilter, limit int) ([]uuid.UUID, bool, error) {
-	scoped, visible, err := r.scopedProjects(ctx, projectID)
-	if err != nil || !visible {
-		return nil, true, err
-	}
-	ex, err := r.conn.conn.Executor(ctx)
-	if err != nil {
-		return nil, true, err
-	}
-	query, args := needsAttentionQuery("DISTINCT i.instance_id", scoped, f)
-	// One more than asked for, so hitting the bound is detectable rather than
-	// indistinguishable from a project that has exactly that many.
-	args = append(args, limit+1)
-	query += fmt.Sprintf(" LIMIT $%d", len(args))
-
-	rows, err := ex.Query(ctx, query, args)
-	if err != nil {
-		return nil, true, fmt.Errorf("could not list instances needing attention: %w", err)
-	}
-	defer rows.Close()
-	ids := make([]uuid.UUID, 0, limit)
-	for rows.Next() {
-		values := rows.RawValues()
-		if len(values) < 1 {
-			continue
-		}
-		var id uuid.UUID
-		copy(id[:], values[0])
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, true, fmt.Errorf("could not list instances needing attention: %w", err)
-	}
-	if len(ids) > limit {
-		return ids[:limit], false, nil
-	}
-	return ids, true, nil
-}
-
-// needsAttentionQuery builds the shared FROM/WHERE for the two reads above.
-func needsAttentionQuery(selectList string, scoped []uuid.UUID, f contracts.InstanceFilter) (string, []any) {
-	query := `SELECT ` + selectList + `
-	            FROM incidents i
-	            JOIN process_instances p ON p.id = i.instance_id
-	           WHERE i.status = $1
-	             AND i.deleted_at IS NULL
-	             AND p.deleted_at IS NULL`
-	args := []any{string(models.IncidentOpen)}
-	if scoped != nil {
-		query, args = rawInProjects(query, args, "p.project_id", scoped)
-	}
-	if f.DefinitionID != uuid.Nil {
-		args = append(args, f.DefinitionID[:])
-		query += fmt.Sprintf(" AND p.definition_id = $%d", len(args))
-	}
-	if f.Status != "" {
-		args = append(args, string(f.Status))
-		query += fmt.Sprintf(" AND p.status = $%d", len(args))
-	}
-	return query, args
 }
 
 // CountByStatuses reports how many instances the project holds in each state.
@@ -566,7 +505,7 @@ func (r *processRepository) one(ctx context.Context, id uuid.UUID, forUpdate boo
 		q = q.Where(instanceInProjects(scope.projects))
 	}
 	if forUpdate {
-		q = q.ForUpdate()
+		q = q.ForNoKeyUpdate()
 	}
 	row, found, err := q.One(ctx, ex)
 	if err != nil {
@@ -622,17 +561,6 @@ func instanceInProjects(ids []uuid.UUID) processinstance.Pred {
 		return processinstance.ProjectID.Eq(ids[0])
 	}
 	return processinstance.ProjectID.In(uuidsToRaw(ids)...)
-}
-
-// rawInProjects is instanceInProjects for the statements still written as
-// SQL here: column is in ids, as an equality when there is one.
-func rawInProjects(query string, args []any, column string, ids []uuid.UUID) (string, []any) {
-	if len(ids) == 1 {
-		args = append(args, ids[0][:])
-		return query + fmt.Sprintf(" AND %s = $%d", column, len(args)), args
-	}
-	args = append(args, uuidsToRaw(ids))
-	return query + fmt.Sprintf(" AND %s = ANY($%d)", column, len(args)), args
 }
 
 // list returns every instance matching, newest first.
@@ -835,56 +763,30 @@ func (r *processRepository) WaitingByStep(ctx context.Context, projectID uuid.UU
 	if err != nil {
 		return nil, err
 	}
-	query := `SELECT d.key,
-	                 (array_agg(d.name ORDER BY d.version DESC))[1],
-	                 COALESCE(t->>'node_id', ''),
-	                 count(*),
-	                 count(DISTINCT p.id),
-	                 GROUPING(t->>'node_id')
-	            FROM process_instances p
-	            JOIN process_definitions d ON d.id = p.definition_id
-	           CROSS JOIN LATERAL jsonb_array_elements(
-	                   CASE WHEN jsonb_typeof(p.tokens::jsonb) = 'array' THEN p.tokens::jsonb ELSE '[]'::jsonb END) AS t
-	           WHERE p.deleted_at IS NULL
-	             AND p.status IN ($1, $2)
-	             AND COALESCE(t->>'status', '') <> $3`
-	args := []any{string(models.ProcessActive), string(models.ProcessSuspended), string(models.TokenCompleted)}
+	q := processinstance.New().Where(processinstance.Status.In(
+		string(models.ProcessActive), string(models.ProcessSuspended)))
 	if scoped != nil {
-		query, args = rawInProjects(query, args, "p.project_id", scoped)
+		q = q.Where(instanceInProjects(scoped))
 	}
-	query += ` GROUP BY GROUPING SETS ((d.key, t->>'node_id'), (d.key))`
-
-	rows, err := ex.Query(ctx, query, args)
+	// Every group, in one statement: the store's default bound is for rows.
+	groups, err := q.Limit(math.MaxInt64).AllWaitingByStep(ctx, ex)
 	if err != nil {
 		return nil, fmt.Errorf("could not count the waiting work: %w", err)
 	}
-	defer rows.Close()
-	var out []contracts.WaitingRow
-	for rows.Next() {
-		values := rows.RawValues()
-		if len(values) < 6 {
-			continue
+	out := make([]contracts.WaitingRow, 0, len(groups))
+	for _, g := range groups {
+		row := contracts.WaitingRow{
+			ProcessKey:  g.Key.V,
+			ProcessName: g.Name.V,
+			Waiting:     g.Waiting,
+			Instances:   g.Instances,
 		}
-		var row contracts.WaitingRow
-		var grouped int64
-		row.ProcessKey, row.ProcessName = string(values[0]), string(values[1])
-		if err := scanInt(values[3:4], &row.Waiting); err != nil {
-			return nil, err
-		}
-		if err := scanInt(values[4:5], &row.Instances); err != nil {
-			return nil, err
-		}
-		if err := scanInt(values[5:6], &grouped); err != nil {
-			return nil, err
-		}
-		// A process total has no step; a step row names one.
-		if grouped == 0 {
-			row.NodeID = string(values[2])
+		// A process total has no step; a step row names one, or none when
+		// the token carries no node.
+		if g.Total == 0 {
+			row.NodeID = g.Node.V
 		}
 		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("could not count the waiting work: %w", err)
 	}
 	return out, nil
 }

@@ -50,7 +50,7 @@ func constantDecision(projectID uuid.UUID, key string, requires ...string) entit
 // decision runs once per evaluation.
 func TestADecisionRequiredByManyIsEvaluatedOnce(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	counter := &countingTableEvaluator{next: NewDecisionTableEvaluator(NewFEELEvaluator()), runs: map[string]int{}}
 	svc := NewDecisionService(repo, counter)
 	projectID, ctx := seedProject(t, repo)
@@ -86,7 +86,7 @@ func TestADecisionRequiredByManyIsEvaluatedOnce(t *testing.T) {
 // the work under it.
 func TestADecisionThatRequiresTheSameDecisionTwiceIsRefused(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := NewDecisionService(repo, NewDecisionTableEvaluator(NewFEELEvaluator()))
 	projectID, ctx := seedProject(t, repo)
 	mustCreateDecision(t, svc, ctx, constantDecision(projectID, "base"))
@@ -105,7 +105,7 @@ func TestADecisionThatRequiresTheSameDecisionTwiceIsRefused(t *testing.T) {
 // requirement is evaluated once.
 func TestAStoredDecisionRequiringTheSameDecisionTwiceEvaluatesItOnce(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	counter := &countingTableEvaluator{next: NewDecisionTableEvaluator(NewFEELEvaluator()), runs: map[string]int{}}
 	svc := NewDecisionService(repo, counter)
 	projectID, ctx := seedProject(t, repo)

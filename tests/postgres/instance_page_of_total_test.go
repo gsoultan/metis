@@ -16,7 +16,7 @@ import (
 // project shows nothing, whatever total it is handed.
 func TestAPageOfAKnownTotalIsThePageThatCountsIt(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ours, _, project := testutils.ScopedProject(t, repo)
 	theirs, _, _ := testutils.ScopedProject(t, repo)
 	definition := seedDefinition(t, db, project, 1)

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/webhook"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // A legacy (v1) signature covers the body alone, so a delivery signed that way
@@ -252,8 +254,9 @@ func TestTheListSaysUntilWhenAWebhookAcceptsLegacySignatures(t *testing.T) {
 // existed before v2.
 func (h *webhookHarness) setLegacyWindow(t *testing.T, hook entities.Webhook, until time.Time) {
 	t.Helper()
-	if err := h.db.WithContext(t.Context()).Exec(
-		`UPDATE webhooks SET legacy_signatures_until = ? WHERE id = ?`, until.UTC(), hook.ID).Error; err != nil {
+	window := webhook.MutateKey(hook.ID)
+	window.SetLegacySignaturesUntil(until.UTC())
+	if err := window.Update(t.Context(), testutils.Executor(h.db)); err != nil {
 		t.Fatalf("set the legacy window: %v", err)
 	}
 }

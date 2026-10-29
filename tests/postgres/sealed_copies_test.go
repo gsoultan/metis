@@ -2,8 +2,17 @@ package postgres_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/metis/server/repositories/store/auditentry"
+	"github.com/gsoultan/metis/server/repositories/store/broadcastevent"
+	"github.com/gsoultan/metis/server/repositories/store/externaltask"
+	"github.com/gsoultan/metis/server/repositories/store/idempotencyrecord"
+	jobstore "github.com/gsoultan/metis/server/repositories/store/job"
+	"github.com/gsoultan/metis/server/repositories/store/servicecall"
+	"github.com/gsoultan/metis/server/repositories/store/variablesnapshot"
 
 	"github.com/google/uuid"
 
@@ -26,7 +35,7 @@ const sealedMarker = "123-45-6789-sealed-marker"
 
 func TestCopiesOfProcessVariablesAreEncryptedAtRest(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	// The audit observer as the application registers it, so the trail is
 	// written the way it is in production.
 	dispatcher := observersimpl.NewEventDispatcher()
@@ -66,22 +75,34 @@ func TestCopiesOfProcessVariablesAreEncryptedAtRest(t *testing.T) {
 	deploy("sealed-external", &entities.Node{ID: "work", Type: entities.ServiceTask, ExternalTopic: "sealed-topic",
 		Incoming: []string{"f1"}, Outgoing: []string{"f2"}})
 
+	ex := testutils.Executor(db)
 	for _, column := range []struct {
 		table, column string
 		mustHaveRows  bool
+		read          func() ([]string, error)
 	}{
-		{"jobs", "payload", true},
-		{"external_tasks", "variables", true},
-		{"audit_logs", "data", true},
-		{"variable_snapshots", "variables", false},
+		{"jobs", "payload", true, func() ([]string, error) {
+			rows, err := jobstore.New().Unordered().All(context.Background(), ex, nil)
+			return texts(rows, func(r jobstore.Row) []byte { return r.Payload }), err
+		}},
+		{"external_tasks", "variables", true, func() ([]string, error) {
+			rows, err := externaltask.New().Unordered().All(context.Background(), ex, nil)
+			return texts(rows, func(r externaltask.Row) []byte { return r.Variables }), err
+		}},
+		{"audit_logs", "data", true, func() ([]string, error) {
+			rows, err := auditentry.New().Unordered().All(context.Background(), ex, nil)
+			return texts(rows, func(r auditentry.Row) []byte { return r.Data }), err
+		}},
+		{"variable_snapshots", "variables", false, func() ([]string, error) {
+			rows, err := variablesnapshot.New().Unordered().All(context.Background(), ex, nil)
+			return texts(rows, func(r variablesnapshot.Row) []byte { return r.Variables }), err
+		}},
 	} {
-		var rows, plaintext int64
-		if err := db.WithContext(context.Background()).
-			Raw("SELECT count(*), count(*) FILTER (WHERE "+column.column+"::text LIKE ?) FROM "+column.table,
-				"%"+sealedMarker+"%").
-			Row().Scan(&rows, &plaintext); err != nil {
+		values, err := column.read()
+		if err != nil {
 			t.Fatalf("read %s: %v", column.table, err)
 		}
+		rows, plaintext := len(values), holding(values, sealedMarker)
 		if column.mustHaveRows && rows == 0 {
 			t.Errorf("%s has no rows, so this proves nothing about it", column.table)
 		}
@@ -124,14 +145,15 @@ func TestCopiesOfProcessVariablesAreEncryptedAtRest(t *testing.T) {
 // created.
 func TestStoredAnswersAreEncryptedAtRest(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	conn := testutils.StormConn(db)
+	conn := db
 	repo := repositories.NewRepository(conn)
 	ctx := entities.WithSystemContext(t.Context())
 
-	instanceID := uuid.New()
+	_, org, project := testutils.ScopedProject(t, repo)
+	_, instanceID := caseIn(ctx, t, repo, project)
 	visit := models.UUID(uuid.New())
 	call, err := repo.ServiceCall().Begin(ctx, models.ServiceCallModel{
-		InstanceID: models.UUID(instanceID), NodeID: "charge", JobID: &visit,
+		ProjectID: models.UUID(project), InstanceID: models.UUID(instanceID), NodeID: "charge", JobID: &visit,
 	}, time.Now())
 	if err != nil {
 		t.Fatalf("record the call: %v", err)
@@ -141,7 +163,7 @@ func TestStoredAnswersAreEncryptedAtRest(t *testing.T) {
 	}
 
 	payload := `{"type":"ProcessStarted","variables":{"applicantSSN":"` + sealedMarker + `"}}`
-	if err := repo.Broadcast().Publish(ctx, "replica-a", entities.SSEScope{Organization: uuid.New()}, payload); err != nil {
+	if err := repo.Broadcast().Publish(ctx, "replica-a", entities.SSEScope{Organization: org}, payload); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 
@@ -154,17 +176,29 @@ func TestStoredAnswersAreEncryptedAtRest(t *testing.T) {
 		t.Fatalf("keep the answer: %v", err)
 	}
 
-	for _, probe := range []struct{ table, expr string }{
-		{"service_calls", "response::text"},
-		{"broadcast_events", "payload"},
-		{"idempotency_records", "convert_from(body, 'UTF8')"},
+	ex := testutils.Executor(db)
+	for _, probe := range []struct {
+		table string
+		read  func() ([]string, error)
+	}{
+		{"service_calls", func() ([]string, error) {
+			rows, err := servicecall.New().Unordered().All(context.Background(), ex, nil)
+			return texts(rows, func(r servicecall.Row) []byte { return r.Response }), err
+		}},
+		{"broadcast_events", func() ([]string, error) {
+			rows, err := broadcastevent.New().Unordered().All(context.Background(), ex, nil)
+			return texts(rows, func(r broadcastevent.Row) []byte { return []byte(r.Payload) }), err
+		}},
+		{"idempotency_records", func() ([]string, error) {
+			rows, err := idempotencyrecord.New().Unordered().All(context.Background(), ex, nil)
+			return texts(rows, func(r idempotencyrecord.Row) []byte { return r.Body }), err
+		}},
 	} {
-		var rows, plaintext int64
-		if err := db.WithContext(context.Background()).
-			Raw("SELECT count(*), count(*) FILTER (WHERE "+probe.expr+" LIKE ?) FROM "+probe.table, "%"+sealedMarker+"%").
-			Row().Scan(&rows, &plaintext); err != nil {
+		values, err := probe.read()
+		if err != nil {
 			t.Fatalf("read %s: %v", probe.table, err)
 		}
+		rows, plaintext := len(values), holding(values, sealedMarker)
 		if rows == 0 {
 			t.Errorf("%s has no rows, so this proves nothing about it", probe.table)
 		}
@@ -186,4 +220,24 @@ func TestStoredAnswersAreEncryptedAtRest(t *testing.T) {
 	if err != nil || replay == nil || string(replay.Body) != string(answer) {
 		t.Fatalf("the kept answer did not read back: %+v %v", replay, err)
 	}
+}
+
+// texts is one column of rows, as the text it holds.
+func texts[R any](rows []R, column func(R) []byte) []string {
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = string(column(r))
+	}
+	return out
+}
+
+// holding counts the values that contain marker.
+func holding(values []string, marker string) int {
+	n := 0
+	for _, v := range values {
+		if strings.Contains(v, marker) {
+			n++
+		}
+	}
+	return n
 }

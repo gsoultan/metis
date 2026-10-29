@@ -34,6 +34,14 @@ type ProcessDefinition struct {
 }
 
 func (d *ProcessDefinition) Schema(t *storm.Table) {
+	// GORM's defaults, kept. See fill.go.
+	t.Col(&d.Version).Default(zero)
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&d.Key).FillNulls(blank)
+	t.Col(&d.Name).FillNulls(blank)
+	t.Col(&d.Nodes).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
+	t.Col(&d.Flows).ConvertFrom(storm.JSONText).FillNulls(jsonNull)
 	t.Col(&d.Key).Size(255)
 	t.Col(&d.Key).Index()
 	// Across the deleted rows: a version number, once used, must never be
@@ -48,6 +56,9 @@ func (d *ProcessDefinition) Schema(t *storm.Table) {
 	// Declared, so the predicate is compiled into every read of this table
 	// rather than written out at each call site. See the note in doc.go.
 	t.SoftDelete(&d.DeletedAt)
+	// The finished-instance purge finds a removed version's instances by the
+	// process key, as it does a live one's.
+	t.ReadsDeleted()
 }
 
 // Aggregates declares the process list's read: each process once, by key,
@@ -60,4 +71,10 @@ func (d *ProcessDefinition) Aggregates(a *storm.Aggregates) {
 	// Over every row, deleted ones included: the unique key covers them, so
 	// a version number once used is never reissued.
 	a.Named("HighestVersion").AcrossDeleted().Max(&d.Version, "Version")
+}
+
+// Projections declares Version: a version's id, project and process key, for
+// reads that look versions up by process without their graphs.
+func (d *ProcessDefinition) Projections(p *storm.Projections) {
+	p.Named("Version", &d.ID, &d.Project, &d.Key)
 }

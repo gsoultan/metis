@@ -2,6 +2,10 @@ package bpmn_test
 
 import (
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/gsoultan/metis/server/repositories/store/processdefinitionrelease"
 )
 
 // versionsOfOneKey is more versions than one read of the generated store
@@ -21,12 +25,7 @@ const versionsOfOneKey = 1001
 func TestTheVersionHistoryAndTheLiveMarksCoverEveryVersion(t *testing.T) {
 	h := newEngineHarness(t, "Busy Versions Project")
 	ctx := h.Ctx()
-	if err := h.db.WithContext(ctx).Exec(`
-		INSERT INTO process_definitions (id, created_at, updated_at, project_id, key, name, version, nodes, flows)
-		SELECT gen_random_uuid(), now(), now(), ?, 'expense-approval', 'Expense approval', n, '[]', '[]'
-		  FROM generate_series(1, ?) AS n`, h.projID, versionsOfOneKey).Error; err != nil {
-		t.Fatalf("seed %d versions: %v", versionsOfOneKey, err)
-	}
+	h.seedDefinitions(t, "expense-approval", "Expense approval", versionsOfOneKey, time.Now())
 	versions, err := h.svc.ListDefinitionVersions(ctx, h.projID, "expense-approval")
 	if err != nil {
 		t.Fatalf("version history: %v", err)
@@ -37,22 +36,20 @@ func TestTheVersionHistoryAndTheLiveMarksCoverEveryVersion(t *testing.T) {
 
 	// A quiet process, promoted back to its first version a year ago, and a
 	// thousand promotions of the busy one since.
-	if err := h.db.WithContext(ctx).Exec(`
-		INSERT INTO process_definitions (id, created_at, updated_at, project_id, key, name, version, nodes, flows)
-		SELECT gen_random_uuid(), now(), now(), ?, 'quiet', 'Quiet', n, '[]', '[]' FROM generate_series(1, 2) AS n`,
-		h.projID).Error; err != nil {
-		t.Fatalf("seed the quiet process: %v", err)
+	h.seedDefinitions(t, "quiet", "Quiet", 2, time.Now())
+	now := time.Now()
+	promotions := []processdefinitionrelease.Row{{
+		ID: uuid.New(), CreatedAt: now, UpdatedAt: now, ProjectID: h.projID,
+		ProcessKey: "quiet", Version: 1, ActivateAt: now.AddDate(-1, 0, 0),
+	}}
+	for n := 1; n < versionsOfOneKey; n++ {
+		promotions = append(promotions, processdefinitionrelease.Row{
+			ID: uuid.New(), CreatedAt: now, UpdatedAt: now, ProjectID: h.projID,
+			ProcessKey: "expense-approval", Version: int64(n), ActivateAt: now.Add(-time.Duration(n) * time.Minute),
+		})
 	}
-	if err := h.db.WithContext(ctx).Exec(`
-		INSERT INTO process_definition_releases (id, created_at, updated_at, project_id, process_key, version, activate_at)
-		VALUES (gen_random_uuid(), now(), now(), ?, 'quiet', 1, now() - interval '1 year')`, h.projID).Error; err != nil {
-		t.Fatalf("promote the quiet process: %v", err)
-	}
-	if err := h.db.WithContext(ctx).Exec(`
-		INSERT INTO process_definition_releases (id, created_at, updated_at, project_id, process_key, version, activate_at)
-		SELECT gen_random_uuid(), now(), now(), ?, 'expense-approval', n, now() - n * interval '1 minute'
-		  FROM generate_series(1, ?) AS n`, h.projID, versionsOfOneKey-1).Error; err != nil {
-		t.Fatalf("seed the busy process's promotions: %v", err)
+	if _, err := processdefinitionrelease.InsertAll(ctx, h.ex(), promotions); err != nil {
+		t.Fatalf("promote the quiet process and the busy one: %v", err)
 	}
 	live, err := h.svc.ListLiveVersions(ctx, h.projID)
 	if err != nil {

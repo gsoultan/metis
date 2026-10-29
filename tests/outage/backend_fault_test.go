@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/gsoultan/metis/internal/pkg/idempotency"
-	"gorm.io/gorm"
+	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/pgstat"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // The fault behind TestAWorkerWhoseConnectionIsKilledMidJobFinishesTheJobOnce:
@@ -20,25 +22,22 @@ import (
 
 // rowHolder is the test's transaction holding the rows the worker will need.
 type rowHolder struct {
-	tx  *gorm.DB
-	pid int64
+	tx  runtime.Tx
+	pid int32
 }
 
 // hold locks each step's row in one transaction of the test's own.
 func (d *killDrill) hold(t *testing.T, steps []heldRow) *rowHolder {
 	t.Helper()
-	tx := d.db.Begin()
-	if tx.Error != nil {
-		t.Fatalf("begin the holding transaction: %v", tx.Error)
-	}
-	h := &rowHolder{tx: tx}
-	t.Cleanup(func() { tx.Rollback() })
-	if err := tx.Raw(`SELECT pg_backend_pid()`).Row().Scan(&h.pid); err != nil {
+	h := &rowHolder{tx: testutils.Begin(t, d.db)}
+	pid, _, err := pgstat.Backend(t.Context(), h.tx)
+	if err != nil {
 		t.Fatalf("read the holder's pid: %v", err)
 	}
+	h.pid = pid
 	for _, step := range steps {
-		if err := tx.Exec(step.lock, d.instance).Error; err != nil {
-			t.Fatalf("hold the row for %q: %v", step.statement, err)
+		if err := step.lock(t.Context(), h.tx, d.instance); err != nil {
+			t.Fatalf("hold the row the worker needs in %s: %v", step.table, err)
 		}
 	}
 	return h
@@ -46,7 +45,7 @@ func (d *killDrill) hold(t *testing.T, steps []heldRow) *rowHolder {
 
 func (h *rowHolder) release(t *testing.T) {
 	t.Helper()
-	if err := h.tx.Rollback().Error; err != nil {
+	if err := h.tx.Rollback(t.Context()); err != nil {
 		t.Fatalf("release the held rows: %v", err)
 	}
 }
@@ -55,41 +54,38 @@ func (h *rowHolder) release(t *testing.T) {
 // checks it is this test's worker running that step, and terminates its backend.
 func (d *killDrill) killTheWorkerAt(t *testing.T, holder *rowHolder, step heldRow) {
 	t.Helper()
-	type blocked struct {
-		PID     int64  `gorm:"column:pid"`
-		AppName string `gorm:"column:application_name"`
-		Query   string `gorm:"column:query"`
-	}
-	var waiting blocked
+	ex := testutils.Executor(d.db)
+	var waiting pgstat.Session
 	deadline := time.Now().Add(faultTimeout)
 	for waiting.PID == 0 {
 		if time.Now().After(deadline) {
-			t.Fatalf("the worker never reached %q", step.statement)
+			t.Fatalf("the worker never reached %s on %s", step.statement, step.table)
 		}
 		// This test's own backends only. The held transaction blocks more than
 		// the worker: a CREATE INDEX CONCURRENTLY anywhere in the database —
 		// another package's migration, in its own schema — waits for every
 		// transaction older than it, this one included, so it is blocked by the
-		// holder too and can be the first row found.
-		var rows []blocked
-		if err := d.db.Raw(`SELECT pid, application_name, query FROM pg_stat_activity
-		                     WHERE ? = ANY(pg_blocking_pids(pid)) AND application_name = ?`,
-			holder.pid, d.appName).Scan(&rows).Error; err != nil {
+		// holder too and can be the first session found.
+		sessions, err := pgstat.Sessions(t.Context(), ex)
+		if err != nil {
 			t.Fatalf("find the blocked worker: %v", err)
 		}
-		if len(rows) > 0 {
-			waiting = rows[0]
-			break
+		for _, s := range sessions {
+			if s.ApplicationName == d.appName && s.WaitsBehind(holder.pid) {
+				waiting = s
+				break
+			}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if waiting.AppName != d.appName || !strings.Contains(waiting.Query, step.statement) {
-		t.Fatalf("the backend waiting on the held row is %q running %q; want this test's worker running %q",
-			waiting.AppName, waiting.Query, step.statement)
+	query := strings.ToUpper(strings.TrimSpace(waiting.Query))
+	if !strings.HasPrefix(query, step.statement) || !strings.Contains(waiting.Query, step.table) {
+		t.Fatalf("the backend waiting on the held row is %q running %q; want this test's worker running %s on %s",
+			waiting.ApplicationName, waiting.Query, step.statement, step.table)
 	}
 
-	var terminated bool
-	if err := d.db.Raw(`SELECT pg_terminate_backend(?)`, waiting.PID).Row().Scan(&terminated); err != nil || !terminated {
+	terminated, err := pgstat.Terminate(t.Context(), ex, waiting.PID)
+	if err != nil || !terminated {
 		t.Fatalf("terminate the worker's backend %d: %v (terminated=%v)", waiting.PID, err, terminated)
 	}
 	d.awaitGone(t, waiting.PID)
@@ -97,15 +93,15 @@ func (d *killDrill) killTheWorkerAt(t *testing.T, holder *rowHolder, step heldRo
 
 // awaitGone waits until a terminated backend has left pg_stat_activity, so the
 // held row is released only once there is nobody left to take it.
-func (d *killDrill) awaitGone(t *testing.T, pid int64) {
+func (d *killDrill) awaitGone(t *testing.T, pid int32) {
 	t.Helper()
 	deadline := time.Now().Add(faultTimeout)
 	for {
-		var alive int64
-		if err := d.db.Raw(`SELECT count(*) FROM pg_stat_activity WHERE pid = ?`, pid).Row().Scan(&alive); err != nil {
+		sessions, err := pgstat.Sessions(t.Context(), testutils.Executor(d.db))
+		if err != nil {
 			t.Fatalf("watch backend %d: %v", pid, err)
 		}
-		if alive == 0 {
+		if !slices.ContainsFunc(sessions, func(s pgstat.Session) bool { return s.PID == pid }) {
 			return
 		}
 		if time.Now().After(deadline) {

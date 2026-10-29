@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gsoultan/metis/server/repositories/db"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/adapters"
@@ -17,7 +19,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // A decision nobody can trace is an audit finding.
@@ -152,7 +153,7 @@ type businessRuleHarness struct {
 	decisions servicecontracts.DecisionService
 	projectID uuid.UUID
 	// db is the schema's GORM handle, for seeding rows in bulk.
-	db *gorm.DB
+	db *db.Conn
 	// The tenant this harness acts inside; every call below carries it,
 	// because in production every one of them arrives with one resolved.
 	ctx context.Context
@@ -180,7 +181,7 @@ func buildBusinessRuleHarness(t *testing.T, audit servicecontracts.AuditWriter) 
 	t.Helper()
 	db := testutils.SetupTestDB(t)
 	ctx := t.Context()
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 
 	if audit == nil {
 		audit = serviceimpl.NewAuditWriter(repo.Audit())

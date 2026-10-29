@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/metis/server/repositories/db"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	handlersimpl "github.com/gsoultan/metis/server/domains/handlers/impl"
@@ -31,7 +33,6 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // simHarness is one project with one deployed definition and a simulation
@@ -44,7 +45,7 @@ type simHarness struct {
 	tasks     servicecontracts.TaskService
 	defs      servicecontracts.DefinitionService
 	projectID uuid.UUID
-	db        *gorm.DB
+	db        *db.Conn
 	ctx       context.Context
 }
 
@@ -54,7 +55,7 @@ func newSimHarness(t *testing.T) *simHarness {
 	t.Helper()
 	ctx := t.Context()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 
 	dispatcher := observerimpl.NewEventDispatcher()
 	// The trail a real instance leaves, as the application registers it: a
@@ -158,11 +159,7 @@ func (h *simHarness) rowCounts(t *testing.T) map[string]int64 {
 	}
 	counts := map[string]int64{}
 	for _, table := range tables {
-		var n int64
-		if err := h.db.Table(table).Count(&n).Error; err != nil {
-			t.Fatalf("counting %s: %v — this test cannot prove isolation for a table it cannot read", table, err)
-		}
-		counts[table] = n
+		counts[table] = testutils.RowsIn(t, h.db, table)
 	}
 	return counts
 }
@@ -223,8 +220,7 @@ func TestSimulationCallsNothingOutside(t *testing.T) {
 	// No external task row was left for a worker to find either: a simulation
 	// that queued real work would have the outside world act on it later, which
 	// is the same leak arriving by a slower route.
-	var externalTasks int64
-	if err := h.db.Table("external_tasks").Count(&externalTasks).Error; err == nil && externalTasks != 0 {
+	if externalTasks := testutils.RowsIn(t, h.db, "external_tasks"); externalTasks != 0 {
 		t.Errorf("the simulation left %d external tasks for a real worker to pick up", externalTasks)
 	}
 

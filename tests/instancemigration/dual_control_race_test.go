@@ -2,6 +2,7 @@ package instancemigration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -9,13 +10,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/metis/server/repositories/db"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/pgstat"
+	"github.com/gsoultan/storm/runtime"
+	"github.com/gsoultan/storm/runtime/pgxdrv"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories/models"
-	"gorm.io/gorm"
 )
 
 // Decisions on one request, made at once.
@@ -34,8 +42,8 @@ const freeRounds = 3
 
 // heldRequest is a request's row held open by a transaction of the test's.
 type heldRequest struct {
-	tx      *gorm.DB
-	session int
+	tx      runtime.Tx
+	session int32
 	letGo   bool
 }
 
@@ -43,22 +51,21 @@ type heldRequest struct {
 // transaction that stays open until release. Whatever comes for the row waits.
 func (f *fixture) holdingTheRequest(t *testing.T, requestID uuid.UUID) *heldRequest {
 	t.Helper()
-	tx := f.db.Begin()
-	if tx.Error != nil {
-		t.Fatalf("open the transaction that holds the request: %v", tx.Error)
+	tx, err := pgxdrv.Pool{P: f.db.Main()}.StartTx(t.Context())
+	if err != nil {
+		t.Fatalf("open the transaction that holds the request: %v", err)
 	}
 	held := &heldRequest{tx: tx}
 	t.Cleanup(func() {
 		if !held.letGo {
-			tx.Rollback()
+			_ = tx.Rollback(context.Background())
 		}
 	})
-	if err := tx.Raw("SELECT pg_backend_pid()").Scan(&held.session).Error; err != nil {
+	if held.session, _, err = pgstat.Backend(t.Context(), tx); err != nil {
 		t.Fatalf("read the holder's session: %v", err)
 	}
-	var id string
-	if err := tx.Raw("SELECT id::text FROM deviation_requests WHERE id = ? FOR UPDATE", requestID).Scan(&id).Error; err != nil || id == "" {
-		t.Fatalf("hold the request's row: %q %v", id, err)
+	if _, found, err := deviationrequest.New().IDEq(requestID).ForUpdate().One(t.Context(), tx); err != nil || !found {
+		t.Fatalf("hold the request's row: %v (found=%v)", err, found)
 	}
 	return held
 }
@@ -67,7 +74,7 @@ func (f *fixture) holdingTheRequest(t *testing.T, requestID uuid.UUID) *heldRequ
 func (h *heldRequest) release(t *testing.T) {
 	t.Helper()
 	h.letGo = true
-	if err := h.tx.Commit().Error; err != nil {
+	if err := h.tx.Commit(context.Background()); err != nil {
 		t.Fatalf("let the request's row go: %v", err)
 	}
 }
@@ -81,17 +88,13 @@ func (f *fixture) waitUntilQueued(t *testing.T, held *heldRequest, waiters int) 
 	// requests — which no other test shares: each has a schema of its own.
 	// Counted whoever is ahead of it: the first to come waits for the holder,
 	// and each one after waits for the one before.
-	const queuedForTheRequest = `SELECT count(*) FROM pg_stat_activity a
-		 WHERE cardinality(pg_blocking_pids(a.pid)) > 0 AND a.pid <> ?
-		   AND EXISTS (SELECT 1 FROM pg_locks l
-		                 JOIN pg_class c ON c.oid = l.relation
-		                 JOIN pg_namespace n ON n.oid = c.relnamespace
-		                WHERE l.pid = a.pid AND l.locktype = 'tuple'
-		                  AND c.relname = 'deviation_requests' AND n.nspname = current_schema())`
 	waiting := 0
 	for deadline := time.Now().Add(raceWait); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-		if err := f.db.Raw(queuedForTheRequest, held.session).Scan(&waiting).Error; err != nil {
-			t.Fatalf("look for what waits behind the request's row: %v", err)
+		waiting = 0
+		for _, s := range f.queuedFor(t, "deviation_requests") {
+			if s.PID != held.session {
+				waiting++
+			}
 		}
 		if waiting >= waiters {
 			return
@@ -579,7 +582,7 @@ func TestTwoRunsUnderOneApprovalMoveEachInstanceOnce(t *testing.T) {
 // still on the source version and no longer on the operations approval: the
 // rewrite of an instance the run has just skipped, before it takes the lock.
 type skippedHook struct {
-	committed *gorm.DB
+	committed *db.Conn
 	source    uuid.UUID
 	fire      func()
 	fired     bool
@@ -590,7 +593,7 @@ type skippedHook struct {
 // Whether it has is read as committed — through committed, the test's own
 // connection, outside the locker's transaction — so the skip's own unit of work, which has advanced
 // the instance and not yet committed, does not fire it.
-func (p *hookedProcess) atTheRewriteOfASkippedInstance(committed *gorm.DB, source uuid.UUID, fire func()) {
+func (p *hookedProcess) atTheRewriteOfASkippedInstance(committed *db.Conn, source uuid.UUID, fire func()) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.skipped = &skippedHook{committed: committed, source: source, fire: fire}
@@ -602,9 +605,8 @@ func (p *hookedProcess) GetForUpdate(ctx context.Context, id uuid.UUID) (models.
 	armed := hook != nil && !hook.fired
 	p.mu.Unlock()
 	if armed {
-		var now models.ProcessInstanceModel
-		err := hook.committed.Where("id = ?", id).Take(&now).Error
-		if err == nil && uuid.UUID(now.DefinitionID) == hook.source && now.Status == models.ProcessActive && !holdsToken(now, "opsApprove") {
+		now, found, err := processinstance.New().IDEq(id).One(ctx, testutils.Executor(hook.committed))
+		if err == nil && found && uuid.UUID(now.DefinitionID) == hook.source && now.Status == string(models.ProcessActive) && !holdsToken(now.Tokens, "opsApprove") {
 			p.mu.Lock()
 			hook.fired = true
 			p.mu.Unlock()
@@ -615,8 +617,12 @@ func (p *hookedProcess) GetForUpdate(ctx context.Context, id uuid.UUID) (models.
 }
 
 // holdsToken reports whether the instance has a token on nodeID.
-func holdsToken(instance models.ProcessInstanceModel, nodeID string) bool {
-	return slices.ContainsFunc(instance.Tokens, func(token models.Token) bool { return token.NodeID == nodeID })
+func holdsToken(stored runtime.JSON, nodeID string) bool {
+	var tokens []models.Token
+	if err := json.Unmarshal(stored, &tokens); err != nil {
+		return false
+	}
+	return slices.ContainsFunc(tokens, func(token models.Token) bool { return token.NodeID == nodeID })
 }
 
 // requireEachSkippedOnce fails unless every instance runs the new version,
@@ -654,7 +660,7 @@ func TestTheGateAndTheSweepAtOneApprovedRequest(t *testing.T) {
 		t.Helper()
 		f = newFixture(t)
 		_, v1, v2, requestID = f.askToSkipOps(t)
-		f.leftApproved(t, requestID, "1 minute")
+		f.leftApproved(t, requestID, time.Minute)
 		under = append(slices.Clip(skipOps("the role was eliminated")), asDita(), servicecontracts.WithApprovedRequest(requestID))
 		return f, v1, v2, requestID, under
 	}

@@ -19,7 +19,7 @@ import (
 // first, with its process, and all of the open work is counted.
 func TestDeadlinesAreReadAcrossAllOfTheOpenWorkWithTheirProcess(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
 		"deadlines-test", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)

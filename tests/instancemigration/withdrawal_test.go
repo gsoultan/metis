@@ -7,6 +7,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	observercontracts "github.com/gsoultan/metis/server/domains/observers/contracts"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
 )
 
 // Skipping a step takes work out of somebody's hands.
@@ -97,10 +98,12 @@ func TestAMigrationWithdrawingADelegatedTaskNamesItsOwnerToo(t *testing.T) {
 			f.dispatcher.Register(watcher)
 			v1, v2 := f.parkedOnOpsApprove(t)
 			// ollie has delegated the operations approval to dita.
-			if err := f.db.Exec(`UPDATE tasks SET status = 'delegated', assignee = 'dita', owner = 'ollie',
-				delegation_state = 'pending' WHERE node_id = 'opsApprove'`).Error; err != nil {
-				t.Fatalf("delegate the operations approval: %v", err)
-			}
+			f.rewriteTasks(t, taskstore.New().NodeIDEq("opsApprove"), func(m *taskstore.Mut) {
+				m.SetStatus("delegated")
+				m.SetAssignee("dita")
+				m.SetOwner("ollie")
+				m.SetDelegationState("pending")
+			})
 
 			if err := f.migrateDecided(t, kind, uuidOf(t, v1), uuidOf(t, v2), nil,
 				servicecontracts.WithNodeActions(map[string]servicecontracts.NodeAction{

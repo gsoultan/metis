@@ -10,7 +10,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	taskstore "github.com/gsoultan/metis/server/repositories/store/task"
 	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/pgstat"
 )
 
 // Who held the work a skip took away.
@@ -220,32 +222,19 @@ func TestASkipRecordsTheHolderItWaitedFor(t *testing.T) {
 	claimed := open[1].ID
 
 	// carol's claim, written and not yet committed: the row is hers to let go.
-	claim := f.db.Begin()
-	if claim.Error != nil {
-		t.Fatalf("open the transaction that holds the claim: %v", claim.Error)
-	}
-	committed := false
-	t.Cleanup(func() {
-		if !committed {
-			claim.Rollback()
-		}
+	claim := f.holdTask(t, claimed, func(m *taskstore.Mut) {
+		m.SetStatus("claimed")
+		m.SetAssignee("carol")
 	})
-	var session int
-	if err := claim.Raw("SELECT pg_backend_pid()").Scan(&session).Error; err != nil {
-		t.Fatalf("read the claim's session: %v", err)
-	}
-	if err := claim.Exec("UPDATE tasks SET status = 'claimed', assignee = 'carol' WHERE id = ?", claimed).Error; err != nil {
-		t.Fatalf("claim the task: %v", err)
-	}
+	session := claim.session
 
 	skipped := make(chan error, 1)
 	go func() { skipped <- f.migrateWithApproval(t, v1, v2, nil, skippingApprove()...) }()
 
 	f.waitUntilHeldBehind(t, session, skipped)
-	if err := claim.Commit().Error; err != nil {
+	if err := claim.commit(); err != nil {
 		t.Fatalf("commit the claim: %v", err)
 	}
-	committed = true
 
 	select {
 	case err := <-skipped:
@@ -279,26 +268,15 @@ func TestASkipRecordsTheHolderItWaitedFor(t *testing.T) {
 // The database is shared with every other test that is running, and anything
 // that happened to be blocked by the session for another reason would
 // otherwise be taken for the migration, and the claim let go too early.
-func (f *fixture) waitUntilHeldBehind(t *testing.T, session int, finished <-chan error) {
+func (f *fixture) waitUntilHeldBehind(t *testing.T, session int32, finished <-chan error) {
 	t.Helper()
-	const queuedForATask = `SELECT count(*) FROM pg_stat_activity a
-		 WHERE ? = ANY(pg_blocking_pids(a.pid))
-		   AND EXISTS (SELECT 1 FROM pg_locks l
-		                 JOIN pg_class c ON c.oid = l.relation
-		                 JOIN pg_namespace n ON n.oid = c.relnamespace
-		                WHERE l.pid = a.pid AND l.locktype = 'tuple'
-		                  AND c.relname = 'tasks' AND n.nspname = current_schema())`
 	for deadline := time.Now().Add(raceWait); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		select {
 		case err := <-finished:
 			t.Fatalf("the migration finished (%v) without waiting for the claim it raced", err)
 		default:
 		}
-		var waiting int
-		if err := f.db.Raw(queuedForATask, session).Scan(&waiting).Error; err != nil {
-			t.Fatalf("look for the migration waiting behind the claim: %v", err)
-		}
-		if waiting > 0 {
+		if slices.ContainsFunc(f.queuedFor(t, "tasks"), func(s pgstat.Session) bool { return s.WaitsBehind(session) }) {
 			return
 		}
 	}

@@ -35,4 +35,8 @@ func (s *SharedCounter) Schema(t *storm.Table) {
 	t.Col(&s.Replica).Size(64)
 	t.PrimaryKey(&s.Scope, &s.Key, &s.Replica, &s.WindowStart)
 	t.Col(&s.UpdatedAt).Index()
+	// The closed windows the prune removes.
+	t.Index(&s.WindowStart).Named("ix_shared_counters_window_start")
+	// Closed windows are pruned a batch at a time (DeleteBatch).
+	t.Takes()
 }

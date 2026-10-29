@@ -1,6 +1,7 @@
 package pg
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -10,7 +11,6 @@ import (
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/store/auditentry"
-	"github.com/gsoultan/storm/runtime"
 )
 
 type auditRepository struct{ conn }
@@ -132,7 +132,7 @@ func (r *auditRepository) ListOperations(ctx context.Context, filter contracts.O
 	if filter.Before != nil {
 		q = q.After(auditentry.Row{
 			CreatedAt: filter.Before.At,
-			Seq:       runtime.Null[int64]{V: filter.Before.Seq, Valid: true},
+			Seq:       filter.Before.Seq,
 		})
 	}
 	return r.read(ctx, q.Limit(filter.Limit))
@@ -161,7 +161,7 @@ func (r *auditRepository) LatestByInstance(ctx context.Context, instanceID uuid.
 		return nil, 0, fmt.Errorf("could not count the audit trail: %w", err)
 	}
 	entries, err := r.read(ctx, q.
-		Order(auditentry.CreatedAt.Desc(), auditentry.Seq.DescNullsLast()).
+		Order(auditentry.CreatedAt.Desc(), auditentry.Seq.Desc()).
 		Limit(limit).
 		Offset(offset))
 	if err != nil {
@@ -177,55 +177,40 @@ func (r *auditRepository) LatestByInstance(ctx context.Context, instanceID uuid.
 // Counted by the database, so the answer is as long as the process is wide
 // rather than as long as the instance has run: the execution path used to read
 // the whole trail into memory to count it, and an instance that loops for a
-// year has a trail that size. Raw SQL because it is a window over a GROUP BY,
-// which the generated store does not express. The first visit is ordered as
-// the trail is, by created_at and then seq.
+// year has a trail that size. The first visit is ordered as the trail is, by
+// created_at and then seq; the groups come back by node and are put in that
+// order here, which costs a sort as long as the process is wide.
 func (r *auditRepository) NodeVisits(ctx context.Context, instanceID uuid.UUID, eventType string) ([]contracts.NodeVisit, error) {
-	scope, err := r.scopeOf(ctx)
-	if err != nil {
+	q, ok, err := r.scoped(ctx, auditentry.InstanceID.Eq(instanceID))
+	if err != nil || !ok {
 		return nil, err
-	}
-	if !scope.unrestricted() && len(scope.projects) == 0 {
-		return nil, nil
 	}
 	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	args := []any{instanceID[:], eventType}
-	inScope := ""
-	if !scope.unrestricted() {
-		args = append(args, uuidsToRaw(scope.projects))
-		inScope = " AND project_id = ANY($3)"
-	}
-	rows, err := ex.Query(ctx, `
-		SELECT node_id, visits FROM (
-		    SELECT node_id, created_at, seq,
-		           COUNT(*) OVER (PARTITION BY node_id) AS visits,
-		           ROW_NUMBER() OVER (PARTITION BY node_id ORDER BY created_at, seq NULLS FIRST) AS nth
-		      FROM audit_logs
-		     WHERE instance_id = $1 AND type = $2 AND node_id <> '' AND deleted_at IS NULL`+inScope+`
-		) visited
-		WHERE nth = 1
-		ORDER BY created_at, seq NULLS FIRST`, args)
+	q = q.Where(auditentry.Type.Eq(eventType), auditentry.NodeID.NotEq(""))
+	groups, err := everyGroup(func(offset int64) ([]auditentry.VisitsRow, error) {
+		return q.Limit(everyRowBatch).Offset(offset).AllVisits(ctx, ex)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("could not count the nodes an instance reached: %w", err)
 	}
-	defer rows.Close()
-	var visits []contracts.NodeVisit
-	for rows.Next() {
-		values := rows.RawValues()
-		if len(values) < 2 {
-			continue
+	slices.SortStableFunc(groups, func(a, b auditentry.VisitsRow) int {
+		if c := a.FirstAt.V.Compare(b.FirstAt.V); c != 0 {
+			return c
 		}
-		var count int64
-		if err := scanInt(values[1:], &count); err != nil {
-			return nil, err
+		switch {
+		case a.FirstSeq.Valid == b.FirstSeq.Valid:
+			return cmp.Compare(a.FirstSeq.V, b.FirstSeq.V)
+		case !a.FirstSeq.Valid:
+			return -1
 		}
-		visits = append(visits, contracts.NodeVisit{NodeID: string(values[0]), Visits: int(count)})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("could not count the nodes an instance reached: %w", err)
+		return 1
+	})
+	visits := make([]contracts.NodeVisit, 0, len(groups))
+	for _, g := range groups {
+		visits = append(visits, contracts.NodeVisit{NodeID: g.NodeID.V, Visits: int(g.Visits)})
 	}
 	return visits, nil
 }
@@ -240,11 +225,11 @@ func (r *auditRepository) NodeVisits(ctx context.Context, instanceID uuid.UUID, 
 // they are random, and ordering by them started the execution path at the task
 // instead of the start event.
 //
-// Entries written before migration 28 have no seq. They tie as they always did
-// and come back as they always have; NULLS FIRST, because every one of them was
-// written before any entry that has one.
+// Entries written before GORM's migration 28 have seq 0. They tie as they
+// always did and come first, because every one of them was written before any
+// entry that has one.
 func oldestFirst() []auditentry.Sort {
-	return []auditentry.Sort{auditentry.CreatedAt.Asc(), auditentry.Seq.AscNullsFirst()}
+	return []auditentry.Sort{auditentry.CreatedAt.Asc(), auditentry.Seq.Asc()}
 }
 
 // scoped is the trail the caller may see, narrowed by one predicate; false
@@ -302,7 +287,8 @@ func (r *auditRepository) read(ctx context.Context, q auditentry.Query) ([]model
 			Narrative:  valueOr(row.Narrative),
 			Actor:      valueOr(row.Actor),
 		}
-		if seq, ok := row.Seq.Get(); ok {
+		// 0 is an entry written before there was an order to record.
+		if seq := row.Seq; seq != 0 {
 			entry.Seq = &seq
 		}
 		if len(row.Data) > 0 {

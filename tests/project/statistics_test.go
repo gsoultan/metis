@@ -40,7 +40,7 @@ func (r spiedRepository) Audit() contracts.AuditRepository { return r.audit }
 // grows with the history of the project, thrown away on every refresh.
 func TestTheStatisticsCountCompletedTasksAndReadNoAuditTrail(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), observersimpl.NewSSEObserver(),
 		"statistics-test", nil, nil, nil)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)

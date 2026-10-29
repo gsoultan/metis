@@ -3,6 +3,7 @@ package bpmn_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -242,12 +243,7 @@ const newerVersions = 1000
 // everything already in the project, in one statement.
 func (h engineHarness) seedNewerVersions(t *testing.T, key string, n int) {
 	t.Helper()
-	if err := h.db.WithContext(h.Ctx()).Exec(`
-		INSERT INTO process_definitions (id, created_at, updated_at, project_id, key, name, version, nodes, flows)
-		SELECT gen_random_uuid(), now() + interval '1 minute', now() + interval '1 minute', ?, ?, 'Busy', n, '[]', '[]'
-		  FROM generate_series(1, ?) AS n`, h.projID, key, n).Error; err != nil {
-		t.Fatalf("seed %d versions of %s: %v", n, key, err)
-	}
+	h.seedDefinitions(t, key, "Busy", n, time.Now().Add(time.Minute))
 }
 
 // A message or a signal starts every process in the project that listens for

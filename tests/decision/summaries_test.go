@@ -33,7 +33,7 @@ type listWorld struct {
 func newListWorld(t *testing.T) listWorld {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := serviceimpl.NewDecisionService(repo, serviceimpl.NewDecisionTableEvaluator(serviceimpl.NewFEELEvaluator()))
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 	return listWorld{svc: svc, repo: repo, ctx: ctx, project: projectID}

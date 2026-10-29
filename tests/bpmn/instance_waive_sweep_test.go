@@ -6,10 +6,13 @@ import (
 	"testing"
 	"time"
 
+	projectstore "github.com/gsoultan/metis/server/repositories/store/project"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/store/auditentry"
 )
 
 // A rejection and the sweep both take the request's row before they write, so
@@ -271,9 +274,7 @@ func TestOneRequestThatCannotBeClosedDoesNotStopTheSweep(t *testing.T) {
 		letTimePass(t, h, asked.PendingApproval.RequestID, 3-i)
 	}
 	broken := requests[0]
-	if err := h.db.Exec(`UPDATE instance_deviations SET status = 'rejected', live_visit_key = NULL WHERE request_id = ?`, broken).Error; err != nil {
-		t.Fatalf("break the first request's ledger row: %v", err)
-	}
+	h.breakLedgerRows(t, broken)
 
 	for pass, closes := range []int64{2, 0} {
 		n, err := w.sweep(h.Ctx(), time.Now())
@@ -313,7 +314,7 @@ func TestTheSweepReachesARequestWhoseProjectWasDeleted(t *testing.T) {
 	id := w.start(t, opsApproval(h.projID, "ops-deleted-project"), nil)
 	asked := w.ask(t, deviationCommand(entities.DeviationWaive, id, "opsApprove", nil))
 	request := asked.PendingApproval.RequestID
-	if err := h.db.Exec(`UPDATE projects SET deleted_at = now() WHERE id = ?`, h.projID).Error; err != nil {
+	if err := projectstore.Delete(h.Ctx(), h.ex(), h.projID); err != nil {
 		t.Fatalf("delete the project: %v", err)
 	}
 	if _, err := w.approvals.GetDeviationRequest(w.as("budi"), request); !errors.Is(err, apierr.ErrNotFound) {
@@ -334,8 +335,8 @@ func TestTheSweepReachesARequestWhoseProjectWasDeleted(t *testing.T) {
 	if row := ledgerRowAsStored(t, h, request); row.Status != string(entities.DeviationExpired) || row.LiveVisitKey != nil || row.DecidedAt == nil {
 		t.Fatalf("the ledger row is stored as %+v, want expired and holding nothing", row)
 	}
-	var entries int
-	if err := h.db.Raw(`SELECT count(*) FROM audit_logs WHERE instance_id = ? AND type = ?`, id, serviceimpl.EventDeviationExpired).Scan(&entries).Error; err != nil || entries != 1 {
-		t.Fatalf("the trail holds %d expiry entries for the instance (%v), want one", entries, err)
+	expiries, err := auditentry.New().InstanceIDEq(id).TypeEq(serviceimpl.EventDeviationExpired).Count(h.Ctx(), h.ex())
+	if err != nil || expiries != 1 {
+		t.Fatalf("the trail holds %d expiry entries for the instance (%v), want one", expiries, err)
 	}
 }

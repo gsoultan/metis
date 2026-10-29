@@ -24,10 +24,12 @@ import (
 
 func seedTasks(t *testing.T, repo repositories.Repository, ctx context.Context, projectID uuid.UUID, assignee string, n int) {
 	t.Helper()
+	instance := testutils.ProcessIn(t, repo, ctx, projectID).Instance
 	for i := range n {
 		task := entities.Task{
 			ID:       uuid.Must(uuid.NewV7()),
 			Project:  &entities.Project{ID: projectID},
+			Instance: &entities.ProcessInstance{ID: instance},
 			Name:     "Task",
 			Status:   entities.TaskClaimed,
 			Node:     &entities.Node{ID: "n1"},
@@ -41,7 +43,7 @@ func seedTasks(t *testing.T, repo repositories.Repository, ctx context.Context, 
 
 func TestPagination_LimitsTheWindowAndCountsTheWhole(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	seedTasks(t, repo, ctx, projectID, "alice", 137)
@@ -71,7 +73,7 @@ func TestPagination_LimitsTheWindowAndCountsTheWhole(t *testing.T) {
 
 func TestPagination_LastPageIsPartialAndReportsNoMore(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	seedTasks(t, repo, ctx, projectID, "alice", 137)
@@ -90,7 +92,7 @@ func TestPagination_LastPageIsPartialAndReportsNoMore(t *testing.T) {
 
 func TestPagination_PagesDoNotOverlap(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, _, projectID := testutils.ScopedProject(t, repo)
 
 	seedTasks(t, repo, ctx, projectID, "alice", 30)
@@ -142,7 +144,7 @@ func TestPagination_ClampsHostileInput(t *testing.T) {
 
 func TestPagination_EmptyResultIsAnEmptyPageNotNil(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx, _, _ := testutils.ScopedProject(t, repo)
 
 	page, err := repo.Task().ListByAssigneePaged(ctx, "nobody", contracts.Pagination{Page: 1, PageSize: 10})
@@ -173,7 +175,7 @@ func TestPagination_EmptyResultIsAnEmptyPageNotNil(t *testing.T) {
 // "SQL logic error: ambiguous column name: created_at".
 func TestPagination_WorksUnderTenantScoping(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx := t.Context()
 
 	orgID := uuid.Must(uuid.NewV7())

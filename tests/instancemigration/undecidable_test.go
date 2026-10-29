@@ -160,26 +160,20 @@ func TestAWaitingMessageOnABoundaryEventTheNewVersionLacksStillStopsTheMigration
 // a quotation that is waiting at the step before the operations approval.
 // What is asserted is the rule, should anything ever leave one.
 func TestWorkLeftOnADecidedStepIsNotCarriedToAVersionWithoutTheStep(t *testing.T) {
-	left := map[string]string{
-		"a waiting event": `
-			INSERT INTO event_subscriptions (id, created_at, updated_at, project_id, instance_id, node_id, type, event_name, correlation_key)
-			SELECT gen_random_uuid(), now(), now(), project_id, id, 'opsApprove', 'message', 'operations-replied', ''
-			  FROM process_instances WHERE id = ?`,
-		"an open task": `
-			INSERT INTO tasks (id, created_at, updated_at, project_id, instance_id, node_id, name, type, status, assignee,
-			                   candidate_users, candidate_groups, priority, variables)
-			SELECT gen_random_uuid(), now(), now(), project_id, instance_id, 'opsApprove', 'Operations approve', type, 'claimed', 'ollie',
-			       candidate_users, candidate_groups, priority, variables
-			  FROM tasks WHERE instance_id = ? AND node_id = 'supervisorReview'`,
+	left := map[string]func(f *fixture, t *testing.T, instanceID uuid.UUID){
+		"a waiting event": func(f *fixture, t *testing.T, instanceID uuid.UUID) {
+			f.leaveSubscriptionOn(t, instanceID, "opsApprove", "operations-replied")
+		},
+		"an open task": func(f *fixture, t *testing.T, instanceID uuid.UUID) {
+			f.leaveTaskOn(t, instanceID, "supervisorReview", "opsApprove", "Operations approve", "ollie")
+		},
 	}
 	for what, leave := range left {
 		t.Run(what, func(t *testing.T) {
 			f := newFixture(t)
 			v1, v2 := f.waitingAtSupervisorReview(t)
 			instance := f.onlyInstance(t)
-			if err := f.db.WithContext(f.ctx).Exec(leave, instance.ID).Error; err != nil {
-				t.Fatalf("leave %s on the operations approval: %v", what, err)
-			}
+			leave(f, t, instance.ID)
 
 			result, err := f.applyWithApproval(t, v1, v2, nil, skipOps("the role was eliminated")...)
 			if err != nil {

@@ -31,6 +31,10 @@ type ConnectorInstance struct {
 }
 
 func (c *ConnectorInstance) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&c.Name).FillNulls(blank)
+	t.Col(&c.Config).FillNulls(blank)
 	t.Col(&c.Name).Size(255)
 	t.Col(&c.DeletedAt).Index()
 	// Declared, so the predicate is compiled into every read of this table

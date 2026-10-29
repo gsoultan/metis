@@ -6,6 +6,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/userorganization"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // A group's roles are held by everyone in it, in the group's organization and
@@ -148,10 +150,10 @@ func TestAGroupGrantsNothingToSomebodyNoLongerInItsOrganization(t *testing.T) {
 	designers := w.group(w.acme, "Designers", entities.RoleDesigner)
 	w.join("dee", w.acme, designers)
 
-	result := w.db.WithContext(t.Context()).Exec(
-		`DELETE FROM user_organizations WHERE user_id = ? AND organization_id = ?`, w.ids["dee"], w.acme)
-	if result.Error != nil || result.RowsAffected != 1 {
-		t.Fatalf("take Dee out of Acme: %v (%d rows)", result.Error, result.RowsAffected)
+	n, err := userorganization.New().UserIDEq(w.ids["dee"]).OrganizationIDEq(w.acme).
+		DeleteAll(t.Context(), testutils.Executor(w.db))
+	if err != nil || n != 1 {
+		t.Fatalf("take Dee out of Acme: %v (%d rows)", err, n)
 	}
 	roles, err := w.svc.ValidateToken(t.Context(), w.tokens["dee"])
 	if err != nil {

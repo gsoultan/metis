@@ -17,11 +17,12 @@ import (
 // the oldest has waited, which leases ran out, and what is broken. Each count
 // has a case that must not be in it.
 func TestTheBacklogCountsWhatIsWaitingAndNothingElse(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	ctx := entities.WithSystemContext(t.Context())
 	now := time.Now().UTC()
 	oldest := now.Add(-10 * time.Minute)
 	expired, live := now.Add(-time.Minute), now.Add(time.Minute)
+	definition, instance := aCase(t, repo)
 
 	for _, j := range []models.JobModel{
 		{Status: models.JobPending, NextRunAt: oldest},                                          // due
@@ -33,13 +34,14 @@ func TestTheBacklogCountsWhatIsWaitingAndNothingElse(t *testing.T) {
 	} {
 		j.ID = models.UUID(uuid.New())
 		j.Type = "timer"
+		j.InstanceID, j.DefinitionID = models.UUID(instance), models.UUID(definition)
 		if _, err := repo.Job().Create(ctx, j); err != nil {
 			t.Fatalf("seed a job: %v", err)
 		}
 	}
 	for _, status := range []models.IncidentStatus{models.IncidentOpen, models.IncidentOpen, models.IncidentResolved} {
 		if _, err := repo.Incident().Create(ctx, models.IncidentModel{
-			Base: models.Base{ID: models.UUID(uuid.New())}, Status: status, Error: "a service task failed",
+			Base: models.Base{ID: models.UUID(uuid.New())}, InstanceID: models.UUID(instance), Status: status, Error: "a service task failed",
 		}); err != nil {
 			t.Fatalf("seed an incident: %v", err)
 		}
@@ -63,7 +65,7 @@ func TestTheBacklogCountsWhatIsWaitingAndNothingElse(t *testing.T) {
 
 // Both count across every tenant, so neither answers a tenant.
 func TestTheBacklogIsNotATenantsToRead(t *testing.T) {
-	repo := repositories.NewRepository(testutils.StormConn(testutils.SetupTestDB(t)))
+	repo := repositories.NewRepository(testutils.SetupTestDB(t))
 	ctx, _ := testutils.ScopedContext(t, repo)
 
 	if _, err := repo.Job().Backlog(ctx, time.Now()); !errors.Is(err, apierr.ErrForbidden) {

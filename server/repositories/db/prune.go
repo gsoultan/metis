@@ -3,9 +3,6 @@ package db
 import (
 	"context"
 	"fmt"
-
-	"github.com/gsoultan/storm"
-	"github.com/gsoultan/storm/runtime"
 )
 
 // PruneBatch is the most rows one statement of a retention sweep deletes.
@@ -17,39 +14,23 @@ import (
 // go before the next one starts.
 const PruneBatch = 5000
 
-// DeleteInBatches runs stmt until a run deletes fewer than PruneBatch rows,
+// PruneInBatches runs batch until a run removes fewer than PruneBatch rows,
 // and returns how many went in all.
 //
-// stmt has to delete at most its last parameter's worth of rows, which is
-// passed PruneBatch, and should pick them by ctid:
-//
-//	DELETE FROM t WHERE ctid = ANY(ARRAY(SELECT ctid FROM t WHERE ... LIMIT $n))
-//
-// Not by key. `id IN (SELECT id ... LIMIT $n)` plans as a hash join against
-// the whole table, so every batch reads all of it and clearing a backlog costs
-// the square of its size; by ctid, a batch reads the rows it removes. Run
-// outside a transaction, each batch commits on its own. That is the point, so
-// a sweep must not be started inside a unit of work.
-func DeleteInBatches(ctx context.Context, ex runtime.Executor, stmt string, args ...any) (int64, error) {
-	return deleteInBatches(ctx, func(args []any) (int64, error) { return ex.Exec(ctx, stmt, args) }, args)
-}
-
-// DeleteDeclaredInBatches is DeleteInBatches for a statement declared in the
-// model, which the generator PREPAREd against it: the same rules for stmt,
-// and a statement whose columns drifted fails `make generate` rather than the
-// sweep.
-func DeleteDeclaredInBatches(ctx context.Context, ex runtime.Executor, stmt *storm.SQLStmt, args ...any) (int64, error) {
-	return deleteInBatches(ctx, func(args []any) (int64, error) { return stmt.Exec(ctx, ex, args...) }, args)
-}
-
-func deleteInBatches(ctx context.Context, exec func([]any) (int64, error), args []any) (int64, error) {
-	args = append(args, PruneBatch)
+// batch removes at most limit rows, which is passed PruneBatch: a DeleteBatch
+// (or HardDeleteBatch) with that Limit, which picks the rows by ctid. Not by
+// key: `id IN (SELECT id ... LIMIT $n)` plans as a hash join against the whole
+// table, so every batch reads all of it and clearing a backlog costs the
+// square of its size; by ctid, a batch reads the rows it removes. Run outside
+// a transaction, each batch commits on its own. That is the point, so a sweep
+// must not be started inside a unit of work.
+func PruneInBatches(ctx context.Context, batch func(limit int64) (int64, error)) (int64, error) {
 	var total int64
 	for {
 		if err := ctx.Err(); err != nil {
 			return total, err
 		}
-		removed, err := exec(args)
+		removed, err := batch(PruneBatch)
 		if err != nil {
 			return total, fmt.Errorf("delete in batches: %w", err)
 		}

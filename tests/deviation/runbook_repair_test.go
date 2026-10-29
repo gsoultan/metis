@@ -6,7 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/repositories/store/instancedeviation"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
 // The runbook's repair for a request the pass cannot close is SQL an operator
@@ -61,25 +64,23 @@ func repairStatements(t *testing.T, requestID string) []string {
 func (h *deviationHarness) repair(t *testing.T, requestID string) (reported []int64, committed bool) {
 	t.Helper()
 	statements := repairStatements(t, requestID)
-	tx := h.db.Begin()
-	if tx.Error != nil {
-		t.Fatalf("begin: %v", tx.Error)
-	}
+	// The runbook's SQL, run as written: what is under test is the text an
+	// operator pastes, so it goes to the server as that text.
+	tx := testutils.Begin(t, h.db)
 	for i, statement := range statements {
-		done := tx.Exec(statement)
-		if done.Error != nil {
-			tx.Rollback()
-			t.Fatalf("the runbook's statement %d failed: %v\n%s", i+1, done.Error, statement)
+		affected, err := tx.Exec(t.Context(), statement, nil)
+		if err != nil {
+			t.Fatalf("the runbook's statement %d failed: %v\n%s", i+1, err, statement)
 		}
-		reported = append(reported, done.RowsAffected)
-		if i == 0 && done.RowsAffected != 1 {
-			if err := tx.Rollback().Error; err != nil {
+		reported = append(reported, affected)
+		if i == 0 && affected != 1 {
+			if err := tx.Rollback(t.Context()); err != nil {
 				t.Fatalf("roll back: %v", err)
 			}
 			return reported, false
 		}
 	}
-	if err := tx.Commit().Error; err != nil {
+	if err := tx.Commit(t.Context()); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 	return reported, true
@@ -90,12 +91,15 @@ func TestTheRunbooksRepairClosesAnOverdueRequestAndNoOther(t *testing.T) {
 	boss, deputy := h.signIn(t, "boss", entities.RoleAdmin), h.signIn(t, "deputy", entities.RoleAdmin)
 	rowOf := func(requestID string) (status string, live *string, decidedAtDeadline bool) {
 		t.Helper()
-		if err := h.db.Raw(`SELECT d.status, d.live_visit_key, d.decided_at IS NOT DISTINCT FROM r.expires_at
-			FROM instance_deviations d JOIN deviation_requests r ON r.id = d.request_id WHERE r.id = ?`, requestID).
-			Row().Scan(&status, &live, &decidedAtDeadline); err != nil {
-			t.Fatalf("read the ledger row of request %s: %v", requestID, err)
+		request := h.requestRow(t, uuid.MustParse(requestID))
+		row, found, err := instancedeviation.New().RequestIDEq(request.ID).One(t.Context(), h.ex())
+		if err != nil || !found {
+			t.Fatalf("read the ledger row of request %s: %v (found=%v)", requestID, err, found)
 		}
-		return status, live, decidedAtDeadline
+		if row.LiveVisitKey.Valid {
+			live = &row.LiveVisitKey.V
+		}
+		return row.Status, live, row.DecidedAt.Valid && row.DecidedAt.V.Equal(request.ExpiresAt)
 	}
 
 	// Not yet due: the repair must change nothing. Run as written before the
@@ -113,15 +117,14 @@ func TestTheRunbooksRepairClosesAnOverdueRequestAndNoOther(t *testing.T) {
 		// And pasted whole into psql, which does not stop at an UPDATE 0:
 		// both statements run and the transaction commits. The runbook says
 		// the second statement then changes nothing either, and it does not.
-		pasted := h.db.Begin()
+		pasted := testutils.Begin(t, h.db)
 		for i, statement := range repairStatements(t, requestID) {
-			done := pasted.Exec(statement)
-			if done.Error != nil || done.RowsAffected != 0 {
-				pasted.Rollback()
-				t.Fatalf("pasted whole, statement %d reported %d rows (%v) on a request not yet due, want UPDATE 0", i+1, done.RowsAffected, done.Error)
+			affected, err := pasted.Exec(t.Context(), statement, nil)
+			if err != nil || affected != 0 {
+				t.Fatalf("pasted whole, statement %d reported %d rows (%v) on a request not yet due, want UPDATE 0", i+1, affected, err)
 			}
 		}
-		if err := pasted.Commit().Error; err != nil {
+		if err := pasted.Commit(t.Context()); err != nil {
 			t.Fatalf("commit the pasted block: %v", err)
 		}
 		h.requireUnchanged(t, before, "the repair, pasted whole and committed")
@@ -149,9 +152,8 @@ func TestTheRunbooksRepairClosesAnOverdueRequestAndNoOther(t *testing.T) {
 			t.Fatalf("after the repair the ledger row is %s (visit %v, dated by the deadline: %v) and the request %s; want both expired, the visit let go, dated by the deadline",
 				status, live, atDeadline, h.requestStatus(t, requestID))
 		}
-		var liveKey *string
-		if err := h.db.Raw(`SELECT live_key FROM deviation_requests WHERE id = ?`, requestID).Row().Scan(&liveKey); err != nil || liveKey != nil {
-			t.Fatalf("the request still holds its key (%v, err %v)", liveKey, err)
+		if liveKey := h.requestRow(t, uuid.MustParse(requestID)).LiveKey; liveKey.Valid {
+			t.Fatalf("the request still holds its key (%v)", liveKey.V)
 		}
 		// Run again, it finds nothing to do and is rolled back.
 		if reported, committed := h.repair(t, requestID); committed || reported[0] != 0 {

@@ -9,10 +9,10 @@ import (
 
 func TestTheTenantScopeSaysWhetherItIsOnAndWhatItDenied(t *testing.T) {
 	sites := []string{
-		"gormProcessRepository.GetForUpdate (process.go:54) called from Engine.GetInstanceForUpdate",
-		"gormJobRepository.ListPending (job.go:88) called from jobService.dispatchPendingJobs",
+		"processRepository.GetForUpdate (process.go:54) called from Engine.GetInstanceForUpdate",
+		"jobRepository.ListPending (job.go:88) called from jobService.dispatchPendingJobs",
 		// The same site twice must not fail the scrape.
-		"gormJobRepository.ListPending (job.go:88) called from jobService.dispatchPendingJobs",
+		"jobRepository.ListPending (job.go:88) called from jobService.dispatchPendingJobs",
 	}
 	collector := NewTenantScopeCollector(func() bool { return true }, func() []string { return sites })
 

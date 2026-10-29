@@ -22,6 +22,10 @@ type Resource struct {
 }
 
 func (r *Resource) Schema(t *storm.Table) {
+	// What a database GORM created holds where these are NULL: the value GORM
+	// read a NULL as. See fill.go.
+	t.Col(&r.Name).FillNulls(blank)
+	t.Col(&r.Type).FillNulls(blank)
 	// deployment_resources, not resources. The table exists and holds data;
 	// storm would derive the generic name from the type, and a table with two
 	// names is the drift this port exists to end — but renaming a live table for

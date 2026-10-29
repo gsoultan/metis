@@ -12,6 +12,7 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/endpoints/connector"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/store/connectorinstance"
 	"github.com/gsoultan/metis/tests/testutils"
 )
 
@@ -34,7 +35,7 @@ type secretFixture struct {
 func newSecretFixture(t *testing.T) *secretFixture {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := services.NewServiceFacade(repo, nil, nil, "connector-secret-test", nil, nil, nil)
 	eps := connector.MakeEndpoints(svc)
 
@@ -171,7 +172,7 @@ func TestATypedReplacementIsSaved(t *testing.T) {
 // over every credential in the installation.
 func TestTheStoredConfigIsNotReadableAsPlainText(t *testing.T) {
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	svc := serviceimpl.NewConnectorService(repo)
 	// A real project, and a context that names its organization: an instance
 	// hangs off a project and a scoped read joins through it.
@@ -193,10 +194,11 @@ func TestTheStoredConfigIsNotReadableAsPlainText(t *testing.T) {
 		t.Fatalf("create instance: %v", err)
 	}
 
-	var raw string
-	if err := db.Raw("SELECT config FROM connector_instances LIMIT 1").Scan(&raw).Error; err != nil {
+	stored, _, err := connectorinstance.New().One(t.Context(), testutils.Executor(db))
+	if err != nil {
 		t.Fatalf("read the raw column: %v", err)
 	}
+	raw := stored.Config
 	if strings.Contains(raw, "sk-live-do-not-leak") {
 		t.Fatalf("the credential is stored in clear text: %s", raw)
 	}

@@ -3,13 +3,16 @@ package tenant
 import (
 	"testing"
 
+	"github.com/gsoultan/metis/server/repositories/store/form"
+	"github.com/gsoultan/metis/tests/testutils"
+
+	"github.com/gsoultan/metis/server/repositories/db"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/features"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/pg"
-	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
 )
 
 // TestStrictScope_DeniesAContextWithNoIdentity is the point of the flag.
@@ -22,13 +25,13 @@ import (
 func TestStrictScope_DeniesAContextWithNoIdentity(t *testing.T) {
 	defer features.OverrideForTest(features.StrictTenantScope, true)()
 
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
 		f := seedTenantFixture(t, db)
 		// No tenant, no system marker: an unidentified caller.
 		ctx := t.Context()
 
 		t.Run("lists return nothing", func(t *testing.T) {
-			rows, err := pg.NewFormRepository(testutils.StormConn(db)).ListByProject(ctx, uuid.Nil)
+			rows, err := pg.NewFormRepository(db).ListByProject(ctx, uuid.Nil)
 			if err != nil {
 				t.Fatalf("list: %v", err)
 			}
@@ -36,22 +39,22 @@ func TestStrictScope_DeniesAContextWithNoIdentity(t *testing.T) {
 		})
 
 		t.Run("get by id is not found", func(t *testing.T) {
-			if _, err := pg.NewFormRepository(testutils.StormConn(db)).Get(ctx, f.formA); !isNotFound(err) {
+			if _, err := pg.NewFormRepository(db).Get(ctx, f.formA); !isNotFound(err) {
 				t.Fatalf("got %v, want a not-found", err)
 			}
 		})
 
 		t.Run("writes are refused", func(t *testing.T) {
-			if err := pg.NewFormRepository(testutils.StormConn(db)).Delete(ctx, f.formA); !isNotFound(err) {
+			if err := pg.NewFormRepository(db).Delete(ctx, f.formA); !isNotFound(err) {
 				t.Errorf("delete: got %v, want a not-found", err)
 			}
-			if !rowExists(t, db, &models.FormModel{}, "forms", f.formA) {
+			if !stillThere(t)(form.New().IDEq(f.formA).One(ctx, testutils.Executor(db))) {
 				t.Fatal("the delete was refused but the row is gone")
 			}
 		})
 
 		t.Run("creates are refused", func(t *testing.T) {
-			err := pg.NewFormRepository(testutils.StormConn(db)).Create(ctx, models.FormModel{
+			err := pg.NewFormRepository(db).Create(ctx, models.FormModel{
 				Base: models.Base{ID: models.FromUUID(uuid.New())}, ProjectID: models.FromUUID(f.projectA), Key: "x",
 			})
 			if !isNotFound(err) {
@@ -71,11 +74,11 @@ func TestStrictScope_DeniesAContextWithNoIdentity(t *testing.T) {
 func TestStrictScope_SystemWorkStillSeesEverything(t *testing.T) {
 	defer features.OverrideForTest(features.StrictTenantScope, true)()
 
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
 		f := seedTenantFixture(t, db)
 		ctx := entities.WithSystemContext(t.Context())
 
-		forms, err := pg.NewFormRepository(testutils.StormConn(db)).ListByProject(ctx, uuid.Nil)
+		forms, err := pg.NewFormRepository(db).ListByProject(ctx, uuid.Nil)
 		if err != nil {
 			t.Fatalf("list as system: %v", err)
 		}
@@ -83,14 +86,14 @@ func TestStrictScope_SystemWorkStillSeesEverything(t *testing.T) {
 			[]uuid.UUID{f.formA, f.formB})
 
 		// Both tenants' instances, which is what a job worker needs to see.
-		instances, err := pg.NewProcessRepository(testutils.StormConn(db)).List(ctx)
+		instances, err := pg.NewProcessRepository(db).List(ctx)
 		if err != nil {
 			t.Fatalf("list instances as system: %v", err)
 		}
 		assertSameIDs(t, idsOf(instances, func(m models.ProcessInstanceModel) uuid.UUID { return uuid.UUID(m.ID) }),
 			[]uuid.UUID{f.instanceA, f.instanceB})
 
-		if _, err := pg.NewProcessRepository(testutils.StormConn(db)).Get(ctx, f.instanceB); err != nil {
+		if _, err := pg.NewProcessRepository(db).Get(ctx, f.instanceB); err != nil {
 			t.Errorf("system work could not read an instance: %v", err)
 		}
 	})
@@ -102,21 +105,21 @@ func TestStrictScope_SystemWorkStillSeesEverything(t *testing.T) {
 func TestStrictScope_TenantScopingIsUnchanged(t *testing.T) {
 	defer features.OverrideForTest(features.StrictTenantScope, true)()
 
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
+	forEachDialect(t, func(t *testing.T, db *db.Conn) {
 		f := seedTenantFixture(t, db)
 		ctx := f.ctxAsA(t)
 
-		forms, err := pg.NewFormRepository(testutils.StormConn(db)).ListByProject(ctx, uuid.Nil)
+		forms, err := pg.NewFormRepository(db).ListByProject(ctx, uuid.Nil)
 		if err != nil {
 			t.Fatalf("list: %v", err)
 		}
 		assertSameIDs(t, idsOf(forms, func(m models.FormModel) uuid.UUID { return uuid.UUID(m.ID) }),
 			[]uuid.UUID{f.formA})
 
-		if _, err := pg.NewFormRepository(testutils.StormConn(db)).Get(ctx, f.formB); !isNotFound(err) {
+		if _, err := pg.NewFormRepository(db).Get(ctx, f.formB); !isNotFound(err) {
 			t.Errorf("cross-tenant get: got %v, want a not-found", err)
 		}
-		if _, err := pg.NewFormRepository(testutils.StormConn(db)).Get(ctx, f.formA); err != nil {
+		if _, err := pg.NewFormRepository(db).Get(ctx, f.formA); err != nil {
 			t.Errorf("own get: %v", err)
 		}
 	})

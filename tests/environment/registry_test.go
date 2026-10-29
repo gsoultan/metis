@@ -20,7 +20,7 @@ import (
 func fixture(t *testing.T) (servicecontracts.EnvironmentService, uuid.UUID, context.Context) {
 	t.Helper()
 	db := testutils.SetupTestDB(t)
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	ctx := context.Background()
 
 	org, err := serviceimpl.NewOrganizationService(repo, nil).CreateOrganization(ctx, "Org", "")

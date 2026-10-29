@@ -64,7 +64,7 @@ func (r *taskLinkRepository) byHash(ctx context.Context, tokenHash string, forUp
 	}
 	q := tasklink.New().Where(tasklink.TokenHash.Eq(tokenHash))
 	if forUpdate {
-		q = q.ForUpdate()
+		q = q.ForNoKeyUpdate()
 	}
 	row, found, err := q.One(ctx, ex)
 	if err != nil {

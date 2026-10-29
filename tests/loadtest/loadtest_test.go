@@ -34,6 +34,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/store/processinstance"
+	"github.com/gsoultan/metis/server/repositories/store/task"
+	"github.com/gsoultan/metis/tests/testutils"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // The targets, from .junie/roadmap.md §1 — the same ones tests/slo asserts.
@@ -243,8 +247,8 @@ func (h *loadHarness) seedInstances(t *testing.T, projectID, definitionID uuid.U
 
 	for offset := 0; offset < n; offset += seedBatchSize {
 		size := min(seedBatchSize, n-offset)
-		instanceRows := make([]instanceRow, 0, size)
-		taskRows := make([]taskRow, 0, size)
+		instanceRows := make([]processinstance.Row, 0, size)
+		taskRows := make([]task.Row, 0, size)
 
 		for i := range size {
 			id := uuid.New()
@@ -255,59 +259,34 @@ func (h *loadHarness) seedInstances(t *testing.T, projectID, definitionID uuid.U
 			// Active, with its token on the approval: what an instance waiting
 			// on a person looks like, and what the dashboard's counts and its
 			// step heat map read. "running" is not a status any read asks for.
-			instanceRows = append(instanceRows, instanceRow{
+			instanceRows = append(instanceRows, processinstance.Row{
 				ID: id, ProjectID: projectID, DefinitionID: definitionID,
 				Status: string(models.ProcessActive), CreatedAt: created, UpdatedAt: created,
-				Tokens: fmt.Sprintf(`[{"id":%q,"instance_id":%q,"node_id":"approve","status":%q}]`,
-					uuid.New(), id, models.TokenActive),
+				Tokens: runtime.JSON(fmt.Sprintf(`[{"id":%q,"instance_id":%q,"node_id":"approve","status":%q}]`,
+					uuid.New(), id, models.TokenActive)),
+				CompletedNodes: runtime.JSON("[]"), CompensatedNodes: runtime.JSON("[]"),
+				MultiInstance: runtime.JSON("{}"), Joins: runtime.JSON("{}"),
 			})
 			// Most instances of a one-human-step process are sitting on that
 			// step, which is what makes the inbox the table that grows.
-			taskRows = append(taskRows, taskRow{
+			taskRows = append(taskRows, task.Row{
 				ID: uuid.New(), ProjectID: projectID, InstanceID: id,
 				NodeID: "approve", Name: "Approve", Type: "userTask", Status: "unclaimed",
-				Assignee:  fmt.Sprintf("load-%d", (offset+i)%h.tenants),
+				Assignee:       runtime.Null[string]{V: fmt.Sprintf("load-%d", (offset+i)%h.tenants), Valid: true},
+				CandidateUsers: runtime.JSON("[]"), CandidateGroups: runtime.JSON("[]"),
 				CreatedAt: created, UpdatedAt: created,
 			})
 		}
 
-		h.insert(t, "process_instances", instanceRows)
-		h.insert(t, "tasks", taskRows)
+		ex := testutils.Executor(h.db)
+		if _, err := processinstance.InsertAll(t.Context(), ex, instanceRows); err != nil {
+			t.Fatalf("bulk insert the instances: %v", err)
+		}
+		if _, err := task.InsertAll(t.Context(), ex, taskRows); err != nil {
+			t.Fatalf("bulk insert the tasks: %v", err)
+		}
 		instances += len(instanceRows)
 		tasks += len(taskRows)
 	}
 	return instances, tasks
-}
-
-func (h *loadHarness) insert(t *testing.T, table string, rows any) {
-	t.Helper()
-	if err := h.db.Table(table).Create(rows).Error; err != nil {
-		t.Fatalf("bulk insert into %s: %v", table, err)
-	}
-}
-
-// The rows are declared here rather than reusing the models because the models
-// carry associations GORM would try to insert alongside them, which turns one
-// batch into thousands of statements.
-type instanceRow struct {
-	ID           uuid.UUID `gorm:"column:id"`
-	ProjectID    uuid.UUID `gorm:"column:project_id"`
-	DefinitionID uuid.UUID `gorm:"column:definition_id"`
-	Status       string    `gorm:"column:status"`
-	Tokens       string    `gorm:"column:tokens"`
-	CreatedAt    time.Time `gorm:"column:created_at"`
-	UpdatedAt    time.Time `gorm:"column:updated_at"`
-}
-
-type taskRow struct {
-	ID         uuid.UUID `gorm:"column:id"`
-	ProjectID  uuid.UUID `gorm:"column:project_id"`
-	InstanceID uuid.UUID `gorm:"column:instance_id"`
-	NodeID     string    `gorm:"column:node_id"`
-	Name       string    `gorm:"column:name"`
-	Type       string    `gorm:"column:type"`
-	Status     string    `gorm:"column:status"`
-	Assignee   string    `gorm:"column:assignee"`
-	CreatedAt  time.Time `gorm:"column:created_at"`
-	UpdatedAt  time.Time `gorm:"column:updated_at"`
 }

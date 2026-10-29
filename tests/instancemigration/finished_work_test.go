@@ -5,11 +5,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/domains/services/impl"
+	"github.com/gsoultan/metis/server/repositories/store/incident"
 )
 
 // What a migration does to work that is already finished.
@@ -20,63 +22,6 @@ import (
 // mapping pointed at and set claimed or unclaimed, as though it had just been
 // offered. The approval that was given became work to do again, in somebody
 // else's name, and the record of who gave it was gone.
-
-// finishedTasks is every completed or canceled task of the instance, each
-// told in full as the database holds it: the columns that say what happened.
-// updated_at is told with them, and for a task it shows only that nothing
-// stamped the row: a task write does not move it. That a finished task is not
-// written rests on the code; what is compared here is every column's value.
-func (f *fixture) finishedTasks(t *testing.T, instanceID uuid.UUID) map[string]string {
-	t.Helper()
-	return f.rowsByID(t, `
-		SELECT id::text AS id,
-		       'node=' || node_id || ' name=' || name || ' description=' || coalesce(description, '<null>') ||
-		       ' type=' || type || ' status=' || status || ' assignee=' || coalesce(assignee, '<null>') ||
-		       ' owner=' || coalesce(owner, '<null>') || ' delegation=' || coalesce(delegation_state, '<null>') ||
-		       ' candidates=' || coalesce(candidate_users::text, '<null>') || '/' || coalesce(candidate_groups::text, '<null>') ||
-		       ' priority=' || priority || ' due=' || coalesce(due_date::text, '<null>') ||
-		       ' form=' || coalesce(form_key, '<null>') || '/' || md5(coalesce(form_definition, '')) ||
-		       ' variables=' || md5(coalesce(variables::text, '')) || ' written=' || updated_at::text AS told
-		  FROM tasks WHERE instance_id = ? AND status IN ('completed', 'canceled') AND deleted_at IS NULL`, instanceID)
-}
-
-// jobsInFull is every timer and queued call of the instance, told in full.
-func (f *fixture) jobsInFull(t *testing.T, instanceID uuid.UUID) map[string]string {
-	t.Helper()
-	return f.rowsByID(t, `
-		SELECT id::text AS id,
-		       'definition=' || definition_id || ' node=' || node_id || ' type=' || type || ' status=' || status ||
-		       ' retries=' || retries || ' due=' || next_run_at::text || ' written=' || updated_at::text AS told
-		  FROM jobs WHERE instance_id = ? AND deleted_at IS NULL`, instanceID)
-}
-
-// incidentsInFull is every incident of the instance, told in full.
-func (f *fixture) incidentsInFull(t *testing.T, instanceID uuid.UUID) map[string]string {
-	t.Helper()
-	return f.rowsByID(t, `
-		SELECT id::text AS id,
-		       'definition=' || coalesce(definition_id::text, '<null>') || ' node=' || node_id || ' status=' || status ||
-		       ' resolved=' || coalesce(resolved_at::text, '<null>') || ' written=' || updated_at::text AS told
-		  FROM incidents WHERE instance_id = ? AND deleted_at IS NULL`, instanceID)
-}
-
-// rowsByID reads rows as (id, told) pairs from the database, not through the
-// code under test.
-func (f *fixture) rowsByID(t *testing.T, query string, args ...any) map[string]string {
-	t.Helper()
-	var rows []struct {
-		ID   string
-		Told string
-	}
-	if err := f.db.WithContext(f.ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
-		t.Fatalf("read the rows: %v", err)
-	}
-	byID := make(map[string]string, len(rows))
-	for _, row := range rows {
-		byID[row.ID] = row.Told
-	}
-	return byID
-}
 
 // assertRowsUntouched fails, naming each row that differs, unless the rows are
 // exactly the rows they were.
@@ -196,10 +141,7 @@ func TestAMappingChangesOnlyWhatIsStillOpen(t *testing.T) {
 	// The draft is completed, the hour passes, and the request is recalled
 	// while it is being checked: the check is withdrawn and the approval opens.
 	f.completeTaskOn(t, "draft", "sam")
-	if err := f.db.WithContext(f.ctx).Exec(
-		`UPDATE jobs SET next_run_at = now() - interval '1 minute' WHERE instance_id = ?`, instance.ID).Error; err != nil {
-		t.Fatalf("bring the timer due: %v", err)
-	}
+	f.bringDue(t, instance.ID)
 	if err := f.svc.ProcessPendingJobs(f.ctx); err != nil {
 		t.Fatalf("process pending jobs: %v", err)
 	}
@@ -209,10 +151,13 @@ func TestAMappingChangesOnlyWhatIsStillOpen(t *testing.T) {
 	}
 	f.assertWaitingAt(t, v1, "approve")
 	// And the wait once failed and was put right: an incident, resolved.
-	if err := f.db.WithContext(f.ctx).Exec(`
-		INSERT INTO incidents (id, created_at, updated_at, instance_id, definition_id, node_id, error, status, resolved_at)
-		VALUES (gen_random_uuid(), now() - interval '2 hours', now() - interval '1 hour', ?, ?, 'wait',
-		        'the timer could not be queued', 'resolved', now() - interval '1 hour')`, instance.ID, v1).Error; err != nil {
+	resolved := time.Now().Add(-time.Hour)
+	failed := incident.Row{
+		ID: uuid.New(), CreatedAt: resolved.Add(-time.Hour), UpdatedAt: resolved, InstanceID: instance.ID,
+		DefinitionID: some[[16]byte](v1), NodeID: "wait", Error: "the timer could not be queued",
+		Status: "resolved", ResolvedAt: some(resolved),
+	}
+	if _, err := incident.InsertAll(f.ctx, f.ex(), []incident.Row{failed}); err != nil {
 		t.Fatalf("record a resolved incident: %v", err)
 	}
 

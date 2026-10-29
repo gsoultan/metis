@@ -11,7 +11,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
+	"github.com/gsoultan/metis/server/repositories/store/deviationrequest"
+	"github.com/gsoultan/metis/server/repositories/store/instancedeviation"
+	"github.com/gsoultan/storm/pgstat"
 	stormruntime "github.com/gsoultan/storm/runtime"
+	"github.com/gsoultan/storm/runtime/pgxdrv"
 )
 
 // What two people do at the same instant.
@@ -143,9 +147,8 @@ func TestAsksForOneFingerprintMadeTogetherLeaveOneLiveRequest(t *testing.T) {
 			winner := oneWon(t, "asking for one thing", errs, func(err error) bool {
 				return errors.Is(err, repocontracts.ErrDeviationRequestAlreadyWaiting)
 			})
-			var stored int
-			if err := h.db.Raw(`SELECT count(*) FROM deviation_requests WHERE project_id = ? AND fingerprint = ?`, h.projID, fingerprint).
-				Row().Scan(&stored); err != nil {
+			stored, err := deviationrequest.New().ProjectIDEq(h.projID).FingerprintEq(fingerprint).Count(t.Context(), h.ex())
+			if err != nil {
 				t.Fatalf("count the requests: %v", err)
 			}
 			if stored != 1 {
@@ -224,9 +227,8 @@ func TestWaitingRowsForOneVisitWrittenTogetherLeaveOne(t *testing.T) {
 			if err != nil || !ok || live.ID != rows[winner].ID {
 				t.Errorf("the visit's live row is %s (%v, %v); the write that won was %s", live.ID, ok, err, rows[winner].ID)
 			}
-			var stored int
-			if err := h.db.Raw(`SELECT count(*) FROM instance_deviations WHERE instance_id = ? AND visit_key = ?`, instanceID, visit).
-				Row().Scan(&stored); err != nil {
+			stored, err := instancedeviation.New().InstanceIDEq(instanceID).VisitKeyEq(visit).Count(t.Context(), h.ex())
+			if err != nil {
 				t.Fatalf("count the rows: %v", err)
 			}
 			if stored != 1 {
@@ -241,52 +243,64 @@ func TestWaitingRowsForOneVisitWrittenTogetherLeaveOne(t *testing.T) {
 type heldOpen struct {
 	t       *testing.T
 	h       *deviationHarness
-	session int
+	session int32
 	commit  func() error
 	undo    func()
 }
 
-// holdOpen runs statement in a transaction of its own and leaves it open.
-func (h *deviationHarness) holdOpen(t *testing.T, statement string, args ...any) *heldOpen {
+// holdOpen makes change in a transaction of its own and leaves it open.
+func (h *deviationHarness) holdOpen(t *testing.T, change func(context.Context, stormruntime.Executor) error) *heldOpen {
 	t.Helper()
-	tx := h.db.Begin()
-	if tx.Error != nil {
-		t.Fatalf("open the first decision's transaction: %v", tx.Error)
+	tx, err := pgxdrv.Pool{P: h.db.Main()}.StartTx(t.Context())
+	if err != nil {
+		t.Fatalf("open the first decision's transaction: %v", err)
 	}
 	settled := false
 	t.Cleanup(func() {
 		if !settled {
-			tx.Rollback()
+			_ = tx.Rollback(context.Background())
 		}
 	})
 	held := &heldOpen{t: t, h: h}
-	if err := tx.Raw("SELECT pg_backend_pid()").Scan(&held.session).Error; err != nil {
+	if held.session, _, err = pgstat.Backend(t.Context(), tx); err != nil {
 		t.Fatalf("read the first decision's session: %v", err)
 	}
-	if err := tx.Exec(statement, args...).Error; err != nil {
+	if err := change(t.Context(), tx); err != nil {
 		t.Fatalf("make the first decision: %v", err)
 	}
-	held.commit = func() error { settled = true; return tx.Commit().Error }
-	held.undo = func() { settled = true; tx.Rollback() }
+	held.commit = func() error { settled = true; return tx.Commit(context.Background()) }
+	held.undo = func() { settled = true; _ = tx.Rollback(context.Background()) }
 	return held
+}
+
+// waitingBehind reports whether a session waits for a lock session holds or
+// is in line for.
+func (h *deviationHarness) waitingBehind(t *testing.T, session int32) []int32 {
+	t.Helper()
+	sessions, err := pgstat.Sessions(t.Context(), h.ex())
+	if err != nil {
+		t.Fatalf("look for the session waiting: %v", err)
+	}
+	var waiting []int32
+	for _, s := range sessions {
+		if s.WaitsBehind(session) {
+			waiting = append(waiting, s.PID)
+		}
+	}
+	return waiting
 }
 
 // untilBehind waits until another session waits for a lock this one holds.
 // It fails the test if what was sent finishes first: then it never waited.
 func (held *heldOpen) untilBehind(finished <-chan error) {
 	held.t.Helper()
-	const waitingBehind = `SELECT count(*) FROM pg_stat_activity a WHERE ? = ANY(pg_blocking_pids(a.pid))`
 	for deadline := time.Now().Add(raceWait); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
 		select {
 		case err := <-finished:
 			held.t.Fatalf("the second decision finished (%v) without waiting for the first", err)
 		default:
 		}
-		var waiting int
-		if err := held.h.db.Raw(waitingBehind, held.session).Scan(&waiting).Error; err != nil {
-			held.t.Fatalf("look for the decision waiting behind the first: %v", err)
-		}
-		if waiting > 0 {
+		if len(held.h.waitingBehind(held.t, held.session)) > 0 {
 			return
 		}
 	}
@@ -310,7 +324,15 @@ func answerOf(t *testing.T, finished <-chan error, what string) error {
 // second is the decision.
 func TestADecisionWaitsForTheOneAheadOfItAndReadsWhatItLeft(t *testing.T) {
 	h := newDeviationHarness(t)
-	const firstRejects = `UPDATE deviation_requests SET status = 'rejected', live_key = NULL, decided_by = 'ana' WHERE id = ?`
+	firstRejects := func(id uuid.UUID) func(context.Context, stormruntime.Executor) error {
+		return func(ctx context.Context, ex stormruntime.Executor) error {
+			rejected := deviationrequest.MutateKey(id)
+			rejected.SetStatus("rejected")
+			rejected.SetLiveKeyNull()
+			rejected.SetDecidedBy("ana")
+			return rejected.Update(ctx, ex)
+		}
+	}
 	send := func(request entities.DeviationRequest) <-chan error {
 		finished := make(chan error, 1)
 		go func() {
@@ -322,7 +344,7 @@ func TestADecisionWaitsForTheOneAheadOfItAndReadsWhatItLeft(t *testing.T) {
 
 	t.Run("the first is written", func(t *testing.T) {
 		request := h.mustCreateRequest(t, h.sampleMigration(t, "mf1-behind-written"))
-		first := h.holdOpen(t, firstRejects, request.ID)
+		first := h.holdOpen(t, firstRejects(request.ID))
 		second := send(request)
 		first.untilBehind(second)
 		if err := first.commit(); err != nil {
@@ -338,7 +360,7 @@ func TestADecisionWaitsForTheOneAheadOfItAndReadsWhatItLeft(t *testing.T) {
 
 	t.Run("the first is undone", func(t *testing.T) {
 		request := h.mustCreateRequest(t, h.sampleMigration(t, "mf1-behind-undone"))
-		first := h.holdOpen(t, firstRejects, request.ID)
+		first := h.holdOpen(t, firstRejects(request.ID))
 		second := send(request)
 		first.untilBehind(second)
 		first.undo()
@@ -355,7 +377,14 @@ func TestADecisionWaitsForTheOneAheadOfItAndReadsWhatItLeft(t *testing.T) {
 func TestALedgerDecisionWaitsForTheOneAheadOfItAndReadsWhatItLeft(t *testing.T) {
 	h := newDeviationHarness(t)
 	instanceID := h.startOneStep(t, entities.Node{Name: "Approve", Type: entities.UserTask, Assignee: "alice"})
-	const firstRejects = `UPDATE instance_deviations SET status = 'rejected', live_visit_key = NULL WHERE id = ?`
+	firstRejects := func(id uuid.UUID) func(context.Context, stormruntime.Executor) error {
+		return func(ctx context.Context, ex stormruntime.Executor) error {
+			rejected := instancedeviation.MutateKey(id)
+			rejected.SetStatus("rejected")
+			rejected.SetLiveVisitKeyNull()
+			return rejected.Update(ctx, ex)
+		}
+	}
 	send := func(row entities.Deviation) <-chan error {
 		finished := make(chan error, 1)
 		go func() {
@@ -368,7 +397,7 @@ func TestALedgerDecisionWaitsForTheOneAheadOfItAndReadsWhatItLeft(t *testing.T) 
 
 	t.Run("the first is written", func(t *testing.T) {
 		row := h.mustWrite(t, h.pendingWaive(instanceID, "dv1-row-behind-written"))
-		first := h.holdOpen(t, firstRejects, row.ID)
+		first := h.holdOpen(t, firstRejects(row.ID))
 		second := send(row)
 		first.untilBehind(second)
 		if err := first.commit(); err != nil {
@@ -384,7 +413,7 @@ func TestALedgerDecisionWaitsForTheOneAheadOfItAndReadsWhatItLeft(t *testing.T) 
 
 	t.Run("the first is undone", func(t *testing.T) {
 		row := h.mustWrite(t, h.pendingWaive(instanceID, "dv1-row-behind-undone"))
-		first := h.holdOpen(t, firstRejects, row.ID)
+		first := h.holdOpen(t, firstRejects(row.ID))
 		second := send(row)
 		first.untilBehind(second)
 		first.undo()
@@ -443,12 +472,20 @@ func TestTheSweepPassesByARequestSomebodyHolds(t *testing.T) {
 		}
 	}
 
-	holder := h.holdOpen(t, `SELECT 1 FROM deviation_requests WHERE id = ? FOR UPDATE`, heldRequest.ID)
+	holder := h.holdOpen(t, h.lockRequest(heldRequest.ID))
 	if got := read("beside a held request"); !sameIDs(got, []uuid.UUID{free.ID}) {
 		t.Errorf("beside a held request the sweep read %v; want only the free one, %s", got, free.ID)
 	}
 	holder.undo()
 	if got := read("after the request was let go"); !sameIDs(got, []uuid.UUID{heldRequest.ID, free.ID}) {
 		t.Errorf("once the request was let go the sweep read %v; want both", got)
+	}
+}
+
+// lockRequest holds a request's row, as a read FOR UPDATE does.
+func (h *deviationHarness) lockRequest(id uuid.UUID) func(context.Context, stormruntime.Executor) error {
+	return func(ctx context.Context, ex stormruntime.Executor) error {
+		_, err := deviationrequest.New().IDEq(id).ForUpdate().All(ctx, ex, nil)
+		return err
 	}
 }

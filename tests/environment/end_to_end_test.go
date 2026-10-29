@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	projectstore "github.com/gsoultan/metis/server/repositories/store/project"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/app"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -27,17 +29,17 @@ import (
 // fresh environment database, so every scoped read matched nothing and every
 // create was refused with "record not found".
 func TestAProcessRunsInAnEnvironment(t *testing.T) {
-	mainDB, conn := testutils.SetupTestStore(t)
+	conn := testutils.SetupTestDB(t)
 	stagingDB := testutils.SetupTestDB(t)
 
 	environmentID := uuid.New()
 	// Both layers, the way the boot sequence registers them: a half-open
 	// environment reaches one and refuses on the other.
-	if pool := testutils.StormConn(stagingDB); pool != nil {
+	if pool := stagingDB; pool != nil {
 		conn.RegisterEnvironment(environmentID, pool.Main())
 	}
 
-	repo := repositories.NewRepository(testutils.StormConn(mainDB))
+	repo := repositories.NewRepository(conn)
 	sse := observersimpl.NewSSEObserver()
 	svc := services.NewServiceFacade(repo, observersimpl.NewEventDispatcher(), sse, "env-e2e", nil, nil, nil)
 
@@ -54,7 +56,7 @@ func TestAProcessRunsInAnEnvironment(t *testing.T) {
 
 	// Exactly what opening an environment does at boot. Called rather than
 	// reproduced, so a change to the real seeding is covered by this test.
-	if err := app.SeedEnvironmentIdentity(ctx, stagingDB,
+	if err := app.SeedEnvironmentIdentity(ctx, stagingDB.Main(),
 		models.ProjectModel{
 			Base:           models.Base{ID: models.FromUUID(project.ID)},
 			OrganizationID: models.FromUUID(org.ID),
@@ -127,13 +129,13 @@ func TestSeedingIsIdempotent(t *testing.T) {
 	}
 
 	for range 2 {
-		if err := app.SeedEnvironmentIdentity(ctx, stagingDB, project, organization); err != nil {
+		if err := app.SeedEnvironmentIdentity(ctx, stagingDB.Main(), project, organization); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
 
-	var projects int64
-	if err := stagingDB.Model(&models.ProjectModel{}).Count(&projects).Error; err != nil {
+	projects, err := projectstore.New().Unordered().Count(ctx, testutils.Executor(stagingDB))
+	if err != nil {
 		t.Fatalf("count projects: %v", err)
 	}
 	if projects != 1 {
@@ -142,11 +144,11 @@ func TestSeedingIsIdempotent(t *testing.T) {
 
 	// A rename in the main database reaches the copy on the next boot.
 	project.Name = "Purchase Approval (EU)"
-	if err := app.SeedEnvironmentIdentity(ctx, stagingDB, project, organization); err != nil {
+	if err := app.SeedEnvironmentIdentity(ctx, stagingDB.Main(), project, organization); err != nil {
 		t.Fatalf("reseed after a rename: %v", err)
 	}
-	var stored models.ProjectModel
-	if err := stagingDB.First(&stored, "id = ?", models.FromUUID(projectID)).Error; err != nil {
+	stored, found, err := projectstore.New().IDEq(projectID).One(ctx, testutils.Executor(stagingDB))
+	if err != nil || !found {
 		t.Fatalf("read back the project: %v", err)
 	}
 	if stored.Name != "Purchase Approval (EU)" {

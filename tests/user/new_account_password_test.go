@@ -21,7 +21,7 @@ func TestANewAccountNeedsAPasswordItCanSignInWith(t *testing.T) {
 	ctx := t.Context()
 	db := testutils.SetupTestDB(t)
 
-	repo := repositories.NewRepository(testutils.StormConn(db))
+	repo := repositories.NewRepository(db)
 	orgSvc := service_impl.NewOrganizationService(repo, nil)
 	userSvc := service_impl.NewUserService(repo, "test-jwt-secret")
 

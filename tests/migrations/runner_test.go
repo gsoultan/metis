@@ -1,308 +1,346 @@
-// Package migrations_test proves the schema migration runner against every SQL
-// engine the product supports.
+// Package migrations_test proves the schema migration runner.
 //
 // This is the upgrade path for every existing deployment, so the cases that
-// matter are the ones about a database that already has data: a migration must
-// run once and never again, a failure must not be recorded as success, and two
-// replicas starting together must not both apply the same change.
+// matter are the ones about a database that already has data: a step must run
+// once and never again, a failure must not be recorded as success, two
+// replicas starting together must not both create the schema, and a database
+// the runner does not recognise must be refused with nothing changed.
 package migrations_test
 
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/migrations"
-	"github.com/gsoultan/metis/server/repositories/models"
+	"github.com/gsoultan/metis/server/repositories/model"
+	"github.com/gsoultan/metis/server/repositories/store/organization"
+	"github.com/gsoultan/metis/server/repositories/store/schemamigration"
 	"github.com/gsoultan/metis/tests/testutils"
-	"gorm.io/gorm"
+	"github.com/gsoultan/storm"
+	"github.com/gsoultan/storm/migrate"
+	"github.com/gsoultan/storm/runtime"
+	"github.com/gsoultan/storm/runtime/pgxdrv"
+	"github.com/gsoultan/storm/schema"
+	pgschema "github.com/gsoultan/storm/schema/pg"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const testMaxConns = 4
+// An empty database is created from the model and recorded as in its shape,
+// with nothing a comparison against the model finds.
+func TestAnEmptyDatabaseIsCreatedFromTheModel(t *testing.T) {
+	pool := testutils.EmptySchema(t)
+	ctx := t.Context()
 
-// forEachDialect runs body against every SQL engine the product supports.
-func forEachDialect(t *testing.T, body func(t *testing.T, db *gorm.DB)) {
-	t.Helper()
-
-	engines := []struct {
-		name string
-		open func(*testing.T) *gorm.DB
-	}{
-		// One engine. This ran each case against SQLite and then PostgreSQL,
-		// back when both were supported — and the SQLite pass was the only one
-		// that ever ran, because the PostgreSQL DSN was set nowhere. Both
-		// helpers open the same engine now, so running twice would assert the
-		// same thing twice under two names.
-		{"postgres", func(t *testing.T) *gorm.DB { return testutils.SetupPostgresDB(t, testMaxConns) }},
+	result, err := migrations.Run(ctx, pool, nil)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !result.Created || len(result.Applied) != 0 {
+		t.Fatalf("result %+v; want the database created and nothing else applied", result)
+	}
+	if got := versions(t, pool); !slices.Equal(got, []int64{migrations.ConvertedVersion}) {
+		t.Fatalf("recorded %v; want only %d", got, migrations.ConvertedVersion)
 	}
 
-	for _, engine := range engines {
-		t.Run(engine.name, func(t *testing.T) {
-			db := engine.open(t)
+	want, err := storm.Build(model.All()...)
+	if err != nil {
+		t.Fatalf("build the model: %v", err)
+	}
+	if drift := driftFrom(t, pool, want); len(drift) != 0 {
+		t.Errorf("a database created from the model differs from it:\n%s", strings.Join(drift, "\n"))
+	}
 
-			// The bookkeeping tables are not part of migrationModels(), so the
-			// MySQL helper — which isolates by dropping and rebuilding that list
-			// rather than by using a fresh schema — leaves them behind between
-			// tests. A run would then find its versions already applied and do
-			// nothing, which looks exactly like a broken runner.
-			for _, table := range []string{"schema_migrations", "schema_migration_locks"} {
-				if db.Migrator().HasTable(table) {
-					if err := db.Migrator().DropTable(table); err != nil {
-						t.Fatalf("reset %s: %v", table, err)
-					}
-				}
-			}
-
-			body(t, db)
-		})
+	again, err := migrations.Run(ctx, pool, nil)
+	if err != nil {
+		t.Fatalf("run again: %v", err)
+	}
+	if again.Created {
+		t.Fatal("a second run created the database again")
 	}
 }
 
-// counter is a migration that records how many times it actually ran.
-type counter struct {
-	mu   sync.Mutex
-	runs int
-}
+// Two replicas booting against one empty database create it once.
+func TestReplicasStartingTogetherCreateTheDatabaseOnce(t *testing.T) {
+	pool := testutils.EmptySchema(t)
+	ctx := t.Context()
 
-func (c *counter) inc() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.runs++
-}
-
-func (c *counter) count() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.runs
-}
-
-// TestRunAppliesEachMigrationExactlyOnce is the whole point: the two data
-// repairs this replaces used to run on every boot, one of them loading every
-// process instance ever created into memory to find nothing to do.
-func TestRunAppliesEachMigrationExactlyOnce(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		var first, second counter
-		list := []migrations.Migration{
-			{Version: 1, Name: "first", Run: func(context.Context, *gorm.DB) error { first.inc(); return nil }},
-			{Version: 2, Name: "second", Transactional: true, Run: func(context.Context, *gorm.DB) error { second.inc(); return nil }},
-		}
-
-		result, err := migrations.Run(t.Context(), db, list)
-		if err != nil {
-			t.Fatalf("first run: %v", err)
-		}
-		if len(result.Applied) != 2 {
-			t.Fatalf("first run applied %v, want both", result.Applied)
-		}
-
-		// A restart must not re-run anything.
-		result, err = migrations.Run(t.Context(), db, list)
-		if err != nil {
-			t.Fatalf("second run: %v", err)
-		}
-		if len(result.Applied) != 0 {
-			t.Errorf("second run applied %v, want nothing", result.Applied)
-		}
-		if result.Skipped != 2 {
-			t.Errorf("second run skipped %d, want 2", result.Skipped)
-		}
-
-		if first.count() != 1 || second.count() != 1 {
-			t.Fatalf("ran first %d times and second %d, want once each", first.count(), second.count())
-		}
-	})
-}
-
-// TestRunAppliesOnlyNewMigrations covers the upgrade: a database at version 1
-// picks up 2 without redoing 1.
-func TestRunAppliesOnlyNewMigrations(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		var first, second counter
-
-		v1 := migrations.Migration{Version: 1, Name: "first",
-			Run: func(context.Context, *gorm.DB) error { first.inc(); return nil }}
-		if _, err := migrations.Run(t.Context(), db, []migrations.Migration{v1}); err != nil {
-			t.Fatalf("initial: %v", err)
-		}
-
-		v2 := migrations.Migration{Version: 2, Name: "second",
-			Run: func(context.Context, *gorm.DB) error { second.inc(); return nil }}
-		result, err := migrations.Run(t.Context(), db, []migrations.Migration{v1, v2})
-		if err != nil {
-			t.Fatalf("upgrade: %v", err)
-		}
-
-		if len(result.Applied) != 1 || result.Applied[0] != 2 {
-			t.Errorf("applied %v, want just version 2", result.Applied)
-		}
-		if first.count() != 1 {
-			t.Errorf("version 1 ran %d times across the upgrade, want 1", first.count())
-		}
-	})
-}
-
-// TestRunStopsAtFirstFailure keeps a broken migration from being recorded, and
-// keeps later ones from running against a schema the failed one should have
-// produced.
-func TestRunStopsAtFirstFailure(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		wantErr := errors.New("migration blew up")
-		var later counter
-
-		list := []migrations.Migration{
-			{Version: 1, Name: "ok", Run: func(context.Context, *gorm.DB) error { return nil }},
-			{Version: 2, Name: "broken", Run: func(context.Context, *gorm.DB) error { return wantErr }},
-			{Version: 3, Name: "later", Run: func(context.Context, *gorm.DB) error { later.inc(); return nil }},
-		}
-
-		_, err := migrations.Run(t.Context(), db, list)
-		if !errors.Is(err, wantErr) {
-			t.Fatalf("err = %v, want it to wrap %v", err, wantErr)
-		}
-		if later.count() != 0 {
-			t.Error("a migration after the failure ran anyway")
-		}
-
-		// The failed migration must not be recorded, or a retry would skip it.
-		var applied []int
-		if err := db.Model(&migrations.SchemaMigration{}).Order("version").Pluck("version", &applied).Error; err != nil {
-			t.Fatalf("read applied: %v", err)
-		}
-		if len(applied) != 1 || applied[0] != 1 {
-			t.Fatalf("recorded %v, want only version 1 — a failure was recorded as success", applied)
-		}
-	})
-}
-
-// TestRunIsSafeAcrossConcurrentReplicas is the deployment case: replicas start
-// together, and without the lock several would apply the same migration at once.
-func TestRunIsSafeAcrossConcurrentReplicas(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		var applied counter
-		list := []migrations.Migration{
-			{Version: 1, Name: "contended", Run: func(context.Context, *gorm.DB) error { applied.inc(); return nil }},
-		}
-
-		const replicas = 4
-		errs := make(chan error, replicas)
-		var wg sync.WaitGroup
-		for range replicas {
-			wg.Go(func() {
-				_, err := migrations.Run(t.Context(), db, list)
-				errs <- err
-			})
-		}
-		wg.Wait()
-		close(errs)
-
-		for err := range errs {
-			if err != nil {
-				t.Errorf("a replica failed to migrate: %v", err)
-			}
-		}
-		if got := applied.count(); got != 1 {
-			t.Fatalf("the migration ran %d times across %d replicas, want exactly 1", got, replicas)
-		}
-	})
-}
-
-// TestRunRejectsDuplicateVersions catches the merge accident where two branches
-// each add the same version. Undetected, whichever ran first would permanently
-// mask the other.
-func TestRunRejectsDuplicateVersions(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		_, err := migrations.Run(t.Context(), db, []migrations.Migration{
-			{Version: 7, Name: "from one branch", Run: func(context.Context, *gorm.DB) error { return nil }},
-			{Version: 7, Name: "from another", Run: func(context.Context, *gorm.DB) error { return nil }},
+	const replicas = 4
+	var wg sync.WaitGroup
+	errs := make([]error, replicas)
+	for i := range replicas {
+		wg.Go(func() {
+			_, errs[i] = migrations.Run(ctx, pool, nil)
 		})
-		if err == nil {
-			t.Fatal("duplicate versions were accepted")
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("replica %d: %v", i, err)
 		}
-	})
+	}
+	if got := versions(t, pool); !slices.Equal(got, []int64{migrations.ConvertedVersion}) {
+		t.Fatalf("recorded %v; want the creation once", got)
+	}
 }
 
-// TestRunAppliesInVersionOrder pins ordering regardless of how the list is
-// assembled, since the list is composed from more than one place.
-func TestRunAppliesInVersionOrder(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		var order []int
-		var mu sync.Mutex
-		record := func(v int) func(context.Context, *gorm.DB) error {
-			return func(context.Context, *gorm.DB) error {
-				mu.Lock()
-				defer mu.Unlock()
-				order = append(order, v)
-				return nil
-			}
-		}
+// A step runs once, is recorded with its version, and is skipped from then
+// on — and the rows the database had are still there after it.
+func TestAStepRunsOnceAndRowsSurviveIt(t *testing.T) {
+	pool := testutils.EmptySchema(t)
+	ctx := t.Context()
+	if _, err := migrations.Run(ctx, pool, nil); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	kept := insertOrganization(t, pool, "already here")
 
-		// Deliberately out of order.
-		_, err := migrations.Run(t.Context(), db, []migrations.Migration{
-			{Version: 3, Name: "third", Run: record(3)},
-			{Version: 1, Name: "first", Run: record(1)},
-			{Version: 2, Name: "second", Run: record(2)},
-		})
-		if err != nil {
+	var runs int
+	step := migrations.Migration{Version: migrations.ConvertedVersion + 1, Name: "count", Run: func(context.Context, runtime.Executor) error {
+		runs++
+		return nil
+	}}
+	for range 2 {
+		if _, err := migrations.Run(ctx, pool, []migrations.Migration{step}); err != nil {
 			t.Fatalf("run: %v", err)
 		}
-		if len(order) != 3 {
-			t.Fatalf("applied %v, want all three", order)
-		}
-		for i, want := range []int{1, 2, 3} {
-			if order[i] != want {
-				t.Fatalf("applied in order %v, want ascending", order)
-			}
-		}
-	})
+	}
+	if runs != 1 {
+		t.Fatalf("the step ran %d times; want once", runs)
+	}
+	if got := versions(t, pool); !slices.Equal(got, []int64{migrations.ConvertedVersion, step.Version}) {
+		t.Fatalf("recorded %v", got)
+	}
+	if n, err := organization.New().Where(organization.ID.Eq(kept)).Count(ctx, pgxdrv.Pool{P: pool}); err != nil || n != 1 {
+		t.Fatalf("the organization written before the step: %d rows (%v), want 1", n, err)
+	}
 }
 
-// TestBaselineIsIdempotentOnAnExistingDatabase is the migration-adoption case:
-// every existing installation already has this schema from AutoMigrate, so the
-// baseline must be a no-op there rather than an error.
-func TestBaselineIsIdempotentOnAnExistingDatabase(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		// SetupTestDB already AutoMigrated the models, which is exactly the
-		// state a pre-migrations installation is in.
-		schema := migrations.Schema(models.MigrationModels())
+// A step that fails leaves nothing behind: not its writes, not a record that
+// it ran, and not any step after it.
+func TestAFailingStepIsRolledBackAndStopsTheRun(t *testing.T) {
+	pool := testutils.EmptySchema(t)
+	ctx := t.Context()
+	if _, err := migrations.Run(ctx, pool, nil); err != nil {
+		t.Fatalf("create: %v", err)
+	}
 
-		if _, err := migrations.Run(t.Context(), db, schema); err != nil {
-			t.Fatalf("baseline against an existing schema: %v", err)
-		}
-
-		// And the data that was already there survives it.
-		var drift []string
-		drift, err := migrations.DriftReport(db, models.MigrationModels())
-		if err != nil {
-			t.Fatalf("drift report: %v", err)
-		}
-		if len(drift) != 0 {
-			t.Fatalf("baseline left the schema short of the models: %v", drift)
-		}
-	})
+	written := uuid.Must(uuid.NewV7())
+	broken := errors.New("broken step")
+	var laterRan bool
+	steps := []migrations.Migration{
+		{Version: migrations.ConvertedVersion + 1, Name: "writes then fails", Run: func(ctx context.Context, ex runtime.Executor) error {
+			org := organization.Create()
+			org.SetID(written)
+			org.SetName("half done")
+			if _, err := org.Insert(ctx, ex); err != nil {
+				return err
+			}
+			return broken
+		}},
+		{Version: migrations.ConvertedVersion + 2, Name: "after", Run: func(context.Context, runtime.Executor) error {
+			laterRan = true
+			return nil
+		}},
+	}
+	if _, err := migrations.Run(ctx, pool, steps); !errors.Is(err, broken) {
+		t.Fatalf("run: %v; want the step's error", err)
+	}
+	if laterRan {
+		t.Error("a step after the failed one ran")
+	}
+	if got := versions(t, pool); !slices.Equal(got, []int64{migrations.ConvertedVersion}) {
+		t.Errorf("recorded %v; want only the creation", got)
+	}
+	if n, err := organization.New().Where(organization.ID.Eq(written)).Count(ctx, pgxdrv.Pool{P: pool}); err != nil || n != 0 {
+		t.Errorf("the failed step's write: %d rows (%v), want none", n, err)
+	}
 }
 
-// TestDriftReportNoticesAMissingColumn proves the guard rail that replaces
-// AutoMigrate's habit of silently adding columns.
-func TestDriftReportNoticesAMissingColumn(t *testing.T) {
-	forEachDialect(t, func(t *testing.T, db *gorm.DB) {
-		if err := db.Migrator().DropColumn(&models.TaskModel{}, "description"); err != nil {
-			t.Fatalf("drop column: %v", err)
-		}
+// A database with only some of GORM's migrations cannot be brought forward
+// from here, and is told how to get there.
+func TestADatabaseOlderThanGORMsLastVersionIsRefused(t *testing.T) {
+	pool := testutils.EmptySchema(t)
+	ctx := t.Context()
+	if _, err := migrations.Run(ctx, pool, nil); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	ex := pgxdrv.Pool{P: pool}
+	if _, err := schemamigration.New().Where(schemamigration.Version.Eq(migrations.ConvertedVersion)).DeleteAll(ctx, ex); err != nil {
+		t.Fatalf("forget the creation: %v", err)
+	}
+	old := schemamigration.Create()
+	old.SetVersion(30)
+	old.SetName("an older release")
+	if _, err := old.Insert(ctx, ex); err != nil {
+		t.Fatalf("record version 30: %v", err)
+	}
+	before := tables(t, pool)
 
-		drift, err := migrations.DriftReport(db, models.MigrationModels())
-		if err != nil {
-			t.Fatalf("drift report: %v", err)
-		}
+	var ran bool
+	step := migrations.Migration{Version: migrations.ConvertedVersion + 1, Name: "x", Run: func(context.Context, runtime.Executor) error {
+		ran = true
+		return nil
+	}}
+	_, err := migrations.Run(ctx, pool, []migrations.Migration{step})
+	if !errors.Is(err, migrations.ErrBeforeBaseline) {
+		t.Fatalf("run: %v; want ErrBeforeBaseline", err)
+	}
+	if !strings.Contains(err.Error(), "version 30") {
+		t.Errorf("the refusal does not say where the database is: %v", err)
+	}
+	if ran {
+		t.Error("a step ran against a database the runner refused")
+	}
+	if got := versions(t, pool); !slices.Equal(got, []int64{30}) {
+		t.Errorf("recorded %v; want it left at 30", got)
+	}
+	if after := tables(t, pool); !slices.Equal(before, after) {
+		t.Errorf("the tables changed: %v, then %v", before, after)
+	}
+}
 
-		var found bool
-		for _, item := range drift {
-			if item == "tasks.description is declared by a model but missing from the database" {
-				found = true
+// The product's tables and no record of how they got there is not a database
+// this product made, and creating the model's tables over it would be guessing.
+func TestTablesWithoutAMigrationRecordAreRefused(t *testing.T) {
+	pool := testutils.EmptySchema(t)
+	ctx := t.Context()
+	want, err := migrations.Target()
+	if err != nil {
+		t.Fatalf("model: %v", err)
+	}
+	one := &schema.Schema{}
+	for _, table := range want.Tables {
+		if table.Name == organization.Table {
+			one.Tables = append(one.Tables, table)
+		}
+	}
+	if _, err := migrate.AutoPool(ctx, pool, one, migrate.AutoOptions{Schema: db.Namespace(pool)}); err != nil {
+		t.Fatalf("create a stray table: %v", err)
+	}
+
+	if _, err := migrations.Run(ctx, pool, nil); !errors.Is(err, migrations.ErrUnknownDatabase) {
+		t.Fatalf("run: %v; want ErrUnknownDatabase", err)
+	}
+	if got := tables(t, pool); !slices.Equal(got, []string{organization.Table}) {
+		t.Fatalf("tables %v; want the stray one alone", got)
+	}
+}
+
+// A database that holds somebody else's tables and none of the product's is
+// empty as far as the product goes: created, with the other tables left alone.
+func TestAnotherOwnersTablesAreLeftAlone(t *testing.T) {
+	pool := testutils.EmptySchema(t)
+	ctx := t.Context()
+	theirs := &schema.Schema{Tables: []*schema.Table{{
+		Name: "written_here",
+		Columns: []*schema.Column{
+			{Name: "id", Type: schema.Type{Name: "uuid"}, NotNull: true},
+			{Name: "note", Type: schema.Type{Name: "text"}},
+		},
+		PrimaryKey: []string{"id"},
+	}}}
+	if _, err := migrate.AutoPool(ctx, pool, theirs, migrate.AutoOptions{Schema: db.Namespace(pool)}); err != nil {
+		t.Fatalf("create their table: %v", err)
+	}
+
+	result, err := migrations.Run(ctx, pool, nil)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !result.Created {
+		t.Fatal("the database was not created")
+	}
+	if !slices.Contains(tables(t, pool), "written_here") {
+		t.Fatal("their table is gone")
+	}
+}
+
+// Two steps with one version, or a step numbered into the history the
+// conversion replaced, would mask one another for good. Refused before anything runs.
+func TestStepsThatCannotBeTrackedAreRefused(t *testing.T) {
+	pool := testutils.EmptySchema(t)
+	noop := func(context.Context, runtime.Executor) error { return nil }
+	for name, steps := range map[string][]migrations.Migration{
+		"a shared version": {
+			{Version: migrations.ConvertedVersion + 1, Name: "a", Run: noop},
+			{Version: migrations.ConvertedVersion + 1, Name: "b", Run: noop},
+		},
+		"at the conversion":     {{Version: migrations.ConvertedVersion, Name: "a", Run: noop}},
+		"before the conversion": {{Version: 12, Name: "a", Run: noop}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := migrations.Run(t.Context(), pool, steps); err == nil {
+				t.Fatal("run accepted it")
 			}
-		}
-		if !found {
-			t.Fatalf("drift report did not notice the dropped column, got %v", drift)
-		}
-	})
+		})
+	}
+	if got := tables(t, pool); len(got) != 0 {
+		t.Fatalf("a refused run created %v", got)
+	}
+}
+
+// The migration steps this release ships are themselves trackable.
+func TestTheShippedStepsAreTrackable(t *testing.T) {
+	pool := testutils.EmptySchema(t)
+	if _, err := migrations.Run(t.Context(), pool, migrations.Steps()); err != nil {
+		t.Fatalf("run the shipped steps on an empty database: %v", err)
+	}
+}
+
+func versions(t *testing.T, pool *pgxpool.Pool) []int64 {
+	t.Helper()
+	rows, err := schemamigration.New().Order(schemamigration.Version.Asc()).All(t.Context(), pgxdrv.Pool{P: pool}, nil)
+	if err != nil {
+		t.Fatalf("read the record: %v", err)
+	}
+	out := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Version)
+	}
+	return out
+}
+
+func tables(t *testing.T, pool *pgxpool.Pool) []string {
+	t.Helper()
+	conn, err := pool.Acquire(t.Context())
+	if err != nil {
+		t.Fatalf("borrow a connection: %v", err)
+	}
+	defer conn.Release()
+	live, err := pgschema.Introspect(t.Context(), conn.Conn(), db.Namespace(pool))
+	if err != nil {
+		t.Fatalf("read the schema: %v", err)
+	}
+	names := make([]string, 0, len(live.Tables))
+	for _, table := range live.Tables {
+		names = append(names, table.Name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+func insertOrganization(t *testing.T, pool *pgxpool.Pool, name string) uuid.UUID {
+	t.Helper()
+	id := uuid.Must(uuid.NewV7())
+	org := organization.Create()
+	org.SetID(id)
+	org.SetName(name)
+	if _, err := org.Insert(t.Context(), pgxdrv.Pool{P: pool}); err != nil {
+		t.Fatalf("write an organization: %v", err)
+	}
+	return id
+}
+
+func driftFrom(t *testing.T, pool *pgxpool.Pool, want *schema.Schema) []string {
+	t.Helper()
+	drift, err := db.ReportDrift(t.Context(), pool, want)
+	if err != nil {
+		t.Fatalf("compare: %v", err)
+	}
+	return drift
 }
