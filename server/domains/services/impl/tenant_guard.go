@@ -5,13 +5,16 @@ import (
 
 	"context"
 
-	"github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 )
 
 // ErrForeignOrganization is returned when a request names an organization the
 // caller does not belong to.
-var ErrForeignOrganization = fmt.Errorf("%w: that organization is not yours", auth.ErrUnauthorized)
+//
+// Forbidden, not unauthorized: the caller is known, and the organization they
+// named is the mistake. A 401 sent the UI to the sign-in page.
+var ErrForeignOrganization = fmt.Errorf("%w: that organization is not yours", apierr.ErrForbidden)
 
 // requireOwnOrganizations refuses a write that places a record in an
 // organization other than the caller's.

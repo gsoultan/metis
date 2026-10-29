@@ -246,7 +246,7 @@ func newEngine(t *testing.T, db *db.Conn) (repositories.Repository, *serviceimpl
 		serviceimpl.WithJobService(jobSvc),
 	)
 
-	orgSvc := serviceimpl.NewOrganizationService(repo)
+	orgSvc := serviceimpl.NewOrganizationService(repo, nil)
 	projectSvc := serviceimpl.NewProjectService(repo)
 	org, err := orgSvc.CreateOrganization(ctx, "Outage Org", "")
 	if err != nil {

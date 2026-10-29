@@ -62,7 +62,7 @@ func newSimHarness(t *testing.T) *simHarness {
 	// replay reads what the instance was started with, and the path it took,
 	// back off it.
 	dispatcher.Register(observerimpl.NewAuditLogObserver(repo.Audit()))
-	orgSvc := serviceimpl.NewOrganizationService(repo)
+	orgSvc := serviceimpl.NewOrganizationService(repo, nil)
 	projectSvc := serviceimpl.NewProjectService(repo)
 	defSvc := serviceimpl.NewDefinitionService(repo)
 	connectorSvc := serviceimpl.NewConnectorService(repo)

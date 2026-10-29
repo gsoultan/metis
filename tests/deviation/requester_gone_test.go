@@ -102,7 +102,7 @@ func departures() []departure {
 				}
 			},
 			why:     "boss, who asked for it, no longer administers this organization: their account no longer belongs to it",
-			refused: http.StatusUnauthorized,
+			refused: http.StatusForbidden,
 			restart: true,
 		},
 	}

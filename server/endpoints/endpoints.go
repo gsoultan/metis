@@ -496,6 +496,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// transport chain still demanded a token, but no tenant was resolved, so
 	// the endpoint reached the repository with no identity.
 	userEndpoints.ChangePassword = protected("ChangePassword")(userEndpoints.ChangePassword)
+	userEndpoints.SignOut = protected("SignOut")(userEndpoints.SignOut)
 	// Self-service too: the Profile page saved through UpdateUser above, which
 	// is adminOnly, so for everybody else it failed. These act only on the
 	// account the session names, and change only its names and email.

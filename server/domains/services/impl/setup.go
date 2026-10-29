@@ -267,6 +267,12 @@ func validateSetupRequest(req contracts.SetupRequest, target setupTarget) error 
 	if req.AdminUsername == "" || req.AdminPassword == "" || req.AdminFullName == "" || req.AdminPublicName == "" || req.OrganizationName == "" {
 		return apierr.Invalidf("admin username, password, full name, public name and organization name are required")
 	}
+	// The first administrator holds every role, so their password takes at
+	// least the floor every other account's does. The wizard's form checked
+	// it; the API did not.
+	if err := checkNewPassword(req.AdminPassword); err != nil {
+		return err
+	}
 	// The environment's database and secrets were checked when the server
 	// started — it refuses weak ones — and whatever the request says about
 	// either is not what setup will use.

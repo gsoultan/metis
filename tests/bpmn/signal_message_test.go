@@ -52,7 +52,7 @@ func newEngineHarness(t *testing.T, projectName string) engineHarness {
 	repo := repositories.NewRepository(db)
 	dispatcher := impl.NewEventDispatcher()
 
-	orgSvc := service_impl2.NewOrganizationService(repo)
+	orgSvc := service_impl2.NewOrganizationService(repo, nil)
 	projectSvc := service_impl2.NewProjectService(repo)
 	defSvc := service_impl2.NewDefinitionService(repo)
 	connectorSvc := service_impl2.NewConnectorService(repo)

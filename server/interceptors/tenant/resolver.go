@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/go-kit/kit/endpoint"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
 	"github.com/gsoultan/metis/internal/pkg/tenantscope"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -22,11 +23,20 @@ import (
 const OrganizationHeader = "X-Organization-ID"
 
 // ErrNoTenantMembership is returned when the caller belongs to no organization.
-var ErrNoTenantMembership = fmt.Errorf("tenant: authenticated principal has no organization membership")
+//
+// A 403 rather than a 401, as ErrNotAMember is: the token proved who the caller
+// is, and signing in again would change nothing. It wrapped nothing, so it was
+// a 500.
+var ErrNoTenantMembership = fmt.Errorf("tenant: %w: authenticated principal has no organization membership",
+	apierr.ErrForbidden)
 
 // ErrNotAMember is returned when the requested organization is not one the
 // caller belongs to.
-var ErrNotAMember = fmt.Errorf("tenant: %w", pkgauth.ErrUnauthorized)
+//
+// Forbidden, not unauthorized. A 401 says the token is no good: the UI signs
+// out on one, and an integration signs in again and repeats the request, when
+// what needs fixing is the organization it named.
+var ErrNotAMember = fmt.Errorf("tenant: %w", apierr.ErrForbidden)
 
 // ErrUnresolvedTenant is returned when a request carries an authenticated
 // principal that cannot be resolved to an organization.

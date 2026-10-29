@@ -117,6 +117,16 @@ export const identityService = {
     return { err: raiseIfRefused(data).err };
   },
 
+  // Ends every session the account has, on the server: clearing the token in
+  // this browser alone leaves it working anywhere it was copied to.
+  async signOut() {
+    await requestJSON<{ err?: string }>("/logout", {
+      method: "POST",
+      // The session is ending either way; a refusal here is not news.
+      checksCredentials: true,
+    });
+  },
+
   // The caller's own profile, named by the session like the password above.
   // The Profile page saved through updateUser, whose PUT /users/{id} only an
   // administrator may call, so for everybody else it failed.

@@ -250,7 +250,7 @@ func newWebhookHarness(t *testing.T) *webhookHarness {
 		serviceimpl.WithJobService(jobSvc),
 	)
 
-	org, err := serviceimpl.NewOrganizationService(repo).CreateOrganization(ctx, "Hook Org", "")
+	org, err := serviceimpl.NewOrganizationService(repo, nil).CreateOrganization(ctx, "Hook Org", "")
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
 	}

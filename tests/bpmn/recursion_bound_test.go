@@ -31,7 +31,7 @@ func TestUnboundedLoopIsRejectedNotStackOverflow(t *testing.T) {
 	dispatcher := observerimpl.NewEventDispatcher()
 	engine := serviceimpl.NewExecutionEngine(repo, dispatcher)
 	defSvc := serviceimpl.NewDefinitionService(repo)
-	orgSvc := serviceimpl.NewOrganizationService(repo)
+	orgSvc := serviceimpl.NewOrganizationService(repo, nil)
 	projectSvc := serviceimpl.NewProjectService(repo)
 	taskSvc := serviceimpl.NewTaskService(repo, engine, serviceimpl.NewAuditWriter(repo.Audit()))
 	externalTaskSvc := serviceimpl.NewExternalTaskService(repo, engine)
