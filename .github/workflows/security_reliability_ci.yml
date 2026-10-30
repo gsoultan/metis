@@ -260,7 +260,14 @@ jobs:
       - name: No suite skipped for want of a database
         run: |
           set -o pipefail
-          go list ./... | grep -v /tests/loadtest | xargs go test -count=1 -timeout 20m -v -p 2 2>&1 | tee /tmp/suite.log
+          # Summarised on failure, as the strict scope step below is, because
+          # the failing test's lines sit far above the end of the log, behind
+          # the database containers' output.
+          if ! go list ./... | grep -v /tests/loadtest | xargs go test -count=1 -timeout 20m -v -p 2 2>&1 | tee /tmp/suite.log; then
+            echo "::error::A test failed. The failing tests:"
+            grep -E -A 20 -- "^\s*--- FAIL|^panic:|^FAIL\s" /tmp/suite.log || true
+            exit 1
+          fi
           if grep -q -- "--- SKIP" /tmp/suite.log; then
             echo "::error::A test skipped, which means its DSN did not reach it:"
             grep -- "--- SKIP" /tmp/suite.log

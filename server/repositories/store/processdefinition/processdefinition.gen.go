@@ -2196,6 +2196,111 @@ func (q Query) OneVersion(ctx context.Context, ex runtime.Executor) (VersionRow,
 	return out[0], true, nil
 }
 
+// LabelRow is the "Label" projection: the same read, 4 column(s) instead of
+// the whole row. Narrower tuples, no TOAST fetch for what nobody asked,
+// and an index-only scan becomes POSSIBLE — the full-row read forecloses
+// it by construction.
+type LabelRow struct {
+	ID      [16]byte
+	Key     string
+	Name    string
+	Version int64
+}
+
+const labelPrefix = `SELECT "id", "key", "name", "version" FROM "process_definitions"`
+
+var (
+	labelCache       = runtime.NewTreeCache()
+	labelOffsetCache = runtime.NewTreeCache()
+)
+
+func labelStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	c, suffix := labelCache, limitSuffix
+	if withOffset {
+		c, suffix = labelOffsetCache, limitOffsetSuffix
+	}
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTreeWhere(labelPrefix, softDeleteWhere, toks, lowering, suffix))
+}
+
+var labelDeletedCaches = [2]*runtime.TreeCache{runtime.NewTreeCache(), runtime.NewTreeCache()}
+
+// labelDeletedStmtFor is labelStmtFor under WithDeleted: no soft-delete
+// predicate, because the model let this table's call sites ask for that.
+func labelDeletedStmtFor(toks []runtime.Tok, withOffset bool) *runtime.Stmt {
+	i, suffix := 0, limitSuffix
+	if withOffset {
+		i, suffix = 1, limitOffsetSuffix
+	}
+	c := labelDeletedCaches[i]
+	if st := c.Get(toks); st != nil {
+		return st
+	}
+	return c.Put(toks, runtime.SpliceTree(labelPrefix, toks, lowering, suffix))
+}
+
+func scanLabel(rv [][]byte, r *LabelRow, sl *runtime.Slab) error {
+	copy(r.ID[:], rv[0])
+	r.Key = sl.Str(rv[1])
+	r.Name = sl.Str(rv[2])
+	r.Version = runtime.Int8(rv[3])
+	return nil
+}
+
+// AllLabel runs the query projected to LabelRow. Predicates, ordering, limit,
+// offset and keyset all apply exactly as on All — a projection changes
+// what a row CARRIES, never which rows qualify. (After takes the full Row;
+// populate its ordering columns and the cursor works unchanged.)
+func (q Query) AllLabel(ctx context.Context, ex runtime.Executor) ([]LabelRow, error) {
+	var sl runtime.Slab
+	return q.AllLabelInto(ctx, ex, nil, &sl)
+}
+
+// AllLabelInto lets the caller own the output slice and the arena, exactly
+// as AllInto does — a projection's terminals mirror the full read's, so a
+// hot loop reuses both and a benchmark compares like with like.
+func (q Query) AllLabelInto(ctx context.Context, ex runtime.Executor, dst []LabelRow, sl *runtime.Slab) ([]LabelRow, error) {
+	if err := q.readErr(); err != nil {
+		return dst, err
+	}
+	var buf [21]runtime.Tok
+	pick := labelStmtFor
+	if q.deleted {
+		pick = labelDeletedStmtFor
+	}
+	st := pick(q.stream(&buf), q.offset > 0)
+	if st.Err != nil {
+		return dst, st.Err
+	}
+	sl.Reserve(st.SlabHint())
+	b := binders.Get()
+	defer putBinder(b)
+	rows, err := ex.Query(ctx, st.SQL, q.bind(b))
+	if err != nil {
+		return dst, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		dst = append(dst, LabelRow{})
+		if err := scanLabel(rows.RawValues(), &dst[len(dst)-1], sl); err != nil {
+			return dst, err
+		}
+	}
+	st.ObserveSlab(sl.Size())
+	return dst, rows.Err()
+}
+
+// OneLabel is AllLabel stopped at one row.
+func (q Query) OneLabel(ctx context.Context, ex runtime.Executor) (LabelRow, bool, error) {
+	out, err := q.Limit(1).AllLabel(ctx, ex)
+	if err != nil || len(out) == 0 {
+		return LabelRow{}, false, err
+	}
+	return out[0], true, nil
+}
+
 // ProcessesRow is the "Processes" aggregation over process_definitions.
 //
 // One row per group. The grouping columns come first, in declaration

@@ -23,6 +23,9 @@ type Repository interface {
 	RetentionHold() contracts.RetentionHoldRepository
 	// RetentionPeriod is the periods processes are given, a row per change.
 	RetentionPeriod() contracts.RetentionPeriodRepository
+	// Archive is the finished instances the retention sweep moved out of the
+	// live tables, read-only.
+	Archive() contracts.ArchiveRepository
 	// InstallationSetting is the server settings set from the Settings page,
 	// a row per change.
 	InstallationSetting() contracts.InstallationSettingRepository

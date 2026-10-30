@@ -1,10 +1,13 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/observers/impl"
 	"github.com/gsoultan/metis/server/domains/services"
@@ -21,9 +24,10 @@ import (
 	"github.com/gsoultan/storm/runtime"
 )
 
-// Finished instances are removed only when an operator says how long to keep
-// them, and then only the ones nothing still needs. Each goes with the rows
-// that exist only to run it; its audit trail stays.
+// Finished instances are archived once past their period, and only the ones
+// nothing still needs. Each leaves the live tables with the rows that exist
+// only to run it, and its record keeps all of them and its audit trail; the
+// entries naming somebody who acted stay in the live trail too.
 func TestTheInstanceSweepRemovesOnlyFinishedInstancesNothingStillNeeds(t *testing.T) {
 	conn := testutils.SetupTestDB(t)
 	repo := repositories.NewRepository(conn)
@@ -113,6 +117,15 @@ func TestTheInstanceSweepRemovesOnlyFinishedInstancesNothingStillNeeds(t *testin
 		entry.SetData(runtime.JSON("{}"))
 		_, err = entry.Insert(tenant, ex)
 		must("seed an audit entry", err)
+		act := auditentry.Create()
+		act.SetProjectID(projectID)
+		act.SetInstanceID(id)
+		act.SetType("TASK_REASSIGNED")
+		act.SetMessage("reassigned")
+		act.SetActor("ada")
+		act.SetData(runtime.JSON("{}"))
+		_, err = act.Insert(tenant, ex)
+		must("seed an audit entry somebody's act wrote", err)
 		instances[name] = id
 		return id
 	}
@@ -150,15 +163,10 @@ func TestTheInstanceSweepRemovesOnlyFinishedInstancesNothingStillNeeds(t *testin
 	instance("completed child of an active parent", models.ProcessCompleted, old, runningParent)
 	finishedParent := instance("completed parent of an active child", models.ProcessCompleted, old, uuid.Nil)
 	instance("active child", models.ProcessActive, old, finishedParent)
-	everyEntry := func() int64 {
-		t.Helper()
-		return count(auditentry.New().Unordered().Count(t.Context(), ex))
-	}
-	audits := everyEntry()
-
+	t.Setenv(envRetainFinishedInstancesDays, "0")
 	a.sweepRetention(ctx, time.Now(), resolveOptInRetention())
 	if n := count(processinstance.New().Unordered().Count(t.Context(), ex)); n != int64(len(instances)) {
-		t.Fatalf("an unconfigured sweep left %d of %d instances; want every one", n, len(instances))
+		t.Fatalf("a sweep with the period at 0 left %d of %d instances; want every one", n, len(instances))
 	}
 
 	t.Setenv(envRetainFinishedInstancesDays, "30")
@@ -170,6 +178,14 @@ func TestTheInstanceSweepRemovesOnlyFinishedInstancesNothingStillNeeds(t *testin
 
 	removed := map[string]bool{"completed long ago": true, "cancelled long ago": true}
 	for name, id := range instances {
+		expectArchived(t, a, tenant, name, id, removed[name])
+		engine := count(auditentry.New().Where(auditentry.InstanceID.Eq(id), auditentry.Actor.IsNull()).Count(t.Context(), ex))
+		if (engine == 1) == removed[name] {
+			t.Errorf("the %s instance's engine audit entry: left = %v, want %v", name, engine == 1, !removed[name])
+		}
+		if acts := count(auditentry.New().Where(auditentry.InstanceID.Eq(id), auditentry.Actor.IsNotNull()).Count(t.Context(), ex)); acts != 1 {
+			t.Errorf("the %s instance has %d live audit entries naming somebody, want 1: the audit log keeps who did what", name, acts)
+		}
 		left := count(processinstance.New().IDEq(id).Count(t.Context(), ex)) == 1
 		if left == removed[name] {
 			t.Errorf("the %s instance: left = %v, want %v", name, left, !removed[name])
@@ -185,7 +201,29 @@ func TestTheInstanceSweepRemovesOnlyFinishedInstancesNothingStillNeeds(t *testin
 			}
 		}
 	}
-	if n := everyEntry(); n != audits {
-		t.Errorf("the sweep left %d of %d audit entries; the audit trail is never swept", n, audits)
+}
+
+// expectArchived checks that an instance is in the archive, with everything
+// it owned and its whole trail, or that it is not there at all.
+func expectArchived(t *testing.T, a *App, tenant context.Context, name string, id uuid.UUID, want bool) {
+	t.Helper()
+	summary, record, err := a.repo.Archive().Get(tenant, id)
+	if !want {
+		if !errors.Is(err, apierr.ErrNotFound) {
+			t.Errorf("the %s instance reads from the archive with %v, want not found", name, err)
+		}
+		return
+	}
+	if err != nil {
+		t.Errorf("open the %s instance's archive record: %v", name, err)
+		return
+	}
+	if summary.ProcessKey != "claims" || summary.ProcessName != "Claims" || summary.ProcessVersion != 1 ||
+		uuid.UUID(record.Instance.ID) != id {
+		t.Errorf("the %s instance's archive summary is %+v", name, summary)
+	}
+	if len(record.Tasks) != 1 || len(record.ServiceCalls) != 1 || len(record.Notifications) != 1 || len(record.AuditTrail) != 2 {
+		t.Errorf("the %s instance's archive record holds %d tasks, %d service calls, %d notifications and %d audit entries; want 1, 1, 1 and 2",
+			name, len(record.Tasks), len(record.ServiceCalls), len(record.Notifications), len(record.AuditTrail))
 	}
 }

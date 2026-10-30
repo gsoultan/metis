@@ -160,24 +160,31 @@ open environment's:
 | `shared_counters` | 5 minutes | The rate-limit windows are one minute long. |
 | `external_task_workers` | 7 days since the worker last fetched | Long enough to say who served a topic before a weekend; worker ids made fresh at each start, as a container's hostname is, do not pile up. |
 
-Three more are cut back only when you say for how long to keep them. **All
-are off by default**, and an upgrade removes nothing until one is set:
+Finished instances are archived after 90 days unless you say otherwise, and
+three more tables are cut back only when you say for how long to keep them:
 
 | Setting | Removes | Never removes |
 | :--- | :--- | :--- |
 | `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` | `variable_snapshots` captured more than that many days ago. An instance's variable history then starts at the period's beginning. | Snapshots inside the period, of any instance. |
+| `METIS_RETENTION_ARCHIVE_DAYS` | `archived_instances` archived more than that many days ago, for good. Main database only. | Unset, every archived instance. |
 | `METIS_RETENTION_COMPLETED_JOBS_DAYS` | `jobs` that will never run again — `completed`, or `failed` with no unresolved incident naming them — neither due nor changed for that many days. | A `pending` or `running` job, and a `failed` job an open incident names: resolving the incident is what runs it again. The incidents themselves are kept. |
-| `METIS_RETENTION_FINISHED_INSTANCES_DAYS` | `process_instances` that `completed` or were `cancelled` and have not changed for that many days, with their `tasks`, `jobs`, `external_tasks`, `service_calls`, `incidents`, `event_subscriptions`, `compensatable_activities`, `variable_snapshots` and `notifications`. Main database only. | The audit trail. An instance any deviation was recorded or asked for on; one with an open incident; a `failed` or running one; a finished child of a running instance, and a finished parent of a running child; instances in an environment's own database; and every instance of a case an administrator placed a retention hold on, until it is released. A process given a period of its own is swept by that period instead. |
+| `METIS_RETENTION_FINISHED_INSTANCES_DAYS` (unset: 90; `0`: never) | **Archives**, not removes: `process_instances` that `completed` or were `cancelled` and have not changed for that many days are written, with their `tasks`, `service_calls`, `incidents`, `notifications`, `variable_snapshots` and audit trail, to one sealed record in `archived_instances`; then those rows, their `jobs`, `external_tasks`, `event_subscriptions`, `compensatable_activities` and the audit entries naming nobody are removed. 100 instances a transaction. Main database only. | The audit entries naming somebody who acted. An instance any deviation was recorded or asked for on; one with an open incident; a `failed` or running one; a finished child of a running instance, and a finished parent of a running child; instances in an environment's own database; and every instance of a case an administrator placed a retention hold on, until it is released. A process given a period of its own is swept by that period instead. |
 
-Each is a whole number of days from 1; anything else is ignored with a warning
-and removes nothing. They run in the same sweep, on every database, 5,000 rows
+Each is a whole number of days from 1, or `0` for never; anything else is
+ignored with a warning and removes nothing. They run in the same sweep, on every database, 5,000 rows
 a statement, and the server says at boot which are on.
 
-**The audit trail is never removed by the server**, at any setting: it is the
-record of who did what. Finished instances, and everything they own, go only
-when `METIS_RETENTION_FINISHED_INSTANCES_DAYS` is set; keeping or archiving
-them is a decision for whoever owns that record, so the server makes it only
-when told to.
+**A finished instance is archived, not lost.** Its record keeps the
+instance and everything it owned as they last stood, values and not the
+sealed or offloaded forms they were stored in, so a record still opens after
+its payload directory is gone. A project's archive is listed, newest first
+and searchable by process and business key, by
+`GET /api/v1/projects/{id}/archived-instances`, and one record is opened by
+`GET /api/v1/archived-instances/{id}`, by whoever may read the project's
+instances. The record column is sealed with `ENCRYPTION_KEY` as a whole, so
+`metis --reseal` moves it with the rest. The audit entries naming somebody
+who acted stay in `audit_logs` as well, so the audit log of who did what is
+not cut short.
 
 **A retention hold keeps a case whatever its age.** An administrator places
 one on an instance with `POST /api/v1/instances/{id}/retention-hold` and a
@@ -194,8 +201,8 @@ several replicas still run side by side. A project's holds are listed by
 "reason": "..."}`, for every version of that process. The sweep keeps each
 finished instance for its process's period, and for
 `METIS_RETENTION_FINISHED_INSTANCES_DAYS` where its process has none. A
-process's period applies even when that setting is unset, and then only the
-processes given one are swept. `"days": null` returns a process to the
+process's period applies even when that setting is `0`, and then only the
+processes given one are archived. `"days": null` returns a process to the
 installation's setting. Each change is a row of `retention_periods` that is
 never rewritten, so the history of a process's periods, who set each and why,
 is at `.../retention-periods/{key}/history`. The sweep takes this table in

@@ -65,13 +65,15 @@ type WaitingRow struct {
 }
 
 type ProcessRepository interface {
-	// ForgetFinished deletes the instances that completed or were cancelled
-	// longer ago than their process's retention period, or fallback where the
-	// process has none, and that nothing still needs, with the rows that exist
-	// only to run them. A zero fallback keeps the instances of every process
-	// that has no period of its own. The audit trail and any deviation record
-	// are kept. System context only: it spans every tenant.
-	ForgetFinished(ctx context.Context, now time.Time, fallback time.Duration) (int64, error)
+	// ArchiveFinished moves into the archive the instances that completed or
+	// were cancelled longer ago than their process's retention period, or
+	// fallback where the process has none, and that nothing still needs: each
+	// is written whole to archived_instances, and its live rows are removed.
+	// A zero fallback keeps the instances of every process that has no
+	// period of its own. Any deviation record is kept, and so are the
+	// instance's audit entries that name somebody who acted. System context
+	// only: it spans every tenant.
+	ArchiveFinished(ctx context.Context, now time.Time, fallback time.Duration) (int64, error)
 	// Existing answers which of ids have an instance row, in every tenant:
 	// what the payload sweep asks before it removes an instance's kept
 	// values. System context only.

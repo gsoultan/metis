@@ -62,7 +62,9 @@ func Target() (*schema.Schema, error) {
 
 // Steps is every migration after ConvertedVersion, for every database this
 // release reaches: the main one, each environment's, and the one the setup
-// wizard configures. None yet.
+// wizard configures.
 func Steps() []Migration {
-	return nil
+	return []Migration{
+		{Version: archivedInstancesVersion, Name: "archived instances", Run: addArchivedInstances},
+	}
 }

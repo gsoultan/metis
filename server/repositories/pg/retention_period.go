@@ -35,7 +35,7 @@ var errPeriodInAnEnvironment = apierr.Invalidf("instances in an environment's ow
 
 // Set records a change to a process's period.
 //
-// It waits for a sweep batch that is reading the periods (ForgetFinished),
+// It waits for a sweep batch that is reading the periods (ArchiveFinished),
 // so a batch decides each instance by the periods as they were when it began,
 // and the next by the change.
 func (r *retentionPeriodRepository) Set(ctx context.Context, period entities.RetentionPeriod) (entities.RetentionPeriod, error) {

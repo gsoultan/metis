@@ -344,3 +344,30 @@ func driftFrom(t *testing.T, pool *pgxpool.Pool, want *schema.Schema) []string {
 	}
 	return drift
 }
+
+// A database made before the archive is given the table by step 51, in the
+// shape the model declares; one created with it already is left as it is.
+func TestTheArchiveStepBringsAnOlderDatabaseToTheModel(t *testing.T) {
+	pool := testutils.EmptySchema(t)
+	ctx := t.Context()
+	if _, err := migrations.Run(ctx, pool, nil); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DROP TABLE archived_instances`); err != nil {
+		t.Fatalf("make the database one from before the archive: %v", err)
+	}
+	result, err := migrations.Run(ctx, pool, migrations.Steps())
+	if err != nil {
+		t.Fatalf("run the shipped steps: %v", err)
+	}
+	if !slices.Contains(result.Applied, 51) {
+		t.Fatalf("result %+v; want step 51 applied", result)
+	}
+	want, err := storm.Build(model.All()...)
+	if err != nil {
+		t.Fatalf("build the model: %v", err)
+	}
+	if drift := driftFrom(t, pool, want); len(drift) != 0 {
+		t.Errorf("after step 51 the database differs from the model:\n%s", strings.Join(drift, "\n"))
+	}
+}

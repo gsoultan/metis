@@ -8,6 +8,26 @@ import (
 	m0 "github.com/gsoultan/metis/server/repositories/model"
 )
 
+// _assertArchivedInstanceShape fails to compile if m0.ArchivedInstance gains, loses, renames or
+// reorders a field. Regenerate: `storm generate`.
+func _assertArchivedInstanceShape(m m0.ArchivedInstance) {
+	type shape m0.ArchivedInstance
+	_ = shape{
+		m.Model,
+		m.Project,
+		m.Definition,
+		m.ProcessKey,
+		m.ProcessName,
+		m.ProcessVersion,
+		m.BusinessKey,
+		m.Status,
+		m.StartedAt,
+		m.FinishedAt,
+		m.RecordStore,
+		m.Record,
+	}
+}
+
 // _assertAuditEntryShape fails to compile if m0.AuditEntry gains, loses, renames or
 // reorders a field. Regenerate: `storm generate`.
 func _assertAuditEntryShape(m m0.AuditEntry) {

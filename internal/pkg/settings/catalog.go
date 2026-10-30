@@ -51,8 +51,11 @@ var catalog = []Definition{
 		Kind: KindText, Applies: AtRestart},
 
 	// Retention: the opt-in sweeps.
-	{Name: "METIS_RETENTION_FINISHED_INSTANCES_DAYS", Group: GroupRetention, Label: "Finished instances",
-		Help: "Days a completed or cancelled instance is kept before it is removed. 0 keeps them for ever.", Default: "0 (kept for ever)",
+	{Name: "METIS_RETENTION_FINISHED_INSTANCES_DAYS", Group: GroupRetention, Label: "Archive finished instances after",
+		Help: "Days a completed or cancelled instance stays live before it is moved to the project's archive, where it can still be opened. 0 keeps them live for ever.", Default: "90",
+		Kind: KindDays, Min: 0, Max: maxDays, Applies: Live},
+	{Name: "METIS_RETENTION_ARCHIVE_DAYS", Group: GroupRetention, Label: "Archived instances",
+		Help: "Days an archived instance is kept before it is removed for good. 0 keeps them for ever.", Default: "0 (kept for ever)",
 		Kind: KindDays, Min: 0, Max: maxDays, Applies: Live},
 	{Name: "METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS", Group: GroupRetention, Label: "Variable history",
 		Help: "Days a variable's earlier values are kept. 0 keeps them for ever.", Default: "0 (kept for ever)",

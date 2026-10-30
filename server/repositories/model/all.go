@@ -68,6 +68,8 @@ func All() []any {
 		// Instances kept out of the retention sweep.
 		&RetentionHold{},
 		&RetentionPeriod{},
+		// Finished instances the retention sweep moved out of the tables above.
+		&ArchivedInstance{},
 		// Saved simulation test cases, per process.
 		&SimulationCase{},
 		// One-use links that let a person act on a task without signing in.

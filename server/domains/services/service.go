@@ -49,6 +49,7 @@ type service struct {
 	contracts.DeviationService
 	contracts.RetentionHoldService
 	contracts.RetentionPeriodService
+	contracts.ArchiveService
 	contracts.InstallationSettingService
 	contracts.BatchOperationService
 	contracts.OperationLogService
@@ -89,6 +90,7 @@ type ServiceParams struct {
 	DeviationService       contracts.DeviationService
 	RetentionHoldService   contracts.RetentionHoldService
 	RetentionPeriodService contracts.RetentionPeriodService
+	ArchiveService         contracts.ArchiveService
 	// InstallationSettingService is the Settings page's server settings.
 	InstallationSettingService contracts.InstallationSettingService
 	BatchOperationService      contracts.BatchOperationService
@@ -108,6 +110,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	}
 	if p.RetentionPeriodService == nil {
 		p.RetentionPeriodService = serviceimpl.NewUnavailableRetentionPeriodService()
+	}
+	if p.ArchiveService == nil {
+		p.ArchiveService = serviceimpl.NewUnavailableArchiveService()
 	}
 	if p.InstallationSettingService == nil {
 		p.InstallationSettingService = serviceimpl.NewUnavailableInstallationSettingService()
@@ -172,6 +177,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		DeviationService:           p.DeviationService,
 		RetentionHoldService:       p.RetentionHoldService,
 		RetentionPeriodService:     p.RetentionPeriodService,
+		ArchiveService:             p.ArchiveService,
 		InstallationSettingService: p.InstallationSettingService,
 		BatchOperationService:      p.BatchOperationService,
 		OperationLogService:        p.OperationLogService,
@@ -371,6 +377,7 @@ func NewServiceFacade(
 				serviceimpl.WithSoleAdministratorOrganizations(settings.soleAdministratorOrganizations))),
 		RetentionHoldService:       serviceimpl.NewRetentionHoldService(repo, auditWriter),
 		RetentionPeriodService:     serviceimpl.NewRetentionPeriodService(repo),
+		ArchiveService:             serviceimpl.NewArchiveService(repo),
 		InstallationSettingService: serviceimpl.NewInstallationSettingService(repo.InstallationSetting()),
 		BatchOperationService: serviceimpl.NewBatchOperationService(repo, instanceDeviator, jobSvc,
 			serviceimpl.AccountLoader(userSvc), serviceimpl.DefaultBatchOperationSettings()),

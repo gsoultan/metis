@@ -42,7 +42,7 @@ func TestTheSweepReadsEachProcesssNewestPeriod(t *testing.T) {
 	}
 	ageInstance(t.Context(), t, db, id, 2*24*time.Hour)
 
-	removed, err := repo.Process().ForgetFinished(entities.WithSystemContext(t.Context()), time.Now(), 0)
+	removed, err := repo.Process().ArchiveFinished(entities.WithSystemContext(t.Context()), time.Now(), 0)
 	if err != nil {
 		t.Fatalf("sweep: %v", err)
 	}

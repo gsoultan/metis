@@ -71,7 +71,7 @@ func TestTheSweepKeepsWhatAFinishedInstanceIsStillNeededFor(t *testing.T) {
 	}
 	instance("plain", models.ProcessCompleted, uuid.Nil)
 
-	if _, err := repo.Process().ForgetFinished(entities.WithSystemContext(t.Context()), time.Now(), 30*24*time.Hour); err != nil {
+	if _, err := repo.Process().ArchiveFinished(entities.WithSystemContext(t.Context()), time.Now(), 30*24*time.Hour); err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
 	gone := map[string]bool{"marked removed": true, "plain": true}
