@@ -307,3 +307,20 @@ describe('the migration dialog’s own words', () => {
     expect(english['migration.passedOverAllTitle']).toBe('This run moved no instance');
   });
 });
+
+/*
+ * The archive page is new and in both languages from the start: a page of
+ * Indonesian with English headings is the gap the other areas closed.
+ */
+describe('the archive page', () => {
+  it('is translated into Indonesian, every word of it, and not copied', async () => {
+    const english = (await import('./catalogues/en')).default;
+    const indonesian = (await import('./catalogues/id')).default;
+    const keys = Object.keys(english).filter((k) => k.startsWith('archive.') || k.startsWith('page.archive.') || k === 'nav.archive');
+    expect(keys.length).toBeGreaterThan(0);
+    for (const key of keys) {
+      expect(indonesian[key], `id has no words for "${key}"`).toBeDefined();
+      expect(indonesian[key], `id copies the English for "${key}"`).not.toBe(english[key]);
+    }
+  });
+});
