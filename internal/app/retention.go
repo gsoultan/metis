@@ -144,6 +144,7 @@ func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time, 
 		forget(ctx, "process_instances", database, func(ctx context.Context) (int64, error) {
 			return a.repo.Process().ArchiveFinished(ctx, now, keep.finishedInstances)
 		})
+		moveArchiveRecords(ctx, a.repo.Archive().MoveRecordsOut)
 		if keep.archive > 0 {
 			forget(ctx, "archived_instances", database, func(ctx context.Context) (int64, error) {
 				return a.repo.Archive().ForgetArchivedBefore(ctx, now.Add(-keep.archive))
@@ -241,6 +242,21 @@ func (k optInRetention) announce() {
 	if k.archive > 0 {
 		log.Info().Str("table", "archived_instances").Dur("kept", k.archive).
 			Msg("Archived instances older than the archive's retention period are removed")
+	}
+}
+
+// moveArchiveRecords moves the records archived since the last pass to the
+// store the operator chose for them, after the transactions that archived
+// them have committed. Not retention, but the same shape: main database
+// only, safe to run twice.
+func moveArchiveRecords(ctx context.Context, run func(context.Context) (int64, error)) {
+	moved, err := run(ctx)
+	if moved > 0 {
+		log.Info().Int64("moved", moved).Msg("Moved archived instances' records to their store")
+	}
+	if err != nil {
+		log.Warn().Err(err).Msg("Could not move every archived instance's record to its store; those left are kept in the database " +
+			"and can still be opened, and the next sweep tries again.")
 	}
 }
 

@@ -31,7 +31,11 @@ type ArchiveRepository interface {
 	List(ctx context.Context, projectID uuid.UUID, filter ArchiveFilter) ([]models.ArchivedInstanceModel, error)
 	// Get reads one archived instance and opens its record.
 	Get(ctx context.Context, instanceID uuid.UUID) (models.ArchivedInstanceModel, models.ArchiveRecord, error)
-	// ForgetArchivedBefore removes the records archived before cutoff. System
-	// context only: it spans every tenant.
+	// MoveRecordsOut moves the records still kept in their rows to the store
+	// the operator chose for them; with none chosen it does nothing. System
+	// context only.
+	MoveRecordsOut(ctx context.Context) (int64, error)
+	// ForgetArchivedBefore removes the records archived before cutoff, from
+	// wherever they are kept. System context only: it spans every tenant.
 	ForgetArchivedBefore(ctx context.Context, cutoff time.Time) (int64, error)
 }

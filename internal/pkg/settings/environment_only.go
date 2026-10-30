@@ -15,6 +15,7 @@ const (
 	reasonLeavesInstall  = "Sends a project's work to a broker outside Metis: whether work leaves the installation is the operator's decision."
 	reasonLinks          = "Task links carry sign-in tokens; the address they point at is the operator's to choose."
 	reasonDeprecated     = "Deprecated: register each receiver as a project's outgoing webhook instead."
+	reasonArchiveStore   = "Where archived instances' records are kept, opened at start-up with the payload directory. A wrong value saved from the UI would leave records nobody can read."
 )
 
 // environmentOnly is every setting the server reads that the Settings page
@@ -40,6 +41,13 @@ var environmentOnly = []Fixed{
 	{Name: "METIS_PPROF_ADDRESS", Class: ClassBootstrap, Reason: reasonListener},
 	{Name: "METIS_PAYLOAD_DIR", Class: ClassBootstrap, Reason: "A directory on each server's own disk, read before the database is open."},
 	{Name: "METIS_PAYLOAD_THRESHOLD_BYTES", Class: ClassBootstrap, Reason: "Configured with the payload directory, before the database is open."},
+	{Name: "METIS_ARCHIVE_STORE", Class: ClassBootstrap, Reason: reasonArchiveStore},
+	{Name: "METIS_ARCHIVE_DIR", Class: ClassBootstrap, Reason: reasonArchiveStore},
+	{Name: "METIS_ARCHIVE_S3_BUCKET", Class: ClassBootstrap, Reason: reasonArchiveStore},
+	{Name: "METIS_ARCHIVE_S3_PREFIX", Class: ClassBootstrap, Reason: reasonArchiveStore},
+	{Name: "METIS_ARCHIVE_S3_REGION", Class: ClassBootstrap, Reason: reasonArchiveStore},
+	{Name: "METIS_ARCHIVE_S3_ENDPOINT", Class: ClassBootstrap, Reason: reasonArchiveStore},
+	{Name: "METIS_ARCHIVE_S3_PATH_STYLE", Class: ClassBootstrap, Reason: reasonArchiveStore},
 	{Name: "METIS_ALLOW_WEAK_SECRETS", Class: ClassBootstrap, Reason: reasonBreakGlass},
 	{Name: "METIS_REFUSE_SCHEMA_DRIFT", Class: ClassBootstrap, Reason: "Decides whether the server starts at all, before the saved settings are read."},
 	{Name: "METIS_NEW_PASSWORD", Class: ClassBootstrap, Reason: reasonBreakGlass, Secret: true},
