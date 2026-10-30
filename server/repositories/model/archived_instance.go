@@ -69,6 +69,9 @@ func (a *ArchivedInstance) Schema(t *storm.Table) {
 	// The archive sweep removes records archived before its period, a batch
 	// at a time.
 	t.Col(&a.CreatedAt).Index()
+	// The records still in their rows, when the operator has chosen a store
+	// outside the database for them: the sweep moves these, oldest first.
+	t.Index(&a.CreatedAt, &a.ID).Where("((record_store)::text = 'database'::text)").Named("ix_archived_instances_in_database")
 	t.Takes()
 }
 

@@ -36,6 +36,7 @@ CREATE TABLE "archived_instances" (
 );
 CREATE INDEX "ix_archived_instances_business_key" ON "archived_instances" ("project_id", "business_key");
 CREATE INDEX "ix_archived_instances_created_at" ON "archived_instances" ("created_at");
+CREATE INDEX "ix_archived_instances_in_database" ON "archived_instances" ("created_at", "id") WHERE ((record_store)::text = 'database'::text);
 CREATE INDEX "ix_archived_instances_process_finished" ON "archived_instances" ("project_id", "process_key", "finished_at" DESC, "id" DESC);
 CREATE INDEX "ix_archived_instances_project_finished" ON "archived_instances" ("project_id", "finished_at" DESC, "id" DESC);
 ALTER TABLE "archived_instances" ADD CONSTRAINT "fk_archived_instances_project_id" FOREIGN KEY ("project_id") REFERENCES "projects" ("id");
