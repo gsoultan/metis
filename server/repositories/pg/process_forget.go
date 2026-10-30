@@ -41,8 +41,9 @@ import (
 // Removed rows count as the sweep found them: a marked instance is forgotten
 // like a live one, and a marked incident, child or version is still read.
 //
-// The audit trail is not touched: it is the record of who did what, and is
-// kept for as long as the installation is.
+// The audit trail goes into the archive with the instance (see
+// archiveInstances); the entries that name somebody who acted also stay in
+// the live trail.
 type forgetBatch struct {
 	finished []string
 	earliest time.Time

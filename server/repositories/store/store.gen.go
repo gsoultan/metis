@@ -11,6 +11,7 @@ import (
 
 	"time"
 
+	"github.com/gsoultan/metis/server/repositories/store/archivedinstance"
 	"github.com/gsoultan/metis/server/repositories/store/auditentry"
 	"github.com/gsoultan/metis/server/repositories/store/batchoperation"
 	"github.com/gsoultan/metis/server/repositories/store/batchoperationitem"
@@ -88,43 +89,44 @@ var FlushOrder = map[string]int{
 	"webhooks":                    15,
 	"workflow_groups":             16,
 	"workflow_users":              17,
-	"audit_logs":                  18,
-	"batch_operations":            19,
-	"connector_instances":         20,
-	"decision_definitions":        21,
-	"decision_releases":           22,
-	"deployments":                 23,
-	"environments":                24,
-	"external_task_workers":       25,
-	"forms":                       26,
-	"groups":                      27,
-	"memberships":                 28,
-	"outgoing_webhooks":           29,
-	"participant_sources":         30,
-	"person_api_keys":             31,
-	"platform_role_assignments":   32,
-	"process_definition_releases": 33,
-	"process_definitions":         34,
-	"process_instances":           35,
-	"service_calls":               36,
-	"tasks":                       37,
-	"user_organizations":          38,
-	"user_projects":               39,
-	"variable_snapshots":          40,
-	"webhook_deliveries":          41,
-	"workflow_group_memberships":  42,
-	"batch_operation_items":       43,
-	"broadcast_events":            44,
-	"compensatable_activities":    45,
-	"deployment_resources":        46,
-	"deviation_requests":          47,
-	"event_subscriptions":         48,
-	"external_tasks":              49,
-	"instance_deviations":         50,
-	"jobs":                        51,
-	"notifications":               52,
-	"outgoing_webhook_deliveries": 53,
-	"incidents":                   54,
+	"archived_instances":          18,
+	"audit_logs":                  19,
+	"batch_operations":            20,
+	"connector_instances":         21,
+	"decision_definitions":        22,
+	"decision_releases":           23,
+	"deployments":                 24,
+	"environments":                25,
+	"external_task_workers":       26,
+	"forms":                       27,
+	"groups":                      28,
+	"memberships":                 29,
+	"outgoing_webhooks":           30,
+	"participant_sources":         31,
+	"person_api_keys":             32,
+	"platform_role_assignments":   33,
+	"process_definition_releases": 34,
+	"process_definitions":         35,
+	"process_instances":           36,
+	"service_calls":               37,
+	"tasks":                       38,
+	"user_organizations":          39,
+	"user_projects":               40,
+	"variable_snapshots":          41,
+	"webhook_deliveries":          42,
+	"workflow_group_memberships":  43,
+	"batch_operation_items":       44,
+	"broadcast_events":            45,
+	"compensatable_activities":    46,
+	"deployment_resources":        47,
+	"deviation_requests":          48,
+	"event_subscriptions":         49,
+	"external_tasks":              50,
+	"instance_deviations":         51,
+	"jobs":                        52,
+	"notifications":               53,
+	"outgoing_webhook_deliveries": 54,
+	"incidents":                   55,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -137,6 +139,240 @@ func NewUnit() *runtime.Unit { return runtime.NewUnit(FlushOrder) }
 // reaching it: an error, never a partial result. Override per plan with
 // ChildLimit.
 const defaultChildLimit = 1 << 20
+
+// ArchivedInstanceWithDefinitionRow is archived_instances with its Definition loaded.
+type ArchivedInstanceWithDefinitionRow struct {
+	archivedinstance.Row
+	// A pointer because nothing keeps the target there: the column has no
+	// foreign key. nil means the row it names is gone.
+	Definition *processdefinition.Row
+}
+
+type ArchivedInstanceWithDefinitionQuery struct {
+	q archivedinstance.Query
+}
+
+// ArchivedInstanceWithDefinition starts the plan.
+func ArchivedInstanceWithDefinition() ArchivedInstanceWithDefinitionQuery {
+	return ArchivedInstanceWithDefinitionQuery{q: archivedinstance.New()}
+}
+
+func (p ArchivedInstanceWithDefinitionQuery) Where(ps ...archivedinstance.Pred) ArchivedInstanceWithDefinitionQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p ArchivedInstanceWithDefinitionQuery) WhereIf(cond bool, pr archivedinstance.Pred) ArchivedInstanceWithDefinitionQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p ArchivedInstanceWithDefinitionQuery) Any(ps ...archivedinstance.Pred) ArchivedInstanceWithDefinitionQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p ArchivedInstanceWithDefinitionQuery) Not(pr archivedinstance.Pred) ArchivedInstanceWithDefinitionQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p ArchivedInstanceWithDefinitionQuery) NotAny(ps ...archivedinstance.Pred) ArchivedInstanceWithDefinitionQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p ArchivedInstanceWithDefinitionQuery) Order(ts ...archivedinstance.Sort) ArchivedInstanceWithDefinitionQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p ArchivedInstanceWithDefinitionQuery) Limit(n int64) ArchivedInstanceWithDefinitionQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p ArchivedInstanceWithDefinitionQuery) Offset(n int64) ArchivedInstanceWithDefinitionQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p ArchivedInstanceWithDefinitionQuery) After(r ArchivedInstanceWithDefinitionRow) ArchivedInstanceWithDefinitionQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p ArchivedInstanceWithDefinitionQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p ArchivedInstanceWithDefinitionQuery) All(ctx context.Context, ex runtime.Executor) ([]ArchivedInstanceWithDefinitionRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]ArchivedInstanceWithDefinitionRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = ArchivedInstanceWithDefinitionRow{Row: r}
+		key := r.DefinitionID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := processdefinition.New().Unordered().
+		Where(processdefinition.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.DefinitionID
+		j, ok := by[key]
+		if !ok {
+			continue // no foreign key: the row it names may be gone
+		}
+		out[i].Definition = &targets[j]
+	}
+	return out, nil
+}
+
+// ArchivedInstanceWithProjectRow is archived_instances with its Project loaded.
+type ArchivedInstanceWithProjectRow struct {
+	archivedinstance.Row
+	Project project.Row
+}
+
+type ArchivedInstanceWithProjectQuery struct {
+	q archivedinstance.Query
+}
+
+// ArchivedInstanceWithProject starts the plan.
+func ArchivedInstanceWithProject() ArchivedInstanceWithProjectQuery {
+	return ArchivedInstanceWithProjectQuery{q: archivedinstance.New()}
+}
+
+func (p ArchivedInstanceWithProjectQuery) Where(ps ...archivedinstance.Pred) ArchivedInstanceWithProjectQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p ArchivedInstanceWithProjectQuery) WhereIf(cond bool, pr archivedinstance.Pred) ArchivedInstanceWithProjectQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p ArchivedInstanceWithProjectQuery) Any(ps ...archivedinstance.Pred) ArchivedInstanceWithProjectQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p ArchivedInstanceWithProjectQuery) Not(pr archivedinstance.Pred) ArchivedInstanceWithProjectQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p ArchivedInstanceWithProjectQuery) NotAny(ps ...archivedinstance.Pred) ArchivedInstanceWithProjectQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p ArchivedInstanceWithProjectQuery) Order(ts ...archivedinstance.Sort) ArchivedInstanceWithProjectQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p ArchivedInstanceWithProjectQuery) Limit(n int64) ArchivedInstanceWithProjectQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p ArchivedInstanceWithProjectQuery) Offset(n int64) ArchivedInstanceWithProjectQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p ArchivedInstanceWithProjectQuery) After(r ArchivedInstanceWithProjectRow) ArchivedInstanceWithProjectQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p ArchivedInstanceWithProjectQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p ArchivedInstanceWithProjectQuery) All(ctx context.Context, ex runtime.Executor) ([]ArchivedInstanceWithProjectRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]ArchivedInstanceWithProjectRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = ArchivedInstanceWithProjectRow{Row: r}
+		key := r.ProjectID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := project.New().Unordered().
+		Where(project.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.ProjectID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "archived_instances", "projects")
+		}
+		out[i].Project = targets[j]
+	}
+	return out, nil
+}
 
 // AuditEntryWithInstanceRow is audit_logs with its Instance loaded.
 type AuditEntryWithInstanceRow struct {

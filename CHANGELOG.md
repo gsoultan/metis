@@ -21,10 +21,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   server does not start. It rewrites tables, so plan a maintenance window
   sized by the rehearsal, and take a backup first.
 
+- **51** adds `archived_instances`. A short step: it creates an empty table.
+- **Finished instances are archived after 90 days.** With
+  `METIS_RETENTION_FINISHED_INSTANCES_DAYS` unset, the first sweep after the
+  upgrade moves every completed or cancelled instance finished more than 90
+  days ago into the project's archive. Set it to `0` before upgrading to keep
+  every instance live, as before
+  ([Finished instances are archived](docs/upgrading.md#finished-instances-are-archived-migration-51)).
+
+### Added
+
+- **An archive of finished instances.** The retention sweep no longer deletes
+  a finished instance past its period: it writes the instance, its tasks,
+  service calls, incidents, notifications, variable history and audit trail
+  to one sealed record in `archived_instances`, then removes the live rows.
+  `GET /api/v1/projects/{id}/archived-instances` lists a project's archive,
+  searchable by process and business key, and
+  `GET /api/v1/archived-instances/{id}` opens one record; both are open to
+  whoever may read the project's instances. `METIS_RETENTION_ARCHIVE_DAYS`
+  removes archived instances after that many days; unset, they are kept.
+
 ### Changed
 
 - **GORM is gone.** The schema, its migrations and every query go through
   storm.
+- **`METIS_RETENTION_FINISHED_INSTANCES_DAYS` archives instead of deleting**,
+  and defaults to 90. The audit entries an archived instance's run wrote go
+  into its record; the entries naming somebody who acted stay in the live
+  audit log as well.
 
 ## [0.6.0] - 2026-10-29
 

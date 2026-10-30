@@ -4,6 +4,7 @@ import (
 	"github.com/go-kit/kit/endpoint"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services"
+	"github.com/gsoultan/metis/server/endpoints/archive"
 	"github.com/gsoultan/metis/server/endpoints/batchoperation"
 	"github.com/gsoultan/metis/server/endpoints/collaboration"
 	"github.com/gsoultan/metis/server/endpoints/connector"
@@ -56,6 +57,7 @@ type Endpoints struct {
 	BatchOperation    batchoperation.Endpoints
 	OperationLog      operationlog.Endpoints
 	RetentionPeriod   retentionperiod.Endpoints
+	Archive           archive.Endpoints
 	ServerSetting     serversetting.Endpoints
 	Organization      organization.Endpoints
 	Process           process.Endpoints
@@ -356,6 +358,13 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	periodEndpoints.ListRetentionPeriods = protected("ListRetentionPeriods")(periodEndpoints.ListRetentionPeriods)
 	periodEndpoints.RetentionPeriodHistory = protected("RetentionPeriodHistory")(periodEndpoints.RetentionPeriodHistory)
 
+	// Reading the archive takes what reading a live instance takes: a
+	// signed-in account of the project's organization. The repository answers
+	// another organization's archive as not found.
+	archiveEndpoints := archive.MakeEndpoints(s)
+	archiveEndpoints.ListArchivedInstances = protected("ListArchivedInstances")(archiveEndpoints.ListArchivedInstances)
+	archiveEndpoints.GetArchivedInstance = protected("GetArchivedInstance")(archiveEndpoints.GetArchivedInstance)
+
 	// The server's settings are every organization's: a mail server, a
 	// retention period, a worker count. So reading and changing them is a
 	// platform administrator's, reading included, since the page also shows
@@ -574,6 +583,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		BatchOperation:    batchEndpoints,
 		OperationLog:      operationLogEndpoints,
 		RetentionPeriod:   periodEndpoints,
+		Archive:           archiveEndpoints,
 		ServerSetting:     serverSettingEndpoints,
 		Organization:      organizationEndpoints,
 		Process:           processEndpoints,

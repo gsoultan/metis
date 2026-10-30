@@ -17,11 +17,18 @@ import (
 	"github.com/gsoultan/storm/runtime"
 )
 
-// ForgetFinished deletes, a batch at a time, the instances that finished
-// longer ago than their period and that nothing still needs, with their
-// tasks, jobs, external tasks, service calls, incidents, subscriptions,
-// compensation records, variable snapshots and notifications. It returns how
-// many instances went.
+// archiveBatch is how many instances one transaction of the sweep archives.
+// Far fewer than a prune's batch: each instance is read whole, with
+// everything it owns, and its record is built in memory before it is written.
+const archiveBatch = 100
+
+// ArchiveFinished moves into the archive, a batch at a time, the instances
+// that finished longer ago than their period and that nothing still needs.
+// Each is written whole to archived_instances (see archiveInstances), and
+// then its tasks, jobs, external tasks, service calls, incidents,
+// subscriptions, compensation records, variable snapshots, notifications and
+// the audit entries that name nobody are removed from the live tables. It
+// returns how many instances went.
 //
 // fallback is the installation's period, for the processes that have none of
 // their own; zero means the installation has none, and then only the
@@ -33,12 +40,12 @@ import (
 // Each batch is a transaction of its own, so the lock on the holds is let go
 // between batches and a sweep that is clearing a backlog does not keep a hold
 // waiting for all of it.
-func (r *processRepository) ForgetFinished(ctx context.Context, now time.Time, fallback time.Duration) (int64, error) {
+func (r *processRepository) ArchiveFinished(ctx context.Context, now time.Time, fallback time.Duration) (int64, error) {
 	if !entities.IsSystemContext(ctx) {
-		return 0, fmt.Errorf("%w: forgetting finished instances spans every tenant", apierr.ErrForbidden)
+		return 0, fmt.Errorf("%w: archiving finished instances spans every tenant", apierr.ErrForbidden)
 	}
 	if db.InTransaction(ctx) {
-		return 0, errors.New("forgetting finished instances commits a batch at a time, and must not be started inside a transaction")
+		return 0, errors.New("archiving finished instances commits a batch at a time, and must not be started inside a transaction")
 	}
 	shortest, err := r.shortestPeriod(ctx)
 	if err != nil {
@@ -60,19 +67,19 @@ func (r *processRepository) ForgetFinished(ctx context.Context, now time.Time, f
 		earliest: now.Add(-time.Duration(shortest) * 24 * time.Hour),
 		now:      now,
 		fallback: fallbackDays,
-		size:     db.PruneBatch,
+		size:     archiveBatch,
 	}
 	var total int64
 	for {
 		if err := ctx.Err(); err != nil {
 			return total, err
 		}
-		removed, err := r.forgetOneBatch(ctx, batch)
+		removed, err := r.archiveOneBatch(ctx, batch)
 		total += removed
 		if err != nil {
-			return total, fmt.Errorf("could not forget finished instances: %w", err)
+			return total, fmt.Errorf("could not archive finished instances: %w", err)
 		}
-		if removed < db.PruneBatch {
+		if removed < int64(batch.size) {
 			return total, nil
 		}
 	}
@@ -132,9 +139,9 @@ func newestPeriods(ctx context.Context, ex runtime.Executor) (map[processKey]run
 	}
 }
 
-// forgetOneBatch removes one batch, with the holds and the periods held
+// archiveOneBatch archives one batch, with the holds and the periods held
 // still for as long as it takes.
-func (r *processRepository) forgetOneBatch(ctx context.Context, batch forgetBatch) (int64, error) {
+func (r *processRepository) archiveOneBatch(ctx context.Context, batch forgetBatch) (int64, error) {
 	var removed int64
 	err := r.conn.conn.Transact(ctx, func(ctx context.Context) error {
 		ex, err := r.conn.conn.Executor(ctx)
@@ -146,6 +153,9 @@ func (r *processRepository) forgetOneBatch(ctx context.Context, batch forgetBatc
 		}
 		doomed, err := batch.doomed(ctx, ex)
 		if err != nil || len(doomed) == 0 {
+			return err
+		}
+		if err := archiveInstances(ctx, ex, doomed, batch.now); err != nil {
 			return err
 		}
 		removed, err = forgetInstances(ctx, ex, doomed)

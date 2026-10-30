@@ -77,4 +77,6 @@ func (d *ProcessDefinition) Aggregates(a *storm.Aggregates) {
 // reads that look versions up by process without their graphs.
 func (d *ProcessDefinition) Projections(p *storm.Projections) {
 	p.Named("Version", &d.ID, &d.Project, &d.Key)
+	// Label is what a version is called, which an archived instance keeps.
+	p.Named("Label", &d.ID, &d.Key, &d.Name, &d.Version)
 }

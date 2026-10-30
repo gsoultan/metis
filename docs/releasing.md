@@ -77,10 +77,11 @@ this file's history.
   administrator](upgrading.md#a-second-administrator-approves-waivers-and-skips-migration-34)).
 - [ ] **Organizations with one administrator.** Appoint a second, or name the
   organization in `METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS`.
-- [ ] **Retention.** Decide each of `METIS_RETENTION_FINISHED_INSTANCES_DAYS`,
-  `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` and
-  `METIS_RETENTION_COMPLETED_JOBS_DAYS`, or leave them unset to keep
-  everything. Staging is where a setting is tried first.
+- [ ] **Retention.** Decide each of `METIS_RETENTION_FINISHED_INSTANCES_DAYS`
+  (unset archives finished instances after 90 days; `0` keeps them live),
+  `METIS_RETENTION_ARCHIVE_DAYS`, `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` and
+  `METIS_RETENTION_COMPLETED_JOBS_DAYS` (unset keeps them). Staging is where a
+  setting is tried first.
 - [ ] **A backup**, taken and restored once (`scripts/backup.sh`,
   `scripts/restore.sh`), so the rollback below has something to roll back to.
 

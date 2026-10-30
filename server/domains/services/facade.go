@@ -93,6 +93,9 @@ type ServiceFacade interface {
 	// RetentionPeriodService gives a process a retention period of its own,
 	// an administrator's act with a reason, every change kept.
 	serviceContracts.RetentionPeriodService
+	// ArchiveService reads the finished instances the retention sweep
+	// archived.
+	serviceContracts.ArchiveService
 
 	// InstallationSettingService reads and changes the server settings on the
 	// Settings page: a platform administrator's act with a reason, every

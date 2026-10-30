@@ -272,31 +272,39 @@ func (r *auditRepository) read(ctx context.Context, q auditentry.Query) ([]model
 	}
 	out := make([]models.AuditModel, 0, len(rows))
 	for _, row := range rows {
-		entry := models.AuditModel{
-			Base: models.Base{
-				ID:        models.UUID(row.ID),
-				CreatedAt: row.CreatedAt,
-				UpdatedAt: row.UpdatedAt,
-			},
-			ProjectID:  models.UUID(row.ProjectID),
-			InstanceID: models.UUID(row.InstanceID),
-			Type:       row.Type,
-			NodeID:     valueOr(row.NodeID),
-			NodeName:   valueOr(row.NodeName),
-			Message:    row.Message,
-			Narrative:  valueOr(row.Narrative),
-			Actor:      valueOr(row.Actor),
-		}
-		// 0 is an entry written before there was an order to record.
-		if seq := row.Seq; seq != 0 {
-			entry.Seq = &seq
-		}
-		if len(row.Data) > 0 {
-			if err := unseal(row.Data, &entry.Data); err != nil {
-				return nil, fmt.Errorf("could not decode an audit entry's data: %w", err)
-			}
+		entry, err := auditFrom(row)
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, entry)
 	}
 	return out, nil
+}
+
+func auditFrom(row auditentry.Row) (models.AuditModel, error) {
+	entry := models.AuditModel{
+		Base: models.Base{
+			ID:        models.UUID(row.ID),
+			CreatedAt: row.CreatedAt,
+			UpdatedAt: row.UpdatedAt,
+		},
+		ProjectID:  models.UUID(row.ProjectID),
+		InstanceID: models.UUID(row.InstanceID),
+		Type:       row.Type,
+		NodeID:     valueOr(row.NodeID),
+		NodeName:   valueOr(row.NodeName),
+		Message:    row.Message,
+		Narrative:  valueOr(row.Narrative),
+		Actor:      valueOr(row.Actor),
+	}
+	// 0 is an entry written before there was an order to record.
+	if seq := row.Seq; seq != 0 {
+		entry.Seq = &seq
+	}
+	if len(row.Data) > 0 {
+		if err := unseal(row.Data, &entry.Data); err != nil {
+			return models.AuditModel{}, fmt.Errorf("could not decode an audit entry's data: %w", err)
+		}
+	}
+	return entry, nil
 }

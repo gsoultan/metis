@@ -105,6 +105,19 @@ func TestAProcessKeepsItsFinishedInstancesForItsOwnPeriod(t *testing.T) {
 	p.expect(nil, map[string]uuid.UUID{"a claim past the installation's period once its process followed it again": claimsInside})
 }
 
+// With the installation's period unset, finished instances are archived
+// after ninety days.
+func TestAnUnsetInstallationPeriodArchivesAfterNinetyDays(t *testing.T) {
+	p := newPeriodSweep(t, "")
+	past := p.finishedAgo(p.payroll, 91*day)
+	inside := p.finishedAgo(p.payroll, 80*day)
+	p.sweep()
+	p.expect(
+		map[string]uuid.UUID{"a payroll run inside the default ninety days": inside},
+		map[string]uuid.UUID{"a payroll run past the default ninety days": past},
+	)
+}
+
 // A shorter period than the installation's removes that process's instances
 // sooner, and no other process's.
 func TestAProcessGivenAShorterPeriodIsSweptSooner(t *testing.T) {
@@ -119,10 +132,10 @@ func TestAProcessGivenAShorterPeriodIsSweptSooner(t *testing.T) {
 	)
 }
 
-// With no installation period, only the processes given one are swept: the
-// rest are kept however old, as they were before any period was set.
+// With the installation's period at 0, only the processes given one are
+// swept: the rest are kept however old.
 func TestWithNoInstallationPeriodOnlyProcessesGivenOneAreSwept(t *testing.T) {
-	p := newPeriodSweep(t, "")
+	p := newPeriodSweep(t, "0")
 	ancientPayroll := p.finishedAgo(p.payroll, 3000*day)
 	ancientClaim := p.finishedAgo(p.definition, 3000*day)
 	p.sweep()

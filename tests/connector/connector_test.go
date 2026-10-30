@@ -120,6 +120,7 @@ func (m *MockRepository) DeviationRequest() contracts.DeviationRequestRepository
 func (m *MockRepository) DeviationDecider() contracts.DeviationDecider         { return nil }
 func (m *MockRepository) RetentionHold() contracts.RetentionHoldRepository     { return nil }
 func (m *MockRepository) RetentionPeriod() contracts.RetentionPeriodRepository { return nil }
+func (m *MockRepository) Archive() contracts.ArchiveRepository                 { return nil }
 func (m *MockRepository) InstallationSetting() contracts.InstallationSettingRepository {
 	return nil
 }

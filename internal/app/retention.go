@@ -131,32 +131,46 @@ func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time, 
 			return a.repo.Job().ForgetFinishedBefore(ctx, now.Add(-keep.finishedJobs))
 		})
 	}
-	// Main database only. The deviation ledger, which decides whether an
+	// Main database only. Finished instances are archived, not removed: see
+	// ArchiveFinished. The deviation ledger, which decides whether an
 	// instance is kept, lives there; an environment's database has none, so
 	// nothing there could say an instance is still needed.
 	//
 	// It runs whether or not the installation has a period: an administrator
 	// may have given one process a period of its own, and the sweep then
 	// removes that process's instances and no other's. With no period
-	// anywhere it reads one row and removes nothing.
+	// anywhere it reads one row and archives nothing.
 	if database == "main" {
 		forget(ctx, "process_instances", database, func(ctx context.Context) (int64, error) {
-			return a.repo.Process().ForgetFinished(ctx, now, keep.finishedInstances)
+			return a.repo.Process().ArchiveFinished(ctx, now, keep.finishedInstances)
 		})
+		if keep.archive > 0 {
+			forget(ctx, "archived_instances", database, func(ctx context.Context) (int64, error) {
+				return a.repo.Archive().ForgetArchivedBefore(ctx, now.Add(-keep.archive))
+			})
+		}
 	}
 	expire(ctx, database, func(ctx context.Context) (entities.SweptRequests, error) {
 		return a.svc.SweepDeviationRequests(ctx, now)
 	})
 }
 
-// The retention an operator opts into, in days. Unset, nothing is removed:
-// these rows are history somebody may still read, unlike the three above,
-// which answer a question only for minutes or hours.
+// The retention an operator sets, in days. Unset, variable snapshots, jobs
+// and archived instances are kept: these rows are history somebody may still
+// read, unlike the three above, which answer a question only for minutes or
+// hours. Finished instances are archived after defaultArchiveAfterDays unless
+// set otherwise; archiving removes nothing, it moves an instance out of the
+// tables the engine works in.
 const (
 	envRetainVariableSnapshotsDays = "METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS"
 	envRetainCompletedJobsDays     = "METIS_RETENTION_COMPLETED_JOBS_DAYS"
 	envRetainFinishedInstancesDays = "METIS_RETENTION_FINISHED_INSTANCES_DAYS"
+	envRetainArchiveDays           = "METIS_RETENTION_ARCHIVE_DAYS"
 )
+
+// defaultArchiveAfterDays is how long a finished instance stays live when
+// METIS_RETENTION_FINISHED_INSTANCES_DAYS is not set. 0 keeps every one live.
+const defaultArchiveAfterDays = 90
 
 // maxRetentionDays bounds the setting so a typo of extra digits is refused
 // rather than turned into a duration that overflows.
@@ -166,21 +180,27 @@ const maxRetentionDays = 36_500
 // means the table is not swept at all.
 //
 // Finished instances are business records — what was decided, and when — so
-// they are removed only when an operator has said for how long to keep them,
-// and then with care: see ProcessRepository.ForgetFinished, which keeps
-// any instance a deviation was recorded or asked for on. The audit trail is
-// never swept: it is the evidence of who did what.
+// they are archived, not removed, and then with care: see
+// ProcessRepository.ArchiveFinished, which keeps live any instance a deviation
+// was recorded or asked for on. Archived instances are removed only when an
+// operator has said for how long to keep the archive.
 type optInRetention struct {
 	variableSnapshots time.Duration
 	finishedJobs      time.Duration
 	finishedInstances time.Duration
+	archive           time.Duration
 }
 
 func resolveOptInRetention() optInRetention {
+	finished := retentionDays(envRetainFinishedInstancesDays)
+	if raw, set := envvar.Lookup(envRetainFinishedInstancesDays); !set || strings.TrimSpace(raw) == "" {
+		finished = defaultArchiveAfterDays * 24 * time.Hour
+	}
 	return optInRetention{
 		variableSnapshots: retentionDays(envRetainVariableSnapshotsDays),
 		finishedJobs:      retentionDays(envRetainCompletedJobsDays),
-		finishedInstances: retentionDays(envRetainFinishedInstancesDays),
+		finishedInstances: finished,
+		archive:           retentionDays(envRetainArchiveDays),
 	}
 }
 
@@ -214,8 +234,13 @@ func (k optInRetention) announce() {
 	}
 	if k.finishedInstances > 0 {
 		log.Info().Str("table", "process_instances").Dur("kept", k.finishedInstances).
-			Msg("Completed and cancelled instances older than the retention period are removed, with their tasks, jobs, " +
-				"service calls, incidents, snapshots and notifications; the audit trail and any instance with a deviation are kept")
+			Msg("Completed and cancelled instances older than the retention period are archived with their tasks, " +
+				"service calls, incidents, notifications, variable history and audit trail, and can be opened from the project's archive; " +
+				"any instance with a deviation, an open incident or a retention hold stays live")
+	}
+	if k.archive > 0 {
+		log.Info().Str("table", "archived_instances").Dur("kept", k.archive).
+			Msg("Archived instances older than the archive's retention period are removed")
 	}
 }
 

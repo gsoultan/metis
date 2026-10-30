@@ -54,6 +54,45 @@ this release.
 **Rolling back** means restoring the backup taken before the upgrade: 0.6.0
 was not written against the converted schema.
 
+## Finished instances are archived (migration 51)
+
+Until this release `METIS_RETENTION_FINISHED_INSTANCES_DAYS` deleted
+completed and cancelled instances past their period, and unset it kept them
+for ever. Now it **archives** them, and unset it means **90 days**.
+
+Archiving moves an instance out of the tables the engine works in. Its row,
+tasks, service calls, incidents, notifications, variable history and audit
+trail are written to one record in `archived_instances`, sealed with
+`ENCRYPTION_KEY` like the columns it came from, and the live rows are
+removed. The record can still be listed and opened from the project's
+archive. What is never archived is unchanged: a running or failed instance,
+one with a deviation, an open incident or a running parent or child, any
+instance of a held case, and instances in an environment's own database.
+
+What to decide before upgrading:
+
+- **To keep every instance live**, set
+  `METIS_RETENTION_FINISHED_INSTANCES_DAYS=0`. A process given a period of its
+  own is still archived by that period.
+- **The first sweep catches up.** On an installation that has kept
+  everything, it archives every instance finished more than 90 days ago, 100
+  instances a transaction, then carries on every ten minutes. Each batch reads
+  the instances whole, so expect the first hours after the upgrade to be
+  busier than usual on the database.
+- **The audit log keeps who did what.** The entries the engine wrote for an
+  archived instance go into its record and leave `audit_logs`; the entries
+  that name somebody who acted stay there too.
+- **The archive is kept for ever** unless `METIS_RETENTION_ARCHIVE_DAYS` is
+  set.
+
+A replica still on 0.6.0 with the setting set deletes instead of archiving,
+so do not run the two releases side by side; migration 50 already asks for
+every replica to be stopped.
+
+Migration 51 creates `archived_instances`, empty. **Rolling back** to 0.6.0
+means restoring the backup taken before the upgrade, as for migration 50;
+instances archived in the meantime are only in the archive.
+
 ## A group's roles grant what they say
 
 A group's `roles` were stored and shown in the group editor, which said that
