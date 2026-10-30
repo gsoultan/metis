@@ -211,6 +211,34 @@ is at `.../retention-periods/{key}/history`. The sweep takes this table in
 A failed sweep is logged as `A retention sweep failed` with the table and the
 database. The table then keeps growing until a sweep succeeds.
 
+### Where archive records are kept
+
+By default a record stays in its `archived_instances` row. Set
+`METIS_ARCHIVE_STORE` to keep records elsewhere and the database smaller:
+
+- **`directory`** with `METIS_ARCHIVE_DIR`: a file per record, under the
+  project's id. Every replica must see the same directory, read-write. Back
+  it up with the database.
+- **`s3`** with `METIS_ARCHIVE_S3_BUCKET`: an object per record, under
+  `METIS_ARCHIVE_S3_PREFIX`. `METIS_ARCHIVE_S3_ENDPOINT` and
+  `METIS_ARCHIVE_S3_PATH_STYLE=true` reach an S3-compatible service.
+  Credentials come from the AWS SDK's usual chain. Each call to the bucket
+  has 30 seconds.
+
+A record is moved after the transaction that archived it commits, by the
+same sweep, so no call to a bucket or a file system is made while the
+archive holds its locks. Until it moves it is in its row and opens from
+there. Each moved record is sealed with a key of its own, and the row keeps
+that key sealed with `ENCRYPTION_KEY` and the record's name: what is in the
+store is unreadable without the database, and `metis --reseal` reseals the
+rows without rewriting a single record. A record whose move failed half-way
+is left behind in the store, sealed with a key nobody kept.
+
+Changing `METIS_ARCHIVE_STORE` moves the records still in rows to the new
+store on the next sweep; records already in another store stay there, and
+open while that store's settings are still set. A store that is named and
+cannot be opened stops the server at start-up.
+
 ### Large variable values
 
 An instance's variables are one encrypted column, rewritten whole every time

@@ -53,6 +53,7 @@ import (
 	"github.com/gsoultan/metis/server/interceptors/security"
 	"github.com/gsoultan/metis/server/interceptors/tenant"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/archivestore"
 	stormdb "github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/migrations"
 	"github.com/gsoultan/metis/server/repositories/payloads"
@@ -308,6 +309,15 @@ func (a *App) Run() error {
 	}
 	if payloads.Enabled() {
 		log.Info().Str("dir", payloads.Root()).Msg("Large variable values are kept in the payload directory")
+	}
+
+	// 1b. Where archived instances' records are kept, when not in the
+	//     database. A store that is named and cannot be opened stops the start.
+	if err := archivestore.ConfigureFromEnv(ctx); err != nil {
+		return err
+	}
+	if store := archivestore.Writer(); store != nil {
+		log.Info().Str("store", store.Kind()).Str("where", store.Where()).Msg("Archived instances' records are kept outside the database")
 	}
 
 	// 2. Open the database, then bring its schema up to date and say how it

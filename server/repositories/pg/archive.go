@@ -14,6 +14,11 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/archivedinstance"
 )
 
+// forgetArchiveBatch is how many archived instances one statement of the
+// archive's own sweep removes. Each row is read first, records and all, to
+// find the copies kept outside the database.
+const forgetArchiveBatch = 100
+
 type archiveRepository struct{ conn }
 
 // NewArchiveRepository returns the store of the finished instances the
@@ -69,10 +74,7 @@ func (r *archiveRepository) Get(ctx context.Context, instanceID uuid.UUID) (mode
 	if !found || r.requireProjectInTenant(ctx, row.ProjectID) != nil {
 		return models.ArchivedInstanceModel{}, models.ArchiveRecord{}, fmt.Errorf("%w: no such archived instance", apierr.ErrNotFound)
 	}
-	if row.RecordStore != recordInDatabase {
-		return models.ArchivedInstanceModel{}, models.ArchiveRecord{}, fmt.Errorf("the archive record of instance %s is kept in %q, which this server cannot read", instanceID, row.RecordStore)
-	}
-	record, err := openRecord(row.Record)
+	record, err := openStoredRecord(ctx, row.RecordStore, row.Record)
 	if err != nil {
 		return models.ArchivedInstanceModel{}, models.ArchiveRecord{}, fmt.Errorf("could not open the archive record of instance %s: %w", instanceID, err)
 	}
@@ -83,8 +85,9 @@ func (r *archiveRepository) Get(ctx context.Context, instanceID uuid.UUID) (mode
 	}), record, nil
 }
 
-// ForgetArchivedBefore deletes, a batch at a time, the records archived
-// before cutoff; created_at is indexed, so each batch is a range of it.
+// ForgetArchivedBefore deletes the records archived before cutoff, a batch
+// at a time, oldest first, and then the copies of them kept outside the
+// database. created_at is indexed, so each batch is a range of it.
 func (r *archiveRepository) ForgetArchivedBefore(ctx context.Context, cutoff time.Time) (int64, error) {
 	if !entities.IsSystemContext(ctx) {
 		return 0, fmt.Errorf("%w: forgetting archived instances spans every tenant", apierr.ErrForbidden)
@@ -93,14 +96,38 @@ func (r *archiveRepository) ForgetArchivedBefore(ctx context.Context, cutoff tim
 	if err != nil {
 		return 0, err
 	}
-	old := archivedinstance.New().Where(archivedinstance.CreatedAt.Lt(cutoff.UTC()))
-	removed, err := db.PruneInBatches(ctx, func(limit int64) (int64, error) {
-		return old.Limit(limit).DeleteBatch(ctx, ex)
-	})
-	if err != nil {
-		return removed, fmt.Errorf("could not forget old archived instances: %w", err)
+	old := archivedinstance.New().
+		Where(archivedinstance.CreatedAt.Lt(cutoff.UTC())).
+		Order(archivedinstance.CreatedAt.Asc(), archivedinstance.ID.Asc()).
+		Limit(forgetArchiveBatch)
+	var removed int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return removed, err
+		}
+		rows, err := old.All(ctx, ex, nil)
+		if err != nil {
+			return removed, fmt.Errorf("could not read old archived instances: %w", err)
+		}
+		if len(rows) == 0 {
+			return removed, nil
+		}
+		ids := make([][16]byte, 0, len(rows))
+		for _, row := range rows {
+			ids = append(ids, row.ID)
+		}
+		n, err := archivedinstance.New().Where(archivedinstance.ID.In(ids...)).DeleteAll(ctx, ex)
+		removed += n
+		if err != nil {
+			return removed, fmt.Errorf("could not forget old archived instances: %w", err)
+		}
+		if err := forgetStoredRecords(ctx, rows); err != nil {
+			return removed, fmt.Errorf("removed old archived instances, and could not remove some of their records from their store: %w", err)
+		}
+		if len(rows) < forgetArchiveBatch {
+			return removed, nil
+		}
 	}
-	return removed, nil
 }
 
 func archivedFrom(row archivedinstance.SummaryRow) models.ArchivedInstanceModel {

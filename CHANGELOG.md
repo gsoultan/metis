@@ -40,6 +40,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   `GET /api/v1/archived-instances/{id}` opens one record; both are open to
   whoever may read the project's instances. `METIS_RETENTION_ARCHIVE_DAYS`
   removes archived instances after that many days; unset, they are kept.
+- **Archive records can be kept outside the database.**
+  `METIS_ARCHIVE_STORE=directory` with `METIS_ARCHIVE_DIR`, or
+  `METIS_ARCHIVE_STORE=s3` with `METIS_ARCHIVE_S3_BUCKET` (and
+  `_PREFIX`, `_REGION`, `_ENDPOINT`, `_PATH_STYLE` for an S3-compatible
+  service), sends each record there once its archive commits. The database
+  keeps the searchable index and, sealed with `ENCRYPTION_KEY`, each record's
+  own key; a key rotation reseals the rows and never rewrites a stored record.
+  Records written to an earlier store stay readable while its settings are
+  set.
 
 ### Changed
 

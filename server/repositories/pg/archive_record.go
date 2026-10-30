@@ -10,6 +10,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/gsoultan/metis/server/repositories/archivestore"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/gsoultan/metis/server/repositories/store/archivedinstance"
 	"github.com/gsoultan/metis/server/repositories/store/auditentry"
@@ -29,7 +30,7 @@ import (
 const maxArchiveRecordBytes = 512 << 20
 
 // recordInDatabase is the RecordStore of a record kept in its own row.
-const recordInDatabase = "database"
+const recordInDatabase = archivestore.KindDatabase
 
 // archiveInstances writes the archive record of each of ids, then removes
 // the audit entries the records now hold that name nobody: the engine's own
@@ -280,6 +281,12 @@ func openRecord(sealed string) (models.ArchiveRecord, error) {
 	if err != nil {
 		return models.ArchiveRecord{}, err
 	}
+	return inflateRecord(compressed)
+}
+
+// inflateRecord decompresses and decodes a record, whichever key it was
+// sealed with.
+func inflateRecord(compressed string) (models.ArchiveRecord, error) {
 	zr, err := gzip.NewReader(bytes.NewReader([]byte(compressed)))
 	if err != nil {
 		return models.ArchiveRecord{}, fmt.Errorf("decompress: %w", err)
