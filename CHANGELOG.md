@@ -8,13 +8,630 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Upgrading
+
+- **Upgrade to 0.6.0 first.** This release upgrades only a database at
+  migration 49, the last one 0.6.0 applies. A database on 0.5.0 or earlier is
+  refused at boot, with nothing changed, until 0.6.0 has been started against
+  it once ([Migration 50](docs/upgrading.md#migration-50-the-database-takes-the-storm-models-shape)).
+- **50** converts the database to the storm model's tables, in one
+  transaction: text holding JSON becomes `jsonb`, columns the model declares
+  NOT NULL become so, and GORM's index and key names give way to the model's.
+  A row the new constraints refuse rolls the whole conversion back, and the
+  server does not start. It rewrites tables, so plan a maintenance window
+  sized by the rehearsal, and take a backup first.
+
+### Changed
+
+- **GORM is gone.** The schema, its migrations and every query go through
+  storm.
+
+## [0.6.0] - 2026-10-29
+
+A minor release whose upgrade is quiet unless you rely on one of the changes
+under **Upgrading**. Tasks start moving from Users to People: People sign in
+on their own page, work their tasks there or from a link they are mailed, and
+give their own systems keys of their own; Users keep their tasks until you
+switch over. Outgoing webhooks deliver process, task and incident events,
+signed and retried. Server settings can be changed on the Settings page, and
+setup asks for a token. The designer simulates the diagram being edited and
+replays a real instance on another version.
+
+**0.6.0 is the release every installation passes through.** The next release
+upgrades only a database at migration 49, so an installation on 0.5.0 or
+earlier starts 0.6.0 once before moving on. Migrations 37 to 49 run at the
+first boot; several of them stop the upgrade on purpose rather than hold a busy
+table behind a long read.
+
+### Upgrading
+
+Read [`docs/upgrading.md`](docs/upgrading.md) first, and rehearse on a copy of
+your own data with `scripts/upgrade-rehearsal.sh`. What needs a decision or an
+action, in the order it bites:
+
+- **Migration 42 needs `ENCRYPTION_KEY`.** It seals every inbound webhook's
+  secret and stops the upgrade if no key is configured while any secret is in
+  the clear. Once it has run, the previous release refuses every signed
+  delivery, so rolling back means restoring the backup ([Migration
+  42](docs/upgrading.md#migration-42-inbound-webhook-secrets-are-sealed)).
+- **Setup asks for a setup token.** A server with no administrator prints a
+  one-time token in its log, or takes `METIS_SETUP_TOKEN`. Automation that
+  runs the setup wizard must pass it.
+- **Signing out ends every session of the account.** `POST /api/v1/logout`
+  ends the account's sessions on every device; a token copied elsewhere stops
+  working within `METIS_AUTH_CACHE_TTL`.
+- **A new account's password must be 8 characters to 72 bytes.** Creating one
+  through the API, Connect or the SDK with a shorter or longer one is a 400.
+  Existing accounts are not touched.
+- **Asking for another organization is a 403, not a 401.** An integration that
+  signed in again on a 401 for this now gets a 403 with the reason.
+- **An organization is deleted only once it is empty.** The delete is a 400
+  that names what is still there.
+- **Tasks move from Users to People, when you choose.**
+  `METIS_TASKS_ALLOW_PLATFORM_ACTORS` is on by default, so nothing changes on
+  upgrade; the log names each User who still acts on a task ([Tasks move from
+  Users to People](docs/upgrading.md#tasks-move-from-users-to-people)).
+- **`WEBHOOK_ENDPOINTS` is deprecated.** It still posts every event of every
+  project to every address in it, unsigned and once, and now says so in the log
+  at boot. Register each of its receivers as an outgoing webhook of its
+  project, then unset it.
+- **Retention holds and periods need every replica on 0.6.0.** With a
+  retention setting set, finish a rolling upgrade before relying on a hold or
+  a process's period: a replica on the previous release reads neither
+  ([Migrations 37 and
+  38](docs/upgrading.md#migrations-37-and-38-retention-holds-and-periods)).
+
+Migrations 37 to 49 run at the first boot. Take a backup first: a rollback
+does not undo a migration.
+
+- **37** creates the retention holds, and stops if `projects` is held for
+  more than two seconds; it finishes on the next start.
+- **38** creates the processes' retention periods, and stops on the same
+  bound.
+- **39** gives every instance a business key column, and **stops the upgrade
+  if `process_instances` is held for more than two seconds**. It then builds
+  the index the search reads through concurrently ([Migration
+  39](docs/upgrading.md#migration-39-an-instance-carries-a-business-key)).
+- **40** adds the two tables outgoing webhooks are kept in. Nothing existing
+  is rewritten ([Migration
+  40](docs/upgrading.md#migration-40-outgoing-webhooks)).
+- **41** creates the table of the workers that fetch external tasks. It is new
+  and empty, so it holds nothing up ([Migration
+  41](docs/upgrading.md#migration-41-the-workers-that-fetch-external-tasks)).
+- **42** encrypts every inbound webhook's secret, and **stops the upgrade if
+  no `ENCRYPTION_KEY` is configured** while any secret is still in the clear.
+  Once it has run the previous release refuses every signed delivery, so a
+  rollback means restoring the backup ([Migration
+  42](docs/upgrading.md#migration-42-inbound-webhook-secrets-are-sealed)).
+- **43** creates the simulation cases a process keeps, and stops if
+  `projects` is held for more than two seconds; it finishes on the next start
+  ([Migration
+  43](docs/upgrading.md#migration-43-a-process-keeps-its-simulation-cases)).
+- **44** gives every job the organization it is work for, and **stops the
+  upgrade if `jobs` is held for more than two seconds**. It then builds the
+  index the claim reads through concurrently. Jobs made before it carry no
+  organization and share one turn until they have run ([Migration
+  44](docs/upgrading.md#migration-44-a-job-carries-its-organization)).
+- **45** creates the batch operations and their per-instance results, and
+  stops if `projects` is held for more than two seconds; it finishes on the
+  next start ([Migration
+  45](docs/upgrading.md#migration-45-batch-operations)).
+- **46** gives every audit entry a column naming who acted, and **stops the
+  upgrade if `audit_logs` is held for more than two seconds**. It then builds
+  the audit log's two indexes concurrently. Entries written before it keep
+  their actor only on the instance's history ([Migration
+  46](docs/upgrading.md#migration-46-an-audit-entry-names-who-acted)).
+- **47** creates the task links People are mailed, and stops if `projects` is
+  held for more than two seconds; it finishes on the next start ([Migration
+  47](docs/upgrading.md#migration-47-task-links)).
+- **48** creates the keys People give their own systems, and stops if
+  `workflow_users` is held for more than two seconds; it finishes on the next
+  start ([Migration 48](docs/upgrading.md#migration-48-personal-api-keys)).
+- **49** creates the table server settings saved on the Settings page are
+  kept in. It is new and empty and holds no lock on an existing table
+  ([Migration
+  49](docs/upgrading.md#migration-49-server-settings-saved-on-the-settings-page)).
+
+### Security
+
+- **The setup wizard asks for a setup token.** Setup is anonymous by
+  necessity, so whoever reached a fresh installation first became its
+  administrator, and its connection test answered anyone's network probes. A
+  server with no administrator now prints a one-time token in its log, or takes
+  `METIS_SETUP_TOKEN`, and refuses setup and the connection test without it.
+  Ten wrong tokens a minute stop it comparing. `scripts/dev.sh` chooses the
+  token and passes it to `scripts/seed-sample.sh`; run the seed script on its
+  own with `METIS_SETUP_TOKEN` set.
+
+- **A new account needs a password it can sign in with.** Creating an account
+  through the API, Connect or the SDK took any password, an empty one
+  included, and the account then signed in with it; only the UI's form
+  refused one shorter than 8 characters. Creating an account, and the first
+  administrator at setup, now take the floor a reset or a change does: at
+  least 8 characters, at most 72 bytes, refused with a 400. A password over 72
+  bytes was a 500. Accounts that already exist are not touched.
+
+- **Signing out ends the session on the server.** Signing out cleared the
+  token in the one browser it was in, and the token went on working for the
+  rest of its 24 hours wherever else it had been copied. `POST /api/v1/logout`
+  now ends every session a local account has, on every device, and the UI
+  calls it when somebody signs out. An account that signs in through an
+  identity provider is refused with a 400 and signs out there. On a server
+  with replicas the other replicas refuse the old token within
+  `METIS_AUTH_CACHE_TTL`, 5 seconds by default.
+
+- **A project's People directory is its organization's alone.** Listing a
+  project's participants, importing or syncing people into it and removing
+  them checked only that the caller was signed in, not that the project was
+  theirs: anybody signed in to any organization could read another
+  organization's directory, names and addresses included, and add people to
+  it, given the project's id. The directory now answers a project outside the
+  caller's organization as not found, as every other per-project read does.
+
+- **An inbound webhook's secret is encrypted at rest.** The secret a partner
+  signs deliveries with was stored as it was, though it was documented as
+  encrypted, so a backup, a read replica or a `SELECT` on `webhooks` was enough
+  to forge any partner's deliveries. It is sealed with `ENCRYPTION_KEY` like
+  every other credential now, and migration 42 seals the secrets already
+  stored, deleted webhooks' included. Partners change nothing: the secret
+  itself is the same. `metis --reseal` moves these secrets with the rest when
+  the key is rotated.
+
+### Added
+
+- **Server settings can be changed on the Settings page.** A platform
+  administrator sees every setting the server reads, grouped (email, sign-in,
+  retention, workers, limits, caches, observability), where its value comes
+  from, and changes one with a reason. Every change is kept with who made it
+  and why (migration 49); a secret such as the mail password is stored sealed
+  and never sent back to the browser. A value set in the environment still
+  wins and is shown locked. Retention periods and execution limits apply
+  without a restart; the rest say they wait for one. The database, keys,
+  listen addresses and guardrails stay environment-only and are listed
+  read-only with the reason.
+- **An administrator can set a colleague's password.** Editing an account
+  on Platform access now has a *New password* field: left empty, the
+  password stays as it is; filled in, it replaces it and signs the account
+  out everywhere. Before, a forgotten password on a running installation had
+  one answer, `--reset-password` on the server. It asks what deleting the
+  account asks: an administrator of every organization the account belongs
+  to, and a platform administrator for an account holding a role in every
+  organization. It is refused for your own account, which the Profile page
+  changes with the current password, and for an account an identity provider
+  signs in. Each one is logged with who set it, never the password
+  (`PUT /api/v1/users/{id}/password`).
+
+- **An administrator sets a person's password for the People login.** The
+  People page has a key button on each row: the password set there is the one
+  the person signs in to their tasks with, and it ends every People session
+  they had. It takes the role an import takes, reaches only a person in the
+  named project of the caller's own organization, and is logged with who set
+  it, never the password (`PUT /api/v1/participants/{id}/password`). Until
+  now a person imported without a password had no way to get one.
+
+- **People can sign in, separately from Users.** `POST /api/v1/people/login`
+  takes a project, the username a process names the person by, and the
+  password an administrator set, and answers with a People token: PASETO
+  `v4.local`, sealed with `METIS_PEOPLE_TOKEN_KEY`, good for 12 hours.
+  `GET /api/v1/people/me` says who it signs in. A People token is accepted
+  under `/api/v1/people/` and refused everywhere else; a User's token is
+  refused under `/api/v1/people/`. Every request re-reads the person, so
+  removing or deactivating them, or setting a new password, ends their
+  sessions at once. Failed sign-ins are throttled per project and name and
+  all read the same. Unset, `METIS_PEOPLE_TOKEN_KEY` leaves People unable to
+  sign in and changes nothing else.
+
+- **People work their tasks through their own routes.** With a People token,
+  `GET /api/v1/people/tasks` lists the open tasks given to the person by name
+  or offered to them or to a People group they are in, in their project only.
+  `GET /api/v1/people/tasks/{id}` reads one, and `POST .../claim`,
+  `.../release` and `.../complete` act on it under the same rules a User's
+  claim and completion follow: candidate users and groups, separation of
+  duties, and only the variables the form declares. The actor is the token's,
+  never the body's. A task given to somebody else, or in another project,
+  answers 404, so a person learns neither that it exists nor whose it is. A
+  person may give back a task they took from a pool, not one given to them by
+  name, and never takes a task that names nobody.
+
+- **A person can give their own systems keys of their own.** On their page at
+  `/p/`, a person makes a key for each system that works their tasks for them,
+  named for that system, and revokes one without touching the others. A key is
+  sent as `Authorization: Bearer mpk_…` to the People task API and acts as
+  that person and nobody else: it reads, claims, releases and completes their
+  tasks, and cannot make, list or revoke keys, which takes their sign-in. A key
+  is shown once, when it is made; only its SHA-256 is stored. A person keeps at
+  most 20 live keys. A key stops working when it is revoked or its person is
+  removed or deactivated, and a platform route refuses it as it refuses a
+  People token. Migration 48 adds the `person_api_keys` table.
+
+- **A task link lets a person do a task without signing in.** With
+  `METIS_PUBLIC_URL` and the notification mail settings set, a task created
+  for, handed to, delegated to or handed back to somebody in the People
+  directory mails each person it names a link to it, `<address>/p/t#<token>`.
+  The page shows the task and its form and completes it as that person, under
+  the same rules their own sign-in would. A link is good for one task and one
+  person, once, for `METIS_TASK_LINK_LIFETIME` (7 days unless set). It stops
+  working when its task is completed, withdrawn or given to somebody else, or
+  its person is removed or deactivated; on a task offered to several people
+  the first to submit wins. Opening a link changes nothing, so a mail scanner
+  that opens it does not act on the task. The token is never stored, only its
+  SHA-256, and travels after the `#`, which a browser does not send. Migration
+  47 adds the `task_links` table.
+
+- **The designer picks People, not Users, for a task.** A user task's
+  assignee, candidate users and candidate groups now come from the project's
+  People directory and its People groups, read from
+  `GET /api/v1/participants` and the new
+  `GET /api/v1/participant-groups?project_id=`. A name already in the
+  definition that is not in the directory stays selectable and is labelled
+  as such, and checking the process warns about each one before deploy;
+  expressions such as `${initiator}` are left alone. Both reads answer only
+  for a project in the caller's own organization.
+
+- **People have a page of their own.** `<address>/p/?project=<id>` signs a
+  person in with their username and password and lists the tasks given or
+  offered to them. From there they take a task offered to several people,
+  give back one they took, and complete one with its form. The People page
+  shows the address to hand them. The People session lives in that browser
+  tab only, apart from any User session, and signing out of one leaves the
+  other alone.
+
+- **A switch-over window for moving tasks from Users to People.**
+  `METIS_TASKS_ALLOW_PLATFORM_ACTORS`, on by default, keeps today's
+  behaviour: a User a task names can claim and complete it. Each time one
+  does, the log names the User and the task, so whoever moves the
+  installation over can see who still relies on it. Set to `false`, a User's
+  claim and completion answer 403 and only People do tasks; setting it back
+  is the rollback. The default becomes off in a later release.
+
+- **The People page says what People lack before the switch-over.** *Check*
+  lists every name the project's open tasks and live models use, as
+  assignee, candidate user or candidate group, that is not a person or a
+  People group of the project, with where it is used. A name a User of the
+  organization has is added from their account, with no password; a group
+  the organization has is made a People group with its members. One button
+  adds all that can be added (`GET /api/v1/participants/gaps`,
+  `POST /api/v1/participants/gaps/fill`). Expressions such as `${initiator}`
+  are left out, and another organization's Users are never read.
+
+- **An audit log of what people did, across the organization.** Who waived,
+  cancelled, held, migrated, reassigned, activated, approved or rejected
+  what was written down on each instance's own history and nowhere it could
+  be searched. The Audit log page, under Administer, lists every entry a
+  person's act wrote, newest first, filtered by who, which kind, which
+  project and when, and links each to its instance. It is an
+  administrator's, of their own organization, and outlives the instances it
+  names: the retention sweep removes instances and never the trail. Acts
+  recorded before migration 46 are not in it
+  (`GET /api/v1/audit/operations`; [The audit
+  log](docs/runbooks.md#reading-the-audit-log)).
+- **Large variable values can be kept out of the instance's row.** With
+  `METIS_PAYLOAD_DIR` set, a variable larger than
+  `METIS_PAYLOAD_THRESHOLD_BYTES` (64 KiB by default) is sealed into a file
+  once, and the instance row and each variable snapshot refer to it. An
+  instance carrying a document used to write it again into its row and into a
+  new snapshot at every step. Nothing that reads an instance sees the
+  difference. Off unless set; the directory must be shared by every replica
+  and backed up with the database, which `scripts/backup.sh` now does
+  ([Large variable values](docs/postgresql.md#large-variable-values)).
+- **Retry or cancel every instance a filter matches, in one request.** An
+  operator retries, and an administrator cancels, the instances of a project
+  that match the instance list's filter: status, process, business key, or
+  needing attention. A dry run says how many match; one operation takes up to
+  10,000. It is worked through in the background, each instance exactly as the
+  single-instance retry or cancel does it, and keeps what came of each:
+  succeeded, failed with why, or skipped. It acts as whoever asked, checked
+  again every 50 instances, and stops itself if they lose the role. Anybody
+  who runs the organization can stop it with a reason ([Retrying or cancelling
+  many instances at
+  once](docs/runbooks.md#retrying-or-cancelling-many-instances-at-once)).
+- **Workers share their time between organizations.** The job claim took the
+  oldest due jobs whoever they belonged to, so one organization that queued
+  ten thousand timers at once held every worker until they had all run, and
+  another's reminder due a second later waited behind them. Each organization
+  with work due now has its oldest job in the first turn of a round, its
+  second oldest in the second, and so on; one organization alone still gets a
+  full round. A round looks at up to 1,000 organizations, from a random place
+  each time, and fills whatever is left oldest first, so it is never smaller
+  for being fair. Measured on PostgreSQL 16: 4ms a round with 50 organizations
+  holding jobs, 10ms with 100,000.
+
+- **Outgoing webhooks.** An administrator registers an address for a
+  project's `process.started`, `process.completed`, `task.created` and
+  `task.completed` events, and each one is posted to it signed with the
+  webhook's own secret, with a delivery id that stays the same across retries.
+  The event is queued in the transaction of the step that raised it, so a
+  rolled-back step is never announced and a committed one is announced even if
+  the server stops; a receiver that does not accept it is tried ten times over
+  about a day. The address is checked against the egress policy when it is
+  saved and at every dial, and no delivery carries process variables
+  ([Sending events: outgoing
+  webhooks](docs/integration.md#sending-events-outgoing-webhooks)).
+- **Outgoing webhooks in the UI.** The connectors page lists a project's
+  outgoing webhooks with the events each is sent. An administrator adds one
+  there, choosing its events in plain words and copying its secret from the
+  one dialog that shows it; sends it a test and sees the request, the
+  receiver's answer and how the signature was made; and reads its delivery
+  log, filtered by where deliveries stand, retrying or stopping one from it.
+  A failure says what to do next, such as checking the signing secret on a
+  401.
+- **Try a delivery to an incoming webhook before the partner sends one.**
+  Each incoming webhook on the connectors page has *Try a delivery*: paste the
+  body the partner would post, optionally with its three signature headers,
+  and see each check a real delivery meets, in order. Whether the signature
+  matches the webhook's secret, which value the correlation rule finds, which
+  waiting instances it would move on or which processes it would start, and
+  why a real delivery would be refused. It is a dry run: no process moves and
+  the delivery ID is not used up. The answer never contains the signature a
+  body should have had. For a designer, as setting the webhook up is
+  ([Trying a delivery](docs/integration.md#trying-a-delivery-before-the-partner-sends-one)).
+- **Try an outgoing webhook, and read what it was sent.** An administrator can
+  send a webhook a signed sample of any of its events and see the request as
+  it went out, signature included, and the receiver's answer; the sample is
+  marked as a test and names no real instance. Each webhook keeps a log of its
+  deliveries, newest first and filtered by where they stand, from which a
+  pending or failed delivery can be retried at once and a pending one stopped
+  ([Trying a receiver](docs/integration.md#trying-a-receiver-and-reading-what-it-was-sent)).
+- **An outgoing webhook can be told of incidents.** `incident.raised` is
+  sent when a call or a worker fails with no retries left, and when somebody
+  holds an instance at a step. It names the incident, the step and the case,
+  and not the incident's text, which can quote what the failed call sent; a
+  receiver reads that from the API. Incidents raised by a failed job or
+  external task now also have an entry in the audit trail
+  ([Sending events](docs/integration.md#sending-events-outgoing-webhooks)).
+- **Simulate the diagram you are editing, without deploying it.** In the
+  designer, Simulate now runs the canvas: the version you opened while the
+  canvas still does what it does, and a draft once you change a step, a
+  condition or a flow (moving shapes does not count). A draft is checked the
+  way a deploy is, runs on the real engine inside the simulation's
+  rolled-back transaction, and is never saved — no version, no gap in the
+  numbering, nothing live changes. A never-deployed process can be simulated
+  too. Simulating from the designer also now runs the version on screen
+  rather than whichever one is live. Same permission as before (designer).
+  - `POST /api/v1/simulations` and `/batch` accept the draft as `definition`
+    (the body `POST /api/v1/definitions` takes) or as `bpmn_xml` (a `.bpmn`
+    file), in place of `definition_key` and `version`. Both at once is a 400.
+  - A batch case carrying `replay_instance_id` is now refused as the single
+    endpoint refuses it. It was run against the live definition instead.
+
+- **Simulation cases are saved with the process, and say what they expect.**
+  A case built in the designer's Simulate mode can be saved with the process,
+  so everybody who opens it gets the same cases, and **Expect this result**
+  turns the run on screen into what the case must end with: how it ends,
+  where, and the few values that matter. A run that differs says what
+  differs in words ("It ended at CFO signs off, not Approved"), and **Run
+  every case** marks each one passed or not against its own expectation. A
+  process keeps at most 20 cases. Designers only, like simulation itself.
+  - `GET` and `POST /api/v1/projects/{id}/simulation-cases/{process_key}`,
+    `PUT` and `DELETE /api/v1/projects/{id}/simulation-cases/{process_key}/{case_id}`.
+
+- **Replay a real instance on another version.** Open an instance in the
+  designer, switch to Simulate and press **Replay the instance you opened**:
+  the case is read off the instance — what it was started with, who did each
+  step and how long they took, what they entered, what its services
+  answered — and run on the diagram on screen or on whatever is live. The rail
+  says where the run went somewhere the instance did not ("It reaches CFO
+  signs off, which the instance never did"), and the case it read stays on
+  screen to change and run again. Nothing about the instance is changed.
+  Designers only, like simulation itself.
+  - `POST /api/v1/simulations` runs `replay_instance_id`, which it used to
+    refuse. With no `definition_key` it runs the instance's own process as it
+    is live; the reply carries `replay`, with what was read and the steps
+    only one of the two reached. Variables and answers sent beside it win
+    over what was read.
+  - A person's answer can carry `returns`, the values they entered, as a
+    service's answer already could.
+  - What people entered is not kept per task, so a replay reads it from what
+    the instance holds now, for the fields each task's form declares, and says
+    so. When a message arrived is not kept either, so a replay stops and asks
+    at a message wait.
+
+- **An administrator can keep an instance from being removed.** A hold is
+  placed on one instance, with a reason, and the retention sweep then keeps
+  the whole case it is part of: the instance that started the chain of calls
+  and every instance started from it. The hold stands until an administrator
+  releases it, also with a reason; both acts go on the instance's audit trail.
+  Placing, releasing and listing are for administrators of the instance's
+  organization; reading an instance's hold is for whoever may read the
+  instance, and another organization's instance is a 404. A second hold on a
+  held instance is a 400. A sweep that starts while a hold is being placed
+  waits for it. Main database only, as the sweep is. REST only.
+  - `GET /api/v1/instances/{id}/retention-hold` answers
+    `{"held": false}` or `{"held": true, "hold": {...}}`.
+  - `POST /api/v1/instances/{id}/retention-hold` with `{"reason": "..."}`
+    places it.
+  - `POST /api/v1/instances/{id}/retention-hold/release` with
+    `{"reason": "..."}` releases it.
+  - `GET /api/v1/projects/{id}/retention-holds` lists a project's holds,
+    newest first, at most 1,000.
+
+- **A process can keep its finished instances for a period of its own.** An
+  administrator of the project's organization gives a process, by key and for
+  every version of it, a number of days, with a reason. The retention sweep
+  then removes that process's completed and cancelled instances once they are
+  older than that, and every other process's by
+  `METIS_RETENTION_FINISHED_INSTANCES_DAYS`. A period can be longer or shorter
+  than the installation's, and works when the installation has none: then only
+  the processes given one are swept. Sending `null` returns a process to the
+  installation's setting. Every change is kept with who made it and why, since
+  a project has no audit trail of its own. Holds, deviations, open incidents
+  and running parents or children still keep an instance whatever its
+  process's period. Main database only. REST only.
+  - `PUT /api/v1/projects/{id}/retention-periods/{key}` with
+    `{"days": 365, "reason": "..."}`, or `"days": null`, sets it. A body
+    without `days` is a 400, so leaving it out never clears a period.
+  - `GET /api/v1/projects/{id}/retention-periods` lists each process's current
+    period, and `.../retention-periods/{key}/history` its changes, newest
+    first. Both are for whoever may read the project.
+
+- **An instance can carry your name for its case.** Send `business_key` with
+  `POST /api/v1/process/start`, such as an order number or a claim reference.
+  The instance shows it, and `GET /api/v1/instances` takes `business_key` to
+  find a project's instances by it, matched exactly. It is optional and not
+  unique. A sub-process started by a call activity carries its caller's key, so
+  one search finds the whole case. A key longer than 255 characters, or one
+  holding a control character, is a 400 and starts nothing. It is not
+  encrypted, so it should not hold personal data. REST only for now: the gRPC
+  and Connect messages, the Go SDK and the instance list's search box follow.
+
+- **You can see which workers serve each external-task topic, and are told
+  when a topic has none.** Every fetch-and-lock records its worker against the
+  topic, at most once every ten seconds, with the version it says it is if it
+  sends `worker_version` (64 characters at most, no control characters).
+  `GET /api/v1/external-task-workers` lists the organization's topics: what
+  waits on each, what is locked, and each worker with its version, when it
+  last fetched, whether that was in the last two minutes, and how many tasks it
+  holds. A topic with tasks on offer and no such worker is `unserved`;
+  `metis_external_task_topics_unserved` counts those per database, and
+  `MetisExternalTasksUnserved` fires when one stays so for ten minutes. A
+  worker not seen for seven days is forgotten by the retention sweep. REST
+  only for now: the gRPC and Connect fetch, and the Go SDK, do not send a
+  version yet, though their fetches are recorded.
+
+- **The HTTP admission limits can be set.** `METIS_HTTP_RATE_LIMIT` (calls a
+  client address may make a minute, default `240`), `METIS_HTTP_MAX_IN_FLIGHT`
+  (calls run at once, default `128`) and `METIS_HTTP_MAX_QUEUED` (calls that
+  may wait, default `256`) were compiled in. The defaults are unchanged, and
+  the values in force are logged at start-up. `cmd/metisload` drives up to
+  1,000 clients against a server to size them ([A thousand concurrent
+  clients](docs/performance.md#a-thousand-concurrent-clients)).
+
+### Changed
+
+- **The instance list's counts are reused for a second.** Every page of the
+  list counted every instance in the project by state, which under load was
+  most of what the database did for it. One count now serves every request
+  for the same organization, environment, project and filter for a second,
+  and requests that arrive while it is being taken wait for it instead of
+  starting their own. The counts, and the page total read off them, can trail
+  the page by up to that long; the page itself is read fresh.
+  `METIS_INSTANCE_COUNT_CACHE_TTL` sets the window (`0` turns it off).
+
+- **"Platform access" is now called Users.** The page and its entry in the
+  navigation are renamed, and the page says what Users are for: running Metis
+  by role (organizations, projects, People, process and decision models), never
+  being given tasks. On the People page, a person without a password reads
+  "No password yet" instead of "No sign-in yet", and an active person no
+  longer claims they can sign in, because People have no sign-in yet.
+
+- **`scripts/dev.sh` starts its PostgreSQL with Apple's `container`, and only
+  with it.** It used to take whichever of docker, podman or `container` it
+  found first. It now starts the container services when they are down
+  (`container system start`), tells a stopped `metis-dev-pg` from a missing
+  one instead of guessing from a failed start, and publishes the database on
+  127.0.0.1 only. Without the CLI it says how to install it; `DATABASE_URL`
+  and a PostgreSQL already listening on `DB_PORT` work as before. A
+  `metis-dev-pg` left in Docker is not touched: stop it there and the next run
+  creates a fresh one, which the setup wizard then configures.
+
+- **The server holds one connection pool per database, not two.** GORM's pool,
+  opened at boot to run the migrations, closes once they finish, for the main
+  database and for each environment, instead of staying open beside the storm
+  pool for the life of the process. `METIS_DB_MAX_OPEN_CONNS` no longer counts
+  twice against `max_connections`. The `database` readiness check now pings the
+  storm pool, and the `go_sql_*{db_name="gorm"}` metric series are gone.
+
+- **The server starts without compressing the whole UI, and holds less of
+  it.** Every asset was read, copied and gzipped at the best level when the
+  server started: about 0.3 s of CPU and 170 MB allocated at each boot, and
+  5 MB of heap held for the life of the process, mostly for fonts and pages
+  a session never opens. An asset is now gzipped the first time a browser
+  asks for it and kept, and the uncompressed bytes are streamed from the
+  binary. Building the handler takes 4 ms and holds 0.5 MB; what browsers
+  are sent is unchanged.
+
+- **The live event stream encodes an event only for somebody who can
+  receive it.** Every step of every instance raised an event that was encoded
+  twice, even on a replica with no browser open for that organization and no
+  bus to other replicas. Now an event nobody could receive costs about 0.1 µs
+  instead of 11 µs, and one that is delivered is encoded once. An event that
+  cannot be encoded is logged rather than dropped without a word.
+
+- **A service task runs as soon as the step before it commits.** Each one
+  waited for the job worker's next poll, two seconds at the default
+  `METIS_JOB_POLL_INTERVAL`, so three service tasks in a row took six seconds
+  to reach the person after them. The worker is now woken when work that is
+  already due commits on its replica, and the same three take about 30 ms.
+  Timers and retries that are due later still wait for the poll, and another
+  replica's work is still picked up at its own poll.
+
+### Fixed
+
+- **Asking for somebody else's organization is a 403, not a 401.** A request
+  for an organization the caller is not a member of, or one naming another
+  organization in what it sends, answered 401, which says the token is no good:
+  the UI signed out, and an integration would sign in again and repeat it. An
+  account that belongs to no organization at all was a 500. All three are 403
+  now, with the reason; 401 is kept for a token that proves nothing.
+
+- **An organization is deleted only once it is empty.** Deleting an
+  organization only hid it: its members went on signing in to it and its
+  projects went on running, on one administrator's click. The delete is now
+  refused with a 400 that names what is still there, while anybody but the
+  caller is a member or any project is in it. Once it is empty it is deleted,
+  and the caller stops being a member of it.
+
+- **Whoever creates an organization administers it.** A new organization was
+  created with nobody in it: its creator could not see it in their list,
+  could not reach it, and was refused with "that organization is not yours"
+  when they added its first member. Its creator is now an administrator of it,
+  in the same transaction that creates it, and can reach it straight away.
+  An organization created before this is left as it is: nobody is made a
+  member of it on upgrade, so one that is still empty needs its first member
+  added in the database, as before. An organization with no name is refused with a 400
+  instead of a 500.
+
+- **The REST organization calls report their failures.** Reading, creating,
+  listing, renaming or deleting an organization answered 200 whatever happened:
+  the error was sent as `"err":{}`. Asking for an organization that is not the
+  caller's, or one that does not exist, looked like success to an integration.
+  They now answer with the status the error calls for, as every other route
+  does. The UI talks Connect, which already reported them.
+
+- **A migration reports an instance it skipped once.** When two runs of one
+  migration overlapped, and the second moved an instance in the moment after
+  the first had skipped its step, the first counted the instance as changed
+  and also passed it over as already moved by another run, "not decided or
+  moved again". The instance itself was skipped once and moved once; only the
+  report, and the outcome an approved request keeps of its run, named it
+  twice. The skip stands, so the instance is counted as changed and is not
+  passed over.
+
+- **A step reached, a process started and a task created reach the browser
+  and the webhooks.** An event about an instance the engine had in hand did
+  not encode: a token it had just added points back at that instance, and the
+  encoder followed the loop a thousand levels down before giving up. The
+  event stream dropped those events without a word, so a new task appeared in
+  an inbox only on the next refresh, and the deprecated installation-wide
+  webhook (`WEBHOOK_ENDPOINTS`) was never sent them and logged an error for
+  each. Following the loop was also most of what a request spent: a full
+  journey through the API now sustains about 70% more per minute and
+  allocates a fifth of what it did.
+
+- **An outgoing webhook's delivery log and test result are readable.** A
+  delivery's outcome was drawn as green or yellow text on its own tint, at
+  3.81:1 and 2.69:1 in light mode, and a test's status as white on a filled
+  green, at 3.45:1, all under the 4.5:1 AA asks. The outcome keeps the page's
+  text colour beside a coloured dot, and the status is text beside an icon.
+
+- **A simulation says which version it ran.** Every run reported version 0,
+  whichever version it was of, because the version was read off the
+  instance's own copy of its definition, which carries only the id.
+
+- **A simulation run in the designer shows how it ended.** Every run was
+  shown as stopped on an incident, with nothing under what happened, because
+  the designer read the server's reply as the run instead of the run inside
+  it. The API was right; only the designer misread it.
+
+## [0.5.0] - 2026-10-14
+
 A minor release that asks something of whoever upgrades, so read
 **Upgrading** first. A group's roles start to grant what the group editor
 says. Completing a task sets only what its form declares, and a manual task
 that names nobody becomes an administrator's or an operator's. Handing a task
 over is checked and needs a reason from anybody but its holder. A waive, and a
 migration that loosens a control on running work, wait for a second
-administrator. Migrations 31 to 48 run at the first boot; twelve of them stop
+administrator. Migrations 31 to 36 run at the first boot; four of them stop
 the upgrade on purpose rather than hold a busy table behind a long read.
 
 The rest is reliability: one bad decision table, message or gRPC call can no
@@ -69,12 +686,9 @@ action, in the order it bites:
   `METIS_RETENTION_FINISHED_INSTANCES_DAYS`,
   `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` and
   `METIS_RETENTION_COMPLETED_JOBS_DAYS` each start a sweep; the audit trail is
-  never swept. With the first of them set, finish a rolling upgrade before
-  relying on a retention hold or a process's period: a replica on the previous
-  release reads neither ([Migrations 37 and
-  38](docs/upgrading.md#migrations-37-and-38-retention-holds-and-periods)).
+  never swept.
 
-Migrations 31 to 48 run at the first boot. Take a backup first: a rollback
+Migrations 31 to 36 run at the first boot. Take a backup first: a rollback
 does not undo a migration.
 
 - **31** gives a task the run of its step it was created for, and **stops the
@@ -92,98 +706,8 @@ does not undo a migration.
   on the same bound.
 - **35** and **36** add two indexes, built concurrently: one for the
   rate-limit sweep, one for a project's task list.
-- **37** creates the retention holds, and stops if `projects` is held for
-  more than two seconds; it finishes on the next start.
-- **38** creates the processes' retention periods, and stops on the same
-  bound.
-- **39** gives every instance a business key column, and **stops the upgrade
-  if `process_instances` is held for more than two seconds**. It then builds
-  the index the search reads through concurrently ([Migration
-  39](docs/upgrading.md#migration-39-an-instance-carries-a-business-key)).
-- **40** adds the two tables outgoing webhooks are kept in. Nothing existing
-  is rewritten ([Migration
-  40](docs/upgrading.md#migration-40-outgoing-webhooks)).
-- **`WEBHOOK_ENDPOINTS` is deprecated.** It still posts every event of every
-  project to every address in it, unsigned and once, and now says so in the log
-  at boot. Register each of its receivers as an outgoing webhook of its
-  project, then unset it.
-- **41** creates the table of the workers that fetch external tasks. It is new
-  and empty, so it holds nothing up ([Migration
-  41](docs/upgrading.md#migration-41-the-workers-that-fetch-external-tasks)).
-- **42** encrypts every inbound webhook's secret, and **stops the upgrade if
-  no `ENCRYPTION_KEY` is configured** while any secret is still in the clear.
-  Once it has run the previous release refuses every signed delivery, so a
-  rollback means restoring the backup ([Migration
-  42](docs/upgrading.md#migration-42-inbound-webhook-secrets-are-sealed)).
-- **43** creates the simulation cases a process keeps, and stops if
-  `projects` is held for more than two seconds; it finishes on the next start
-  ([Migration
-  43](docs/upgrading.md#migration-43-a-process-keeps-its-simulation-cases)).
-- **44** gives every job the organization it is work for, and **stops the
-  upgrade if `jobs` is held for more than two seconds**. It then builds the
-  index the claim reads through concurrently. Jobs made before it carry no
-  organization and share one turn until they have run ([Migration
-  44](docs/upgrading.md#migration-44-a-job-carries-its-organization)).
-- **45** creates the batch operations and their per-instance results, and
-  stops if `projects` is held for more than two seconds; it finishes on the
-  next start ([Migration
-  45](docs/upgrading.md#migration-45-batch-operations)).
-- **46** gives every audit entry a column naming who acted, and **stops the
-  upgrade if `audit_logs` is held for more than two seconds**. It then builds
-  the audit log's two indexes concurrently. Entries written before it keep
-  their actor only on the instance's history ([Migration
-  46](docs/upgrading.md#migration-46-an-audit-entry-names-who-acted)).
-- **47** creates the task links People are mailed, and stops if `projects` is
-  held for more than two seconds; it finishes on the next start ([Migration
-  47](docs/upgrading.md#migration-47-task-links)).
-- **48** creates the keys People give their own systems, and stops if
-  `workflow_users` is held for more than two seconds; it finishes on the next
-  start ([Migration 48](docs/upgrading.md#migration-48-personal-api-keys)).
 
 ### Security
-
-- **The setup wizard asks for a setup token.** Setup is anonymous by
-  necessity, so whoever reached a fresh installation first became its
-  administrator, and its connection test answered anyone's network probes. A
-  server with no administrator now prints a one-time token in its log, or takes
-  `METIS_SETUP_TOKEN`, and refuses setup and the connection test without it.
-  Ten wrong tokens a minute stop it comparing. `scripts/dev.sh` chooses the
-  token and passes it to `scripts/seed-sample.sh`; run the seed script on its
-  own with `METIS_SETUP_TOKEN` set.
-
-- **A new account needs a password it can sign in with.** Creating an account
-  through the API, Connect or the SDK took any password, an empty one
-  included, and the account then signed in with it; only the UI's form
-  refused one shorter than 8 characters. Creating an account, and the first
-  administrator at setup, now take the floor a reset or a change does: at
-  least 8 characters, at most 72 bytes, refused with a 400. A password over 72
-  bytes was a 500. Accounts that already exist are not touched.
-
-- **Signing out ends the session on the server.** Signing out cleared the
-  token in the one browser it was in, and the token went on working for the
-  rest of its 24 hours wherever else it had been copied. `POST /api/v1/logout`
-  now ends every session a local account has, on every device, and the UI
-  calls it when somebody signs out. An account that signs in through an
-  identity provider is refused with a 400 and signs out there. On a server
-  with replicas the other replicas refuse the old token within
-  `METIS_AUTH_CACHE_TTL`, 5 seconds by default.
-
-- **A project's People directory is its organization's alone.** Listing a
-  project's participants, importing or syncing people into it and removing
-  them checked only that the caller was signed in, not that the project was
-  theirs: anybody signed in to any organization could read another
-  organization's directory, names and addresses included, and add people to
-  it, given the project's id. The directory now answers a project outside the
-  caller's organization as not found, as every other per-project read does.
-
-- **An inbound webhook's secret is encrypted at rest.** The secret a partner
-  signs deliveries with was stored as it was, though it was documented as
-  encrypted, so a backup, a read replica or a `SELECT` on `webhooks` was enough
-  to forge any partner's deliveries. It is sealed with `ENCRYPTION_KEY` like
-  every other credential now, and migration 42 seals the secrets already
-  stored, deleted webhooks' included. Partners change nothing: the secret
-  itself is the same. `metis --reseal` moves these secrets with the rest when
-  the key is rotated.
 
 - **A group's roles now grant what they say.** The group editor said everyone
   in a group holds its roles, but nothing read them: giving a group a role
@@ -458,253 +982,6 @@ does not undo a migration.
 
 ### Added
 
-- **Server settings can be changed on the Settings page.** A platform
-  administrator sees every setting the server reads, grouped (email, sign-in,
-  retention, workers, limits, caches, observability), where its value comes
-  from, and changes one with a reason. Every change is kept with who made it
-  and why (migration 49); a secret such as the mail password is stored sealed
-  and never sent back to the browser. A value set in the environment still
-  wins and is shown locked. Retention periods and execution limits apply
-  without a restart; the rest say they wait for one. The database, keys,
-  listen addresses and guardrails stay environment-only and are listed
-  read-only with the reason.
-- **An administrator can set a colleague's password.** Editing an account
-  on Platform access now has a *New password* field: left empty, the
-  password stays as it is; filled in, it replaces it and signs the account
-  out everywhere. Before, a forgotten password on a running installation had
-  one answer, `--reset-password` on the server. It asks what deleting the
-  account asks: an administrator of every organization the account belongs
-  to, and a platform administrator for an account holding a role in every
-  organization. It is refused for your own account, which the Profile page
-  changes with the current password, and for an account an identity provider
-  signs in. Each one is logged with who set it, never the password
-  (`PUT /api/v1/users/{id}/password`).
-
-- **An administrator sets a person's password for the People login.** The
-  People page has a key button on each row: the password set there is the one
-  the person signs in to their tasks with, and it ends every People session
-  they had. It takes the role an import takes, reaches only a person in the
-  named project of the caller's own organization, and is logged with who set
-  it, never the password (`PUT /api/v1/participants/{id}/password`). Until
-  now a person imported without a password had no way to get one.
-
-- **People can sign in, separately from Users.** `POST /api/v1/people/login`
-  takes a project, the username a process names the person by, and the
-  password an administrator set, and answers with a People token: PASETO
-  `v4.local`, sealed with `METIS_PEOPLE_TOKEN_KEY`, good for 12 hours.
-  `GET /api/v1/people/me` says who it signs in. A People token is accepted
-  under `/api/v1/people/` and refused everywhere else; a User's token is
-  refused under `/api/v1/people/`. Every request re-reads the person, so
-  removing or deactivating them, or setting a new password, ends their
-  sessions at once. Failed sign-ins are throttled per project and name and
-  all read the same. Unset, `METIS_PEOPLE_TOKEN_KEY` leaves People unable to
-  sign in and changes nothing else.
-
-- **People work their tasks through their own routes.** With a People token,
-  `GET /api/v1/people/tasks` lists the open tasks given to the person by name
-  or offered to them or to a People group they are in, in their project only.
-  `GET /api/v1/people/tasks/{id}` reads one, and `POST .../claim`,
-  `.../release` and `.../complete` act on it under the same rules a User's
-  claim and completion follow: candidate users and groups, separation of
-  duties, and only the variables the form declares. The actor is the token's,
-  never the body's. A task given to somebody else, or in another project,
-  answers 404, so a person learns neither that it exists nor whose it is. A
-  person may give back a task they took from a pool, not one given to them by
-  name, and never takes a task that names nobody.
-
-- **A person can give their own systems keys of their own.** On their page at
-  `/p/`, a person makes a key for each system that works their tasks for them,
-  named for that system, and revokes one without touching the others. A key is
-  sent as `Authorization: Bearer mpk_…` to the People task API and acts as
-  that person and nobody else: it reads, claims, releases and completes their
-  tasks, and cannot make, list or revoke keys, which takes their sign-in. A key
-  is shown once, when it is made; only its SHA-256 is stored. A person keeps at
-  most 20 live keys. A key stops working when it is revoked or its person is
-  removed or deactivated, and a platform route refuses it as it refuses a
-  People token. Migration 48 adds the `person_api_keys` table.
-
-- **A task link lets a person do a task without signing in.** With
-  `METIS_PUBLIC_URL` and the notification mail settings set, a task created
-  for, handed to, delegated to or handed back to somebody in the People
-  directory mails each person it names a link to it, `<address>/p/t#<token>`.
-  The page shows the task and its form and completes it as that person, under
-  the same rules their own sign-in would. A link is good for one task and one
-  person, once, for `METIS_TASK_LINK_LIFETIME` (7 days unless set). It stops
-  working when its task is completed, withdrawn or given to somebody else, or
-  its person is removed or deactivated; on a task offered to several people
-  the first to submit wins. Opening a link changes nothing, so a mail scanner
-  that opens it does not act on the task. The token is never stored, only its
-  SHA-256, and travels after the `#`, which a browser does not send. Migration
-  47 adds the `task_links` table.
-
-- **The designer picks People, not Users, for a task.** A user task's
-  assignee, candidate users and candidate groups now come from the project's
-  People directory and its People groups, read from
-  `GET /api/v1/participants` and the new
-  `GET /api/v1/participant-groups?project_id=`. A name already in the
-  definition that is not in the directory stays selectable and is labelled
-  as such, and checking the process warns about each one before deploy;
-  expressions such as `${initiator}` are left alone. Both reads answer only
-  for a project in the caller's own organization.
-
-- **People have a page of their own.** `<address>/p/?project=<id>` signs a
-  person in with their username and password and lists the tasks given or
-  offered to them. From there they take a task offered to several people,
-  give back one they took, and complete one with its form. The People page
-  shows the address to hand them. The People session lives in that browser
-  tab only, apart from any User session, and signing out of one leaves the
-  other alone.
-
-- **A switch-over window for moving tasks from Users to People.**
-  `METIS_TASKS_ALLOW_PLATFORM_ACTORS`, on by default, keeps today's
-  behaviour: a User a task names can claim and complete it. Each time one
-  does, the log names the User and the task, so whoever moves the
-  installation over can see who still relies on it. Set to `false`, a User's
-  claim and completion answer 403 and only People do tasks; setting it back
-  is the rollback. The default becomes off in a later release.
-
-- **The People page says what People lack before the switch-over.** *Check*
-  lists every name the project's open tasks and live models use, as
-  assignee, candidate user or candidate group, that is not a person or a
-  People group of the project, with where it is used. A name a User of the
-  organization has is added from their account, with no password; a group
-  the organization has is made a People group with its members. One button
-  adds all that can be added (`GET /api/v1/participants/gaps`,
-  `POST /api/v1/participants/gaps/fill`). Expressions such as `${initiator}`
-  are left out, and another organization's Users are never read.
-
-- **An audit log of what people did, across the organization.** Who waived,
-  cancelled, held, migrated, reassigned, activated, approved or rejected
-  what was written down on each instance's own history and nowhere it could
-  be searched. The Audit log page, under Administer, lists every entry a
-  person's act wrote, newest first, filtered by who, which kind, which
-  project and when, and links each to its instance. It is an
-  administrator's, of their own organization, and outlives the instances it
-  names: the retention sweep removes instances and never the trail. Acts
-  recorded before migration 46 are not in it
-  (`GET /api/v1/audit/operations`; [The audit
-  log](docs/runbooks.md#reading-the-audit-log)).
-- **Large variable values can be kept out of the instance's row.** With
-  `METIS_PAYLOAD_DIR` set, a variable larger than
-  `METIS_PAYLOAD_THRESHOLD_BYTES` (64 KiB by default) is sealed into a file
-  once, and the instance row and each variable snapshot refer to it. An
-  instance carrying a document used to write it again into its row and into a
-  new snapshot at every step. Nothing that reads an instance sees the
-  difference. Off unless set; the directory must be shared by every replica
-  and backed up with the database, which `scripts/backup.sh` now does
-  ([Large variable values](docs/postgresql.md#large-variable-values)).
-- **Retry or cancel every instance a filter matches, in one request.** An
-  operator retries, and an administrator cancels, the instances of a project
-  that match the instance list's filter: status, process, business key, or
-  needing attention. A dry run says how many match; one operation takes up to
-  10,000. It is worked through in the background, each instance exactly as the
-  single-instance retry or cancel does it, and keeps what came of each:
-  succeeded, failed with why, or skipped. It acts as whoever asked, checked
-  again every 50 instances, and stops itself if they lose the role. Anybody
-  who runs the organization can stop it with a reason ([Retrying or cancelling
-  many instances at
-  once](docs/runbooks.md#retrying-or-cancelling-many-instances-at-once)).
-- **Workers share their time between organizations.** The job claim took the
-  oldest due jobs whoever they belonged to, so one organization that queued
-  ten thousand timers at once held every worker until they had all run, and
-  another's reminder due a second later waited behind them. Each organization
-  with work due now has its oldest job in the first turn of a round, its
-  second oldest in the second, and so on; one organization alone still gets a
-  full round. A round looks at up to 1,000 organizations, from a random place
-  each time, and fills whatever is left oldest first, so it is never smaller
-  for being fair. Measured on PostgreSQL 16: 4ms a round with 50 organizations
-  holding jobs, 10ms with 100,000.
-
-- **Outgoing webhooks.** An administrator registers an address for a
-  project's `process.started`, `process.completed`, `task.created` and
-  `task.completed` events, and each one is posted to it signed with the
-  webhook's own secret, with a delivery id that stays the same across retries.
-  The event is queued in the transaction of the step that raised it, so a
-  rolled-back step is never announced and a committed one is announced even if
-  the server stops; a receiver that does not accept it is tried ten times over
-  about a day. The address is checked against the egress policy when it is
-  saved and at every dial, and no delivery carries process variables
-  ([Sending events: outgoing
-  webhooks](docs/integration.md#sending-events-outgoing-webhooks)).
-- **Outgoing webhooks in the UI.** The connectors page lists a project's
-  outgoing webhooks with the events each is sent. An administrator adds one
-  there, choosing its events in plain words and copying its secret from the
-  one dialog that shows it; sends it a test and sees the request, the
-  receiver's answer and how the signature was made; and reads its delivery
-  log, filtered by where deliveries stand, retrying or stopping one from it.
-  A failure says what to do next, such as checking the signing secret on a
-  401.
-- **Try a delivery to an incoming webhook before the partner sends one.**
-  Each incoming webhook on the connectors page has *Try a delivery*: paste the
-  body the partner would post, optionally with its three signature headers,
-  and see each check a real delivery meets, in order. Whether the signature
-  matches the webhook's secret, which value the correlation rule finds, which
-  waiting instances it would move on or which processes it would start, and
-  why a real delivery would be refused. It is a dry run: no process moves and
-  the delivery ID is not used up. The answer never contains the signature a
-  body should have had. For a designer, as setting the webhook up is
-  ([Trying a delivery](docs/integration.md#trying-a-delivery-before-the-partner-sends-one)).
-- **Try an outgoing webhook, and read what it was sent.** An administrator can
-  send a webhook a signed sample of any of its events and see the request as
-  it went out, signature included, and the receiver's answer; the sample is
-  marked as a test and names no real instance. Each webhook keeps a log of its
-  deliveries, newest first and filtered by where they stand, from which a
-  pending or failed delivery can be retried at once and a pending one stopped
-  ([Trying a receiver](docs/integration.md#trying-a-receiver-and-reading-what-it-was-sent)).
-- **An outgoing webhook can be told of incidents.** `incident.raised` is
-  sent when a call or a worker fails with no retries left, and when somebody
-  holds an instance at a step. It names the incident, the step and the case,
-  and not the incident's text, which can quote what the failed call sent; a
-  receiver reads that from the API. Incidents raised by a failed job or
-  external task now also have an entry in the audit trail
-  ([Sending events](docs/integration.md#sending-events-outgoing-webhooks)).
-- **Simulate the diagram you are editing, without deploying it.** In the
-  designer, Simulate now runs the canvas: the version you opened while the
-  canvas still does what it does, and a draft once you change a step, a
-  condition or a flow (moving shapes does not count). A draft is checked the
-  way a deploy is, runs on the real engine inside the simulation's
-  rolled-back transaction, and is never saved — no version, no gap in the
-  numbering, nothing live changes. A never-deployed process can be simulated
-  too. Simulating from the designer also now runs the version on screen
-  rather than whichever one is live. Same permission as before (designer).
-  - `POST /api/v1/simulations` and `/batch` accept the draft as `definition`
-    (the body `POST /api/v1/definitions` takes) or as `bpmn_xml` (a `.bpmn`
-    file), in place of `definition_key` and `version`. Both at once is a 400.
-  - A batch case carrying `replay_instance_id` is now refused as the single
-    endpoint refuses it. It was run against the live definition instead.
-
-- **Simulation cases are saved with the process, and say what they expect.**
-  A case built in the designer's Simulate mode can be saved with the process,
-  so everybody who opens it gets the same cases, and **Expect this result**
-  turns the run on screen into what the case must end with: how it ends,
-  where, and the few values that matter. A run that differs says what
-  differs in words ("It ended at CFO signs off, not Approved"), and **Run
-  every case** marks each one passed or not against its own expectation. A
-  process keeps at most 20 cases. Designers only, like simulation itself.
-  - `GET` and `POST /api/v1/projects/{id}/simulation-cases/{process_key}`,
-    `PUT` and `DELETE /api/v1/projects/{id}/simulation-cases/{process_key}/{case_id}`.
-
-- **Replay a real instance on another version.** Open an instance in the
-  designer, switch to Simulate and press **Replay the instance you opened**:
-  the case is read off the instance — what it was started with, who did each
-  step and how long they took, what they entered, what its services
-  answered — and run on the diagram on screen or on whatever is live. The rail
-  says where the run went somewhere the instance did not ("It reaches CFO
-  signs off, which the instance never did"), and the case it read stays on
-  screen to change and run again. Nothing about the instance is changed.
-  Designers only, like simulation itself.
-  - `POST /api/v1/simulations` runs `replay_instance_id`, which it used to
-    refuse. With no `definition_key` it runs the instance's own process as it
-    is live; the reply carries `replay`, with what was read and the steps
-    only one of the two reached. Variables and answers sent beside it win
-    over what was read.
-  - A person's answer can carry `returns`, the values they entered, as a
-    service's answer already could.
-  - What people entered is not kept per task, so a replay reads it from what
-    the instance holds now, for the fields each task's form declares, and says
-    so. When a message arrived is not kept either, so a replay stops and asks
-    at a message wait.
-
 - **Finished instances can be removed after a set number of days.** Set
   `METIS_RETENTION_FINISHED_INSTANCES_DAYS` and every ten minutes the sweep
   removes completed and cancelled instances older than that, with their tasks,
@@ -714,68 +991,6 @@ does not undo a migration.
   recorded or asked for on; one with an open incident; a failed instance; a
   finished child of an instance still running, and a finished parent of one;
   and, for now, instances in an environment's own database.
-
-- **An administrator can keep an instance from being removed.** A hold is
-  placed on one instance, with a reason, and the retention sweep then keeps
-  the whole case it is part of: the instance that started the chain of calls
-  and every instance started from it. The hold stands until an administrator
-  releases it, also with a reason; both acts go on the instance's audit trail.
-  Placing, releasing and listing are for administrators of the instance's
-  organization; reading an instance's hold is for whoever may read the
-  instance, and another organization's instance is a 404. A second hold on a
-  held instance is a 400. A sweep that starts while a hold is being placed
-  waits for it. Main database only, as the sweep is. REST only.
-  - `GET /api/v1/instances/{id}/retention-hold` answers
-    `{"held": false}` or `{"held": true, "hold": {...}}`.
-  - `POST /api/v1/instances/{id}/retention-hold` with `{"reason": "..."}`
-    places it.
-  - `POST /api/v1/instances/{id}/retention-hold/release` with
-    `{"reason": "..."}` releases it.
-  - `GET /api/v1/projects/{id}/retention-holds` lists a project's holds,
-    newest first, at most 1,000.
-
-- **A process can keep its finished instances for a period of its own.** An
-  administrator of the project's organization gives a process, by key and for
-  every version of it, a number of days, with a reason. The retention sweep
-  then removes that process's completed and cancelled instances once they are
-  older than that, and every other process's by
-  `METIS_RETENTION_FINISHED_INSTANCES_DAYS`. A period can be longer or shorter
-  than the installation's, and works when the installation has none: then only
-  the processes given one are swept. Sending `null` returns a process to the
-  installation's setting. Every change is kept with who made it and why, since
-  a project has no audit trail of its own. Holds, deviations, open incidents
-  and running parents or children still keep an instance whatever its
-  process's period. Main database only. REST only.
-  - `PUT /api/v1/projects/{id}/retention-periods/{key}` with
-    `{"days": 365, "reason": "..."}`, or `"days": null`, sets it. A body
-    without `days` is a 400, so leaving it out never clears a period.
-  - `GET /api/v1/projects/{id}/retention-periods` lists each process's current
-    period, and `.../retention-periods/{key}/history` its changes, newest
-    first. Both are for whoever may read the project.
-
-- **An instance can carry your name for its case.** Send `business_key` with
-  `POST /api/v1/process/start`, such as an order number or a claim reference.
-  The instance shows it, and `GET /api/v1/instances` takes `business_key` to
-  find a project's instances by it, matched exactly. It is optional and not
-  unique. A sub-process started by a call activity carries its caller's key, so
-  one search finds the whole case. A key longer than 255 characters, or one
-  holding a control character, is a 400 and starts nothing. It is not
-  encrypted, so it should not hold personal data. REST only for now: the gRPC
-  and Connect messages, the Go SDK and the instance list's search box follow.
-
-- **You can see which workers serve each external-task topic, and are told
-  when a topic has none.** Every fetch-and-lock records its worker against the
-  topic, at most once every ten seconds, with the version it says it is if it
-  sends `worker_version` (64 characters at most, no control characters).
-  `GET /api/v1/external-task-workers` lists the organization's topics: what
-  waits on each, what is locked, and each worker with its version, when it
-  last fetched, whether that was in the last two minutes, and how many tasks it
-  holds. A topic with tasks on offer and no such worker is `unserved`;
-  `metis_external_task_topics_unserved` counts those per database, and
-  `MetisExternalTasksUnserved` fires when one stays so for ten minutes. A
-  worker not seen for seven days is forgotten by the retention sweep. REST
-  only for now: the gRPC and Connect fetch, and the Go SDK, do not send a
-  version yet, though their fetches are recorded.
 
 - **Variable snapshots and finished jobs can be cut back, if you ask.** Both
   tables only ever grew. `METIS_RETENTION_VARIABLE_SNAPSHOTS_DAYS` removes
@@ -1179,63 +1394,6 @@ does not undo a migration.
 
 ### Changed
 
-- **The instance list's counts are reused for a second.** Every page of the
-  list counted every instance in the project by state, which under load was
-  most of what the database did for it. One count now serves every request
-  for the same organization, environment, project and filter for a second,
-  and requests that arrive while it is being taken wait for it instead of
-  starting their own. The counts, and the page total read off them, can trail
-  the page by up to that long; the page itself is read fresh.
-  `METIS_INSTANCE_COUNT_CACHE_TTL` sets the window (`0` turns it off).
-
-- **"Platform access" is now called Users.** The page and its entry in the
-  navigation are renamed, and the page says what Users are for: running Metis
-  by role (organizations, projects, People, process and decision models), never
-  being given tasks. On the People page, a person without a password reads
-  "No password yet" instead of "No sign-in yet", and an active person no
-  longer claims they can sign in, because People have no sign-in yet.
-
-- **`scripts/dev.sh` starts its PostgreSQL with Apple's `container`, and only
-  with it.** It used to take whichever of docker, podman or `container` it
-  found first. It now starts the container services when they are down
-  (`container system start`), tells a stopped `metis-dev-pg` from a missing
-  one instead of guessing from a failed start, and publishes the database on
-  127.0.0.1 only. Without the CLI it says how to install it; `DATABASE_URL`
-  and a PostgreSQL already listening on `DB_PORT` work as before. A
-  `metis-dev-pg` left in Docker is not touched: stop it there and the next run
-  creates a fresh one, which the setup wizard then configures.
-
-- **The server holds one connection pool per database, not two.** GORM's pool,
-  opened at boot to run the migrations, closes once they finish, for the main
-  database and for each environment, instead of staying open beside the storm
-  pool for the life of the process. `METIS_DB_MAX_OPEN_CONNS` no longer counts
-  twice against `max_connections`. The `database` readiness check now pings the
-  storm pool, and the `go_sql_*{db_name="gorm"}` metric series are gone.
-
-- **The server starts without compressing the whole UI, and holds less of
-  it.** Every asset was read, copied and gzipped at the best level when the
-  server started: about 0.3 s of CPU and 170 MB allocated at each boot, and
-  5 MB of heap held for the life of the process, mostly for fonts and pages
-  a session never opens. An asset is now gzipped the first time a browser
-  asks for it and kept, and the uncompressed bytes are streamed from the
-  binary. Building the handler takes 4 ms and holds 0.5 MB; what browsers
-  are sent is unchanged.
-
-- **The live event stream encodes an event only for somebody who can
-  receive it.** Every step of every instance raised an event that was encoded
-  twice, even on a replica with no browser open for that organization and no
-  bus to other replicas. Now an event nobody could receive costs about 0.1 µs
-  instead of 11 µs, and one that is delivered is encoded once. An event that
-  cannot be encoded is logged rather than dropped without a word.
-
-- **A service task runs as soon as the step before it commits.** Each one
-  waited for the job worker's next poll, two seconds at the default
-  `METIS_JOB_POLL_INTERVAL`, so three service tasks in a row took six seconds
-  to reach the person after them. The worker is now woken when work that is
-  already due commits on its replica, and the same three take about 30 ms.
-  Timers and retries that are due later still wait for the poll, and another
-  replica's work is still picked up at its own poll.
-
 - **A step repeated over an empty list is skipped.** A step run once per item
   of a list that is empty used to run once anyway, with no item: a service
   call with nothing to send, an approval task nobody was listed for. Now the
@@ -1432,72 +1590,6 @@ does not undo a migration.
   to anybody who is not an operator or an administrator.
 
 ### Fixed
-
-- **Asking for somebody else's organization is a 403, not a 401.** A request
-  for an organization the caller is not a member of, or one naming another
-  organization in what it sends, answered 401, which says the token is no good:
-  the UI signed out, and an integration would sign in again and repeat it. An
-  account that belongs to no organization at all was a 500. All three are 403
-  now, with the reason; 401 is kept for a token that proves nothing.
-
-- **An organization is deleted only once it is empty.** Deleting an
-  organization only hid it: its members went on signing in to it and its
-  projects went on running, on one administrator's click. The delete is now
-  refused with a 400 that names what is still there, while anybody but the
-  caller is a member or any project is in it. Once it is empty it is deleted,
-  and the caller stops being a member of it.
-
-- **Whoever creates an organization administers it.** A new organization was
-  created with nobody in it: its creator could not see it in their list,
-  could not reach it, and was refused with "that organization is not yours"
-  when they added its first member. Its creator is now an administrator of it,
-  in the same transaction that creates it, and can reach it straight away.
-  An organization created before this is left as it is: nobody is made a
-  member of it on upgrade, so one that is still empty needs its first member
-  added in the database, as before. An organization with no name is refused with a 400
-  instead of a 500.
-
-- **The REST organization calls report their failures.** Reading, creating,
-  listing, renaming or deleting an organization answered 200 whatever happened:
-  the error was sent as `"err":{}`. Asking for an organization that is not the
-  caller's, or one that does not exist, looked like success to an integration.
-  They now answer with the status the error calls for, as every other route
-  does. The UI talks Connect, which already reported them.
-
-- **A migration reports an instance it skipped once.** When two runs of one
-  migration overlapped, and the second moved an instance in the moment after
-  the first had skipped its step, the first counted the instance as changed
-  and also passed it over as already moved by another run, "not decided or
-  moved again". The instance itself was skipped once and moved once; only the
-  report, and the outcome an approved request keeps of its run, named it
-  twice. The skip stands, so the instance is counted as changed and is not
-  passed over.
-
-- **A step reached, a process started and a task created reach the browser
-  and the webhooks.** An event about an instance the engine had in hand did
-  not encode: a token it had just added points back at that instance, and the
-  encoder followed the loop a thousand levels down before giving up. The
-  event stream dropped those events without a word, so a new task appeared in
-  an inbox only on the next refresh, and the deprecated installation-wide
-  webhook (`WEBHOOK_ENDPOINTS`) was never sent them and logged an error for
-  each. Following the loop was also most of what a request spent: a full
-  journey through the API now sustains about 70% more per minute and
-  allocates a fifth of what it did.
-
-- **An outgoing webhook's delivery log and test result are readable.** A
-  delivery's outcome was drawn as green or yellow text on its own tint, at
-  3.81:1 and 2.69:1 in light mode, and a test's status as white on a filled
-  green, at 3.45:1, all under the 4.5:1 AA asks. The outcome keeps the page's
-  text colour beside a coloured dot, and the status is text beside an icon.
-
-- **A simulation says which version it ran.** Every run reported version 0,
-  whichever version it was of, because the version was read off the
-  instance's own copy of its definition, which carries only the id.
-
-- **A simulation run in the designer shows how it ended.** Every run was
-  shown as stopped on an incident, with nothing under what happened, because
-  the designer read the server's reply as the run instead of the run inside
-  it. The API was right; only the designer misread it.
 
 - **Work saved offline before the app recorded who did it is shown.** Changes
   queued on a device before each one carried its owner are never sent, since
