@@ -49,7 +49,7 @@ func (r *archiveRepository) MoveRecordsOut(ctx context.Context) (int64, error) {
 	if store == nil {
 		return 0, nil
 	}
-	ex, err := r.conn.conn.MainExecutor(ctx)
+	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return 0, err
 	}
