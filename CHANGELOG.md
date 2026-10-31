@@ -16,6 +16,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   `RELEASER`, may do them there, and an administrator still may everywhere.
   An installation that runs nothing but production marks its own runtime with
   `METIS_PROTECTED_RUNTIME=true`. Nothing is protected until somebody says so.
+- **A step can name its connection by name.** A service task's `connection`
+  property names the project's connection as it is called in the runtime the
+  step runs in, so a model promoted from development to production reaches
+  production's connection rather than an id that only exists in development.
+  The name wins over `connector_instance_id` and `connector_id`; a name with
+  no connection, or one two connections share, raises an incident.
 
 ### Upgrading
 

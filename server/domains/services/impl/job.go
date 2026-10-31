@@ -765,6 +765,12 @@ func numericSetting(raw any) (float64, bool) {
 // one downstream. That costs a breaker opening a little later than it might;
 // telling them apart would need a read before every call to find out.
 func serviceCallTarget(def *entities.ProcessDefinition, node entities.Node) string {
+	if name := strings.TrimSpace(node.GetStringProperty(entities.ConnectionProperty)); name != "" {
+		if project := projectIDOf(def); project != models.NilUUID {
+			return "connection:" + project.String() + "/" + name
+		}
+		return ""
+	}
 	if id := node.GetStringProperty("connector_instance_id"); id != "" {
 		return "connector:" + id
 	}
@@ -829,8 +835,13 @@ func (s *jobService) resolveAndExecuteConnector(ctx context.Context, def *entiti
 }
 
 // findConnectorInstance resolves the connector instance for a node.
-// It first tries the explicit connector_instance_id property, then falls back
-// to resolving by connector_id within the project.
+//
+// A step that names its connection by name (the connection property) is
+// resolved by that name alone, in the runtime it runs in, and is an error when
+// there is none: the name is what was promoted, and reaching for an id instead
+// would reach a connection nobody bound. Otherwise it tries the explicit
+// connector_instance_id property, then falls back to resolving by
+// connector_id within the project.
 //
 // found is false only when the node names no connector at all. That case is a
 // service task which configures nothing, which is a legitimate way to model a
@@ -848,13 +859,22 @@ func (s *jobService) resolveAndExecuteConnector(ctx context.Context, def *entiti
 func (s *jobService) findConnectorInstance(ctx context.Context, def *entities.ProcessDefinition, node entities.Node) (entities.ConnectorInstance, bool, error) {
 	instanceID := node.GetStringProperty("connector_instance_id")
 	connectorID := node.GetStringProperty("connector_id")
-	if instanceID == "" && connectorID == "" {
+	if !node.NamesConnector() {
 		return entities.ConnectorInstance{}, false, nil
 	}
 
 	if def == nil || def.Project == nil {
 		return entities.ConnectorInstance{}, false, fmt.Errorf(
 			"node %q names a connector but its definition has no project to resolve it in", node.ID)
+	}
+
+	if name := strings.TrimSpace(node.GetStringProperty(entities.ConnectionProperty)); name != "" {
+		ci, err := s.connectorSvc.GetConnectorInstanceByName(ctx, def.Project.ID, name)
+		if err != nil {
+			return entities.ConnectorInstance{}, false, fmt.Errorf(
+				"node %q could not reach its connection %q: %w", node.ID, name, err)
+		}
+		return ci, true, nil
 	}
 
 	// Why each candidate was rejected, so the incident says which of the two
