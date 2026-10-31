@@ -325,7 +325,12 @@ export_db_settings() {
 
 random_secret() {
   # LC_ALL=C keeps tr from choking on non-UTF-8 bytes from /dev/urandom.
-  LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48
+  #
+  # tr never stops on its own: head closing the pipe is what ends it, with
+  # SIGPIPE. Under pipefail that makes the pipeline fail, and under errexit an
+  # assignment from it ends the script there, silently, with status 141. Only
+  # the bytes head printed matter, so tr's status is discarded.
+  { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom || true; } | head -c 48
 }
 
 # Generate development secrets once and reuse them.
