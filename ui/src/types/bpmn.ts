@@ -58,6 +58,8 @@ export interface ServiceTaskData extends BaseBPMNNodeData, MultiInstanceConfig {
   externalTopic?: string;
   implementation?: string;
   connector_instance_id?: string;
+  /** The connection's name, the same in every environment; a release writes it. */
+  connection?: string;
   lockDuration?: string;
   httpUrl?: string;
   httpMethod?: string;

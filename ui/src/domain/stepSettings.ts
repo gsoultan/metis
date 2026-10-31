@@ -202,6 +202,7 @@ const PROPERTY_WORDS: Record<string, Read> = {
   auth_header_name: secret('credentials'),
   connector_id: said('connector'),
   connector_instance_id: said('connection'),
+  connection: said('connection'),
   connector_statement: secret('query'),
   topic: said('worker topic'),
   lock_duration: waited('how long a worker may hold it'),

@@ -26,7 +26,7 @@ import (
 // A step that carries its own statement — a database lookup — runs SQL its
 // author wrote, so trying one needs what deploying one needs.
 func (s *jobService) TryConnectorStep(ctx context.Context, projectID uuid.UUID, node entities.Node, variables map[string]any) (map[string]any, error) {
-	if node.GetStringProperty("connector_id") == "" && node.GetStringProperty("connector_instance_id") == "" {
+	if !node.NamesConnector() {
 		return nil, apierr.Invalidf("this step does not name a connector to try")
 	}
 	if strings.TrimSpace(node.GetStringProperty(servicecontracts.StatementProperty)) != "" && !mayAuthorQueries(ctx) {

@@ -173,3 +173,38 @@ func jobServiceForConnectorTest(t *testing.T) (*jobService, uuid.UUID, context.C
 	projectID, ctx := seedProject(t, repo)
 	return js, projectID, ctx, repo
 }
+
+// A step that names its connection by name is resolved by that name, in the
+// runtime it runs in, and never by the id it may also carry: the name is what
+// was promoted, and an id from the environment it came from reaches nothing,
+// or a connection nobody bound.
+func TestServiceTask_NamingItsConnectionResolvesByNameAlone(t *testing.T) {
+	svc, projectID, ctx, _ := jobServiceForConnectorTest(t)
+	if err := svc.connectorSvc.EnsureDefaultConnectors(ctx); err != nil {
+		t.Fatalf("seed catalogue: %v", err)
+	}
+	catalogue, _ := svc.connectorSvc.ListConnectors(ctx)
+	instance, err := svc.connectorSvc.CreateConnectorInstance(ctx, entities.ConnectorInstance{
+		Name: "payments-api", Project: &entities.Project{ID: projectID},
+		Connector: &entities.Connector{ID: catalogue[0].ID},
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+	def := &entities.ProcessDefinition{Project: &entities.Project{ID: projectID}}
+
+	found, ok, err := svc.findConnectorInstance(ctx, def, entities.Node{ID: "charge",
+		Properties: map[string]any{entities.ConnectionProperty: "payments-api"}})
+	if err != nil || !ok || found.ID != instance.ID {
+		t.Fatalf("by name: found %v ok=%v err=%v, want %s", found.ID, ok, err, instance.ID)
+	}
+
+	_, _, err = svc.findConnectorInstance(ctx, def, entities.Node{ID: "charge",
+		Properties: map[string]any{
+			entities.ConnectionProperty: "billing-api",
+			"connector_instance_id":     instance.ID.String(),
+		}})
+	if err == nil || !strings.Contains(err.Error(), "billing-api") {
+		t.Fatalf("a missing connection name was answered with %v, want a refusal naming it", err)
+	}
+}
