@@ -39,4 +39,10 @@ type EnvironmentService interface {
 	// In a protected runtime only a releaser or an administrator may change
 	// the models. An error means it could not be told, and callers refuse.
 	RuntimeProtected(ctx context.Context) (bool, error)
+
+	// CurrentRuntime says which runtime the request is working in and the
+	// project's other environments, by name only: what a page needs to say
+	// "you are in production" and to offer where a release comes from. No
+	// connection detail, so whoever may work in the project may read it.
+	CurrentRuntime(ctx context.Context, projectID uuid.UUID) (entities.RuntimeOverview, error)
 }

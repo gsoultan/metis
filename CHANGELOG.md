@@ -41,6 +41,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   with `METIS_RELEASE_SIGNING_KEY`, and an installation imports it only when
   `METIS_RELEASE_TRUSTED_KEYS` names the key and the content is what was
   signed. For a production that is an installation of its own.
+- **A Releases page, and a banner that says where you are.** Operate →
+  Releases cuts, imports, approves, makes live and rolls back releases. Every
+  page says which environment it is served from, in red when that one is
+  protected.
 
 ### Upgrading
 

@@ -244,6 +244,9 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// a network probe. The setup wizard's public equivalent closes as soon as the
 	// installation is configured; this is the one that replaces it.
 	environmentEndpoints.TestConnection = adminOnly("TestEnvironmentConnection")(environmentEndpoints.TestConnection)
+	// Which runtime this is, and the project's environments by name: anyone
+	// working in the project sees where they are working.
+	environmentEndpoints.CurrentRuntime = protected("CurrentEnvironmentRuntime")(environmentEndpoints.CurrentRuntime)
 
 	// Reading a project's participants is ordinary work — a designer picking an
 	// assignee needs it. Importing is not: it takes an endpoint address or a

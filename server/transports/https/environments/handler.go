@@ -30,6 +30,12 @@ func RegisterHandlers(m *http.ServeMux, eps environment.Endpoints, options []htt
 		common.EncodeResponse,
 		options...,
 	))
+	m.Handle("GET /api/v1/environments/current", httptransport.NewServer(
+		eps.CurrentRuntime,
+		decodeListEnvironmentsRequest,
+		common.EncodeResponse,
+		options...,
+	))
 	m.Handle("POST /api/v1/environments/test-connection", httptransport.NewServer(
 		eps.TestConnection,
 		decodeTestConnectionRequest,

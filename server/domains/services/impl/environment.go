@@ -282,6 +282,33 @@ func (s *environmentService) RuntimeProtected(ctx context.Context) (bool, error)
 	return MainRuntimeProtected()
 }
 
+// CurrentRuntime says which runtime the request is working in, and the
+// project's environments by name.
+func (s *environmentService) CurrentRuntime(ctx context.Context, projectID uuid.UUID) (entities.RuntimeOverview, error) {
+	protected, err := s.RuntimeProtected(ctx)
+	if err != nil {
+		return entities.RuntimeOverview{}, err
+	}
+	overview := entities.RuntimeOverview{Current: entities.RuntimeSummary{Protected: protected}, Environments: []entities.RuntimeSummary{}}
+	current, bound := stormdb.EnvironmentFrom(ctx)
+	ms, err := s.repo.Environment().ListByProject(ctx, projectID)
+	if err != nil {
+		return entities.RuntimeOverview{}, err
+	}
+	for _, m := range ms {
+		summary := entities.RuntimeSummary{ID: uuid.UUID(m.ID), Name: m.Name, Protected: m.Protected}
+		overview.Environments = append(overview.Environments, summary)
+		if bound && summary.ID == current {
+			overview.Current = summary
+		}
+	}
+	if bound && overview.Current.ID != current {
+		// Served on an environment of another project.
+		overview.Current = entities.RuntimeSummary{ID: current, Protected: protected}
+	}
+	return overview, nil
+}
+
 // MainRuntimeProtected reports whether METIS_PROTECTED_RUNTIME marks the main
 // database's runtime as protected. A value that is not a boolean is an error
 // rather than "no": somebody meant to say something, and guessing that they

@@ -2,6 +2,7 @@ import { Tooltip } from '@mantine/core';
 import { Link, useRouterState } from '@tanstack/react-router';
 import {
   Archive,
+  PackageCheck,
   Building2,
   Contact,
   ChevronsLeft,
@@ -123,6 +124,7 @@ const sections: NavSection[] = [
     items: [
       { icon: Play, label: 'nav.instances', to: '/instances', hint: 'Running and completed processes' },
       { icon: Archive, label: 'nav.archive', to: '/archive', hint: 'Finished processes kept after their retention period' },
+      { icon: PackageCheck, label: 'nav.releases', to: '/releases', hint: 'Tested versions moved to the next environment together' },
     ],
   },
   {

@@ -53,3 +53,38 @@ func TestARuntimeIsProtectedWhereItIsMarked(t *testing.T) {
 		t.Fatal("an administrator unprotected production and it stayed protected")
 	}
 }
+
+// A page learns which runtime it is served from — by the port it reached —
+// and the project's other environments, by name, to say "you are in
+// production" and to offer where a release comes from.
+func TestARequestLearnsWhichRuntimeItIsIn(t *testing.T) {
+	svc, projectID, ctx := fixture(t)
+	production := staging(projectID, "production", 8093)
+	production.Protected = true
+	prodID, err := svc.CreateEnvironment(ctx, production)
+	if err != nil {
+		t.Fatalf("create production: %v", err)
+	}
+	if _, err := svc.CreateEnvironment(ctx, staging(projectID, "staging", 8094)); err != nil {
+		t.Fatalf("create staging: %v", err)
+	}
+
+	inProd, err := svc.CurrentRuntime(stormdb.Bind(ctx, prodID), projectID)
+	if err != nil {
+		t.Fatalf("current runtime in production: %v", err)
+	}
+	if inProd.Current.ID != prodID || inProd.Current.Name != "production" || !inProd.Current.Protected {
+		t.Fatalf("in production the current runtime is %+v", inProd.Current)
+	}
+	if len(inProd.Environments) != 2 {
+		t.Fatalf("the project lists %d environments, want 2", len(inProd.Environments))
+	}
+
+	own, err := svc.CurrentRuntime(ctx, projectID)
+	if err != nil {
+		t.Fatalf("current runtime on the main port: %v", err)
+	}
+	if own.Current.Name != "" || own.Current.Protected {
+		t.Fatalf("on the main port the current runtime is %+v, want the installation's own, unprotected", own.Current)
+	}
+}

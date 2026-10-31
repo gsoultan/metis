@@ -16,6 +16,7 @@ type Endpoints struct {
 	SaveEnvironment   endpoint.Endpoint
 	DeleteEnvironment endpoint.Endpoint
 	TestConnection    endpoint.Endpoint
+	CurrentRuntime    endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -24,6 +25,27 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		SaveEnvironment:   MakeSaveEnvironmentEndpoint(s),
 		DeleteEnvironment: MakeDeleteEnvironmentEndpoint(s),
 		TestConnection:    MakeTestConnectionEndpoint(s),
+		CurrentRuntime:    MakeCurrentRuntimeEndpoint(s),
+	}
+}
+
+// MakeCurrentRuntimeEndpoint answers which runtime the request is in and the
+// project's environments, by name.
+func MakeCurrentRuntimeEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ListEnvironmentsRequest)
+		if !ok {
+			return nil, fmt.Errorf("environment: expected a ListEnvironmentsRequest, got %T", request)
+		}
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return CurrentRuntimeResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
+		}
+		overview, err := s.CurrentRuntime(ctx, projectID)
+		if err != nil {
+			return CurrentRuntimeResponse{Err: err}, nil
+		}
+		return CurrentRuntimeResponse{Current: &overview.Current, Environments: overview.Environments}, nil
 	}
 }
 
