@@ -93,6 +93,21 @@ Migration 51 creates `archived_instances`, empty. **Rolling back** to 0.6.0
 means restoring the backup taken before the upgrade, as for migration 50;
 instances archived in the meantime are only in the archive.
 
+## Environments archive their own finished instances
+
+Until this release only the main database's finished instances were
+archived; an environment's were kept live for ever. Now every runtime
+archives its own, by the same period and the same rules, into its own
+`archived_instances`, and the archive page on an environment's port lists
+that environment's archive.
+
+**What to decide before upgrading:** the first sweep after the upgrade
+archives every instance in every environment that finished longer ago than
+the period (90 days unless `METIS_RETENTION_FINISHED_INSTANCES_DAYS` says
+otherwise), 100 a transaction. Expect each environment's database to be
+busier than usual for the first hours. To keep them live, set the period to
+`0` before upgrading, or place a retention hold.
+
 ## Protected environments (migration 52)
 
 Migration 52 adds `environments.protected`, false for every environment
