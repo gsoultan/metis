@@ -160,11 +160,25 @@ func (n *Node) Implementation() string {
 	switch {
 	case n.ExternalTopic != "" || n.GetStringProperty("topic") != "":
 		return "external"
-	case n.GetStringProperty("connector_id") != "" || n.GetStringProperty("connector_instance_id") != "":
+	case n.NamesConnector():
 		return "connector"
 	default:
 		return "push"
 	}
+}
+
+// ConnectionProperty names a step's connection by the name an administrator
+// gave it, which is the same in every environment the model is promoted to;
+// connector_instance_id and connector_id are ids, which are not.
+const ConnectionProperty = "connection"
+
+// NamesConnector reports whether the step names a connector to run, in any of
+// the three ways it can: by connection name, by connection id, or by the
+// catalogue entry configured for its project.
+func (n *Node) NamesConnector() bool {
+	return n.GetStringProperty(ConnectionProperty) != "" ||
+		n.GetStringProperty("connector_id") != "" ||
+		n.GetStringProperty("connector_instance_id") != ""
 }
 
 // WorkerTopic is the topic a service task waits for a worker under, or "" if
