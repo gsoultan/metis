@@ -72,6 +72,9 @@ type ServiceFacade interface {
 	serviceContracts.SimulationService
 	// SimulationCaseService keeps the test cases each process is simulated against.
 	serviceContracts.SimulationCaseService
+	// ReleaseService moves process and decision versions from one environment
+	// to the next together: cut, import (staged), go live, roll back.
+	serviceContracts.ReleaseService
 
 	// DeviationService reads what was done to one instance that its process did
 	// not decide, and waives, cancels or holds one instance where it stands

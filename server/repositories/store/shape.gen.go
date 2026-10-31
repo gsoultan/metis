@@ -654,6 +654,26 @@ func _assertProjectShape(m m0.Project) {
 	}
 }
 
+// _assertReleaseShape fails to compile if m0.Release gains, loses, renames or
+// reorders a field. Regenerate: `storm generate`.
+func _assertReleaseShape(m m0.Release) {
+	type shape m0.Release
+	_ = shape{
+		m.Model,
+		m.Project,
+		m.Name,
+		m.Hash,
+		m.Origin,
+		m.State,
+		m.Bundle,
+		m.Items,
+		m.CutBy,
+		m.ActedBy,
+		m.LiveAt,
+		m.Previous,
+	}
+}
+
 // _assertResourceShape fails to compile if m0.Resource gains, loses, renames or
 // reorders a field. Regenerate: `storm generate`.
 func _assertResourceShape(m m0.Resource) {
