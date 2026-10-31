@@ -63,11 +63,14 @@ func (s *releaseService) ExportRelease(ctx context.Context, projectID uuid.UUID,
 	if hash != rel.Hash {
 		return nil, apierr.Invalidf("release %s has changed since it was cut, so it is not exported; cut a new one", rel.Name)
 	}
-	digest, _ := hex.DecodeString(hash)
+	digest, err := hex.DecodeString(hash)
+	if err != nil {
+		return nil, fmt.Errorf("release %s has a malformed hash: %w", rel.Name, err)
+	}
 	file := releaseFile{
 		Format:    ReleaseFileFormat,
 		Hash:      hash,
-		Key:       base64.StdEncoding.EncodeToString(private.Public().(ed25519.PublicKey)),
+		Key:       publicKeyText(private),
 		Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(private, digest)),
 		Release:   rel.Bundle,
 	}
@@ -118,13 +121,27 @@ func verifyReleaseFile(file releaseFile) error {
 	if !slices.Contains(trusted, file.Key) {
 		return apierr.Invalidf("this release file is signed by a key this installation does not trust (%s)", file.Key)
 	}
-	public, _ := base64.StdEncoding.DecodeString(file.Key)
+	invalid := apierr.Invalidf("this release file's signature is not valid")
+	public, err := base64.StdEncoding.DecodeString(file.Key)
+	if err != nil || len(public) != ed25519.PublicKeySize {
+		return invalid
+	}
 	signature, err := base64.StdEncoding.DecodeString(file.Signature)
-	digest, _ := hex.DecodeString(file.Hash)
-	if err != nil || len(public) != ed25519.PublicKeySize || !ed25519.Verify(public, digest, signature) {
-		return apierr.Invalidf("this release file's signature is not valid")
+	if err != nil {
+		return invalid
+	}
+	digest, err := hex.DecodeString(file.Hash)
+	if err != nil || !ed25519.Verify(public, digest, signature) {
+		return invalid
 	}
 	return nil
+}
+
+// publicKeyText is the public half of a signing key as the release file and
+// METIS_RELEASE_TRUSTED_KEYS write it. An Ed25519 private key is its seed
+// followed by its public key.
+func publicKeyText(private ed25519.PrivateKey) string {
+	return base64.StdEncoding.EncodeToString(private[ed25519.SeedSize:])
 }
 
 // releaseSigningKey reads this installation's release signing key.
@@ -166,5 +183,5 @@ func ReleasePublicKey() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(private.Public().(ed25519.PublicKey)), nil
+	return publicKeyText(private), nil
 }
