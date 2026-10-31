@@ -122,9 +122,17 @@ func TestMakeEndpoints_AdministrativeEndpointsAreRoleGated(t *testing.T) {
 	adminGated = append(adminGated, globalAdminGated...)
 
 	// Authoring endpoints let a caller make the engine execute code.
-	for _, name := range []string{"CreateDefinition", "DeleteDefinition", "ImportDefinition", "ExecuteScript"} {
+	for _, name := range []string{"ExecuteScript"} {
 		if !strings.Contains(source, `designer("`+name+`")`) {
 			t.Errorf("%s is not restricted to designers", name)
+		}
+	}
+	// Changing the models a runtime runs takes a designer outside a protected
+	// runtime and a releaser inside one; an administrator in both.
+	for _, name := range []string{"CreateDefinition", "DeleteDefinition", "ImportDefinition", "PromoteDefinition",
+		"ScheduleDefinition", "CancelScheduledDefinition", "CreateDecision", "UpdateDecision", "DeleteDecision", "PromoteDecision"} {
+		if !strings.Contains(source, `modelChange("`+name+`")`) {
+			t.Errorf("%s is not gated as a change to a runtime's models", name)
 		}
 	}
 

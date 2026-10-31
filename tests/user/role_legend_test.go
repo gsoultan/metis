@@ -54,7 +54,7 @@ func TestAnybodySignedInCanReadWhatEachRoleIsRequiredFor(t *testing.T) {
 	for _, entry := range reply.Roles {
 		roles = append(roles, entry.Role)
 	}
-	want := []string{entities.RoleAdmin, entities.RoleDesigner, entities.RoleOperator, entities.RoleQueryAuthor}
+	want := []string{entities.RoleAdmin, entities.RoleDesigner, entities.RoleOperator, entities.RoleQueryAuthor, entities.RoleReleaser}
 	if !slices.Equal(roles, want) {
 		t.Fatalf("the legend lists %v, want %v", roles, want)
 	}

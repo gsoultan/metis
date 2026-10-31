@@ -30,7 +30,10 @@ type Environment struct {
 	// itself never reaches a browser. See internal/pkg/configsecret.
 	Connection map[string]any `json:"connection,omitzero"`
 	Enabled    bool           `json:"enabled"`
-	CreatedAt  time.Time      `json:"created_at,omitzero"`
+	// Protected marks a runtime people rely on, such as production: there only
+	// a releaser or an administrator may deploy, promote or schedule a model.
+	Protected bool      `json:"protected"`
+	CreatedAt time.Time `json:"created_at,omitzero"`
 }
 
 // EnvironmentHealth is what a reachability probe found.

@@ -100,6 +100,7 @@ func (r *environmentRepository) Create(ctx context.Context, e models.Environment
 	ins.SetDriver(e.Driver)
 	ins.SetConnection(stringOfValue(connection))
 	ins.SetEnabled(e.Enabled)
+	ins.SetProtected(e.Protected)
 	if _, err := ins.Insert(ctx, ex); err != nil {
 		if errors.Is(err, runtime.ErrUniqueViolation) {
 			return fmt.Errorf("%w: that name or port is already taken", apierr.ErrInvalidArgument)
@@ -135,6 +136,7 @@ func (r *environmentRepository) Update(ctx context.Context, e models.Environment
 	mut.SetDriver(e.Driver)
 	mut.SetConnection(stringOfValue(connection))
 	mut.SetEnabled(e.Enabled)
+	mut.SetProtected(e.Protected)
 	if err := mut.Update(ctx, ex); err != nil {
 		if errors.Is(err, runtime.ErrUniqueViolation) {
 			return fmt.Errorf("%w: that name or port is already taken", apierr.ErrInvalidArgument)
@@ -218,5 +220,6 @@ func environmentFrom(row environment.Row) (models.EnvironmentModel, error) {
 		Driver:     row.Driver,
 		Connection: connection,
 		Enabled:    row.Enabled,
+		Protected:  row.Protected,
 	}, nil
 }
