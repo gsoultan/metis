@@ -131,25 +131,26 @@ func (a *App) sweepRuntime(ctx context.Context, database string, now time.Time, 
 			return a.repo.Job().ForgetFinishedBefore(ctx, now.Add(-keep.finishedJobs))
 		})
 	}
-	// Main database only. Finished instances are archived, not removed: see
-	// ArchiveFinished. The deviation ledger, which decides whether an
-	// instance is kept, lives there; an environment's database has none, so
-	// nothing there could say an instance is still needed.
+	// Every runtime archives its own. Finished instances are archived, not
+	// removed: see ArchiveFinished. What decides whether an instance is still
+	// needed — its deviations, the holds on its case, its process's period —
+	// is written to the database the instance runs in, so each runtime's
+	// sweep reads its own, and keeps its archive beside its instances.
+	// Production run as an environment is archived like production run as
+	// an installation's own runtime.
 	//
 	// It runs whether or not the installation has a period: an administrator
 	// may have given one process a period of its own, and the sweep then
 	// removes that process's instances and no other's. With no period
 	// anywhere it reads one row and archives nothing.
-	if database == "main" {
-		forget(ctx, "process_instances", database, func(ctx context.Context) (int64, error) {
-			return a.repo.Process().ArchiveFinished(ctx, now, keep.finishedInstances)
+	forget(ctx, "process_instances", database, func(ctx context.Context) (int64, error) {
+		return a.repo.Process().ArchiveFinished(ctx, now, keep.finishedInstances)
+	})
+	moveArchiveRecords(ctx, a.repo.Archive().MoveRecordsOut)
+	if keep.archive > 0 {
+		forget(ctx, "archived_instances", database, func(ctx context.Context) (int64, error) {
+			return a.repo.Archive().ForgetArchivedBefore(ctx, now.Add(-keep.archive))
 		})
-		moveArchiveRecords(ctx, a.repo.Archive().MoveRecordsOut)
-		if keep.archive > 0 {
-			forget(ctx, "archived_instances", database, func(ctx context.Context) (int64, error) {
-				return a.repo.Archive().ForgetArchivedBefore(ctx, now.Add(-keep.archive))
-			})
-		}
 	}
 	expire(ctx, database, func(ctx context.Context) (entities.SweptRequests, error) {
 		return a.svc.SweepDeviationRequests(ctx, now)
@@ -247,8 +248,8 @@ func (k optInRetention) announce() {
 
 // moveArchiveRecords moves the records archived since the last pass to the
 // store the operator chose for them, after the transactions that archived
-// them have committed. Not retention, but the same shape: main database
-// only, safe to run twice.
+// them have committed. Not retention, but the same shape: once for each
+// runtime, safe to run twice.
 func moveArchiveRecords(ctx context.Context, run func(context.Context) (int64, error)) {
 	moved, err := run(ctx)
 	if moved > 0 {
