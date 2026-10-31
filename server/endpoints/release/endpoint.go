@@ -17,13 +17,15 @@ import (
 
 // Endpoints are the release operations.
 type Endpoints struct {
-	ListReleases    endpoint.Endpoint
-	GetRelease      endpoint.Endpoint
-	CutRelease      endpoint.Endpoint
-	ImportRelease   endpoint.Endpoint
-	ApproveRelease  endpoint.Endpoint
-	GoLiveRelease   endpoint.Endpoint
-	RollBackRelease endpoint.Endpoint
+	ListReleases      endpoint.Endpoint
+	GetRelease        endpoint.Endpoint
+	CutRelease        endpoint.Endpoint
+	ImportRelease     endpoint.Endpoint
+	ApproveRelease    endpoint.Endpoint
+	ExportRelease     endpoint.Endpoint
+	ImportReleaseFile endpoint.Endpoint
+	GoLiveRelease     endpoint.Endpoint
+	RollBackRelease   endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -79,6 +81,32 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 				}
 			}
 			return respond(s.ImportReleaseFrom(ctx, projectID, source, req.Name))
+		},
+		ExportRelease: func(ctx context.Context, request any) (any, error) {
+			req, ok := request.(NamedRequest)
+			if !ok {
+				return nil, fmt.Errorf("release: expected a NamedRequest, got %T", request)
+			}
+			projectID, err := parseID("project", req.ProjectID)
+			if err != nil {
+				return ExportResponse{Err: err}, nil
+			}
+			file, err := s.ExportRelease(ctx, projectID, req.Name)
+			if err != nil {
+				return ExportResponse{Err: err}, nil
+			}
+			return ExportResponse{File: file}, nil
+		},
+		ImportReleaseFile: func(ctx context.Context, request any) (any, error) {
+			req, ok := request.(ImportFileRequest)
+			if !ok {
+				return nil, fmt.Errorf("release: expected an ImportFileRequest, got %T", request)
+			}
+			projectID, err := parseID("project", req.ProjectID)
+			if err != nil {
+				return ReleaseResponse{Err: err}, nil
+			}
+			return respond(s.ImportReleaseFile(ctx, projectID, req.File))
 		},
 		ApproveRelease: named(func(ctx context.Context, projectID uuid.UUID, name string) (entities.Release, error) {
 			return s.ApproveRelease(ctx, projectID, name)

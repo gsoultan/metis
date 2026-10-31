@@ -30,6 +30,12 @@ func RegisterHandlers(m *http.ServeMux, eps release.Endpoints, options []httptra
 	m.Handle("POST /api/v1/projects/{id}/releases/import", httptransport.NewServer(
 		eps.ImportRelease, decodeImport, common.EncodeResponse, options...,
 	))
+	m.Handle("POST /api/v1/projects/{id}/releases/import-file", httptransport.NewServer(
+		eps.ImportReleaseFile, decodeImportFile, common.EncodeResponse, options...,
+	))
+	m.Handle("GET /api/v1/projects/{id}/releases/{name}/export", httptransport.NewServer(
+		eps.ExportRelease, decodeNamed, common.EncodeResponse, options...,
+	))
 	m.Handle("POST /api/v1/projects/{id}/releases/rollback", httptransport.NewServer(
 		eps.RollBackRelease, decodeProject, common.EncodeResponse, options...,
 	))
@@ -70,10 +76,27 @@ func decodeImport(_ context.Context, r *http.Request) (any, error) {
 	return req, nil
 }
 
+// maxReleaseFileRequestBytes bounds an imported release file, with room for
+// the envelope around it.
+const maxReleaseFileRequestBytes = 16<<20 + 4<<10
+
+func decodeImportFile(_ context.Context, r *http.Request) (any, error) {
+	var req release.ImportFileRequest
+	if err := decodeBounded(r, &req, maxReleaseFileRequestBytes); err != nil {
+		return nil, err
+	}
+	req.ProjectID = r.PathValue("id")
+	return req, nil
+}
+
 // decodeBody reads one JSON object and refuses fields nobody declared: a
 // misspelt "processes" would otherwise cut a release of nothing.
 func decodeBody(r *http.Request, into any) error {
-	decoder := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxReleaseRequestBytes))
+	return decodeBounded(r, into, maxReleaseRequestBytes)
+}
+
+func decodeBounded(r *http.Request, into any, limit int64) error {
+	decoder := json.NewDecoder(http.MaxBytesReader(nil, r.Body, limit))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(into); err != nil {
 		return apierr.Invalidf("this request could not be read: %v", err)

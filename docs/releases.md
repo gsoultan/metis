@@ -85,6 +85,28 @@ live release brought that the previous one did not carry stays as it is,
 because there is no earlier version of it to return to. Rolling back again
 walks further back.
 
+## Between installations
+
+When production is an installation of its own, a release travels as a file.
+
+1. On the installation the release was cut in, set `METIS_RELEASE_SIGNING_KEY`
+   to an Ed25519 seed: 32 random bytes, base64
+   (`openssl rand -base64 32`). Export the release: its file carries the
+   release, its hash, the public key and a signature over the hash.
+2. On production, set `METIS_RELEASE_TRUSTED_KEYS` to that installation's
+   public key, the `key` field of any file it exports. Several keys are
+   separated by commas.
+3. Import the file into the production project. It is checked as an import
+   between environments is, and then the signature: a file that was changed,
+   or signed by a key production does not trust, is refused.
+
+Go live, approval and rollback are then the same as between environments.
+The checks at go live run production's own saved simulation cases.
+
+Both settings are read from the environment only, never from the Settings
+page: an administrator who could change them could make production trust a
+release nobody tested.
+
 ## API
 
 All under `/api/v1/projects/{id}`. Every route is a model change: a designer
@@ -97,6 +119,8 @@ a protected runtime.
 | `POST` | `/releases` | `{"name": "2026.11.1", "processes": ["claims"], "decisions": []}` |
 | `GET` | `/releases/{name}` | |
 | `POST` | `/releases/import` | `{"from_environment": "<environment id, or empty for the main runtime>", "name": "2026.11.1"}` |
+| `GET` | `/releases/{name}/export` | Answers `{"file": {...}}`. |
+| `POST` | `/releases/import-file` | `{"file": {...}}`, at most 16 MiB |
 | `POST` | `/releases/{name}/approve` | |
 | `POST` | `/releases/{name}/go-live` | |
 | `POST` | `/releases/rollback` | |

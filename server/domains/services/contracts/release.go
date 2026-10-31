@@ -37,6 +37,14 @@ type ReleaseService interface {
 	// answers the first import.
 	ImportReleaseFrom(ctx context.Context, projectID, sourceEnvironment uuid.UUID, name string) (entities.Release, error)
 
+	// ExportRelease is a release here as a file signed with this
+	// installation's release key, for another installation to import.
+	ExportRelease(ctx context.Context, projectID uuid.UUID, name string) ([]byte, error)
+
+	// ImportReleaseFile imports a release file signed by an installation this
+	// one trusts, staged, as ImportReleaseFrom does.
+	ImportReleaseFile(ctx context.Context, projectID uuid.UUID, file []byte) (entities.Release, error)
+
 	// ApproveRelease records that someone other than who cut and who imported
 	// a staged release agrees it may go live. A protected runtime requires it.
 	ApproveRelease(ctx context.Context, projectID uuid.UUID, name string) (entities.Release, error)
