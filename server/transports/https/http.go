@@ -38,6 +38,7 @@ import (
 	"github.com/gsoultan/metis/server/transports/https/platformusers"
 	"github.com/gsoultan/metis/server/transports/https/processes"
 	"github.com/gsoultan/metis/server/transports/https/projects"
+	"github.com/gsoultan/metis/server/transports/https/releases"
 	"github.com/gsoultan/metis/server/transports/https/retentionholds"
 	"github.com/gsoultan/metis/server/transports/https/retentionperiods"
 	"github.com/gsoultan/metis/server/transports/https/roles"
@@ -106,6 +107,7 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 	outgoingwebhooks.RegisterHandlers(m, eps.OutgoingWebhook, options)
 	simulations.RegisterHandlers(m, eps.Simulation, options)
 	simulationcases.RegisterHandlers(m, eps.SimulationCase, options)
+	releases.RegisterHandlers(m, eps.Release, options)
 	roles.RegisterHandlers(m, eps.Role, options)
 
 	// The public delivery endpoint. Registered straight onto the mux rather than

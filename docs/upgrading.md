@@ -126,6 +126,15 @@ refuses those changes until it is fixed, rather than guessing.
 **Rolling back** to a release without the column leaves it in place and
 unread; every environment is then unprotected again.
 
+## Releases (migration 53)
+
+Migration 53 creates `releases`, empty, in every runtime. Nothing changes
+until somebody cuts a release; deploying, promoting and scheduling a single
+version work as they did. See [Releases](releases.md).
+
+**Rolling back** to a release without the table leaves it in place and
+unread. The versions a release staged or made live stay what they are.
+
 ## A group's roles grant what they say
 
 A group's `roles` were stored and shown in the group editor, which said that

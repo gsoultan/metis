@@ -46,6 +46,7 @@ type service struct {
 	contracts.NotificationService
 	contracts.SimulationService
 	contracts.SimulationCaseService
+	contracts.ReleaseService
 	contracts.DeviationService
 	contracts.RetentionHoldService
 	contracts.RetentionPeriodService
@@ -87,6 +88,7 @@ type ServiceParams struct {
 	NotificationService    contracts.NotificationService
 	SimulationService      contracts.SimulationService
 	SimulationCaseService  contracts.SimulationCaseService
+	ReleaseService         contracts.ReleaseService
 	DeviationService       contracts.DeviationService
 	RetentionHoldService   contracts.RetentionHoldService
 	RetentionPeriodService contracts.RetentionPeriodService
@@ -142,6 +144,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	if p.SimulationCaseService == nil {
 		p.SimulationCaseService = serviceimpl.NewUnavailableSimulationCaseService()
 	}
+	if p.ReleaseService == nil {
+		p.ReleaseService = serviceimpl.NewUnavailableReleaseService()
+	}
 	return &service{
 		OrganizationService:        p.OrganizationService,
 		ProjectService:             p.ProjectService,
@@ -174,6 +179,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		NotificationService:        p.NotificationService,
 		SimulationService:          p.SimulationService,
 		SimulationCaseService:      p.SimulationCaseService,
+		ReleaseService:             p.ReleaseService,
 		DeviationService:           p.DeviationService,
 		RetentionHoldService:       p.RetentionHoldService,
 		RetentionPeriodService:     p.RetentionPeriodService,
@@ -371,6 +377,7 @@ func NewServiceFacade(
 		NotificationService:   notificationSvc,
 		SimulationService:     simulationSvc,
 		SimulationCaseService: serviceimpl.NewSimulationCaseService(repo),
+		ReleaseService:        serviceimpl.NewReleaseService(repo, defSvc, decisionSvc, connectorSvc),
 		DeviationService: serviceimpl.NewDeviationService(deviationLedger,
 			instanceDeviator,
 			serviceimpl.NewDeviationRequestService(repo, engine,

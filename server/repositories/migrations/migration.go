@@ -67,5 +67,6 @@ func Steps() []Migration {
 	return []Migration{
 		{Version: archivedInstancesVersion, Name: "archived instances", Run: addArchivedInstances},
 		{Version: environmentProtectedVersion, Name: "protected environments", Run: addEnvironmentProtected},
+		{Version: releasesVersion, Name: "releases", Run: addReleases},
 	}
 }

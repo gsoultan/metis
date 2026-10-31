@@ -25,6 +25,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/platformuser"
 	"github.com/gsoultan/metis/server/endpoints/process"
 	"github.com/gsoultan/metis/server/endpoints/project"
+	"github.com/gsoultan/metis/server/endpoints/release"
 	"github.com/gsoultan/metis/server/endpoints/retentionhold"
 	"github.com/gsoultan/metis/server/endpoints/retentionperiod"
 	"github.com/gsoultan/metis/server/endpoints/role"
@@ -69,6 +70,7 @@ type Endpoints struct {
 	Notification      notification.Endpoints
 	Simulation        simulation.Endpoints
 	SimulationCase    simulationcase.Endpoints
+	Release           release.Endpoints
 	Role              role.Endpoints
 }
 
@@ -562,6 +564,17 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	simulationCaseEndpoints.SaveSimulationCase = designer("SaveSimulationCase")(simulationCaseEndpoints.SaveSimulationCase)
 	simulationCaseEndpoints.DeleteSimulationCase = designer("DeleteSimulationCase")(simulationCaseEndpoints.DeleteSimulationCase)
 
+	// A release changes which models a runtime runs, so every step of one is
+	// a model change: a designer's where nothing is protected, a releaser's
+	// in production. Reading them is on the same gate — they are the models.
+	releaseEndpoints := release.MakeEndpoints(s)
+	releaseEndpoints.ListReleases = modelChange("ListReleases")(releaseEndpoints.ListReleases)
+	releaseEndpoints.GetRelease = modelChange("GetRelease")(releaseEndpoints.GetRelease)
+	releaseEndpoints.CutRelease = modelChange("CutRelease")(releaseEndpoints.CutRelease)
+	releaseEndpoints.ImportRelease = modelChange("ImportRelease")(releaseEndpoints.ImportRelease)
+	releaseEndpoints.GoLiveRelease = modelChange("GoLiveRelease")(releaseEndpoints.GoLiveRelease)
+	releaseEndpoints.RollBackRelease = modelChange("RollBackRelease")(releaseEndpoints.RollBackRelease)
+
 	// What each role is required for, read from the gates above as the factory
 	// built them. Last, so that every one of them is in it: a gate built after
 	// this line would be enforced and missing from the legend, which is the
@@ -605,6 +618,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		Notification:      notificationEndpoints,
 		Simulation:        simulationEndpoints,
 		SimulationCase:    simulationCaseEndpoints,
+		Release:           releaseEndpoints,
 		Role:              roleEndpoints,
 	}
 }

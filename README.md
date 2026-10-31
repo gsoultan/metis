@@ -121,7 +121,7 @@ log (`Metis is not set up yet … enter this setup token`), or takes the one in
 would become its administrator. `scripts/dev.sh` chooses one for you and
 prints it beside the address.
 
-Release notes are in [`CHANGELOG.md`](CHANGELOG.md). What to check before and during an upgrade — from GoBPM, or from one release to the next — is [`docs/upgrading.md`](docs/upgrading.md); how a release is rehearsed, tagged and verified is [`docs/releasing.md`](docs/releasing.md).
+Release notes are in [`CHANGELOG.md`](CHANGELOG.md). What to check before and during an upgrade — from GoBPM, or from one release to the next — is [`docs/upgrading.md`](docs/upgrading.md); how a release is rehearsed, tagged and verified is [`docs/releasing.md`](docs/releasing.md). Moving a project's processes and decisions from development to production — cut, import staged, go live, roll back — is [`docs/releases.md`](docs/releases.md).
 
 ### Configuration
 
