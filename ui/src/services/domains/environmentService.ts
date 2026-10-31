@@ -42,6 +42,7 @@ export const environmentService = {
         driver: environment.driver,
         connection: environment.connection,
         enabled: environment.enabled,
+        protected: environment.protected,
       },
       signal,
     });

@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Added
+
+- **Protected environments and the Releaser role.** An environment marked
+  *protected* (production, usually) refuses a designer's deploy, delete,
+  promote and schedule of a process or a decision; a new built-in role,
+  `RELEASER`, may do them there, and an administrator still may everywhere.
+  An installation that runs nothing but production marks its own runtime with
+  `METIS_PROTECTED_RUNTIME=true`. Nothing is protected until somebody says so.
+
 ### Upgrading
 
 - **Upgrade to 0.6.0 first.** This release upgrades only a database at
@@ -22,6 +31,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   sized by the rehearsal, and take a backup first.
 
 - **51** adds `archived_instances`. A short step: it creates an empty table.
+- **52** adds `environments.protected`, false for every environment already
+  saved. A short step: nothing changes until somebody protects an environment.
 - **Finished instances are archived after 90 days.** With
   `METIS_RETENTION_FINISHED_INSTANCES_DAYS` unset, the first sweep after the
   upgrade moves every completed or cancelled instance finished more than 90

@@ -41,6 +41,12 @@ export const ROLE_OPTIONS: readonly RoleOption[] = [
     description:
       'Deploys process models that look things up in a connected database — held beside Designer, since those steps carry their own SQL',
   },
+  {
+    value: 'RELEASER',
+    label: 'Releaser',
+    description:
+      'Deploys, promotes and schedules models in a protected environment such as production, where a designer cannot',
+  },
 ];
 
 /** The administrator's role: the badge that stands out, and what administrative pages ask for. */

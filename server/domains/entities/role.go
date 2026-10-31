@@ -29,6 +29,13 @@ const (
 	// already.
 	RoleQueryAuthor = "QUERY_AUTHOR"
 
+	// RoleReleaser changes what runs in a protected runtime: production, or
+	// any environment marked protected. There a designer's deploy is refused,
+	// because the models people rely on should change only as a release that
+	// was designed and tested elsewhere. A releaser (or an administrator) may
+	// deploy, promote and schedule there; nobody else may.
+	RoleReleaser = "RELEASER"
+
 	// RoleUser participates in processes — the task inbox. Every authenticated
 	// principal is treated as at least a RoleUser, so endpoints that only need
 	// "signed in" should require no roles at all rather than requiring this.

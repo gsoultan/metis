@@ -82,6 +82,7 @@ export function EnvironmentSettings() {
       driver: environment.driver,
       connection: (environment.connection ?? {}) as EnvironmentDraft['connection'],
       enabled: environment.enabled,
+      protected: Boolean(environment.protected),
     });
   };
 
@@ -204,6 +205,11 @@ export function EnvironmentSettings() {
                       {!environment.enabled && (
                         <Tooltip label="Kept, but not served. Its database is untouched.">
                           <Badge size="xs" color="gray" variant="light">Disabled</Badge>
+                        </Tooltip>
+                      )}
+                      {environment.protected && (
+                        <Tooltip label="Only a releaser or an administrator may change the models it runs.">
+                          <Badge size="xs" color="red" variant="light">Protected</Badge>
                         </Tooltip>
                       )}
                     </Group>
@@ -361,6 +367,14 @@ export function EnvironmentSettings() {
                     description="Turning it off stops the listener. The database is left as it is."
                     checked={draft.enabled}
                     onChange={(e) => setDraft({ ...draft, enabled: e.currentTarget.checked })}
+                  />
+                </Grid.Col>
+                <Grid.Col span={12}>
+                  <Checkbox
+                    label="Protect this environment"
+                    description="For production. Designers cannot deploy, promote or schedule models here; only a releaser or an administrator can."
+                    checked={draft.protected}
+                    onChange={(e) => setDraft({ ...draft, protected: e.currentTarget.checked })}
                   />
                 </Grid.Col>
               </Grid>

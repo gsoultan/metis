@@ -32,4 +32,11 @@ type EnvironmentService interface {
 	// setup wizard's equivalent is public, and closes as soon as the
 	// installation is configured.
 	TestEnvironmentConnection(ctx context.Context, environment entities.Environment) entities.EnvironmentHealth
+
+	// RuntimeProtected reports whether the runtime the request is working in
+	// is protected: the environment its port serves, when it arrived on one,
+	// or this installation's own runtime, which METIS_PROTECTED_RUNTIME marks.
+	// In a protected runtime only a releaser or an administrator may change
+	// the models. An error means it could not be told, and callers refuse.
+	RuntimeProtected(ctx context.Context) (bool, error)
 }

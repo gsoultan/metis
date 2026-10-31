@@ -51,6 +51,8 @@ export interface EnvironmentDraft {
   driver: string;
   connection: EnvironmentConnection;
   enabled: boolean;
+  /** Production and the like: only a releaser or an administrator may change its models. */
+  protected: boolean;
 }
 
 /**
@@ -140,5 +142,6 @@ export function emptyEnvironment(driver: EnvironmentDriver = 'postgres'): Enviro
       ? { host: 'localhost', port: DRIVER_DEFAULT_PORT[driver], username: '', password: '', db_name: '', ssl_enabled: false }
       : { db_name: '' },
     enabled: true,
+    protected: false,
   };
 }

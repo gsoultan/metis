@@ -79,6 +79,9 @@ type Failer interface {
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	f := interceptors.NewInterceptorFactory(s, s)
+	if s != nil {
+		f.UseRuntimeProtection(s.RuntimeProtected)
+	}
 	// protected proves only that the caller is signed in. The chains below it
 	// additionally prove *who* they are.
 	//
@@ -95,6 +98,13 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	}
 	designer := func(method string) func(endpoint.Endpoint) endpoint.Endpoint {
 		return f.ProtectedChainWithRoles(method, entities.RoleAdmin, entities.RoleDesigner)
+	}
+	// modelChange is for what changes the models a runtime runs. Outside a
+	// protected runtime it admits whom designer admits; in a protected one
+	// (production) a releaser or an administrator, and no designer, so the
+	// models people rely on change only as a release.
+	modelChange := func(method string) func(endpoint.Endpoint) endpoint.Endpoint {
+		return f.ModelChangeChain(method, entities.RoleAdmin, entities.RoleDesigner, entities.RoleReleaser)
 	}
 	operator := func(method string) func(endpoint.Endpoint) endpoint.Endpoint {
 		return f.ProtectedChainWithRoles(method, entities.RoleAdmin, entities.RoleOperator)
@@ -169,8 +179,8 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	decisionEndpoints.ListDecisions = protected("ListDecisions")(decisionEndpoints.ListDecisions)
 	decisionEndpoints.ListSummaries = protected("ListDecisionSummaries")(decisionEndpoints.ListSummaries)
 	decisionEndpoints.GetDecision = protected("GetDecision")(decisionEndpoints.GetDecision)
-	decisionEndpoints.CreateDecision = designer("CreateDecision")(decisionEndpoints.CreateDecision)
-	decisionEndpoints.DeleteDecision = designer("DeleteDecision")(decisionEndpoints.DeleteDecision)
+	decisionEndpoints.CreateDecision = modelChange("CreateDecision")(decisionEndpoints.CreateDecision)
+	decisionEndpoints.DeleteDecision = modelChange("DeleteDecision")(decisionEndpoints.DeleteDecision)
 	// Routed and never wrapped, between two neighbours that are gated. Creating
 	// a decision needed the designer role and deleting one did too, while
 	// rewriting one needed nothing beyond a login — and rewriting is the more
@@ -179,7 +189,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// the table with zero rules and zero inputs. A DMN table with no rules
 	// matches nothing, and a decision point that matches nothing is an incident
 	// on every instance that reaches it.
-	decisionEndpoints.UpdateDecision = designer("UpdateDecision")(decisionEndpoints.UpdateDecision)
+	decisionEndpoints.UpdateDecision = modelChange("UpdateDecision")(decisionEndpoints.UpdateDecision)
 	decisionEndpoints.EvaluateDecision = protected("EvaluateDecision")(decisionEndpoints.EvaluateDecision)
 	decisionEndpoints.DecisionImpact = protected("DecisionImpact")(decisionEndpoints.DecisionImpact)
 	decisionEndpoints.RunTests = protected("RunDecisionTests")(decisionEndpoints.RunTests)
@@ -187,7 +197,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// Making a version live changes what every step with no version binding
 	// decides from then on — the same bar as saving one, and as promoting a
 	// process version.
-	decisionEndpoints.PromoteDecision = designer("PromoteDecision")(decisionEndpoints.PromoteDecision)
+	decisionEndpoints.PromoteDecision = modelChange("PromoteDecision")(decisionEndpoints.PromoteDecision)
 
 	// Registering a webhook creates a public address into this installation, so
 	// it takes the same authority as changing a process: designer, not viewer.
@@ -272,11 +282,11 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	accountEndpoints.DeleteAccount = globalAdmin("DeletePlatformUser")(accountEndpoints.DeleteAccount)
 	accountEndpoints.SetRoles = globalAdmin("SetPlatformRoles")(accountEndpoints.SetRoles)
 	definitionEndpoints.ListDefinitions = protected("ListDefinitions")(definitionEndpoints.ListDefinitions)
-	definitionEndpoints.CreateDefinition = designer("CreateDefinition")(definitionEndpoints.CreateDefinition)
+	definitionEndpoints.CreateDefinition = modelChange("CreateDefinition")(definitionEndpoints.CreateDefinition)
 	definitionEndpoints.GetDefinition = protected("GetDefinition")(definitionEndpoints.GetDefinition)
-	definitionEndpoints.DeleteDefinition = designer("DeleteDefinition")(definitionEndpoints.DeleteDefinition)
+	definitionEndpoints.DeleteDefinition = modelChange("DeleteDefinition")(definitionEndpoints.DeleteDefinition)
 	definitionEndpoints.ExportDefinition = protected("ExportDefinition")(definitionEndpoints.ExportDefinition)
-	definitionEndpoints.ImportDefinition = designer("ImportDefinition")(definitionEndpoints.ImportDefinition)
+	definitionEndpoints.ImportDefinition = modelChange("ImportDefinition")(definitionEndpoints.ImportDefinition)
 	definitionEndpoints.ListJavaScriptConditions = protected("ListJavaScriptConditions")(definitionEndpoints.ListJavaScriptConditions)
 	// Deliberately stricter than the javascript-conditions worklist beside it.
 	// That one reports expressions; this one returns every script *body* in the
@@ -287,13 +297,13 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// Promoting is a write that changes which model every future instance runs,
 	// so it takes the designer role rather than the read role — the same bar as
 	// deploying the version in the first place.
-	definitionEndpoints.PromoteDefinition = designer("PromoteDefinition")(definitionEndpoints.PromoteDefinition)
+	definitionEndpoints.PromoteDefinition = modelChange("PromoteDefinition")(definitionEndpoints.PromoteDefinition)
 	definitionEndpoints.ListDefinitionVersions = protected("ListDefinitionVersions")(definitionEndpoints.ListDefinitionVersions)
 	definitionEndpoints.ListLiveVersions = protected("ListLiveVersions")(definitionEndpoints.ListLiveVersions)
 	// Scheduling and cancelling change which model future instances run, so they
 	// take the designer role — the same bar as promoting now.
-	definitionEndpoints.ScheduleDefinition = designer("ScheduleDefinition")(definitionEndpoints.ScheduleDefinition)
-	definitionEndpoints.CancelScheduledDefinition = designer("CancelScheduledDefinition")(definitionEndpoints.CancelScheduledDefinition)
+	definitionEndpoints.ScheduleDefinition = modelChange("ScheduleDefinition")(definitionEndpoints.ScheduleDefinition)
+	definitionEndpoints.CancelScheduledDefinition = modelChange("CancelScheduledDefinition")(definitionEndpoints.CancelScheduledDefinition)
 	// Administrative rather than designer: this rewrites instances that have
 	// already been started — somebody's purchase order, somebody's leave
 	// request — where every other action on this page only decides what future
