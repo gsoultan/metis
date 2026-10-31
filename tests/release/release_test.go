@@ -28,7 +28,10 @@ type world struct {
 	conn      *db.Conn
 }
 
-func newWorld(t *testing.T) world {
+func newWorld(t *testing.T) world { return newWorldProtected(t, false) }
+
+// newWorldProtected is the world with production marked protected or not.
+func newWorldProtected(t *testing.T, protected bool) world {
 	t.Helper()
 	conn := testutils.SetupTestDB(t)
 	prodDB := testutils.SetupTestDB(t)
@@ -43,6 +46,12 @@ func newWorld(t *testing.T) world {
 		models.ProjectModel{Base: models.Base{ID: models.FromUUID(projectID)}, OrganizationID: models.FromUUID(orgID), Name: "P"},
 		models.OrganizationModel{Base: models.Base{ID: models.FromUUID(orgID)}, Name: "O"}); err != nil {
 		t.Fatalf("seed production's identity rows: %v", err)
+	}
+	if err := repo.Environment().Create(entities.WithSystemContext(dev), models.EnvironmentModel{
+		Base: models.Base{ID: models.FromUUID(prodID)}, ProjectID: models.FromUUID(projectID),
+		Name: "production", Port: 18000 + int(prodID[0]) + int(prodID[1])*100, Driver: "postgres", Protected: protected,
+	}); err != nil {
+		t.Fatalf("register production: %v", err)
 	}
 	return world{svc: svc, dev: dev, prod: db.Bind(dev, prodID), projectID: projectID, conn: conn}
 }

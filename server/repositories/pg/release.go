@@ -57,6 +57,8 @@ func (r *releaseRepository) Create(ctx context.Context, rel entities.Release) (e
 	ins.SetItems(items)
 	ins.SetCutBy(rel.CutBy)
 	ins.SetActedBy(rel.ActedBy)
+	ins.SetImportedBy(rel.ImportedBy)
+	ins.SetApprovedBy(rel.ApprovedBy)
 	ins.SetPrevious(rel.Previous)
 	if rel.LiveAt != nil {
 		ins.SetLiveAt(*rel.LiveAt)
@@ -155,6 +157,7 @@ func (r *releaseRepository) Update(ctx context.Context, rel entities.Release) er
 	mut.SetState(string(rel.State))
 	mut.SetItems(items)
 	mut.SetActedBy(rel.ActedBy)
+	mut.SetApprovedBy(rel.ApprovedBy)
 	mut.SetPrevious(rel.Previous)
 	if rel.LiveAt != nil {
 		mut.SetLiveAt(*rel.LiveAt)
@@ -181,17 +184,19 @@ func encodeRelease(rel entities.Release) (bundle, items []byte, err error) {
 
 func promotionReleaseFrom(row release.Row) (entities.Release, error) {
 	rel := entities.Release{
-		ID:        row.ID,
-		CreatedAt: row.CreatedAt,
-		Project:   &entities.Project{ID: row.ProjectID},
-		Name:      row.Name,
-		Hash:      row.Hash,
-		Origin:    entities.ReleaseOrigin(row.Origin),
-		State:     entities.ReleaseState(row.State),
-		CutBy:     row.CutBy,
-		ActedBy:   row.ActedBy,
-		Previous:  row.Previous,
-		LiveAt:    liveAtOf(row.LiveAt),
+		ID:         row.ID,
+		CreatedAt:  row.CreatedAt,
+		Project:    &entities.Project{ID: row.ProjectID},
+		Name:       row.Name,
+		Hash:       row.Hash,
+		Origin:     entities.ReleaseOrigin(row.Origin),
+		State:      entities.ReleaseState(row.State),
+		CutBy:      row.CutBy,
+		ActedBy:    row.ActedBy,
+		ImportedBy: row.ImportedBy,
+		ApprovedBy: row.ApprovedBy,
+		Previous:   row.Previous,
+		LiveAt:     liveAtOf(row.LiveAt),
 	}
 	if err := json.Unmarshal(row.Bundle, &rel.Bundle); err != nil {
 		return entities.Release{}, fmt.Errorf("release %s cannot be read: %w", row.Name, err)

@@ -20,7 +20,8 @@ Each step runs in one runtime: the one whose port the request arrives on.
 |---|---|---|
 | **Cut** | development | Records the *live* versions of the processes you name as a release. It adds the decisions they consult and the processes they call. Nothing that runs changes. |
 | **Import** | production | Reads the release from the environment it was cut in, checks it, and stores its models as new versions, **not live**. |
-| **Go live** | production | Makes every model of the release live in one transaction: decisions first, then processes. |
+| **Approve** | production, if protected | Someone other than who cut it and who imported it agrees it may go live. |
+| **Go live** | production | Checks the release, then makes every model live in one transaction: decisions first, then processes. |
 | **Roll back** | production | Makes the release that was live before the live one live again. |
 
 Running instances are never moved. They finish on the version they started on.
@@ -38,6 +39,29 @@ Running instances are never moved. They finish on the version they started on.
 
 Importing the same release twice returns the first import. A different
 release with the same name is refused.
+
+## What go live checks
+
+Go live rehearses the release first: every model is put into force in a
+transaction that is then rolled back, and the checks run against that, so a
+process is checked with the decisions it will consult, new ones included.
+
+- **Every connection still exists here.**
+- **Every decision passes its own tests**, the examples stored with the table.
+- **Every process ends its saved simulation cases as they expect.** The cases
+  are the ones saved in the designer for that process. A simulation calls no
+  connector and sends nothing.
+
+Any failure refuses the go-live and lists what failed. Nothing of the release
+goes live.
+
+## A second person in production
+
+In a [protected](upgrading.md#protected-environments-migration-52)
+environment, a release goes live only once it has been approved by someone
+who neither cut it nor imported it. The approver needs the same role as any
+model change there: Releaser or Administrator. A rollback needs no new
+approval: the release it returns to was approved when it went live.
 
 ## A key new to production
 
@@ -73,5 +97,6 @@ a protected runtime.
 | `POST` | `/releases` | `{"name": "2026.11.1", "processes": ["claims"], "decisions": []}` |
 | `GET` | `/releases/{name}` | |
 | `POST` | `/releases/import` | `{"from_environment": "<environment id, or empty for the main runtime>", "name": "2026.11.1"}` |
+| `POST` | `/releases/{name}/approve` | |
 | `POST` | `/releases/{name}/go-live` | |
 | `POST` | `/releases/rollback` | |

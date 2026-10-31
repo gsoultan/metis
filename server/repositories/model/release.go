@@ -37,7 +37,11 @@ type Release struct {
 	// rolled it back here.
 	CutBy   string
 	ActedBy string
-	LiveAt  *time.Time
+	// ImportedBy is who imported it here, and ApprovedBy who else agreed it
+	// may go live. In a protected runtime they are two people.
+	ImportedBy string
+	ApprovedBy string
+	LiveAt     *time.Time
 	// Previous is the name of the release that was live before this one went
 	// live here, which a rollback makes live again.
 	Previous string
@@ -51,6 +55,8 @@ func (r *Release) Schema(t *storm.Table) {
 	t.Col(&r.State).Size(16)
 	t.Col(&r.CutBy).Size(255)
 	t.Col(&r.ActedBy).Size(255)
+	t.Col(&r.ImportedBy).Size(255)
+	t.Col(&r.ApprovedBy).Size(255)
 	t.Col(&r.Previous).Size(255)
 	t.Unique(&r.Project, &r.Name)
 	// A project's releases, newest first.

@@ -669,6 +669,8 @@ func _assertReleaseShape(m m0.Release) {
 		m.Items,
 		m.CutBy,
 		m.ActedBy,
+		m.ImportedBy,
+		m.ApprovedBy,
 		m.LiveAt,
 		m.Previous,
 	}

@@ -21,20 +21,22 @@ var (
 // Row is what a full read returns: the model struct with relations
 // replaced by their scalar foreign keys and *T rewritten to Null[T].
 type Row struct {
-	ID        [16]byte
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	ProjectID [16]byte
-	Name      string
-	Hash      string
-	Origin    string
-	State     string
-	Bundle    runtime.JSON
-	Items     runtime.JSON
-	CutBy     string
-	ActedBy   string
-	LiveAt    runtime.Null[time.Time]
-	Previous  string
+	ID         [16]byte
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	ProjectID  [16]byte
+	Name       string
+	Hash       string
+	Origin     string
+	State      string
+	Bundle     runtime.JSON
+	Items      runtime.JSON
+	CutBy      string
+	ActedBy    string
+	ImportedBy string
+	ApprovedBy string
+	LiveAt     runtime.Null[time.Time]
+	Previous   string
 }
 
 // Operator ids. Argument-taking operators are numbered first, so the
@@ -79,7 +81,7 @@ const (
 	opNotExists runtime.Op = 33
 )
 
-const nCols = 14
+const nCols = 16
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -245,13 +247,27 @@ func (q *Query) cursor(col uint32, r Row) {
 		q.strs[q.ns] = r.ActedBy
 		q.ns++
 	case 12:
+		if int(q.ns) >= len(q.strs) {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = r.ImportedBy
+		q.ns++
+	case 13:
+		if int(q.ns) >= len(q.strs) {
+			q.over = true
+			return
+		}
+		q.strs[q.ns] = r.ApprovedBy
+		q.ns++
+	case 14:
 		if int(q.ntm) >= len(q.tims) {
 			q.over = true
 			return
 		}
 		q.tims[q.ntm] = r.LiveAt.V
 		q.ntm++
-	case 13:
+	case 15:
 		if int(q.ns) >= len(q.strs) {
 			q.over = true
 			return
@@ -410,20 +426,22 @@ type Pred struct {
 // Typed column handles. The type of the handle is what makes
 // Age.Like(...) fail to compile.
 var (
-	ID        = UUIDCol{0}
-	CreatedAt = TimeCol{1}
-	UpdatedAt = TimeCol{2}
-	ProjectID = UUIDCol{3}
-	Name      = TextCol{4}
-	Hash      = TextCol{5}
-	Origin    = TextCol{6}
-	State     = TextCol{7}
-	Bundle    = JSONCol{8}
-	Items     = JSONCol{9}
-	CutBy     = TextCol{10}
-	ActedBy   = TextCol{11}
-	LiveAt    = NullTimeCol{12}
-	Previous  = TextCol{13}
+	ID         = UUIDCol{0}
+	CreatedAt  = TimeCol{1}
+	UpdatedAt  = TimeCol{2}
+	ProjectID  = UUIDCol{3}
+	Name       = TextCol{4}
+	Hash       = TextCol{5}
+	Origin     = TextCol{6}
+	State      = TextCol{7}
+	Bundle     = JSONCol{8}
+	Items      = JSONCol{9}
+	CutBy      = TextCol{10}
+	ActedBy    = TextCol{11}
+	ImportedBy = TextCol{12}
+	ApprovedBy = TextCol{13}
+	LiveAt     = NullTimeCol{14}
+	Previous   = TextCol{15}
 )
 
 // UUIDCol addresses a uuid column.
@@ -680,7 +698,7 @@ func (q *Query) leaf(p Pred) {
 			}
 			q.anyRaw[q.nar] = p.anyRaw
 			q.nar++
-		case 4, 5, 6, 7, 8, 9, 10, 11, 13:
+		case 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15:
 			if int(q.nas) >= 3 {
 				q.over = true
 				return
@@ -703,14 +721,14 @@ func (q *Query) leaf(p Pred) {
 		}
 		q.raws[q.nr] = p.raw
 		q.nr++
-	case 1, 2, 12:
+	case 1, 2, 14:
 		if int(q.ntm) >= 4 {
 			q.over = true
 			return
 		}
 		q.tims[q.ntm] = p.tim
 		q.ntm++
-	case 4, 5, 6, 7, 10, 11, 13:
+	case 4, 5, 6, 7, 10, 11, 12, 13, 15:
 		if int(q.ns) >= 6 {
 			q.over = true
 			return
@@ -845,6 +863,34 @@ func (q Query) ActedByNotIn(v ...string) Query         { return q.Where(ActedBy.
 func (q Query) ActedByHasPrefix(v string) Query        { return q.Where(ActedBy.HasPrefix(v)) }
 func (q Query) ActedByHasSuffix(v string) Query        { return q.Where(ActedBy.HasSuffix(v)) }
 func (q Query) ActedByContains(v string) Query         { return q.Where(ActedBy.Contains(v)) }
+func (q Query) ImportedByEq(v string) Query            { return q.Where(ImportedBy.Eq(v)) }
+func (q Query) ImportedByNotEq(v string) Query         { return q.Where(ImportedBy.NotEq(v)) }
+func (q Query) ImportedByGt(v string) Query            { return q.Where(ImportedBy.Gt(v)) }
+func (q Query) ImportedByGte(v string) Query           { return q.Where(ImportedBy.Gte(v)) }
+func (q Query) ImportedByLt(v string) Query            { return q.Where(ImportedBy.Lt(v)) }
+func (q Query) ImportedByLte(v string) Query           { return q.Where(ImportedBy.Lte(v)) }
+func (q Query) ImportedByEqLower(v string) Query       { return q.Where(ImportedBy.EqLower(v)) }
+func (q Query) ImportedByLike(v string) Query          { return q.Where(ImportedBy.Like(v)) }
+func (q Query) ImportedByILike(v string) Query         { return q.Where(ImportedBy.ILike(v)) }
+func (q Query) ImportedByIn(v ...string) Query         { return q.Where(ImportedBy.In(v...)) }
+func (q Query) ImportedByNotIn(v ...string) Query      { return q.Where(ImportedBy.NotIn(v...)) }
+func (q Query) ImportedByHasPrefix(v string) Query     { return q.Where(ImportedBy.HasPrefix(v)) }
+func (q Query) ImportedByHasSuffix(v string) Query     { return q.Where(ImportedBy.HasSuffix(v)) }
+func (q Query) ImportedByContains(v string) Query      { return q.Where(ImportedBy.Contains(v)) }
+func (q Query) ApprovedByEq(v string) Query            { return q.Where(ApprovedBy.Eq(v)) }
+func (q Query) ApprovedByNotEq(v string) Query         { return q.Where(ApprovedBy.NotEq(v)) }
+func (q Query) ApprovedByGt(v string) Query            { return q.Where(ApprovedBy.Gt(v)) }
+func (q Query) ApprovedByGte(v string) Query           { return q.Where(ApprovedBy.Gte(v)) }
+func (q Query) ApprovedByLt(v string) Query            { return q.Where(ApprovedBy.Lt(v)) }
+func (q Query) ApprovedByLte(v string) Query           { return q.Where(ApprovedBy.Lte(v)) }
+func (q Query) ApprovedByEqLower(v string) Query       { return q.Where(ApprovedBy.EqLower(v)) }
+func (q Query) ApprovedByLike(v string) Query          { return q.Where(ApprovedBy.Like(v)) }
+func (q Query) ApprovedByILike(v string) Query         { return q.Where(ApprovedBy.ILike(v)) }
+func (q Query) ApprovedByIn(v ...string) Query         { return q.Where(ApprovedBy.In(v...)) }
+func (q Query) ApprovedByNotIn(v ...string) Query      { return q.Where(ApprovedBy.NotIn(v...)) }
+func (q Query) ApprovedByHasPrefix(v string) Query     { return q.Where(ApprovedBy.HasPrefix(v)) }
+func (q Query) ApprovedByHasSuffix(v string) Query     { return q.Where(ApprovedBy.HasSuffix(v)) }
+func (q Query) ApprovedByContains(v string) Query      { return q.Where(ApprovedBy.Contains(v)) }
 func (q Query) LiveAtEq(v time.Time) Query             { return q.Where(LiveAt.Eq(v)) }
 func (q Query) LiveAtNotEq(v time.Time) Query          { return q.Where(LiveAt.NotEq(v)) }
 func (q Query) LiveAtGt(v time.Time) Query             { return q.Where(LiveAt.Gt(v)) }
@@ -868,7 +914,7 @@ func (q Query) PreviousHasPrefix(v string) Query       { return q.Where(Previous
 func (q Query) PreviousHasSuffix(v string) Query       { return q.Where(Previous.HasSuffix(v)) }
 func (q Query) PreviousContains(v string) Query        { return q.Where(Previous.Contains(v)) }
 
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "live_at", "previous" FROM "releases"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "imported_by", "approved_by", "live_at", "previous" FROM "releases"`
 const countPrefix = `SELECT count(*) FROM "releases"`
 const existsPrefix = `SELECT 1 FROM "releases"`
 const existsSuffix = ` LIMIT 1`
@@ -915,6 +961,8 @@ var orderTable = [nCols][4]string{
 	{"\"items\"", "\"items\" DESC", "\"items\" ASC NULLS FIRST", "\"items\" DESC NULLS LAST"},
 	{"\"cut_by\"", "\"cut_by\" DESC", "\"cut_by\" ASC NULLS FIRST", "\"cut_by\" DESC NULLS LAST"},
 	{"\"acted_by\"", "\"acted_by\" DESC", "\"acted_by\" ASC NULLS FIRST", "\"acted_by\" DESC NULLS LAST"},
+	{"\"imported_by\"", "\"imported_by\" DESC", "\"imported_by\" ASC NULLS FIRST", "\"imported_by\" DESC NULLS LAST"},
+	{"\"approved_by\"", "\"approved_by\" DESC", "\"approved_by\" ASC NULLS FIRST", "\"approved_by\" DESC NULLS LAST"},
 	{"\"live_at\"", "\"live_at\" DESC", "\"live_at\" ASC NULLS FIRST", "\"live_at\" DESC NULLS LAST"},
 	{"\"previous\"", "\"previous\" DESC", "\"previous\" ASC NULLS FIRST", "\"previous\" DESC NULLS LAST"},
 }
@@ -934,6 +982,8 @@ var identTable = [nCols]string{
 	"\"items\"",
 	"\"cut_by\"",
 	"\"acted_by\"",
+	"\"imported_by\"",
+	"\"approved_by\"",
 	"\"live_at\"",
 	"\"previous\"",
 }
@@ -968,7 +1018,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [14][34]runtime.Frag{
+var fragTable = [16][34]runtime.Frag{
 	{ // id
 		opEq:    {A: "\"id\" = $"},
 		opNotEq: {A: "\"id\" <> $"},
@@ -1109,6 +1159,38 @@ var fragTable = [14][34]runtime.Frag{
 		opTextHasSuffix: {A: "\"acted_by\" LIKE ('%' || replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_')) ESCAPE '!'"},
 		opTextContains:  {A: "\"acted_by\" LIKE ('%' || replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_') || '%') ESCAPE '!'"},
 	},
+	{ // imported_by
+		opEq:            {A: "\"imported_by\" = $"},
+		opNotEq:         {A: "\"imported_by\" <> $"},
+		opGt:            {A: "\"imported_by\" > $"},
+		opGte:           {A: "\"imported_by\" >= $"},
+		opLt:            {A: "\"imported_by\" < $"},
+		opLte:           {A: "\"imported_by\" <= $"},
+		opEqLower:       {A: "lower(\"imported_by\") = lower($", B: ")"},
+		opLike:          {A: "\"imported_by\" LIKE $"},
+		opILike:         {A: "\"imported_by\" ILIKE $"},
+		opIn:            {A: "\"imported_by\" = ANY($", B: ")"},
+		opNotIn:         {A: "\"imported_by\" <> ALL($", B: ")"},
+		opTextHasPrefix: {A: "\"imported_by\" LIKE (replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_') || '%') ESCAPE '!'"},
+		opTextHasSuffix: {A: "\"imported_by\" LIKE ('%' || replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_')) ESCAPE '!'"},
+		opTextContains:  {A: "\"imported_by\" LIKE ('%' || replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_') || '%') ESCAPE '!'"},
+	},
+	{ // approved_by
+		opEq:            {A: "\"approved_by\" = $"},
+		opNotEq:         {A: "\"approved_by\" <> $"},
+		opGt:            {A: "\"approved_by\" > $"},
+		opGte:           {A: "\"approved_by\" >= $"},
+		opLt:            {A: "\"approved_by\" < $"},
+		opLte:           {A: "\"approved_by\" <= $"},
+		opEqLower:       {A: "lower(\"approved_by\") = lower($", B: ")"},
+		opLike:          {A: "\"approved_by\" LIKE $"},
+		opILike:         {A: "\"approved_by\" ILIKE $"},
+		opIn:            {A: "\"approved_by\" = ANY($", B: ")"},
+		opNotIn:         {A: "\"approved_by\" <> ALL($", B: ")"},
+		opTextHasPrefix: {A: "\"approved_by\" LIKE (replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_') || '%') ESCAPE '!'"},
+		opTextHasSuffix: {A: "\"approved_by\" LIKE ('%' || replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_')) ESCAPE '!'"},
+		opTextContains:  {A: "\"approved_by\" LIKE ('%' || replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_') || '%') ESCAPE '!'"},
+	},
 	{ // live_at
 		opEq:        {A: "\"live_at\" = $"},
 		opNotEq:     {A: "\"live_at\" <> $"},
@@ -1217,7 +1299,7 @@ func (q Query) existsStmt(toks []runtime.Tok) *runtime.Stmt { return existsStmtF
 const (
 	distinctOpen = "SELECT DISTINCT ON ("
 	distinctSep  = ", "
-	distinctTail = ") \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"hash\", \"origin\", \"state\", \"bundle\", \"items\", \"cut_by\", \"acted_by\", \"live_at\", \"previous\" FROM \"releases\""
+	distinctTail = ") \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"hash\", \"origin\", \"state\", \"bundle\", \"items\", \"cut_by\", \"acted_by\", \"imported_by\", \"approved_by\", \"live_at\", \"previous\" FROM \"releases\""
 )
 
 // distinctCaches are AllDistinctOn's, without and with an offset. The
@@ -1395,11 +1477,13 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 	r.Items = runtime.JSON(runtime.JSONB(rv[9], sl))
 	r.CutBy = sl.Str(rv[10])
 	r.ActedBy = sl.Str(rv[11])
-	if b := rv[12]; b != nil && len(b) != 8 {
+	r.ImportedBy = sl.Str(rv[12])
+	r.ApprovedBy = sl.Str(rv[13])
+	if b := rv[14]; b != nil && len(b) != 8 {
 		return runtime.ShapeErr("live_at", "timestamptz", 8, b)
 	}
-	r.LiveAt = runtime.Nullable(rv[12], runtime.Timestamptz)
-	r.Previous = sl.Str(rv[13])
+	r.LiveAt = runtime.Nullable(rv[14], runtime.Timestamptz)
+	r.Previous = sl.Str(rv[15])
 	return nil
 }
 
@@ -1462,7 +1546,7 @@ func (q Query) bindPreds(b *binder) []any {
 				b.anyRaw[nar] = q.anyRaw[nar]
 				v = append(v, &b.anyRaw[nar])
 				nar++
-			case 4, 5, 6, 7, 8, 9, 10, 11, 13:
+			case 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15:
 				b.anyStr[nas] = q.anyStr[nas]
 				v = append(v, &b.anyStr[nas])
 				nas++
@@ -1474,11 +1558,11 @@ func (q Query) bindPreds(b *binder) []any {
 			b.raws[nr] = q.raws[nr]
 			v = append(v, &b.raws[nr])
 			nr++
-		case 1, 2, 12:
+		case 1, 2, 14:
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
-		case 4, 5, 6, 7, 10, 11, 13:
+		case 4, 5, 6, 7, 10, 11, 12, 13, 15:
 			b.strs[ns] = q.strs[ns]
 			v = append(v, &b.strs[ns])
 			ns++
@@ -1675,7 +1759,7 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "releases" ("id", "created_at", "updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "live_at", "previous") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING "id", "created_at", "updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "live_at", "previous"`
+const insertSQL = `INSERT INTO "releases" ("id", "created_at", "updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "imported_by", "approved_by", "live_at", "previous") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING "id", "created_at", "updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "imported_by", "approved_by", "live_at", "previous"`
 
 const updatePrefix = `UPDATE "releases" SET `
 const deletePrefix = `DELETE FROM "releases"`
@@ -1683,36 +1767,40 @@ const deletePrefix = `DELETE FROM "releases"`
 // Dirty bits. One per updatable column; the set of them is an UPDATE's
 // identity, exactly as a token stream is a SELECT's.
 const (
-	dUpdatedAt uint64 = 1 << 0
-	dProjectID uint64 = 1 << 1
-	dName      uint64 = 1 << 2
-	dHash      uint64 = 1 << 3
-	dOrigin    uint64 = 1 << 4
-	dState     uint64 = 1 << 5
-	dBundle    uint64 = 1 << 6
-	dItems     uint64 = 1 << 7
-	dCutBy     uint64 = 1 << 8
-	dActedBy   uint64 = 1 << 9
-	dLiveAt    uint64 = 1 << 10
-	dPrevious  uint64 = 1 << 11
+	dUpdatedAt  uint64 = 1 << 0
+	dProjectID  uint64 = 1 << 1
+	dName       uint64 = 1 << 2
+	dHash       uint64 = 1 << 3
+	dOrigin     uint64 = 1 << 4
+	dState      uint64 = 1 << 5
+	dBundle     uint64 = 1 << 6
+	dItems      uint64 = 1 << 7
+	dCutBy      uint64 = 1 << 8
+	dActedBy    uint64 = 1 << 9
+	dImportedBy uint64 = 1 << 10
+	dApprovedBy uint64 = 1 << 11
+	dLiveAt     uint64 = 1 << 12
+	dPrevious   uint64 = 1 << 13
 )
 
-const nUpdatable = 12
+const nUpdatable = 14
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
-	{A: "\"updated_at\" = $", B: ""}, // updated_at
-	{A: "\"project_id\" = $", B: ""}, // project_id
-	{A: "\"name\" = $", B: ""},       // name
-	{A: "\"hash\" = $", B: ""},       // hash
-	{A: "\"origin\" = $", B: ""},     // origin
-	{A: "\"state\" = $", B: ""},      // state
-	{A: "\"bundle\" = $", B: ""},     // bundle
-	{A: "\"items\" = $", B: ""},      // items
-	{A: "\"cut_by\" = $", B: ""},     // cut_by
-	{A: "\"acted_by\" = $", B: ""},   // acted_by
-	{A: "\"live_at\" = $", B: ""},    // live_at
-	{A: "\"previous\" = $", B: ""},   // previous
+	{A: "\"updated_at\" = $", B: ""},  // updated_at
+	{A: "\"project_id\" = $", B: ""},  // project_id
+	{A: "\"name\" = $", B: ""},        // name
+	{A: "\"hash\" = $", B: ""},        // hash
+	{A: "\"origin\" = $", B: ""},      // origin
+	{A: "\"state\" = $", B: ""},       // state
+	{A: "\"bundle\" = $", B: ""},      // bundle
+	{A: "\"items\" = $", B: ""},       // items
+	{A: "\"cut_by\" = $", B: ""},      // cut_by
+	{A: "\"acted_by\" = $", B: ""},    // acted_by
+	{A: "\"imported_by\" = $", B: ""}, // imported_by
+	{A: "\"approved_by\" = $", B: ""}, // approved_by
+	{A: "\"live_at\" = $", B: ""},     // live_at
+	{A: "\"previous\" = $", B: ""},    // previous
 }
 
 // exprFrags is the SERVER-side assignment each column may take instead
@@ -1729,6 +1817,8 @@ var exprFrags = [nUpdatable]runtime.Frag{
 	{},                                   // items has no server-side form
 	{},                                   // cut_by has no server-side form
 	{},                                   // acted_by has no server-side form
+	{},                                   // imported_by has no server-side form
+	{},                                   // approved_by has no server-side form
 	{A: "\"live_at\" = now()", B: ""},    // live_at = the database's clock
 	{},                                   // previous has no server-side form
 }
@@ -1742,23 +1832,25 @@ var pkFrags = [1]runtime.Frag{
 // assigned, so every other column takes its database default — which is
 // the only way a DEFAULT gen_random_uuid() can ever fire.
 const (
-	iID        uint64 = 1 << 0
-	iCreatedAt uint64 = 1 << 1
-	iUpdatedAt uint64 = 1 << 2
-	iProjectID uint64 = 1 << 3
-	iName      uint64 = 1 << 4
-	iHash      uint64 = 1 << 5
-	iOrigin    uint64 = 1 << 6
-	iState     uint64 = 1 << 7
-	iBundle    uint64 = 1 << 8
-	iItems     uint64 = 1 << 9
-	iCutBy     uint64 = 1 << 10
-	iActedBy   uint64 = 1 << 11
-	iLiveAt    uint64 = 1 << 12
-	iPrevious  uint64 = 1 << 13
+	iID         uint64 = 1 << 0
+	iCreatedAt  uint64 = 1 << 1
+	iUpdatedAt  uint64 = 1 << 2
+	iProjectID  uint64 = 1 << 3
+	iName       uint64 = 1 << 4
+	iHash       uint64 = 1 << 5
+	iOrigin     uint64 = 1 << 6
+	iState      uint64 = 1 << 7
+	iBundle     uint64 = 1 << 8
+	iItems      uint64 = 1 << 9
+	iCutBy      uint64 = 1 << 10
+	iActedBy    uint64 = 1 << 11
+	iImportedBy uint64 = 1 << 12
+	iApprovedBy uint64 = 1 << 13
+	iLiveAt     uint64 = 1 << 14
+	iPrevious   uint64 = 1 << 15
 )
 
-const nInsertable = 14
+const nInsertable = 16
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -1774,6 +1866,8 @@ var insCols = [nInsertable]string{
 	"\"items\"",
 	"\"cut_by\"",
 	"\"acted_by\"",
+	"\"imported_by\"",
+	"\"approved_by\"",
 	"\"live_at\"",
 	"\"previous\"",
 }
@@ -1784,7 +1878,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"releases\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"hash\", \"origin\", \"state\", \"bundle\", \"items\", \"cut_by\", \"acted_by\", \"live_at\", \"previous\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"hash\", \"origin\", \"state\", \"bundle\", \"items\", \"cut_by\", \"acted_by\", \"imported_by\", \"approved_by\", \"live_at\", \"previous\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -1803,7 +1897,7 @@ var updOpCache = runtime.NewMaskCache()
 // part of it. Without it m.Row() would hold what the row held BEFORE
 // the statement, so a caller reading back the counter it just
 // incremented would get the old number and never know.
-const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"hash\", \"origin\", \"state\", \"bundle\", \"items\", \"cut_by\", \"acted_by\", \"live_at\", \"previous\""
+const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"hash\", \"origin\", \"state\", \"bundle\", \"items\", \"cut_by\", \"acted_by\", \"imported_by\", \"approved_by\", \"live_at\", \"previous\""
 
 // Masks reports how many distinct UPDATE shapes have compiled.
 func Masks() int { return updCache.Masks() }
@@ -1917,6 +2011,18 @@ func (m *Mut) SetActedBy(v string) {
 	m.expr &^= dActedBy
 }
 
+func (m *Mut) SetImportedBy(v string) {
+	m.row.ImportedBy = v
+	m.dirty |= dImportedBy
+	m.expr &^= dImportedBy
+}
+
+func (m *Mut) SetApprovedBy(v string) {
+	m.row.ApprovedBy = v
+	m.dirty |= dApprovedBy
+	m.expr &^= dApprovedBy
+}
+
 func (m *Mut) SetLiveAt(v time.Time) {
 	m.row.LiveAt = runtime.Null[time.Time]{V: v, Valid: true}
 	m.dirty |= dLiveAt
@@ -1995,8 +2101,12 @@ func (n *Ins) insertArgs(args []any) []any {
 		case 11:
 			args = append(args, n.row.ActedBy)
 		case 12:
-			args = append(args, n.row.LiveAt.Arg())
+			args = append(args, n.row.ImportedBy)
 		case 13:
+			args = append(args, n.row.ApprovedBy)
+		case 14:
+			args = append(args, n.row.LiveAt.Arg())
+		case 15:
 			args = append(args, n.row.Previous)
 		}
 	}
@@ -2063,6 +2173,16 @@ func (n *Ins) SetActedBy(v string) {
 	n.set |= iActedBy
 }
 
+func (n *Ins) SetImportedBy(v string) {
+	n.row.ImportedBy = v
+	n.set |= iImportedBy
+}
+
+func (n *Ins) SetApprovedBy(v string) {
+	n.row.ApprovedBy = v
+	n.set |= iApprovedBy
+}
+
 func (n *Ins) SetLiveAt(v time.Time) {
 	n.row.LiveAt = runtime.Null[time.Time]{V: v, Valid: true}
 	n.set |= iLiveAt
@@ -2112,7 +2232,7 @@ var conflictSpecs = []string{
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 12)
+	set := make([]string, 0, 14)
 	for j, bit := range assignBits[i] {
 		if mask&(1<<bit) != 0 {
 			set = append(set, assignNames[i][j])
@@ -2125,13 +2245,13 @@ func assignable(i uint8, mask uint64) []string {
 // of each column it may overwrite. An empty row is a target whose key
 // covers every updatable column.
 var assignBits = [2][]uint8{
-	{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13},
-	{2, 5, 6, 7, 8, 9, 10, 11, 12, 13},
+	{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+	{2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 }
 
 var assignNames = [2][]string{
-	{"updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "live_at", "previous"},
-	{"updated_at", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "live_at", "previous"},
+	{"updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "imported_by", "approved_by", "live_at", "previous"},
+	{"updated_at", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "imported_by", "approved_by", "live_at", "previous"},
 }
 
 // OnConflictID upserts on the unique index over (id).
@@ -2174,18 +2294,20 @@ func joinAssign(set []string) string {
 }
 
 var assignFor = map[string]string{
-	"updated_at": "\"updated_at\" = EXCLUDED.\"updated_at\"",
-	"project_id": "\"project_id\" = EXCLUDED.\"project_id\"",
-	"name":       "\"name\" = EXCLUDED.\"name\"",
-	"hash":       "\"hash\" = EXCLUDED.\"hash\"",
-	"origin":     "\"origin\" = EXCLUDED.\"origin\"",
-	"state":      "\"state\" = EXCLUDED.\"state\"",
-	"bundle":     "\"bundle\" = EXCLUDED.\"bundle\"",
-	"items":      "\"items\" = EXCLUDED.\"items\"",
-	"cut_by":     "\"cut_by\" = EXCLUDED.\"cut_by\"",
-	"acted_by":   "\"acted_by\" = EXCLUDED.\"acted_by\"",
-	"live_at":    "\"live_at\" = EXCLUDED.\"live_at\"",
-	"previous":   "\"previous\" = EXCLUDED.\"previous\"",
+	"updated_at":  "\"updated_at\" = EXCLUDED.\"updated_at\"",
+	"project_id":  "\"project_id\" = EXCLUDED.\"project_id\"",
+	"name":        "\"name\" = EXCLUDED.\"name\"",
+	"hash":        "\"hash\" = EXCLUDED.\"hash\"",
+	"origin":      "\"origin\" = EXCLUDED.\"origin\"",
+	"state":       "\"state\" = EXCLUDED.\"state\"",
+	"bundle":      "\"bundle\" = EXCLUDED.\"bundle\"",
+	"items":       "\"items\" = EXCLUDED.\"items\"",
+	"cut_by":      "\"cut_by\" = EXCLUDED.\"cut_by\"",
+	"acted_by":    "\"acted_by\" = EXCLUDED.\"acted_by\"",
+	"imported_by": "\"imported_by\" = EXCLUDED.\"imported_by\"",
+	"approved_by": "\"approved_by\" = EXCLUDED.\"approved_by\"",
+	"live_at":     "\"live_at\" = EXCLUDED.\"live_at\"",
+	"previous":    "\"previous\" = EXCLUDED.\"previous\"",
 }
 
 func assignExcluded(c string) string { return assignFor[c] }
@@ -2254,7 +2376,7 @@ func Inserts() int { return insCache.Masks() }
 // Insert writes every insertable column, zero values included, and reads
 // the row back so database defaults land in r.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 14)
+	args := make([]any, 0, 16)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2267,6 +2389,8 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.Items.OrNull())
 	args = append(args, r.CutBy)
 	args = append(args, r.ActedBy)
+	args = append(args, r.ImportedBy)
+	args = append(args, r.ApprovedBy)
 	args = append(args, r.LiveAt.Arg())
 	args = append(args, r.Previous)
 	rows, err := ex.Query(ctx, insertSQL, args)
@@ -2307,6 +2431,8 @@ var copyCols = []string{
 	"items",
 	"cut_by",
 	"acted_by",
+	"imported_by",
+	"approved_by",
 	"live_at",
 	"previous",
 }
@@ -2315,7 +2441,7 @@ var copyCols = []string{
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [14]any
+	buf  [16]any
 }
 
 func (s *rowSource) Next() bool {
@@ -2339,8 +2465,10 @@ func (s *rowSource) Values() []any {
 	s.buf[9] = &r.Items
 	s.buf[10] = &r.CutBy
 	s.buf[11] = &r.ActedBy
-	s.buf[12] = r.LiveAt.Ptr()
-	s.buf[13] = &r.Previous
+	s.buf[12] = &r.ImportedBy
+	s.buf[13] = &r.ApprovedBy
+	s.buf[14] = r.LiveAt.Ptr()
+	s.buf[15] = &r.Previous
 	return s.buf[:]
 }
 
@@ -2361,7 +2489,7 @@ func InsertAll(ctx context.Context, ex runtime.Executor, rows []Row) (int64, err
 func InsertOp(r Row) runtime.BatchOp {
 	const mask = 1<<nInsertable - 1 // every insertable column
 	st := stmtForInsertNoReturn(mask, 0)
-	args := make([]any, 0, 14)
+	args := make([]any, 0, 16)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2374,6 +2502,8 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.Items.OrNull())
 	args = append(args, r.CutBy)
 	args = append(args, r.ActedBy)
+	args = append(args, r.ImportedBy)
+	args = append(args, r.ApprovedBy)
 	args = append(args, r.LiveAt.Arg())
 	args = append(args, r.Previous)
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
@@ -2601,8 +2731,12 @@ func (m Mut) updateArgs(args []any) []any {
 		case 9:
 			args = append(args, m.row.ActedBy)
 		case 10:
-			args = append(args, m.row.LiveAt.Arg())
+			args = append(args, m.row.ImportedBy)
 		case 11:
+			args = append(args, m.row.ApprovedBy)
+		case 12:
+			args = append(args, m.row.LiveAt.Arg())
+		case 13:
 			args = append(args, m.row.Previous)
 		}
 	}

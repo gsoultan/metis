@@ -1,6 +1,9 @@
 package entities
 
 import (
+	"encoding/json"
+	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -70,4 +73,57 @@ func IsExpectable(outcome SimulationOutcome) bool {
 	default:
 		return false
 	}
+}
+
+// Misses is each thing a run got wrong against the expectation, in words, or
+// none when it is what the case expects. The same check the designer makes
+// beside a run, made here so a release can be held to it.
+func (e SimulationExpectation) Misses(run SimulationRun) []string {
+	var misses []string
+	if e.Outcome != "" && run.Outcome != e.Outcome {
+		misses = append(misses, fmt.Sprintf("it was expected to end %s and ended %s", e.Outcome, run.Outcome))
+	}
+	end := run.EndedAtNode
+	if run.Outcome == SimulationOutcomeNeedsAnswer {
+		end = run.AwaitingNode
+	}
+	if e.EndsAt != "" && end != e.EndsAt {
+		if end == "" {
+			misses = append(misses, fmt.Sprintf("it was expected to end at %s and never got there", e.EndsAt))
+		} else {
+			misses = append(misses, fmt.Sprintf("it ended at %s, not %s", end, e.EndsAt))
+		}
+	}
+	names := make([]string, 0, len(e.Variables))
+	for name := range e.Variables {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		want := e.Variables[name]
+		got, set := run.Variables[name]
+		switch {
+		case !set:
+			misses = append(misses, fmt.Sprintf("%s was expected to be %s and was never set", name, jsonText(want)))
+		case jsonText(got) != jsonText(want):
+			misses = append(misses, fmt.Sprintf("%s is %s, not %s", name, jsonText(got), jsonText(want)))
+		}
+	}
+	return misses
+}
+
+// jsonText is a value as JSON, map keys sorted, so 4200 and 4200.0 and two
+// maps written in different orders compare the same.
+func jsonText(v any) string {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	var decoded any
+	if json.Unmarshal(raw, &decoded) == nil {
+		if again, err := json.Marshal(decoded); err == nil {
+			return string(again)
+		}
+	}
+	return string(raw)
 }
