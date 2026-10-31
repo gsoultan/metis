@@ -19,9 +19,9 @@ func as(ctx context.Context, username string) context.Context {
 	})
 }
 
-func (w world) cutAndImport(t *testing.T, prod context.Context) {
+func (w world) cutAndImport(t *testing.T, dev, prod context.Context) {
 	t.Helper()
-	if _, err := w.svc.CutRelease(w.dev, contracts.CutRelease{ProjectID: w.projectID, Name: "r1", Processes: []string{"claims"}}); err != nil {
+	if _, err := w.svc.CutRelease(dev, contracts.CutRelease{ProjectID: w.projectID, Name: "r1", Processes: []string{"claims"}}); err != nil {
 		t.Fatalf("cut: %v", err)
 	}
 	if _, err := w.svc.ImportReleaseFrom(prod, w.projectID, uuid.Nil, "r1"); err != nil {
@@ -42,7 +42,7 @@ func TestAReleaseWhoseDecisionFailsItsTestsDoesNotGoLive(t *testing.T) {
 		t.Fatalf("deploy the decision: %v", err)
 	}
 	w.deployProcess(t, w.dev, "Claims", nil)
-	w.cutAndImport(t, w.prod)
+	w.cutAndImport(t, w.dev, w.prod)
 
 	_, err := w.svc.GoLive(w.prod, w.projectID, "r1")
 	if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), "big claims") {
@@ -70,7 +70,7 @@ func TestAReleaseIsHeldToItsProcessesSavedSimulationCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("save the case: %v", err)
 	}
-	w.cutAndImport(t, w.prod)
+	w.cutAndImport(t, w.dev, w.prod)
 
 	_, err = w.svc.GoLive(w.prod, w.projectID, "r1")
 	if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), "ends elsewhere") {
@@ -99,7 +99,7 @@ func TestAProtectedEnvironmentNeedsASecondPersonToApprove(t *testing.T) {
 	w.deployDecision(t, w.dev, "low")
 	w.deployProcess(t, w.dev, "Claims", nil)
 	alice, bob := as(w.prod, "alice"), as(w.prod, "bob")
-	w.cutAndImport(t, alice)
+	w.cutAndImport(t, w.dev, alice)
 
 	if _, err := w.svc.GoLive(alice, w.projectID, "r1"); !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), "approved") {
 		t.Fatalf("go live unapproved got %v, want a refusal asking for approval", err)
