@@ -82,16 +82,24 @@ jobs:
       # That lowers the severity and not the argument: a compromised build tool
       # ships compromised assets, and the whole UI is assets.
       #
-      # One advisory is ignored, by id, because nothing fixes it yet:
+      # Two advisories are ignored, by id, because nothing we can load fixes them:
       # GHSA-gcqx-w48m-w2h4, prototype pollution in deepmerge's mergeObject()
       # (<=4.3.1, and 4.3.1 is the latest release). It reaches us through
       # vite-plugin-pwa > workbox-build > @rollup/plugin-node-resolve, which
       # merges its own options and never anything from outside. Remove the
-      # --ignore once deepmerge publishes a fix; every other advisory still
-      # fails this step.
+      # --ignore once deepmerge publishes a fix.
+      # GHSA-g3hv-75wg-m249, globparts amplification in minimatch (<11.0.1).
+      # It reaches us through eslint 9 and eslint-plugin-jsx-a11y, which
+      # default-import minimatch 3; 11 has no default export, and forcing it
+      # makes lint throw "minimatch is not a function". They only match our
+      # own config globs at lint time. Remove the --ignore once eslint moves
+      # off minimatch 3.
+      # Every other advisory still fails this step. The glob one
+      # (GHSA-3g3m-2fjr-6pw4, through workbox-build) is fixed by the glob
+      # override in ui/package.json, not ignored.
       - name: Dependency audit
         working-directory: ui
-        run: bun audit --ignore GHSA-gcqx-w48m-w2h4
+        run: bun audit --ignore GHSA-gcqx-w48m-w2h4 --ignore GHSA-g3hv-75wg-m249
 
       # The Go build embeds ui/dist (ui/embed.go). Publish it so the Go job
       # compiles the same assets rather than rebuilding them.
