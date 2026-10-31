@@ -35,8 +35,10 @@ const BUDGETS = {
    *  for GHSA-mrhx-c7xc-m3w5 (memory exhaustion validating oversized
    *  collections): the form validation in the first paint grew by 7.1 kB, to
    *  339.4 here, and a security fix is not something to defer behind a
-   *  lazy route. */
-  initialTotal: 344,
+   *  lazy route. Raised from 344 when the Archive page added its navigation
+   *  item and its words to the English catalogue, which is the fallback and
+   *  so ships with the first paint: 0.6 kB, to 344.2 in the Docker build. */
+  initialTotal: 346,
   /** The single largest eager chunk, to catch one dependency swallowing the
    *  app. Linux measures 108.8; macOS 108.0. */
   largestChunk: 112,

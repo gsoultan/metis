@@ -8,6 +8,7 @@ import { describeDecision } from '../domain/decisionNarrative';
 import { handOverParts } from '../domain/handOverNarrative';
 import { useTranslation } from '../i18n/context';
 import { timelineKind } from '../domain/timelineKind';
+import type { ApiAuditEntry } from '../services/types';
 
 dayjs.extend(relativeTime);
 
@@ -83,19 +84,32 @@ function DecisionDetail({ data }: { data?: Record<string, unknown> }) {
 
 export function BusinessTimeline({ instanceId }: BusinessTimelineProps) {
   const { data, isLoading } = useAuditLogs(instanceId);
-  const { t } = useTranslation();
 
   if (isLoading) return <Text>Loading timeline...</Text>;
-  if (!data?.entries || data.entries.length === 0) return <Text c="dimmed">No activity recorded yet.</Text>;
+  return <TimelineEntries entries={data?.entries ?? []} total={data?.total} />;
+}
+
+interface TimelineEntriesProps {
+  /** The trail oldest first, in the order it was written. */
+  entries: ApiAuditEntry[];
+  /** How long the whole trail is, when entries is only its newest page. */
+  total?: number;
+}
+
+/** An instance's trail as a timeline, newest first: a live one's or an archived one's. */
+export function TimelineEntries({ entries: trail, total: trailLength }: TimelineEntriesProps) {
+  const { t } = useTranslation();
+
+  if (trail.length === 0) return <Text c="dimmed">No activity recorded yet.</Text>;
 
   // Newest first: the trail arrives oldest first, in the order it was written,
   // so this is that order reversed. Not a sort by timestamp — the entries one
   // step writes share its timestamp, and a stable sort left them oldest first
   // under the newest-first ones, the step's last entry below its first.
-  const entries = [...data.entries].reverse();
+  const entries = [...trail].reverse();
   // A long trail arrives as its newest page, and says how long it is: the
   // timeline says so too, rather than passing a page off as the whole history.
-  const total = data.total ?? entries.length;
+  const total = trailLength ?? entries.length;
 
   /*
    * Height follows the content up to a cap, rather than always being 500px.
