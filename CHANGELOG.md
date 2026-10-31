@@ -22,6 +22,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   production's connection rather than an id that only exists in development.
   The name wins over `connector_instance_id` and `connector_id`; a name with
   no connection, or one two connections share, raises an incident.
+- **Releases: design in development, make it live in production.** A release
+  is a set of process and decision versions cut where they were tested and
+  moved, unchanged, to the next environment of the project: imported there
+  staged (stored, checked, not live), then made live in one step, decisions
+  and processes together, and rolled back to the release before. A release
+  carries the decisions its processes consult and the processes they call,
+  names connections by name, and is refused at import where a connection it
+  calls is missing or its content changed since it was cut. Staging is
+  optional: import straight into production. See
+  [Releases](docs/releases.md).
 
 ### Upgrading
 
@@ -44,6 +54,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   ([Environments archive their own finished instances](docs/upgrading.md#environments-archive-their-own-finished-instances)).
 - **52** adds `environments.protected`, false for every environment already
   saved. A short step: nothing changes until somebody protects an environment.
+- **53** adds the `releases` table, empty. A short step.
 - **Finished instances are archived after 90 days.** With
   `METIS_RETENTION_FINISHED_INSTANCES_DAYS` unset, the first sweep after the
   upgrade moves every completed or cancelled instance finished more than 90

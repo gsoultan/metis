@@ -46,6 +46,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/processdefinitionrelease"
 	"github.com/gsoultan/metis/server/repositories/store/processinstance"
 	"github.com/gsoultan/metis/server/repositories/store/project"
+	"github.com/gsoultan/metis/server/repositories/store/release"
 	"github.com/gsoultan/metis/server/repositories/store/resource"
 	"github.com/gsoultan/metis/server/repositories/store/retentionhold"
 	"github.com/gsoultan/metis/server/repositories/store/retentionperiod"
@@ -79,54 +80,55 @@ var FlushOrder = map[string]int{
 	"platform_roles":              5,
 	"platform_users":              6,
 	"projects":                    7,
-	"retention_holds":             8,
-	"retention_periods":           9,
-	"schema_migrations":           10,
-	"shared_counters":             11,
-	"simulation_cases":            12,
-	"task_links":                  13,
-	"users":                       14,
-	"webhooks":                    15,
-	"workflow_groups":             16,
-	"workflow_users":              17,
-	"archived_instances":          18,
-	"audit_logs":                  19,
-	"batch_operations":            20,
-	"connector_instances":         21,
-	"decision_definitions":        22,
-	"decision_releases":           23,
-	"deployments":                 24,
-	"environments":                25,
-	"external_task_workers":       26,
-	"forms":                       27,
-	"groups":                      28,
-	"memberships":                 29,
-	"outgoing_webhooks":           30,
-	"participant_sources":         31,
-	"person_api_keys":             32,
-	"platform_role_assignments":   33,
-	"process_definition_releases": 34,
-	"process_definitions":         35,
-	"process_instances":           36,
-	"service_calls":               37,
-	"tasks":                       38,
-	"user_organizations":          39,
-	"user_projects":               40,
-	"variable_snapshots":          41,
-	"webhook_deliveries":          42,
-	"workflow_group_memberships":  43,
-	"batch_operation_items":       44,
-	"broadcast_events":            45,
-	"compensatable_activities":    46,
-	"deployment_resources":        47,
-	"deviation_requests":          48,
-	"event_subscriptions":         49,
-	"external_tasks":              50,
-	"instance_deviations":         51,
-	"jobs":                        52,
-	"notifications":               53,
-	"outgoing_webhook_deliveries": 54,
-	"incidents":                   55,
+	"releases":                    8,
+	"retention_holds":             9,
+	"retention_periods":           10,
+	"schema_migrations":           11,
+	"shared_counters":             12,
+	"simulation_cases":            13,
+	"task_links":                  14,
+	"users":                       15,
+	"webhooks":                    16,
+	"workflow_groups":             17,
+	"workflow_users":              18,
+	"archived_instances":          19,
+	"audit_logs":                  20,
+	"batch_operations":            21,
+	"connector_instances":         22,
+	"decision_definitions":        23,
+	"decision_releases":           24,
+	"deployments":                 25,
+	"environments":                26,
+	"external_task_workers":       27,
+	"forms":                       28,
+	"groups":                      29,
+	"memberships":                 30,
+	"outgoing_webhooks":           31,
+	"participant_sources":         32,
+	"person_api_keys":             33,
+	"platform_role_assignments":   34,
+	"process_definition_releases": 35,
+	"process_definitions":         36,
+	"process_instances":           37,
+	"service_calls":               38,
+	"tasks":                       39,
+	"user_organizations":          40,
+	"user_projects":               41,
+	"variable_snapshots":          42,
+	"webhook_deliveries":          43,
+	"workflow_group_memberships":  44,
+	"batch_operation_items":       45,
+	"broadcast_events":            46,
+	"compensatable_activities":    47,
+	"deployment_resources":        48,
+	"deviation_requests":          49,
+	"event_subscriptions":         50,
+	"external_tasks":              51,
+	"instance_deviations":         52,
+	"jobs":                        53,
+	"notifications":               54,
+	"outgoing_webhook_deliveries": 55,
+	"incidents":                   56,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -8751,6 +8753,121 @@ func (p ProjectWithOrganizationQuery) All(ctx context.Context, ex runtime.Execut
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "projects", "organizations")
 		}
 		out[i].Organization = targets[j]
+	}
+	return out, nil
+}
+
+// ReleaseWithProjectRow is releases with its Project loaded.
+type ReleaseWithProjectRow struct {
+	release.Row
+	Project project.Row
+}
+
+type ReleaseWithProjectQuery struct {
+	q release.Query
+}
+
+// ReleaseWithProject starts the plan.
+func ReleaseWithProject() ReleaseWithProjectQuery { return ReleaseWithProjectQuery{q: release.New()} }
+
+func (p ReleaseWithProjectQuery) Where(ps ...release.Pred) ReleaseWithProjectQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p ReleaseWithProjectQuery) WhereIf(cond bool, pr release.Pred) ReleaseWithProjectQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p ReleaseWithProjectQuery) Any(ps ...release.Pred) ReleaseWithProjectQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p ReleaseWithProjectQuery) Not(pr release.Pred) ReleaseWithProjectQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p ReleaseWithProjectQuery) NotAny(ps ...release.Pred) ReleaseWithProjectQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p ReleaseWithProjectQuery) Order(ts ...release.Sort) ReleaseWithProjectQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p ReleaseWithProjectQuery) Limit(n int64) ReleaseWithProjectQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p ReleaseWithProjectQuery) Offset(n int64) ReleaseWithProjectQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p ReleaseWithProjectQuery) After(r ReleaseWithProjectRow) ReleaseWithProjectQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p ReleaseWithProjectQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p ReleaseWithProjectQuery) All(ctx context.Context, ex runtime.Executor) ([]ReleaseWithProjectRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]ReleaseWithProjectRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = ReleaseWithProjectRow{Row: r}
+		key := r.ProjectID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := project.New().Unordered().
+		Where(project.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.ProjectID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "releases", "projects")
+		}
+		out[i].Project = targets[j]
 	}
 	return out, nil
 }

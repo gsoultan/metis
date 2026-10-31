@@ -72,6 +72,8 @@ func All() []any {
 		&ArchivedInstance{},
 		// Saved simulation test cases, per process.
 		&SimulationCase{},
+		// Sets of versions promoted together from one environment to the next.
+		&Release{},
 		// One-use links that let a person act on a task without signing in.
 		&TaskLink{},
 		&PersonAPIKey{},

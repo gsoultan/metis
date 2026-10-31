@@ -31,6 +31,8 @@ type Repository interface {
 	InstallationSetting() contracts.InstallationSettingRepository
 	// SimulationCase is the simulation test cases each process keeps.
 	SimulationCase() contracts.SimulationCaseRepository
+	// Release is the releases a runtime holds: cut there, or imported into it.
+	Release() contracts.ReleaseRepository
 	// BatchOperation is the acts asked for on many instances at once, and
 	// what came of each instance.
 	BatchOperation() contracts.BatchOperationRepository
