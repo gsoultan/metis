@@ -37,7 +37,13 @@ type ReleaseService interface {
 	// answers the first import.
 	ImportReleaseFrom(ctx context.Context, projectID, sourceEnvironment uuid.UUID, name string) (entities.Release, error)
 
-	// GoLive makes every model of a staged release live here, together.
+	// ApproveRelease records that someone other than who cut and who imported
+	// a staged release agrees it may go live. A protected runtime requires it.
+	ApproveRelease(ctx context.Context, projectID uuid.UUID, name string) (entities.Release, error)
+
+	// GoLive makes every model of a staged release live here, together, once
+	// it passes its checks: its connections exist, its decisions pass their
+	// tests and its processes their saved simulation cases.
 	GoLive(ctx context.Context, projectID uuid.UUID, name string) (entities.Release, error)
 
 	// RollBack makes the release that was live before the live one live

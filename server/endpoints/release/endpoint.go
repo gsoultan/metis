@@ -21,6 +21,7 @@ type Endpoints struct {
 	GetRelease      endpoint.Endpoint
 	CutRelease      endpoint.Endpoint
 	ImportRelease   endpoint.Endpoint
+	ApproveRelease  endpoint.Endpoint
 	GoLiveRelease   endpoint.Endpoint
 	RollBackRelease endpoint.Endpoint
 }
@@ -79,6 +80,9 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 			}
 			return respond(s.ImportReleaseFrom(ctx, projectID, source, req.Name))
 		},
+		ApproveRelease: named(func(ctx context.Context, projectID uuid.UUID, name string) (entities.Release, error) {
+			return s.ApproveRelease(ctx, projectID, name)
+		}),
 		GoLiveRelease: named(func(ctx context.Context, projectID uuid.UUID, name string) (entities.Release, error) {
 			return s.GoLive(ctx, projectID, name)
 		}),

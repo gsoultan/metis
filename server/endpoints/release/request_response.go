@@ -63,6 +63,8 @@ type View struct {
 	CutAt       time.Time              `json:"cut_at"`
 	CutBy       string                 `json:"cut_by"`
 	ActedBy     string                 `json:"acted_by"`
+	ImportedBy  string                 `json:"imported_by,omitzero"`
+	ApprovedBy  string                 `json:"approved_by,omitzero"`
 	LiveAt      *time.Time             `json:"live_at,omitzero"`
 	Previous    string                 `json:"previous,omitzero"`
 	CreatedAt   time.Time              `json:"created_at"`
@@ -74,7 +76,7 @@ func ViewOf(r entities.Release) View {
 		ID: r.ID.String(), Name: r.Name, Hash: r.Hash,
 		Origin: string(r.Origin), State: string(r.State),
 		Items: r.Items, Connections: r.Bundle.Connections,
-		CutAt: r.Bundle.CutAt, CutBy: r.CutBy, ActedBy: r.ActedBy,
+		CutAt: r.Bundle.CutAt, CutBy: r.CutBy, ActedBy: r.ActedBy, ImportedBy: r.ImportedBy, ApprovedBy: r.ApprovedBy,
 		LiveAt: r.LiveAt, Previous: r.Previous, CreatedAt: r.CreatedAt,
 	}
 	if r.Project != nil {

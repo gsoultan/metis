@@ -36,6 +36,9 @@ func RegisterHandlers(m *http.ServeMux, eps release.Endpoints, options []httptra
 	m.Handle("GET /api/v1/projects/{id}/releases/{name}", httptransport.NewServer(
 		eps.GetRelease, decodeNamed, common.EncodeResponse, options...,
 	))
+	m.Handle("POST /api/v1/projects/{id}/releases/{name}/approve", httptransport.NewServer(
+		eps.ApproveRelease, decodeNamed, common.EncodeResponse, options...,
+	))
 	m.Handle("POST /api/v1/projects/{id}/releases/{name}/go-live", httptransport.NewServer(
 		eps.GoLiveRelease, decodeNamed, common.EncodeResponse, options...,
 	))

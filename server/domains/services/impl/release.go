@@ -33,6 +33,16 @@ type releaseService struct {
 	definitions contracts.DefinitionService
 	decisions   contracts.DecisionService
 	connectors  contracts.ConnectorService
+	simulation  contracts.SimulationService
+	protected   func(context.Context) (bool, error)
+}
+
+// ReleaseParts are what the release service checks a release with before it
+// goes live: the simulation its processes' saved cases run on, and whether
+// the runtime is protected, which requires a second person's approval.
+type ReleaseParts struct {
+	Simulation contracts.SimulationService
+	Protected  func(context.Context) (bool, error)
 }
 
 // NewReleaseService returns the service that cuts, imports and makes live
@@ -42,8 +52,15 @@ func NewReleaseService(
 	definitions contracts.DefinitionService,
 	decisions contracts.DecisionService,
 	connectors contracts.ConnectorService,
+	parts ReleaseParts,
 ) contracts.ReleaseService {
-	return &releaseService{repo: repo, definitions: definitions, decisions: decisions, connectors: connectors}
+	protected := parts.Protected
+	if protected == nil {
+		// Without the answer, the stricter one.
+		protected = func(context.Context) (bool, error) { return true, nil }
+	}
+	return &releaseService{repo: repo, definitions: definitions, decisions: decisions, connectors: connectors,
+		simulation: parts.Simulation, protected: protected}
 }
 
 // CutRelease records the live versions of the named models as a release.
@@ -288,7 +305,7 @@ func (s *releaseService) importBundle(ctx context.Context, projectID uuid.UUID, 
 			Name:    bundle.Name, Hash: hash,
 			Origin: entities.ReleaseOriginImported, State: entities.ReleaseStaged,
 			Bundle: bundle, Items: items,
-			CutBy: bundle.CutBy, ActedBy: actor,
+			CutBy: bundle.CutBy, ActedBy: actor, ImportedBy: actor,
 		})
 		imported = created
 		return err
@@ -373,7 +390,146 @@ func (s *releaseService) GoLive(ctx context.Context, projectID uuid.UUID, name s
 	case rel.Origin == entities.ReleaseOriginCut:
 		return entities.Release{}, apierr.Invalidf("release %s was cut here, from what already runs here; import it into the next environment", rel.Name)
 	}
+	protected, err := s.protected(ctx)
+	if err != nil {
+		return entities.Release{}, err
+	}
+	if protected && rel.ApprovedBy == "" {
+		return entities.Release{}, apierr.Invalidf(
+			"this environment is protected, so release %s goes live once someone other than who cut or imported it has approved it", rel.Name)
+	}
+	if err := s.checkGates(ctx, rel); err != nil {
+		return entities.Release{}, err
+	}
 	return s.makeLive(ctx, rel, true)
+}
+
+// ApproveRelease records that someone other than who cut and who imported a
+// staged release agrees it may go live.
+func (s *releaseService) ApproveRelease(ctx context.Context, projectID uuid.UUID, name string) (entities.Release, error) {
+	rel, err := s.repo.Release().GetByName(ctx, projectID, strings.TrimSpace(name))
+	if err != nil {
+		return entities.Release{}, err
+	}
+	if rel.State != entities.ReleaseStaged {
+		return entities.Release{}, apierr.Invalidf("release %s is %s here; only a staged release is approved", rel.Name, rel.State)
+	}
+	approver := releaseActor(ctx)
+	if signedIn(ctx) == nil || approver == rel.ImportedBy || approver == rel.CutBy {
+		return entities.Release{}, apierr.Invalidf(
+			"release %s is approved by someone other than who cut it (%s) and who imported it (%s)", rel.Name, rel.CutBy, rel.ImportedBy)
+	}
+	rel.ApprovedBy, rel.ActedBy = approver, approver
+	if err := s.repo.Release().Update(ctx, rel); err != nil {
+		return entities.Release{}, err
+	}
+	return rel, nil
+}
+
+// errGatesChecked ends the rehearsal of a go-live, so nothing it did stays.
+var errGatesChecked = errors.New("release gates checked; rolling back")
+
+// maxGateMisses bounds how many failures a refusal lists.
+const maxGateMisses = 20
+
+// checkGates refuses a release that would not work here: a connection it
+// calls is gone, a decision table fails its own tests, or a process does not
+// end its saved simulation cases as they expect.
+//
+// The tests and cases run against the release as it would be live — every
+// model in force at once, in a transaction that is then rolled back — so a
+// process is checked with the decisions it will consult, new ones included.
+func (s *releaseService) checkGates(ctx context.Context, rel entities.Release) error {
+	if err := s.requireConnections(ctx, rel.Project.ID, rel.Bundle.Connections); err != nil {
+		return err
+	}
+	work, err := copyBundle(rel.Bundle)
+	if err != nil {
+		return err
+	}
+	items := slices.Clone(rel.Items)
+	var misses []string
+	err = s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		for _, kind := range []string{entities.ReleaseItemDecision, entities.ReleaseItemProcess} {
+			for i := range items {
+				if items[i].Kind == kind {
+					if err := s.putIntoForce(txCtx, rel.Project.ID, &items[i], work); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		for _, item := range items {
+			found, err := s.gateItem(txCtx, rel.Project.ID, item)
+			if err != nil {
+				return err
+			}
+			misses = append(misses, found...)
+		}
+		return errGatesChecked
+	})
+	if err != nil && !errors.Is(err, errGatesChecked) {
+		return err
+	}
+	if len(misses) == 0 {
+		return nil
+	}
+	shown := misses
+	if len(shown) > maxGateMisses {
+		shown = shown[:maxGateMisses]
+	}
+	return apierr.Invalidf("release %s does not go live: %d check(s) failed: %s",
+		rel.Name, len(misses), strings.Join(shown, "; "))
+}
+
+// gateItem runs one model's own checks: a decision's tests, a process's
+// saved simulation cases.
+func (s *releaseService) gateItem(ctx context.Context, projectID uuid.UUID, item entities.ReleaseItem) ([]string, error) {
+	var misses []string
+	if item.Kind == entities.ReleaseItemDecision {
+		live, err := s.repo.Decision().GetLiveByKey(ctx, projectID, item.Key)
+		if err != nil {
+			return nil, fmt.Errorf("decision %s: %w", item.Key, err)
+		}
+		results, err := s.decisions.RunDecisionTests(ctx, uuid.UUID(live.ID))
+		if err != nil {
+			return nil, fmt.Errorf("decision %s: %w", item.Key, err)
+		}
+		for _, r := range results {
+			if !r.Passed {
+				misses = append(misses, fmt.Sprintf("decision %s, test %s: %s", item.Key, r.Name, strings.Join(r.Mismatches, ", ")))
+			}
+		}
+		return misses, nil
+	}
+	if s.simulation == nil {
+		return nil, nil
+	}
+	cases, err := s.repo.SimulationCase().ListByProcess(ctx, projectID, item.Key)
+	if err != nil {
+		return nil, fmt.Errorf("process %s: %w", item.Key, err)
+	}
+	for _, c := range cases {
+		var run entities.SimulationRun
+		// A savepoint each: a case that fails to run at all must not leave the
+		// rehearsal's transaction unusable for the next.
+		err := s.repo.UnitOfWork().Attempt(ctx, func(caseCtx context.Context) error {
+			var err error
+			run, err = s.simulation.Simulate(caseCtx, entities.SimulationRequest{
+				ProjectID: projectID, DefinitionKey: item.Key,
+				Variables: c.Scenario.Variables, Answers: c.Scenario.Answers, Seed: c.Scenario.Seed,
+			})
+			return err
+		})
+		if err != nil {
+			misses = append(misses, fmt.Sprintf("process %s, case %s: it could not run: %v", item.Key, c.Name, err))
+			continue
+		}
+		for _, miss := range c.Expect.Misses(run) {
+			misses = append(misses, fmt.Sprintf("process %s, case %s: %s", item.Key, c.Name, miss))
+		}
+	}
+	return misses, nil
 }
 
 // RollBack makes the release that was live before the live one live again.

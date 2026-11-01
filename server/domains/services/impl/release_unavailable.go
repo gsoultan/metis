@@ -29,6 +29,10 @@ func (unavailableReleases) ImportReleaseFrom(context.Context, uuid.UUID, uuid.UU
 	return entities.Release{}, errNoReleases
 }
 
+func (unavailableReleases) ApproveRelease(context.Context, uuid.UUID, string) (entities.Release, error) {
+	return entities.Release{}, errNoReleases
+}
+
 func (unavailableReleases) GoLive(context.Context, uuid.UUID, string) (entities.Release, error) {
 	return entities.Release{}, errNoReleases
 }

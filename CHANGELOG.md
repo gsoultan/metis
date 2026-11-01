@@ -32,6 +32,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   calls is missing or its content changed since it was cut. Staging is
   optional: import straight into production. See
   [Releases](docs/releases.md).
+- **A release is checked before it goes live.** Its decisions must pass their
+  own tests and its processes their saved simulation cases, against the
+  release as it would be live; its connections must still exist. In a
+  protected environment a second person, who neither cut nor imported it,
+  approves it first.
 
 ### Upgrading
 
@@ -55,6 +60,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 - **52** adds `environments.protected`, false for every environment already
   saved. A short step: nothing changes until somebody protects an environment.
 - **53** adds the `releases` table, empty. A short step.
+- **54** adds `releases.imported_by` and `approved_by`. A short step.
 - **Finished instances are archived after 90 days.** With
   `METIS_RETENTION_FINISHED_INSTANCES_DAYS` unset, the first sweep after the
   upgrade moves every completed or cancelled instance finished more than 90

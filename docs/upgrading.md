@@ -135,6 +135,12 @@ version work as they did. See [Releases](releases.md).
 **Rolling back** to a release without the table leaves it in place and
 unread. The versions a release staged or made live stay what they are.
 
+## Release approval (migration 54)
+
+Migration 54 adds `releases.imported_by` and `releases.approved_by`. A
+release imported before it has neither, and in a protected environment is
+approved by a second person before it goes live, as a new one is.
+
 ## A group's roles grant what they say
 
 A group's `roles` were stored and shown in the group editor, which said that

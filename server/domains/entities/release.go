@@ -90,7 +90,12 @@ type Release struct {
 	Items     []ReleaseItem
 	CutBy     string
 	ActedBy   string
-	LiveAt    *time.Time
+	// ImportedBy is who imported it here; ApprovedBy who else agreed it may
+	// go live. A protected runtime requires them to be two people, neither of
+	// them the one who cut it.
+	ImportedBy string
+	ApprovedBy string
+	LiveAt     *time.Time
 	// Previous is the release that was live before this one went live here.
 	Previous string
 }
