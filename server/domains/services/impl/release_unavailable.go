@@ -29,6 +29,14 @@ func (unavailableReleases) ImportReleaseFrom(context.Context, uuid.UUID, uuid.UU
 	return entities.Release{}, errNoReleases
 }
 
+func (unavailableReleases) ExportRelease(context.Context, uuid.UUID, string) ([]byte, error) {
+	return nil, errNoReleases
+}
+
+func (unavailableReleases) ImportReleaseFile(context.Context, uuid.UUID, []byte) (entities.Release, error) {
+	return entities.Release{}, errNoReleases
+}
+
 func (unavailableReleases) ApproveRelease(context.Context, uuid.UUID, string) (entities.Release, error) {
 	return entities.Release{}, errNoReleases
 }

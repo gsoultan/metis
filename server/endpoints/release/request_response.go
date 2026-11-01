@@ -1,6 +1,7 @@
 package release
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -21,6 +22,21 @@ type ImportRequest struct {
 	Environment string `json:"from_environment"`
 	Name        string `json:"name"`
 }
+
+// ImportFileRequest carries a release file another installation exported.
+type ImportFileRequest struct {
+	ProjectID string          `json:"-"`
+	File      json.RawMessage `json:"file"`
+}
+
+// ExportResponse is a release file, signed, as another installation imports
+// it.
+type ExportResponse struct {
+	File json.RawMessage `json:"file,omitzero"`
+	Err  error           `json:"err,omitzero"`
+}
+
+func (r ExportResponse) Failed() error { return r.Err }
 
 // NamedRequest names one release of a project.
 type NamedRequest struct {

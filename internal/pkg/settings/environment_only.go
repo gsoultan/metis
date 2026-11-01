@@ -16,6 +16,8 @@ const (
 	reasonLinks          = "Task links carry sign-in tokens; the address they point at is the operator's to choose."
 	reasonDeprecated     = "Deprecated: register each receiver as a project's outgoing webhook instead."
 	reasonProtected      = "Marks this installation's runtime as production, where only a releaser or an administrator may change the models. An administrator could otherwise unlock their own production."
+	reasonReleaseKey     = "Signs the releases this installation exports. Kept in the database, anyone who could write one row could sign a release production trusts."
+	reasonReleaseTrust   = "Decides whose releases this installation imports. An administrator could otherwise trust a release nobody tested."
 	reasonArchiveStore   = "Where archived instances' records are kept, opened at start-up with the payload directory. A wrong value saved from the UI would leave records nobody can read."
 )
 
@@ -28,6 +30,7 @@ var environmentOnly = []Fixed{
 	{Name: "ENCRYPTION_KEY_PREVIOUS", Class: ClassBootstrap, Reason: reasonUnlocksStorage, Secret: true},
 	{Name: "JWT_SECRET", Class: ClassBootstrap, Reason: reasonSigningKey, Secret: true},
 	{Name: "METIS_PEOPLE_TOKEN_KEY", Class: ClassBootstrap, Reason: reasonSigningKey, Secret: true},
+	{Name: "METIS_RELEASE_SIGNING_KEY", Class: ClassBootstrap, Reason: reasonReleaseKey, Secret: true},
 	{Name: "METIS_PEOPLE_TOKEN_KEY_PREVIOUS", Class: ClassBootstrap, Reason: reasonSigningKey, Secret: true},
 	{Name: "METIS_SETUP_TOKEN", Class: ClassBootstrap, Reason: "Opens the first-run wizard, before anybody can sign in.", Secret: true},
 	{Name: "METIS_DB_MAX_OPEN_CONNS", Class: ClassBootstrap, Reason: reasonPool},
@@ -55,6 +58,7 @@ var environmentOnly = []Fixed{
 
 	{Name: "METIS_PLATFORM_ADMINS", Class: ClassGuardrail, Reason: reasonWhoIsAdmin},
 	{Name: "METIS_PROTECTED_RUNTIME", Class: ClassGuardrail, Reason: reasonProtected},
+	{Name: "METIS_RELEASE_TRUSTED_KEYS", Class: ClassGuardrail, Reason: reasonReleaseTrust},
 	{Name: "METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS", Class: ClassGuardrail, Reason: reasonWhoIsAdmin},
 	{Name: "METIS_HTTP_ALLOW_PRIVATE_NETWORKS", Class: ClassGuardrail, Reason: reasonEgress},
 	{Name: "METIS_HTTP_ALLOWED_HOSTS", Class: ClassGuardrail, Reason: reasonEgress},

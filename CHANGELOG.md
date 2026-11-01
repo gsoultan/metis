@@ -37,6 +37,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   release as it would be live; its connections must still exist. In a
   protected environment a second person, who neither cut nor imported it,
   approves it first.
+- **Releases between installations.** A release exports as a file signed
+  with `METIS_RELEASE_SIGNING_KEY`, and an installation imports it only when
+  `METIS_RELEASE_TRUSTED_KEYS` names the key and the content is what was
+  signed. For a production that is an installation of its own.
 
 ### Upgrading
 
