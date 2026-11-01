@@ -31,6 +31,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   sized by the rehearsal, and take a backup first.
 
 - **51** adds `archived_instances`. A short step: it creates an empty table.
+- **Environments archive their finished instances.** Until now only the main
+  database's were archived. The first sweep after the upgrade archives every
+  environment's instances finished longer ago than the period (90 days
+  unless set), into that environment's own archive
+  ([Environments archive their own finished instances](docs/upgrading.md#environments-archive-their-own-finished-instances)).
 - **52** adds `environments.protected`, false for every environment already
   saved. A short step: nothing changes until somebody protects an environment.
 - **Finished instances are archived after 90 days.** With

@@ -24,8 +24,9 @@ type archiveRepository struct{ conn }
 // NewArchiveRepository returns the store of the finished instances the
 // retention sweep archived.
 //
-// The archive is in the main database, whatever port a request arrived on:
-// only the main database's instances are archived (see ArchiveFinished).
+// Each runtime keeps its own archive, beside the instances it archived: a
+// request on an environment's port reads that environment's, and one on the
+// main port the main database's (see ArchiveFinished).
 func NewArchiveRepository(c *db.Conn) contracts.ArchiveRepository {
 	return &archiveRepository{conn{conn: c}}
 }
@@ -36,7 +37,7 @@ func (r *archiveRepository) List(ctx context.Context, projectID uuid.UUID, filte
 	if err := r.requireProjectInTenant(ctx, projectID); err != nil {
 		return nil, err
 	}
-	ex, err := r.conn.conn.MainExecutor(ctx)
+	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +64,7 @@ func (r *archiveRepository) List(ctx context.Context, projectID uuid.UUID, filte
 
 // Get reads one archived instance of the caller's and opens its record.
 func (r *archiveRepository) Get(ctx context.Context, instanceID uuid.UUID) (models.ArchivedInstanceModel, models.ArchiveRecord, error) {
-	ex, err := r.conn.conn.MainExecutor(ctx)
+	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return models.ArchivedInstanceModel{}, models.ArchiveRecord{}, err
 	}
@@ -92,7 +93,7 @@ func (r *archiveRepository) ForgetArchivedBefore(ctx context.Context, cutoff tim
 	if !entities.IsSystemContext(ctx) {
 		return 0, fmt.Errorf("%w: forgetting archived instances spans every tenant", apierr.ErrForbidden)
 	}
-	ex, err := r.conn.conn.MainExecutor(ctx)
+	ex, err := r.conn.conn.Executor(ctx)
 	if err != nil {
 		return 0, err
 	}
