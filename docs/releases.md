@@ -12,6 +12,13 @@ development ──cut──▶ release ──import──▶ production (staged)
 Staging is optional. Import into staging first when you want a rehearsal;
 import straight into production when you do not.
 
+## In the interface
+
+**Operate → Releases** lists the project's releases in the environment the
+page is served from, with **Cut a release**, **Import a release**,
+**Approve**, **Go live** and **Roll back**. A banner across every page says
+which environment it is: red in a protected one.
+
 ## The steps
 
 Each step runs in one runtime: the one whose port the request arrives on.
@@ -115,6 +122,7 @@ a protected runtime.
 
 | Method | Path | Body |
 |---|---|---|
+| `GET` | `/api/v1/environments/current?project_id=` | Which runtime this port serves, and the project's environments by name. Any member of the project may read it. |
 | `GET` | `/releases` | |
 | `POST` | `/releases` | `{"name": "2026.11.1", "processes": ["claims"], "decisions": []}` |
 | `GET` | `/releases/{name}` | |

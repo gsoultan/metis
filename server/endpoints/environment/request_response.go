@@ -75,3 +75,13 @@ type TestEnvironmentConnectionResponse struct {
 }
 
 func (r TestEnvironmentConnectionResponse) Failed() error { return r.Err }
+
+// CurrentRuntimeResponse is the runtime a request is in and the project's
+// environments, by name.
+type CurrentRuntimeResponse struct {
+	Current      *entities.RuntimeSummary  `json:"current,omitzero"`
+	Environments []entities.RuntimeSummary `json:"environments"`
+	Err          error                     `json:"err,omitzero"`
+}
+
+func (r CurrentRuntimeResponse) Failed() error { return r.Err }

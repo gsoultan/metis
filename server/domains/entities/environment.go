@@ -49,3 +49,18 @@ type EnvironmentHealth struct {
 	// reachable.
 	Detail string `json:"detail,omitzero"`
 }
+
+// RuntimeSummary is a runtime by name: an environment, or the installation's
+// own when ID is uuid.Nil.
+type RuntimeSummary struct {
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	Protected bool      `json:"protected"`
+}
+
+// RuntimeOverview is the runtime a request is working in and the project's
+// other environments.
+type RuntimeOverview struct {
+	Current      RuntimeSummary   `json:"current"`
+	Environments []RuntimeSummary `json:"environments"`
+}

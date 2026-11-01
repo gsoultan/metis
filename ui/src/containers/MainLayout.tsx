@@ -5,7 +5,7 @@ import { Link, useLocation } from '@tanstack/react-router';
 import { FolderGit2 } from 'lucide-react';
 import React from 'react';
 import { HelpDrawer } from '../components/HelpDrawer';
-import { AppHeader, Sidebar } from '../components/shell';
+import { AppHeader, RuntimeBanner, Sidebar } from '../components/shell';
 import { EmptyState } from '../components/state';
 import { selectionNeedsUpdate, resolveSelection } from '../domain/activeSelection';
 import { useOrganizations } from '../hooks/useOrganization';
@@ -122,6 +122,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           minHeight: '100vh',
         }}
       >
+        <RuntimeBanner />
         {/*
           A max width on text-and-table content. Without one, a table stretches
           to whatever the monitor is, and the eye loses the row it was reading
