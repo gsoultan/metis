@@ -52,3 +52,11 @@ describe('serviceImplementation', () => {
     expect(connection({ implementation: 'external', connector_id: 'slack', externalTopic: 'ship-parcel' })).toBe('');
   });
 });
+
+describe("a step a release names its connection for", () => {
+  it("is a connector step, and its connection is the name", () => {
+    const data = { connection: 'payments-api', connector_id: 'id-from-development' };
+    expect(serviceImplementation(data)).toBe('connector');
+    expect(connection(data)).toBe('payments-api');
+  });
+});

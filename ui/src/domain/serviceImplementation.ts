@@ -58,10 +58,12 @@ export function storedWebAddress(data: Readonly<Record<string, unknown>>): strin
 
 /**
  * The connector or connection as stored, whatever the step does. The editor
- * holds a chosen connection as `connectorInstanceId` until it is saved.
+ * holds a chosen connection as `connectorInstanceId` until it is saved. A
+ * release names it by `connection`, the name it has in every environment,
+ * and the engine reads that first.
  */
 export function storedConnection(data: Readonly<Record<string, unknown>>): string {
-  return firstText(data.connector_id, data.connector_instance_id, data.connectorInstanceId);
+  return firstText(data.connection, data.connector_id, data.connector_instance_id, data.connectorInstanceId);
 }
 
 /**

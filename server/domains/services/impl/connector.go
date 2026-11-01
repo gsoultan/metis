@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -349,6 +350,32 @@ func (s *connectorService) GetConnectorInstanceByProjectAndConnector(ctx context
 	one := []entities.ConnectorInstance{adapters.ConnectorInstanceEntityAdapter{Model: m}.ToEntity()}
 	s.nameConnectors(ctx, one)
 	return one[0], nil
+}
+
+func (s *connectorService) GetConnectorInstanceByName(ctx context.Context, projectID uuid.UUID, name string) (entities.ConnectorInstance, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return entities.ConnectorInstance{}, apierr.Invalidf("a connection is named by a name that is not blank")
+	}
+	all, err := s.repo.ConnectorInstance().ListByProject(ctx, projectID)
+	if err != nil {
+		return entities.ConnectorInstance{}, err
+	}
+	var matches []entities.ConnectorInstance
+	for _, m := range all {
+		if strings.TrimSpace(m.Name) == name {
+			matches = append(matches, adapters.ConnectorInstanceEntityAdapter{Model: m}.ToEntity())
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return entities.ConnectorInstance{}, fmt.Errorf("%w: this project has no connection named %q here", apierr.ErrNotFound, name)
+	case 1:
+		s.nameConnectors(ctx, matches)
+		return matches[0], nil
+	default:
+		return entities.ConnectorInstance{}, apierr.Invalidf("%d connections in this project are named %q; rename all but one so a step can name it", len(matches), name)
+	}
 }
 
 func (s *connectorService) CreateConnectorInstance(ctx context.Context, instance entities.ConnectorInstance) (entities.ConnectorInstance, error) {

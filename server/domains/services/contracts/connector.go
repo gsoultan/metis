@@ -34,6 +34,12 @@ type ConnectorInstanceManager interface {
 	ListConnectorInstances(ctx context.Context, projectID uuid.UUID) ([]entities.ConnectorInstance, error)
 	GetConnectorInstance(ctx context.Context, id uuid.UUID) (entities.ConnectorInstance, error)
 	GetConnectorInstanceByProjectAndConnector(ctx context.Context, projectID, connectorID uuid.UUID) (entities.ConnectorInstance, error)
+	// GetConnectorInstanceByName finds the project's connection called name
+	// in the runtime the request is on. A name is how a model names its
+	// connection portably: ids differ in every environment, the name an
+	// administrator gave the connection there does not. Not found when there
+	// is none, and refused when two share the name, rather than picking one.
+	GetConnectorInstanceByName(ctx context.Context, projectID uuid.UUID, name string) (entities.ConnectorInstance, error)
 	CreateConnectorInstance(ctx context.Context, instance entities.ConnectorInstance) (entities.ConnectorInstance, error)
 	UpdateConnectorInstance(ctx context.Context, instance entities.ConnectorInstance) error
 	DeleteConnectorInstance(ctx context.Context, id uuid.UUID) error
