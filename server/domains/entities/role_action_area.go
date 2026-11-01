@@ -49,6 +49,8 @@ var actionNouns = []struct{ noun, area string }{
 	{"DirectoryGap", areaPeople},
 	{"Connector", areaConnectors},
 	{"Environment", areaEnvironments},
+	// A release moves a project's models from one environment to the next.
+	{"Release", areaEnvironments},
 	{"Definition", areaProcesses},
 	{"Script", areaProcesses},
 	{"Simulate", areaProcesses},
