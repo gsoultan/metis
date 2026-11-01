@@ -401,6 +401,8 @@ export interface ApiEnvironment {
   driver: string;
   connection?: Record<string, unknown>;
   enabled: boolean;
+  /** Only a releaser or an administrator may change the models it runs. */
+  protected?: boolean;
   created_at?: string;
 }
 

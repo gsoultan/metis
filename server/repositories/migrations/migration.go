@@ -66,5 +66,6 @@ func Target() (*schema.Schema, error) {
 func Steps() []Migration {
 	return []Migration{
 		{Version: archivedInstancesVersion, Name: "archived instances", Run: addArchivedInstances},
+		{Version: environmentProtectedVersion, Name: "protected environments", Run: addEnvironmentProtected},
 	}
 }

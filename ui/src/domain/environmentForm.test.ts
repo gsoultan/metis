@@ -15,6 +15,7 @@ const draft = (over: Partial<EnvironmentDraft> = {}): EnvironmentDraft => ({
   driver: 'postgres',
   connection: { host: 'db.internal', port: 5432, username: 'metis', password: 'x', db_name: 'metis_staging' },
   enabled: true,
+  protected: false,
   ...over,
 });
 

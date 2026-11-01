@@ -69,7 +69,7 @@ func TestTheFactoryRecordsWhichRolesEachGateRequires(t *testing.T) {
 func TestEveryBuiltInRoleIsListedInOrder(t *testing.T) {
 	access := interceptors.NewInterceptorFactory(nil, nil).RoleAccess()
 
-	want := []string{entities.RoleAdmin, entities.RoleDesigner, entities.RoleOperator, entities.RoleQueryAuthor}
+	want := []string{entities.RoleAdmin, entities.RoleDesigner, entities.RoleOperator, entities.RoleQueryAuthor, entities.RoleReleaser}
 	if got := rolesListed(access); !slices.Equal(got, want) {
 		t.Fatalf("listed %v, want %v", got, want)
 	}

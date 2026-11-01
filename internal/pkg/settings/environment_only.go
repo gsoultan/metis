@@ -15,6 +15,7 @@ const (
 	reasonLeavesInstall  = "Sends a project's work to a broker outside Metis: whether work leaves the installation is the operator's decision."
 	reasonLinks          = "Task links carry sign-in tokens; the address they point at is the operator's to choose."
 	reasonDeprecated     = "Deprecated: register each receiver as a project's outgoing webhook instead."
+	reasonProtected      = "Marks this installation's runtime as production, where only a releaser or an administrator may change the models. An administrator could otherwise unlock their own production."
 	reasonArchiveStore   = "Where archived instances' records are kept, opened at start-up with the payload directory. A wrong value saved from the UI would leave records nobody can read."
 )
 
@@ -53,6 +54,7 @@ var environmentOnly = []Fixed{
 	{Name: "METIS_NEW_PASSWORD", Class: ClassBootstrap, Reason: reasonBreakGlass, Secret: true},
 
 	{Name: "METIS_PLATFORM_ADMINS", Class: ClassGuardrail, Reason: reasonWhoIsAdmin},
+	{Name: "METIS_PROTECTED_RUNTIME", Class: ClassGuardrail, Reason: reasonProtected},
 	{Name: "METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS", Class: ClassGuardrail, Reason: reasonWhoIsAdmin},
 	{Name: "METIS_HTTP_ALLOW_PRIVATE_NETWORKS", Class: ClassGuardrail, Reason: reasonEgress},
 	{Name: "METIS_HTTP_ALLOWED_HOSTS", Class: ClassGuardrail, Reason: reasonEgress},

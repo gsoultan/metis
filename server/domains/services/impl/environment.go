@@ -3,12 +3,14 @@ package impl
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/internal/pkg/config"
 	"github.com/gsoultan/metis/internal/pkg/configsecret"
+	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
@@ -80,6 +82,7 @@ func (s *environmentService) CreateEnvironment(ctx context.Context, env entities
 		Driver:     env.Driver,
 		Connection: models.EncryptedMap(env.Connection),
 		Enabled:    env.Enabled,
+		Protected:  env.Protected,
 	}
 	if err := s.repo.Environment().Create(ctx, m); err != nil {
 		return uuid.Nil, err
@@ -107,6 +110,7 @@ func (s *environmentService) UpdateEnvironment(ctx context.Context, env entities
 	existing.Port = env.Port
 	existing.Driver = env.Driver
 	existing.Enabled = env.Enabled
+	existing.Protected = env.Protected
 	existing.Connection = models.EncryptedMap(
 		configsecret.Merge(env.Connection, map[string]any(existing.Connection)))
 
@@ -179,6 +183,7 @@ func maskedEnvironment(m models.EnvironmentModel) entities.Environment {
 		Driver:     m.Driver,
 		Connection: configsecret.Mask(map[string]any(m.Connection)),
 		Enabled:    m.Enabled,
+		Protected:  m.Protected,
 		CreatedAt:  m.CreatedAt,
 	}
 }
@@ -253,4 +258,42 @@ func intOf(m map[string]any, key string) int {
 func boolOf(m map[string]any, key string) bool {
 	value, ok := m[key].(bool)
 	return ok && value
+}
+
+// EnvProtectedRuntime marks this installation's own runtime — its main
+// database — as protected. It is how a production installation (one that runs
+// nothing but production) says so; an environment on a shared installation is
+// marked on its own row instead.
+//
+// Read from the server's environment only, never from the saved settings: an
+// administrator who could unset it from the Settings page could unlock their
+// own production.
+const EnvProtectedRuntime = "METIS_PROTECTED_RUNTIME"
+
+// RuntimeProtected reports whether the request's runtime is protected.
+func (s *environmentService) RuntimeProtected(ctx context.Context) (bool, error) {
+	if id, bound := stormdb.EnvironmentFrom(ctx); bound {
+		m, err := s.repo.Environment().Get(ctx, id)
+		if err != nil {
+			return false, fmt.Errorf("could not tell whether this environment is protected: %w", err)
+		}
+		return m.Protected, nil
+	}
+	return MainRuntimeProtected()
+}
+
+// MainRuntimeProtected reports whether METIS_PROTECTED_RUNTIME marks the main
+// database's runtime as protected. A value that is not a boolean is an error
+// rather than "no": somebody meant to say something, and guessing that they
+// meant "unprotected" would open production.
+func MainRuntimeProtected() (bool, error) {
+	raw, set := envvar.FromEnvironment(EnvProtectedRuntime)
+	if !set || strings.TrimSpace(raw) == "" {
+		return false, nil
+	}
+	v, err := strconv.ParseBool(strings.TrimSpace(raw))
+	if err != nil {
+		return false, fmt.Errorf("%s=%q is not true or false", EnvProtectedRuntime, raw)
+	}
+	return v, nil
 }

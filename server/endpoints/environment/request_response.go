@@ -33,6 +33,10 @@ type SaveEnvironmentRequest struct {
 	// stored"; see internal/pkg/configsecret.
 	Connection map[string]any `json:"connection,omitzero"`
 	Enabled    bool           `json:"enabled"`
+	// Protected marks a runtime where only a releaser or an administrator may
+	// change the models. Left out, an update keeps what is stored: a client
+	// written before the field existed must not quietly unprotect production.
+	Protected *bool `json:"protected,omitzero"`
 }
 
 type SaveEnvironmentResponse struct {

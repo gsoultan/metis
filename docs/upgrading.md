@@ -93,6 +93,24 @@ Migration 51 creates `archived_instances`, empty. **Rolling back** to 0.6.0
 means restoring the backup taken before the upgrade, as for migration 50;
 instances archived in the meantime are only in the archive.
 
+## Protected environments (migration 52)
+
+Migration 52 adds `environments.protected`, false for every environment
+already saved. Nothing changes until somebody protects one.
+
+A protected environment refuses a designer's deploy, delete, promote and
+schedule of a process or a decision with 403. A new built-in role,
+`RELEASER`, may do them there, and an administrator still may everywhere.
+Grant `RELEASER` to whoever makes changes live in production before you
+protect it.
+
+An installation that runs nothing but production marks its own runtime
+with `METIS_PROTECTED_RUNTIME=true`. A value that is not `true` or `false`
+refuses those changes until it is fixed, rather than guessing.
+
+**Rolling back** to a release without the column leaves it in place and
+unread; every environment is then unprotected again.
+
 ## A group's roles grant what they say
 
 A group's `roles` were stored and shown in the group editor, which said that

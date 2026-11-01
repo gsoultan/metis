@@ -64,5 +64,9 @@ func BuiltInPlatformRoles() []PlatformRole {
 			Name:        RoleQueryAuthor,
 			Description: "Deploys process models that look things up in a connected database.",
 		},
+		{
+			Name:        RoleReleaser,
+			Description: "Deploys, promotes and schedules process and decision models in a protected environment such as production.",
+		},
 	}
 }

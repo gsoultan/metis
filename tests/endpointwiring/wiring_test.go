@@ -146,6 +146,9 @@ func wrappedEndpoints(t *testing.T, path string) map[string]struct{} {
 		"protected": true, "adminOnly": true, "designer": true,
 		"operator": true, "globalAdmin": true, "platformAdmin": true, "public": true,
 		"person": true,
+		// Model changes: the designer chain, refused in a protected runtime to
+		// anyone but a releaser or an administrator.
+		"modelChange": true,
 	}
 
 	wrapped := map[string]struct{}{}

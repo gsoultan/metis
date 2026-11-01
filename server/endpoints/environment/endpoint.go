@@ -61,6 +61,10 @@ func MakeSaveEnvironmentEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			Enabled:    req.Enabled,
 		}
 
+		if req.Protected != nil {
+			env.Protected = *req.Protected
+		}
+
 		if req.ID == "" {
 			id, err := s.CreateEnvironment(ctx, env)
 			return SaveEnvironmentResponse{ID: id, Err: err}, nil
@@ -71,6 +75,13 @@ func MakeSaveEnvironmentEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			return SaveEnvironmentResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
 		}
 		env.ID = id
+		if req.Protected == nil {
+			stored, err := s.GetEnvironment(ctx, id)
+			if err != nil {
+				return SaveEnvironmentResponse{Err: err}, nil
+			}
+			env.Protected = stored.Protected
+		}
 		return SaveEnvironmentResponse{ID: id, Err: s.UpdateEnvironment(ctx, env)}, nil
 	}
 }

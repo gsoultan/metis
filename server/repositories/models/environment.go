@@ -48,6 +48,10 @@ type EnvironmentModel struct {
 	// retire an environment without deciding, in the same moment, to destroy
 	// everything it ran.
 	Enabled bool `json:"enabled"`
+
+	// Protected marks a runtime people rely on, such as production: a designer
+	// may not change its models there; a releaser or an administrator may.
+	Protected bool `json:"protected"`
 }
 
 // TableName overrides the table name for EnvironmentModel.

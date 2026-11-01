@@ -27,6 +27,15 @@ type InterceptorFactory struct {
 	// roles is every role-gated chain this factory has built, so what each
 	// role is required for can be read from the gates. See RoleAccess.
 	roles *roleRegistry
+	// protection answers whether a request's runtime is protected, for
+	// ModelChangeChain. Set once, before the chains are used.
+	protection authinterceptor.RuntimeProtection
+}
+
+// UseRuntimeProtection says how ModelChangeChain tells a protected runtime
+// from an unprotected one.
+func (f *InterceptorFactory) UseRuntimeProtection(protection authinterceptor.RuntimeProtection) {
+	f.protection = protection
 }
 
 func NewInterceptorFactory(users servicecontracts.UserService, organizations servicecontracts.OrganizationCounter) *InterceptorFactory {
@@ -168,6 +177,37 @@ func (f *InterceptorFactory) ProtectedChainWithRoles(method string, roles ...str
 		// caller is not in is refused as not a member before any role is
 		// looked at, as it is on every other endpoint.
 		return auth.Intercept(tenantResolver.Intercept(rbac.Intercept(logging.Intercept(e))))
+	}
+}
+
+// ModelChangeChain gates what changes the models a runtime runs — deploying,
+// deleting, promoting and scheduling processes and decisions.
+//
+// In an unprotected runtime that is a designer's or an administrator's, as it
+// always was. In a protected one (production) it is a releaser's or an
+// administrator's: a designer's change there is refused, so what runs changes
+// as a release that was designed and tested elsewhere.
+//
+// roles are everyone the gate may admit — the administrator, the designer and
+// the releaser — and the runtime decides which of them counts. Which runtime
+// is protected is answered by UseRuntimeProtection; with none set, every
+// runtime is treated as protected, so a factory nobody configured fails
+// closed rather than open.
+func (f *InterceptorFactory) ModelChangeChain(method string, roles ...string) func(endpoint.Endpoint) endpoint.Endpoint {
+	f.roles.record(method, roles, false)
+	protected := func(ctx context.Context) (bool, error) {
+		if f.protection == nil {
+			return true, nil
+		}
+		return f.protection(ctx)
+	}
+	logging := f.NewLogging(method)
+	auth := f.NewEndpointAuth()
+	tenantResolver := f.NewTenantResolver()
+	rbac := authinterceptor.NewRequireRoles(roles...)
+	runtime := authinterceptor.NewProtectedRuntimeInterceptor(protected)
+	return func(e endpoint.Endpoint) endpoint.Endpoint {
+		return auth.Intercept(tenantResolver.Intercept(rbac.Intercept(runtime.Intercept(logging.Intercept(e)))))
 	}
 }
 

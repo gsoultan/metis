@@ -36,6 +36,11 @@ type Environment struct {
 	// and, on the day the column types are reconciled, destroy it.
 	Connection string
 	Enabled    bool
+	// Protected marks a runtime people rely on, such as production: there a
+	// designer may not deploy, promote or schedule a model. Only a releaser or
+	// an administrator may, so what runs changes as a release rather than as an
+	// edit somebody saved.
+	Protected bool
 
 	DeletedAt *time.Time
 }
@@ -49,6 +54,7 @@ func (e *Environment) Schema(t *storm.Table) {
 	t.Col(&e.Driver).FillNulls(blank)
 	t.Col(&e.Connection).FillNulls(blank)
 	t.Col(&e.Enabled).FillNulls(no)
+	t.Col(&e.Protected).Default(no)
 	t.Col(&e.Name).Size(63)
 	t.Col(&e.Driver).Size(32)
 	// Both scoped to the live rows, which is what SoftDelete makes them: a

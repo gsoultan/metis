@@ -28,6 +28,7 @@ var roleConstants = map[string]string{
 	"RoleDesigner":    entities.RoleDesigner,
 	"RoleOperator":    entities.RoleOperator,
 	"RoleQueryAuthor": entities.RoleQueryAuthor,
+	"RoleReleaser":    entities.RoleReleaser,
 	"RoleUser":        entities.RoleUser,
 }
 
@@ -162,6 +163,7 @@ func gatedChains(t *testing.T, file *ast.File) map[string]chainGate {
 var roleChains = map[string]bool{
 	"ProtectedChainWithRoles":       false,
 	"ProtectedChainWithGlobalRoles": true,
+	"ModelChangeChain":              false,
 }
 
 // gateOf is what a helper passes to one of the role chains — its roles, in

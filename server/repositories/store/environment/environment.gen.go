@@ -30,6 +30,7 @@ type Row struct {
 	Driver     string
 	Connection string
 	Enabled    bool
+	Protected  bool
 	DeletedAt  runtime.Null[time.Time]
 }
 
@@ -75,7 +76,7 @@ const (
 	opNotExists runtime.Op = 33
 )
 
-const nCols = 10
+const nCols = 11
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -236,6 +237,13 @@ func (q *Query) cursor(col uint32, r Row) {
 		q.bools[q.nbo] = r.Enabled
 		q.nbo++
 	case 9:
+		if int(q.nbo) >= len(q.bools) {
+			q.over = true
+			return
+		}
+		q.bools[q.nbo] = r.Protected
+		q.nbo++
+	case 10:
 		if int(q.ntm) >= len(q.tims) {
 			q.over = true
 			return
@@ -413,7 +421,8 @@ var (
 	Driver     = TextCol{6}
 	Connection = TextCol{7}
 	Enabled    = BoolCol{8}
-	DeletedAt  = NullTimeCol{9}
+	Protected  = BoolCol{9}
+	DeletedAt  = NullTimeCol{10}
 )
 
 // UUIDCol addresses a uuid column.
@@ -706,7 +715,7 @@ func (q *Query) leaf(p Pred) {
 		}
 		q.raws[q.nr] = p.raw
 		q.nr++
-	case 1, 2, 9:
+	case 1, 2, 10:
 		if int(q.ntm) >= 4 {
 			q.over = true
 			return
@@ -727,7 +736,7 @@ func (q *Query) leaf(p Pred) {
 		}
 		q.nums[q.nn] = p.num
 		q.nn++
-	case 8:
+	case 8, 9:
 		if int(q.nbo) >= 4 {
 			q.over = true
 			return
@@ -811,6 +820,8 @@ func (q Query) ConnectionHasSuffix(v string) Query { return q.Where(Connection.H
 func (q Query) ConnectionContains(v string) Query  { return q.Where(Connection.Contains(v)) }
 func (q Query) EnabledEq(v bool) Query             { return q.Where(Enabled.Eq(v)) }
 func (q Query) EnabledNotEq(v bool) Query          { return q.Where(Enabled.NotEq(v)) }
+func (q Query) ProtectedEq(v bool) Query           { return q.Where(Protected.Eq(v)) }
+func (q Query) ProtectedNotEq(v bool) Query        { return q.Where(Protected.NotEq(v)) }
 func (q Query) DeletedAtEq(v time.Time) Query      { return q.Where(DeletedAt.Eq(v)) }
 func (q Query) DeletedAtNotEq(v time.Time) Query   { return q.Where(DeletedAt.NotEq(v)) }
 func (q Query) DeletedAtGt(v time.Time) Query      { return q.Where(DeletedAt.Gt(v)) }
@@ -825,7 +836,7 @@ func (q Query) DeletedAtIsNotNull() Query          { return q.Where(DeletedAt.Is
 // can narrow what it sees and cannot widen it. Reaching the deleted
 // rows is a different function, and visibly so.
 const softDeleteWhere = `"deleted_at" IS NULL`
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "name", "port", "driver", "connection", "enabled", "deleted_at" FROM "environments"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "name", "port", "driver", "connection", "enabled", "protected", "deleted_at" FROM "environments"`
 const countPrefix = `SELECT count(*) FROM "environments"`
 const existsPrefix = `SELECT 1 FROM "environments"`
 const existsSuffix = ` LIMIT 1`
@@ -869,6 +880,7 @@ var orderTable = [nCols][4]string{
 	{"\"driver\"", "\"driver\" DESC", "\"driver\" ASC NULLS FIRST", "\"driver\" DESC NULLS LAST"},
 	{"\"connection\"", "\"connection\" DESC", "\"connection\" ASC NULLS FIRST", "\"connection\" DESC NULLS LAST"},
 	{"\"enabled\"", "\"enabled\" DESC", "\"enabled\" ASC NULLS FIRST", "\"enabled\" DESC NULLS LAST"},
+	{"\"protected\"", "\"protected\" DESC", "\"protected\" ASC NULLS FIRST", "\"protected\" DESC NULLS LAST"},
 	{"\"deleted_at\"", "\"deleted_at\" DESC", "\"deleted_at\" ASC NULLS FIRST", "\"deleted_at\" DESC NULLS LAST"},
 }
 
@@ -884,6 +896,7 @@ var identTable = [nCols]string{
 	"\"driver\"",
 	"\"connection\"",
 	"\"enabled\"",
+	"\"protected\"",
 	"\"deleted_at\"",
 }
 
@@ -917,7 +930,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [10][34]runtime.Frag{
+var fragTable = [11][34]runtime.Frag{
 	{ // id
 		opEq:    {A: "\"id\" = $"},
 		opNotEq: {A: "\"id\" <> $"},
@@ -1007,6 +1020,10 @@ var fragTable = [10][34]runtime.Frag{
 	{ // enabled
 		opEq:    {A: "\"enabled\" = $"},
 		opNotEq: {A: "\"enabled\" <> $"},
+	},
+	{ // protected
+		opEq:    {A: "\"protected\" = $"},
+		opNotEq: {A: "\"protected\" <> $"},
 	},
 	{ // deleted_at
 		opEq:        {A: "\"deleted_at\" = $"},
@@ -1100,7 +1117,7 @@ func (q Query) existsStmt(toks []runtime.Tok) *runtime.Stmt { return existsStmtF
 const (
 	distinctOpen = "SELECT DISTINCT ON ("
 	distinctSep  = ", "
-	distinctTail = ") \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"port\", \"driver\", \"connection\", \"enabled\", \"deleted_at\" FROM \"environments\""
+	distinctTail = ") \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"port\", \"driver\", \"connection\", \"enabled\", \"protected\", \"deleted_at\" FROM \"environments\""
 )
 
 // distinctCaches are AllDistinctOn's, without and with an offset. The
@@ -1281,10 +1298,14 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 		return runtime.ShapeErr("enabled", "bool", 1, rv[8])
 	}
 	r.Enabled = runtime.Bool(rv[8])
-	if b := rv[9]; b != nil && len(b) != 8 {
+	if len(rv[9]) != 1 {
+		return runtime.ShapeErr("protected", "bool", 1, rv[9])
+	}
+	r.Protected = runtime.Bool(rv[9])
+	if b := rv[10]; b != nil && len(b) != 8 {
 		return runtime.ShapeErr("deleted_at", "timestamptz", 8, b)
 	}
-	r.DeletedAt = runtime.Nullable(rv[9], runtime.Timestamptz)
+	r.DeletedAt = runtime.Nullable(rv[10], runtime.Timestamptz)
 	return nil
 }
 
@@ -1368,7 +1389,7 @@ func (q Query) bindPreds(b *binder) []any {
 			b.raws[nr] = q.raws[nr]
 			v = append(v, &b.raws[nr])
 			nr++
-		case 1, 2, 9:
+		case 1, 2, 10:
 			b.tims[ntm] = q.tims[ntm]
 			v = append(v, &b.tims[ntm])
 			ntm++
@@ -1380,7 +1401,7 @@ func (q Query) bindPreds(b *binder) []any {
 			b.nums[nn] = q.nums[nn]
 			v = append(v, &b.nums[nn])
 			nn++
-		case 8:
+		case 8, 9:
 			b.bools[nbo] = q.bools[nbo]
 			v = append(v, &b.bools[nbo])
 			nbo++
@@ -1573,7 +1594,7 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "environments" ("id", "created_at", "updated_at", "project_id", "name", "port", "driver", "connection", "enabled", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING "id", "created_at", "updated_at", "project_id", "name", "port", "driver", "connection", "enabled", "deleted_at"`
+const insertSQL = `INSERT INTO "environments" ("id", "created_at", "updated_at", "project_id", "name", "port", "driver", "connection", "enabled", "protected", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING "id", "created_at", "updated_at", "project_id", "name", "port", "driver", "connection", "enabled", "protected", "deleted_at"`
 
 const updatePrefix = `UPDATE "environments" SET `
 const deletePrefix = `DELETE FROM "environments"`
@@ -1588,10 +1609,11 @@ const (
 	dDriver     uint64 = 1 << 4
 	dConnection uint64 = 1 << 5
 	dEnabled    uint64 = 1 << 6
-	dDeletedAt  uint64 = 1 << 7
+	dProtected  uint64 = 1 << 7
+	dDeletedAt  uint64 = 1 << 8
 )
 
-const nUpdatable = 8
+const nUpdatable = 9
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
@@ -1602,6 +1624,7 @@ var setFrags = [nUpdatable]runtime.Frag{
 	{A: "\"driver\" = $", B: ""},     // driver
 	{A: "\"connection\" = $", B: ""}, // connection
 	{A: "\"enabled\" = $", B: ""},    // enabled
+	{A: "\"protected\" = $", B: ""},  // protected
 	{A: "\"deleted_at\" = $", B: ""}, // deleted_at
 }
 
@@ -1616,6 +1639,7 @@ var exprFrags = [nUpdatable]runtime.Frag{
 	{},                                    // driver has no server-side form
 	{},                                    // connection has no server-side form
 	{},                                    // enabled has no server-side form
+	{},                                    // protected has no server-side form
 	{A: "\"deleted_at\" = now()", B: ""},  // deleted_at = the database's clock
 }
 
@@ -1632,6 +1656,7 @@ var addFrags = [nUpdatable]runtime.Frag{
 	{},                                    // driver cannot be added to
 	{},                                    // connection cannot be added to
 	{},                                    // enabled cannot be added to
+	{},                                    // protected cannot be added to
 	{},                                    // deleted_at cannot be added to
 }
 
@@ -1653,10 +1678,11 @@ const (
 	iDriver     uint64 = 1 << 6
 	iConnection uint64 = 1 << 7
 	iEnabled    uint64 = 1 << 8
-	iDeletedAt  uint64 = 1 << 9
+	iProtected  uint64 = 1 << 9
+	iDeletedAt  uint64 = 1 << 10
 )
 
-const nInsertable = 10
+const nInsertable = 11
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -1669,6 +1695,7 @@ var insCols = [nInsertable]string{
 	"\"driver\"",
 	"\"connection\"",
 	"\"enabled\"",
+	"\"protected\"",
 	"\"deleted_at\"",
 }
 
@@ -1678,7 +1705,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"environments\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"port\", \"driver\", \"connection\", \"enabled\", \"deleted_at\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"port\", \"driver\", \"connection\", \"enabled\", \"protected\", \"deleted_at\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -1697,7 +1724,7 @@ var updOpCache = runtime.NewMaskCache()
 // part of it. Without it m.Row() would hold what the row held BEFORE
 // the statement, so a caller reading back the counter it just
 // incremented would get the old number and never know.
-const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"port\", \"driver\", \"connection\", \"enabled\", \"deleted_at\""
+const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"port\", \"driver\", \"connection\", \"enabled\", \"protected\", \"deleted_at\""
 
 // Masks reports how many distinct UPDATE shapes have compiled.
 func Masks() int { return updCache.Masks() }
@@ -1810,6 +1837,12 @@ func (m *Mut) SetEnabled(v bool) {
 	m.expr &^= dEnabled
 }
 
+func (m *Mut) SetProtected(v bool) {
+	m.row.Protected = v
+	m.dirty |= dProtected
+	m.expr &^= dProtected
+}
+
 func (m *Mut) SetDeletedAt(v time.Time) {
 	m.row.DeletedAt = runtime.Null[time.Time]{V: v, Valid: true}
 	m.dirty |= dDeletedAt
@@ -1880,6 +1913,8 @@ func (n *Ins) insertArgs(args []any) []any {
 		case 8:
 			args = append(args, n.row.Enabled)
 		case 9:
+			args = append(args, n.row.Protected)
+		case 10:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -1941,6 +1976,11 @@ func (n *Ins) SetEnabled(v bool) {
 	n.set |= iEnabled
 }
 
+func (n *Ins) SetProtected(v bool) {
+	n.row.Protected = v
+	n.set |= iProtected
+}
+
 func (n *Ins) SetDeletedAt(v time.Time) {
 	n.row.DeletedAt = runtime.Null[time.Time]{V: v, Valid: true}
 	n.set |= iDeletedAt
@@ -1990,7 +2030,7 @@ var conflictSpecs = []string{
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 8)
+	set := make([]string, 0, 9)
 	for j, bit := range assignBits[i] {
 		if mask&(1<<bit) != 0 {
 			set = append(set, assignNames[i][j])
@@ -2003,15 +2043,15 @@ func assignable(i uint8, mask uint64) []string {
 // of each column it may overwrite. An empty row is a target whose key
 // covers every updatable column.
 var assignBits = [3][]uint8{
-	{2, 3, 4, 5, 6, 7, 8, 9},
-	{2, 3, 4, 6, 7, 8, 9},
-	{2, 5, 6, 7, 8, 9},
+	{2, 3, 4, 5, 6, 7, 8, 9, 10},
+	{2, 3, 4, 6, 7, 8, 9, 10},
+	{2, 5, 6, 7, 8, 9, 10},
 }
 
 var assignNames = [3][]string{
-	{"updated_at", "project_id", "name", "port", "driver", "connection", "enabled", "deleted_at"},
-	{"updated_at", "project_id", "name", "driver", "connection", "enabled", "deleted_at"},
-	{"updated_at", "port", "driver", "connection", "enabled", "deleted_at"},
+	{"updated_at", "project_id", "name", "port", "driver", "connection", "enabled", "protected", "deleted_at"},
+	{"updated_at", "project_id", "name", "driver", "connection", "enabled", "protected", "deleted_at"},
+	{"updated_at", "port", "driver", "connection", "enabled", "protected", "deleted_at"},
 }
 
 // OnConflictID upserts on the unique index over (id).
@@ -2084,6 +2124,7 @@ var assignFor = map[string]string{
 	"driver":     "\"driver\" = EXCLUDED.\"driver\"",
 	"connection": "\"connection\" = EXCLUDED.\"connection\"",
 	"enabled":    "\"enabled\" = EXCLUDED.\"enabled\"",
+	"protected":  "\"protected\" = EXCLUDED.\"protected\"",
 	"deleted_at": "\"deleted_at\" = EXCLUDED.\"deleted_at\"",
 }
 
@@ -2160,7 +2201,7 @@ func Inserts() int { return insCache.Masks() }
 // Insert writes every insertable column, zero values included, and reads
 // the row back so database defaults land in r.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 10)
+	args := make([]any, 0, 11)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2170,6 +2211,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.Driver)
 	args = append(args, r.Connection)
 	args = append(args, r.Enabled)
+	args = append(args, r.Protected)
 	args = append(args, r.DeletedAt.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
@@ -2206,6 +2248,7 @@ var copyCols = []string{
 	"driver",
 	"connection",
 	"enabled",
+	"protected",
 	"deleted_at",
 }
 
@@ -2213,7 +2256,7 @@ var copyCols = []string{
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [10]any
+	buf  [11]any
 }
 
 func (s *rowSource) Next() bool {
@@ -2234,7 +2277,8 @@ func (s *rowSource) Values() []any {
 	s.buf[6] = &r.Driver
 	s.buf[7] = &r.Connection
 	s.buf[8] = &r.Enabled
-	s.buf[9] = r.DeletedAt.Ptr()
+	s.buf[9] = &r.Protected
+	s.buf[10] = r.DeletedAt.Ptr()
 	return s.buf[:]
 }
 
@@ -2255,7 +2299,7 @@ func InsertAll(ctx context.Context, ex runtime.Executor, rows []Row) (int64, err
 func InsertOp(r Row) runtime.BatchOp {
 	const mask = 1<<nInsertable - 1 // every insertable column
 	st := stmtForInsertNoReturn(mask, 0, 0)
-	args := make([]any, 0, 10)
+	args := make([]any, 0, 11)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2265,6 +2309,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.Driver)
 	args = append(args, r.Connection)
 	args = append(args, r.Enabled)
+	args = append(args, r.Protected)
 	args = append(args, r.DeletedAt.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
@@ -2552,6 +2597,8 @@ func (m Mut) updateArgs(args []any) []any {
 		case 6:
 			args = append(args, m.row.Enabled)
 		case 7:
+			args = append(args, m.row.Protected)
+		case 8:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}

@@ -254,6 +254,7 @@ func _assertEnvironmentShape(m m0.Environment) {
 		m.Driver,
 		m.Connection,
 		m.Enabled,
+		m.Protected,
 		m.DeletedAt,
 	}
 }

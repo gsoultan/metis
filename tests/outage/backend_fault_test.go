@@ -55,10 +55,14 @@ func (h *rowHolder) release(t *testing.T) {
 func (d *killDrill) killTheWorkerAt(t *testing.T, holder *rowHolder, step heldRow) {
 	t.Helper()
 	ex := testutils.Executor(d.db)
-	var waiting pgstat.Session
+	var waiting, last pgstat.Session
 	deadline := time.Now().Add(faultTimeout)
 	for waiting.PID == 0 {
 		if time.Now().After(deadline) {
+			if last.PID != 0 {
+				t.Fatalf("the backend waiting on the held row is %q running %q; want this test's worker running %s on %s",
+					last.ApplicationName, last.Query, step.statement, step.table)
+			}
 			t.Fatalf("the worker never reached %s on %s", step.statement, step.table)
 		}
 		// This test's own backends only. The held transaction blocks more than
@@ -71,17 +75,21 @@ func (d *killDrill) killTheWorkerAt(t *testing.T, holder *rowHolder, step heldRo
 			t.Fatalf("find the blocked worker: %v", err)
 		}
 		for _, s := range sessions {
-			if s.ApplicationName == d.appName && s.WaitsBehind(holder.pid) {
+			if s.ApplicationName != d.appName || !s.WaitsBehind(holder.pid) {
+				continue
+			}
+			// The query text comes from pg_stat_activity, which a statement
+			// reads as it was when the statement began; pg_blocking_pids is
+			// read live. A worker that has just moved on to the held row can
+			// show the statement it ran before it, so a mismatch is read again
+			// rather than taken as someone else's backend.
+			if runs(s, step) {
 				waiting = s
 				break
 			}
+			last = s
 		}
 		time.Sleep(10 * time.Millisecond)
-	}
-	query := strings.ToUpper(strings.TrimSpace(waiting.Query))
-	if !strings.HasPrefix(query, step.statement) || !strings.Contains(waiting.Query, step.table) {
-		t.Fatalf("the backend waiting on the held row is %q running %q; want this test's worker running %s on %s",
-			waiting.ApplicationName, waiting.Query, step.statement, step.table)
 	}
 
 	terminated, err := pgstat.Terminate(t.Context(), ex, waiting.PID)
@@ -89,6 +97,12 @@ func (d *killDrill) killTheWorkerAt(t *testing.T, holder *rowHolder, step heldRo
 		t.Fatalf("terminate the worker's backend %d: %v (terminated=%v)", waiting.PID, err, terminated)
 	}
 	d.awaitGone(t, waiting.PID)
+}
+
+// runs reports whether s is running step's statement on step's table.
+func runs(s pgstat.Session, step heldRow) bool {
+	query := strings.ToUpper(strings.TrimSpace(s.Query))
+	return strings.HasPrefix(query, step.statement) && strings.Contains(s.Query, step.table)
 }
 
 // awaitGone waits until a terminated backend has left pg_stat_activity, so the
