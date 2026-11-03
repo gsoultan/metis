@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "./config";
-import { getAuthToken } from "./auth";
+import { getAuthHeaders, getAuthToken } from "./auth";
 import { reportSessionRefused } from "./sessionRefusal";
 
 type RequestOptions = {
@@ -40,7 +40,7 @@ export const requestJSON = async <T>(path: string, options: RequestOptions = {})
   const token = auth ? getAuthToken() : null;
   const finalHeaders: Record<string, string> = {
     ...headers,
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(token ? getAuthHeaders() : {}),
   };
 
   if (body !== undefined && !finalHeaders["Content-Type"]) {

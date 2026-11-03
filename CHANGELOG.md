@@ -46,6 +46,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   page says which environment it is served from, in red when that one is
   protected.
 
+### Fixed
+
+- **Switching organization switches what the server works in.** The app never
+  sent `X-Organization-ID`, so every request went to the account's first
+  organization whatever the header showed; it now names the one chosen, and
+  the page's data and live events are read again after a switch.
+- **The organization picker lists every organization you are in, and always
+  shows.** `ListOrganizations` answered only the organization a request was
+  for, so somebody in three saw one, and the picker appeared only with two or
+  more. It now lists the signed-in caller's memberships; a call with nobody
+  signed in is unchanged. The picker offers the Organizations page and a new
+  organization, the page has a *Switch to it* button and marks the one being
+  worked in, and a new organization is switched to as soon as it is created.
+
 ### Upgrading
 
 - **Upgrade to 0.6.0 first.** This release upgrades only a database at

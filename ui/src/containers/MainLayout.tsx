@@ -8,7 +8,7 @@ import { HelpDrawer } from '../components/HelpDrawer';
 import { AppHeader, RuntimeBanner, Sidebar } from '../components/shell';
 import { EmptyState } from '../components/state';
 import { selectionNeedsUpdate, resolveSelection } from '../domain/activeSelection';
-import { useOrganizations } from '../hooks/useOrganization';
+import { useOrganizations, useSwitchOrganization } from '../hooks/useOrganization';
 import { useProjects } from '../hooks/useProcess';
 import { useAppStore } from '../store/useAppStore';
 
@@ -37,10 +37,10 @@ export function MainLayout({ children }: MainLayoutProps) {
     currentProjectId,
     sidebarExpanded,
     currentOrganizationId,
-    setCurrentOrganizationId,
     setCurrentProjectId,
     user,
   } = useAppStore();
+  const switchOrganization = useSwitchOrganization();
   const { data: organizationsData } = useOrganizations();
   const { data: projectsData } = useProjects(currentOrganizationId);
   const location = useLocation();
@@ -71,11 +71,10 @@ export function MainLayout({ children }: MainLayoutProps) {
   React.useEffect(() => {
     if (!organizationsLoaded) return;
     if (!selectionNeedsUpdate(organizations, currentOrganizationId)) return;
-    setCurrentOrganizationId(resolveSelection(organizations, currentOrganizationId));
-    // The projects belong to the old organization, so the stored one cannot be
-    // right; the effect below picks the new organization's first.
-    setCurrentProjectId(null);
-  }, [organizationsLoaded, organizations, currentOrganizationId, setCurrentOrganizationId, setCurrentProjectId]);
+    // Switching also forgets the project, which belonged to the old
+    // organization; the effect below picks the new organization's first.
+    switchOrganization(resolveSelection(organizations, currentOrganizationId));
+  }, [organizationsLoaded, organizations, currentOrganizationId, switchOrganization]);
 
   const projectsLoaded = projectsData !== undefined;
   React.useEffect(() => {

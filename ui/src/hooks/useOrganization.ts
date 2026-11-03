@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { DIRECTORY_STALE_TIME } from '../services/queryDefaults';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
+import { reconnectEventStream } from './useEventStream';
 
 export const useOrganizations = () => {
   const token = useAppStore((state) => state.token);
@@ -44,4 +45,27 @@ export const useDeleteOrganization = () => {
       queryClient.invalidateQueries({ queryKey: ['organizations'] });
     },
   });
+};
+
+/**
+ * Works in another organization from now on.
+ *
+ * Everything already read was the previous organization's — its projects, its
+ * instances, its people — so every query is read again, and the live event
+ * stream is opened again for the new one. The stored choice changes first,
+ * because that is what the next request reads to say which organization it is
+ * for.
+ */
+export const useSwitchOrganization = () => {
+  const queryClient = useQueryClient();
+  const setCurrentOrganizationId = useAppStore((state) => state.setCurrentOrganizationId);
+  const setCurrentProjectId = useAppStore((state) => state.setCurrentProjectId);
+  return (id: string | null) => {
+    if (useAppStore.getState().currentOrganizationId === id) return;
+    setCurrentOrganizationId(id);
+    // The previous project belongs to the previous organization.
+    setCurrentProjectId(null);
+    reconnectEventStream();
+    void queryClient.invalidateQueries();
+  };
 };

@@ -13,7 +13,6 @@ import {
 } from '@mantine/core';
 import { Link, useNavigate } from '@tanstack/react-router';
 import {
-  Building2,
   FolderGit2,
   HelpCircle,
   LogOut,
@@ -25,6 +24,7 @@ import {
 import { processService } from '../../services/api';
 import { useAppStore } from '../../store/useAppStore';
 import { NotificationCenter } from '../NotificationCenter';
+import { OrganizationPicker } from './OrganizationPicker';
 import classes from './AppHeader.module.css';
 import { LanguageMenu } from '../../i18n/LanguageMenu';
 
@@ -68,8 +68,6 @@ export function AppHeader({
     clearAuth,
     currentProjectId,
     setCurrentProjectId,
-    currentOrganizationId,
-    setCurrentOrganizationId,
     expertMode,
     setExpertMode,
   } = useAppStore();
@@ -90,24 +88,7 @@ export function AppHeader({
 
   const contextSelectors = (
     <>
-      {organizations.length > 1 && (
-        <Select
-          aria-label="Organization"
-          placeholder="Organization"
-          leftSection={<Building2 size={15} />}
-          data={organizations.map((o) => ({ value: o.id, label: o.name }))}
-          value={currentOrganizationId}
-          onChange={(value) => {
-            setCurrentOrganizationId(value);
-            // The previous project belongs to the previous organization.
-            setCurrentProjectId(null);
-          }}
-          size="sm"
-          w={190}
-          comboboxProps={{ withinPortal: true }}
-          allowDeselect={false}
-        />
-      )}
+      <OrganizationPicker organizations={organizations} />
 
       <Select
         aria-label="Project"

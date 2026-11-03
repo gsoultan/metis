@@ -77,6 +77,38 @@ func (r *organizationRepository) List(ctx context.Context) ([]models.Organizatio
 	return out, nil
 }
 
+// ListByIDs returns the organizations with these ids, by name.
+//
+// Not narrowed to the tenant, and that is the point: it answers "which
+// organizations may I switch to", which the one being worked in cannot. Pass
+// only the memberships of the verified principal — the list the tenant
+// resolver itself trusts — never ids from a request.
+func (r *organizationRepository) ListByIDs(ctx context.Context, ids []uuid.UUID) ([]models.OrganizationModel, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	ex, err := r.conn.conn.MainExecutor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([][16]byte, 0, len(ids))
+	for _, id := range ids {
+		keys = append(keys, id)
+	}
+	q := organization.New().
+		Where(organization.ID.In(keys...)).
+		Order(organization.Name.Asc(), organization.ID.Asc())
+	rows, err := everyRow[organization.Row](ctx, ex, q)
+	if err != nil {
+		return nil, fmt.Errorf("could not list the organizations: %w", err)
+	}
+	out := make([]models.OrganizationModel, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, organizationFrom(row))
+	}
+	return out, nil
+}
+
 // Create adds an organization.
 //
 // Deliberately unscoped: creating a tenant is how a tenant comes to exist, so

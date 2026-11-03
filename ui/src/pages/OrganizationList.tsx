@@ -1,5 +1,6 @@
 import {
   ActionIcon,
+  Badge,
   Button,
   Card,
   Group,
@@ -14,22 +15,34 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { Building2, Edit2, Plus, Trash2 } from 'lucide-react';
+import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState, ErrorState, TableLoadingState } from '../components/state';
 import type { Organization } from '../gen/entities/organization_pb';
-import { useCreateOrganization, useDeleteOrganization, useOrganizations, useUpdateOrganization } from '../hooks/useOrganization';
+import {
+  useCreateOrganization,
+  useDeleteOrganization,
+  useOrganizations,
+  useSwitchOrganization,
+  useUpdateOrganization,
+} from '../hooks/useOrganization';
 import { failureMessage } from '../services/shared/errors';
 import { useAppStore } from '../store/useAppStore';
 import { useTranslation } from '../i18n/context';
 
 const COLUMNS = 3;
 
+const route = getRouteApi('/_authenticated/organizations');
+
 export function OrganizationList() {
   const { t } = useTranslation();
   const { data, isLoading, error, refetch } = useOrganizations();
-  const { expertMode } = useAppStore();
+  const { expertMode, currentOrganizationId } = useAppStore();
+  const switchOrganization = useSwitchOrganization();
+  const search = route.useSearch();
+  const navigate = useNavigate();
   const createOrg = useCreateOrganization();
   const updateOrg = useUpdateOrganization();
   const deleteOrg = useDeleteOrganization();
@@ -48,6 +61,16 @@ export function OrganizationList() {
     setIsModalOpen(true);
   };
 
+  // The header's "New organization" lands here with the form asked for in the
+  // address. Closing the form takes the request off the address, so going back
+  // or reloading does not open it again.
+  const askedForNew = search.new === true;
+  const modalOpen = isModalOpen || askedForNew;
+  const closeModal = () => {
+    setIsModalOpen(false);
+    if (askedForNew) void navigate({ to: '/organizations', search: {}, replace: true });
+  };
+
   const handleSubmit = async () => {
     if (!name.trim()) return;
     try {
@@ -55,10 +78,14 @@ export function OrganizationList() {
         await updateOrg.mutateAsync({ id: editingOrg.id, name, description });
         notifications.show({ title: 'Saved', message: `${name} was updated.`, color: 'green' });
       } else {
-        await createOrg.mutateAsync({ name, description });
-        notifications.show({ title: 'Created', message: `${name} is ready.`, color: 'green' });
+        const { organization } = await createOrg.mutateAsync({ name, description });
+        // Whoever creates an organization is its administrator and, almost
+        // always, about to set it up: its first project, its people. So work
+        // moves into it, and the header says so.
+        if (organization?.id) switchOrganization(organization.id);
+        notifications.show({ title: 'Created', message: `${name} is ready, and you are working in it now.`, color: 'green' });
       }
-      setIsModalOpen(false);
+      closeModal();
     } catch (error) {
       // Surface the actual reason rather than a generic string — the user
       // cannot tell a validation problem from an outage otherwise.
@@ -132,7 +159,12 @@ export function OrganizationList() {
                           <Building2 size={16} />
                         </ThemeIcon>
                         <Stack gap={0}>
-                          <Text fw={700} size="sm">{org.name}</Text>
+                          <Group gap="xs" wrap="nowrap">
+                            <Text fw={700} size="sm">{org.name}</Text>
+                            {org.id === currentOrganizationId && (
+                              <Badge size="sm" variant="light" color="green">Working in</Badge>
+                            )}
+                          </Group>
                           {expertMode && <Text size="xs" c="dimmed" ff="monospace">{org.id}</Text>}
                         </Stack>
                       </Group>
@@ -141,18 +173,31 @@ export function OrganizationList() {
                       <Text size="sm" lineClamp={1}>{org.description || 'No description'}</Text>
                     </Table.Td>
                     <Table.Td>
-                      <Group gap="xs" justify="flex-end">
-                        <Tooltip label="Edit organization">
-                          <ActionIcon aria-label={`Edit ${org.name}`} variant="light" color="indigo" onClick={() => handleOpenModal(org)}>
-                            <Edit2 size={16} />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Delete organization">
-                          <ActionIcon aria-label={`Delete ${org.name}`} variant="light" color="red" onClick={() => handleDelete(org)}>
-                            <Trash2 size={16} />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Group>
+                      {/*
+                        Changing or deleting an organization is done from
+                        inside it: the server answers for the organization a
+                        request is for, and refuses the others.
+                      */}
+                      {org.id === currentOrganizationId ? (
+                        <Group gap="xs" justify="flex-end">
+                          <Tooltip label="Edit organization">
+                            <ActionIcon aria-label={`Edit ${org.name}`} variant="light" color="indigo" onClick={() => handleOpenModal(org)}>
+                              <Edit2 size={16} />
+                            </ActionIcon>
+                          </Tooltip>
+                          <Tooltip label="Delete organization">
+                            <ActionIcon aria-label={`Delete ${org.name}`} variant="light" color="red" onClick={() => handleDelete(org)}>
+                              <Trash2 size={16} />
+                            </ActionIcon>
+                          </Tooltip>
+                        </Group>
+                      ) : (
+                        <Group gap="xs" justify="flex-end">
+                          <Button size="xs" variant="default" onClick={() => switchOrganization(org.id)}>
+                            Switch to it
+                          </Button>
+                        </Group>
+                      )}
                     </Table.Td>
                   </Table.Tr>
                 ))
@@ -164,8 +209,8 @@ export function OrganizationList() {
       </Card>
 
       <Modal
-        opened={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        opened={modalOpen}
+        onClose={closeModal}
         title={<Text fw={700}>{editingOrg ? 'Edit Organization' : 'New Organization'}</Text>}
         radius="lg"
       >
@@ -185,7 +230,7 @@ export function OrganizationList() {
             onChange={(e) => setDescription(e.currentTarget.value)}
           />
           <Group justify="flex-end" mt="md">
-            <Button variant="light" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+            <Button variant="light" onClick={closeModal}>Cancel</Button>
             <Button onClick={handleSubmit} loading={createOrg.isPending || updateOrg.isPending} disabled={!name.trim()}>
               {editingOrg ? 'Update' : 'Create'}
             </Button>
