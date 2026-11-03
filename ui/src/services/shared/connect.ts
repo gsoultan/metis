@@ -9,7 +9,7 @@ import { StatsService } from "../../gen/services/stats_pb";
 import { TaskService } from "../../gen/services/task_pb";
 import { UserService } from "../../gen/services/user_pb";
 import { API_BASE_URL } from "./config";
-import { getAuthToken } from "./auth";
+import { getActiveOrganizationId, getAuthToken, ORGANIZATION_HEADER } from "./auth";
 import { reportSessionRefused } from "./sessionRefusal";
 
 /**
@@ -38,6 +38,14 @@ export const transport = createConnectTransport({
         return next(req);
       }
       req.header.set("Authorization", `Bearer ${token}`);
+      // Every call but the list of organizations names the one being worked
+      // in. That list is how a stale choice — an organization the account has
+      // since left, which the server refuses — gets replaced, so it must not
+      // carry the choice it is there to correct.
+      const organization = getActiveOrganizationId();
+      if (organization && req.method.name !== "ListOrganizations") {
+        req.header.set(ORGANIZATION_HEADER, organization);
+      }
       try {
         return await next(req);
       } catch (error) {

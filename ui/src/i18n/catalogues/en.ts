@@ -271,7 +271,7 @@ const en: Catalogue = {
   'page.projects.title': 'Projects',
   'page.projects.subtitle': 'Organize your processes and tasks into projects.',
   'page.organizations.title': 'Organizations',
-  'page.organizations.subtitle': 'Manage your organizations and their projects.',
+  'page.organizations.subtitle': 'Each organization keeps its own projects, people and history apart from the others. These are the ones you belong to.',
   'page.platformAccess.title': 'Users',
   'page.platformAccess.subtitle': 'Accounts that run Metis, each by its roles: they manage organizations, projects and People, and author process and decision models. They are never given tasks; the people processes assign work to are on the People page.',
   'page.audit.title': 'Audit log',

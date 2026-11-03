@@ -14,7 +14,7 @@ import { useEffect, useRef } from 'react';
 import { useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { backoffDelay, parseEventStreamChunk, type StreamEvent } from '../domain/eventStream';
 import { API_BASE_URL } from '../services/shared/config';
-import { getAuthToken } from '../services/shared/auth';
+import { getAuthHeaders, getAuthToken } from '../services/shared/auth';
 import { reportSessionRefused } from '../services/shared/sessionRefusal';
 import { createBurstDebounce, type BurstDebounce } from './burstDebounce';
 
@@ -74,7 +74,7 @@ async function connect(): Promise<void> {
   controller = own;
   try {
     const response = await fetch(`${API_BASE_URL}/events`, {
-      headers: { Accept: 'text/event-stream', Authorization: `Bearer ${token}` },
+      headers: { Accept: 'text/event-stream', ...getAuthHeaders() },
       signal: own.signal,
     });
     if (response.status === 401) {
@@ -127,6 +127,19 @@ function disconnect(): void {
     reconnectTimer = null;
   }
   failedAttempts = 0;
+}
+
+/**
+ * Opens the stream again, for another organization. Events are the
+ * organization's the stream was opened for, so after a switch the open one is
+ * the wrong one's.
+ */
+export function reconnectEventStream(): void {
+  if (subscribers.size === 0) {
+    return;
+  }
+  disconnect();
+  ensureConnected();
 }
 
 /**

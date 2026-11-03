@@ -12,6 +12,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/repositories"
+	"github.com/gsoultan/metis/server/repositories/models"
 )
 
 type organizationService struct {
@@ -82,8 +83,29 @@ func (s *organizationService) GetOrganization(ctx context.Context, id uuid.UUID)
 	return adapters.OrganizationEntityAdapter{Model: m}.ToEntity(), nil
 }
 
+// ListOrganizations returns the organizations the caller may work in.
+//
+// A signed-in account gets every organization it belongs to, not only the one
+// the request is for. The organization picker reads this list, and with only
+// the one being worked in there was nothing to switch to: somebody in three
+// organizations saw one, and no picker at all. The memberships are the
+// principal's — from the account, or from an identity provider's claim — the
+// same list the tenant resolver lets a request choose from. A call with
+// nobody signed in — setup, or system work — keeps the repository's answer.
 func (s *organizationService) ListOrganizations(ctx context.Context) ([]entities.Organization, error) {
-	ms, err := s.repo.Organization().List(ctx)
+	list := s.repo.Organization().List
+	if caller := signedIn(ctx); caller != nil {
+		ids := make([]uuid.UUID, 0, len(caller.Organizations))
+		for _, o := range caller.Organizations {
+			if o != nil {
+				ids = append(ids, o.ID)
+			}
+		}
+		list = func(ctx context.Context) ([]models.OrganizationModel, error) {
+			return s.repo.Organization().ListByIDs(ctx, ids)
+		}
+	}
+	ms, err := list(ctx)
 	if err != nil {
 		return nil, err
 	}

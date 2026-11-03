@@ -229,7 +229,7 @@ const id: Catalogue = {
   'page.projects.title': 'Proyek',
   'page.projects.subtitle': 'Atur proses dan tugas Anda ke dalam proyek.',
   'page.organizations.title': 'Organisasi',
-  'page.organizations.subtitle': 'Kelola organisasi Anda beserta proyeknya.',
+  'page.organizations.subtitle': 'Setiap organisasi menyimpan proyek, orang, dan riwayatnya sendiri, terpisah dari yang lain. Ini adalah organisasi tempat Anda bergabung.',
   'page.platformAccess.title': 'Pengguna',
   'page.platformAccess.subtitle': 'Akun yang menjalankan Metis sesuai perannya: mereka mengelola organisasi, proyek, dan Orang, serta menyusun model proses dan keputusan. Mereka tidak pernah diberi tugas; orang yang diberi pekerjaan oleh proses ada di halaman Orang.',
   'page.audit.title': 'Log audit',
