@@ -15,7 +15,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { Building2, Edit2, Plus, Trash2 } from 'lucide-react';
-import { getRouteApi, useNavigate } from '@tanstack/react-router';
+import { getRouteApi, Link, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 
 import { PageHeader } from '../components/PageHeader';
@@ -160,7 +160,14 @@ export function OrganizationList() {
                         </ThemeIcon>
                         <Stack gap={0}>
                           <Group gap="xs" wrap="nowrap">
-                            <Text fw={700} size="sm">{org.name}</Text>
+                            <Link
+                              to="/organizations/$organizationId"
+                              params={{ organizationId: org.id }}
+                              search={{ tab: 'overview' }}
+                              style={{ color: 'inherit', fontWeight: 700, fontSize: 'var(--mantine-font-size-sm)' }}
+                            >
+                              {org.name}
+                            </Link>
                             {org.id === currentOrganizationId && (
                               <Badge size="sm" variant="light" color="green">Working in</Badge>
                             )}
@@ -180,6 +187,19 @@ export function OrganizationList() {
                       */}
                       {org.id === currentOrganizationId ? (
                         <Group gap="xs" justify="flex-end">
+                          <Button
+                            size="xs"
+                            variant="default"
+                            onClick={() =>
+                              void navigate({
+                                to: '/organizations/$organizationId',
+                                params: { organizationId: org.id },
+                                search: { tab: 'members' },
+                              })
+                            }
+                          >
+                            Members
+                          </Button>
                           <Tooltip label="Edit organization">
                             <ActionIcon aria-label={`Edit ${org.name}`} variant="light" color="indigo" onClick={() => handleOpenModal(org)}>
                               <Edit2 size={16} />

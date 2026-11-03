@@ -45,6 +45,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   Releases cuts, imports, approves, makes live and rolls back releases. Every
   page says which environment it is served from, in red when that one is
   protected.
+- **A page for each organization.** Administer → Organizations → an
+  organization's name opens it: an overview with its member and project
+  counts, its members and their roles there (add one, change their roles),
+  its projects, and, for its administrators, its name, description and
+  deletion. Another organization's page offers to switch to it first, since
+  the server answers for the organization being worked in.
 
 ### Fixed
 
