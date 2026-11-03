@@ -35,6 +35,7 @@ import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated.
 import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated.users'
 import { Route as PIndexRouteImport } from './routes/p.index'
 import { Route as PTRouteImport } from './routes/p.t'
+import { Route as AuthenticatedOrganizationsOrganizationIdRouteImport } from './routes/_authenticated.organizations_.$organizationId'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
@@ -198,6 +199,16 @@ const PTRoute = PTRouteImport.update({
   path: '/p/t',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/p.t.lazy').then((d) => d.Route))
+const AuthenticatedOrganizationsOrganizationIdRoute =
+  AuthenticatedOrganizationsOrganizationIdRouteImport.update({
+    id: '/organizations_/$organizationId',
+    path: '/organizations/$organizationId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any).lazy(() =>
+    import('./routes/_authenticated.organizations_.$organizationId.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
@@ -225,6 +236,7 @@ export interface FileRoutesByFullPath {
   '/users': typeof AuthenticatedUsersRoute
   '/p/t': typeof PTRoute
   '/p/': typeof PIndexRoute
+  '/organizations/$organizationId': typeof AuthenticatedOrganizationsOrganizationIdRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -252,6 +264,7 @@ export interface FileRoutesByTo {
   '/p/t': typeof PTRoute
   '/': typeof AuthenticatedIndexRoute
   '/p': typeof PIndexRoute
+  '/organizations/$organizationId': typeof AuthenticatedOrganizationsOrganizationIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -281,6 +294,7 @@ export interface FileRoutesById {
   '/p/t': typeof PTRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/p/': typeof PIndexRoute
+  '/_authenticated/organizations_/$organizationId': typeof AuthenticatedOrganizationsOrganizationIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -310,6 +324,7 @@ export interface FileRouteTypes {
     | '/users'
     | '/p/t'
     | '/p/'
+    | '/organizations/$organizationId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -337,6 +352,7 @@ export interface FileRouteTypes {
     | '/p/t'
     | '/'
     | '/p'
+    | '/organizations/$organizationId'
   id:
     | '__root__'
     | '/_authenticated'
@@ -365,6 +381,7 @@ export interface FileRouteTypes {
     | '/p/t'
     | '/_authenticated/'
     | '/p/'
+    | '/_authenticated/organizations_/$organizationId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -559,6 +576,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PTRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/organizations_/$organizationId': {
+      id: '/_authenticated/organizations_/$organizationId'
+      path: '/organizations/$organizationId'
+      fullPath: '/organizations/$organizationId'
+      preLoaderRoute: typeof AuthenticatedOrganizationsOrganizationIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
   }
 }
 
@@ -584,6 +608,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedTasksRoute: typeof AuthenticatedTasksRoute
   AuthenticatedUsersRoute: typeof AuthenticatedUsersRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
+  AuthenticatedOrganizationsOrganizationIdRoute: typeof AuthenticatedOrganizationsOrganizationIdRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
@@ -608,6 +633,8 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedTasksRoute: AuthenticatedTasksRoute,
   AuthenticatedUsersRoute: AuthenticatedUsersRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
+  AuthenticatedOrganizationsOrganizationIdRoute:
+    AuthenticatedOrganizationsOrganizationIdRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
