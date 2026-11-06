@@ -753,17 +753,23 @@ jobs:
       - name: Install on Debian, Rocky, Alpine and Arch
         run: |
           set -euo pipefail
-          check='id metis
-            test "$(stat -c %U:%G:%a /var/lib/metis)" = metis:metis:750
-            test "$(stat -c %U:%G:%a /etc/metis/metis.env)" = root:metis:640'
-          docker run --rm -v "$PWD/dist:/d" debian:12 sh -euc \
-            "apt-get install -y /d/*_amd64.deb; $check; test -f /usr/lib/systemd/system/metis.service; apt-get purge -y metis"
-          docker run --rm -v "$PWD/dist:/d" rockylinux/rockylinux:9 sh -euc \
-            "rpm -i /d/*.x86_64.rpm; $check; test -f /usr/lib/systemd/system/metis.service; rpm -e metis"
-          docker run --rm -v "$PWD/dist:/d" alpine:3.22 sh -euc \
-            "apk add --allow-untrusted /d/*_x86_64.apk; $check; test -x /etc/init.d/metis; apk del metis"
-          docker run --rm -v "$PWD/dist:/d" archlinux:latest sh -euc \
-            "pacman -U --noconfirm /d/*-x86_64.pkg.tar.zst; $check; test -f /usr/lib/systemd/system/metis.service; pacman -R --noconfirm metis"
+          # The same assertions on every distribution: the user exists, and the
+          # state and settings ended with the owners and modes the package sets.
+          cat > "$RUNNER_TEMP/check.sh" <<'SH'
+          set -eu
+          id metis
+          test "$(stat -c %U:%G:%a /var/lib/metis)" = metis:metis:750
+          test "$(stat -c %U:%G:%a /etc/metis/metis.env)" = root:metis:640
+          SH
+          run() { docker run --rm -v "$PWD/dist:/d" -v "$RUNNER_TEMP/check.sh:/check.sh:ro" "$1" sh -euc "$2"; }
+          run debian:12 \
+            "apt-get install -y /d/*_amd64.deb; sh /check.sh; test -f /usr/lib/systemd/system/metis.service; apt-get purge -y metis"
+          run rockylinux/rockylinux:9 \
+            "rpm -i /d/*.x86_64.rpm; sh /check.sh; test -f /usr/lib/systemd/system/metis.service; rpm -e metis"
+          run alpine:3.22 \
+            "apk add --allow-untrusted /d/*_x86_64.apk; sh /check.sh; test -x /etc/init.d/metis; apk del metis"
+          run archlinux:latest \
+            "pacman -U --noconfirm /d/*-x86_64.pkg.tar.zst; sh /check.sh; test -f /usr/lib/systemd/system/metis.service; pacman -R --noconfirm metis"
 
       - name: Boot the deb under systemd
         run: |
