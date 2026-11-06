@@ -1,0 +1,65 @@
+# systemd unit for the metis Linux packages (deb, rpm, apk, Arch).
+#
+# The package installs this and stops there: it does not enable or start the
+# service, because Metis cannot do anything useful until DATABASE_URL points at
+# a PostgreSQL it can reach. Fill in /etc/metis/metis.env, then:
+#
+#   systemctl enable --now metis
+#
+# State lives in /var/lib/metis, which is also the working directory, so the
+# setup wizard's config.yaml lands there and nowhere else. Everything else on
+# the filesystem is read-only to the process.
+[Unit]
+Description=Metis BPM (BPMN and DMN engine)
+Documentation=https://github.com/gsoultan/metis
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=metis
+Group=metis
+EnvironmentFile=-/etc/metis/metis.env
+WorkingDirectory=/var/lib/metis
+ExecStart=/usr/bin/metis
+Restart=on-failure
+RestartSec=5s
+# Long enough for the engine to drain in-flight work (METIS_SHUTDOWN_DRAIN)
+# before systemd escalates to SIGKILL.
+TimeoutStopSec=90s
+LimitNOFILE=65536
+
+StateDirectory=metis
+StateDirectoryMode=0750
+
+# Hardening. The binary is static and needs no privileges: it listens on an
+# unprivileged port and writes only to its state directory.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+# Refused calls fail with EPERM rather than killing the process, so a library
+# probing for an optional call degrades instead of taking the engine down.
+SystemCallErrorNumber=EPERM
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

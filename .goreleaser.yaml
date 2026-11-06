@@ -82,6 +82,118 @@ archives:
       - src: docs/**/*
         dst: docs
 
+# Linux packages: the same binary as the archives, installed the way a host's
+# package manager expects, with a service, an environment file and an account
+# to run as. deb and rpm cover Debian, Ubuntu, RHEL, Fedora, Rocky and SUSE;
+# apk is Alpine (OpenRC, not systemd); archlinux is Arch and its derivatives.
+#
+# The packages install and stop there. They do not enable, start or restart
+# the service, on install or on upgrade: a fresh host has no DATABASE_URL yet,
+# and docs/upgrading.md asks for a backup before a new release first starts
+# against an existing database. The install message says what to do next.
+#
+# Removing a package stops the service but keeps /etc/metis, /var/lib/metis
+# and the metis account, because /var/lib/metis/config.yaml may hold the
+# at-rest encryption key.
+nfpms:
+  - id: metis
+    package_name: metis
+    ids:
+      - metis
+    formats:
+      - deb
+      - rpm
+      - apk
+      - archlinux
+    # GoReleaser's .Version, without the leading `v`, is what every package
+    # format expects; the binary inside still reports the tag (see ldflags).
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: Gembit Soultan Shirazi
+    maintainer: Gembit Soultan Shirazi <gembit.soultan@gmail.com>
+    homepage: https://github.com/gsoultan/metis
+    description: |-
+      Metis BPM, a BPMN 2.0 process orchestrator and DMN decision engine.
+      A static binary with the web UI embedded, run as a systemd service.
+    license: MIT
+    section: net
+    priority: optional
+    bindir: /usr/bin
+    # A static binary: no shared libraries to depend on. The engine needs a
+    # PostgreSQL, but not necessarily on this host, so it is not a dependency.
+    contents:
+      - src: deploy/linux/metis.service
+        dst: /usr/lib/systemd/system/metis.service
+        file_info:
+          mode: 0644
+        packager: deb
+      - src: deploy/linux/metis.service
+        dst: /usr/lib/systemd/system/metis.service
+        file_info:
+          mode: 0644
+        packager: rpm
+      - src: deploy/linux/metis.service
+        dst: /usr/lib/systemd/system/metis.service
+        file_info:
+          mode: 0644
+        packager: archlinux
+      - src: deploy/linux/metis.openrc
+        dst: /etc/init.d/metis
+        file_info:
+          mode: 0755
+        packager: apk
+
+      - dst: /etc/metis
+        type: dir
+        file_info:
+          mode: 0750
+          owner: root
+          group: metis
+      # Holds secrets, hence 0640 and group-readable only by the service.
+      # config|noreplace: an upgrade never overwrites the operator's edits.
+      - src: deploy/linux/metis.env
+        dst: /etc/metis/metis.env
+        type: config|noreplace
+        file_info:
+          mode: 0640
+          owner: root
+          group: metis
+      - dst: /var/lib/metis
+        type: dir
+        file_info:
+          mode: 0750
+          owner: metis
+          group: metis
+
+      - src: LICENSE
+        dst: /usr/share/licenses/metis/LICENSE
+        file_info:
+          mode: 0644
+      - src: README.md
+        dst: /usr/share/doc/metis/README.md
+        file_info:
+          mode: 0644
+      - src: CHANGELOG.md
+        dst: /usr/share/doc/metis/CHANGELOG.md
+        file_info:
+          mode: 0644
+      # The runbooks, for the same reason the archive carries them.
+      - src: docs/*.md
+        dst: /usr/share/doc/metis/docs/
+        file_info:
+          mode: 0644
+    scripts:
+      preinstall: deploy/linux/scripts/preinstall.sh
+      postinstall: deploy/linux/scripts/postinstall.sh
+      preremove: deploy/linux/scripts/preremove.sh
+      postremove: deploy/linux/scripts/postremove.sh
+    rpm:
+      group: System Environment/Daemons
+      compression: zstd
+    deb:
+      compression: zstd
+    archlinux:
+      packager: Gembit Soultan Shirazi <gembit.soultan@gmail.com>
+
 checksum:
   name_template: checksums.txt
   algorithm: sha256
@@ -122,4 +234,8 @@ release:
     ```
 
     The archives above are the same build for anyone deploying a binary
-    directly. Verify one against `checksums.txt` before running it.
+    directly, and the `.deb`, `.rpm`, `.apk` and `.pkg.tar.zst` packages
+    install it as a service. Verify one against `checksums.txt` before
+    running it. A package installs the service without starting it: set
+    `DATABASE_URL` in `/etc/metis/metis.env`, then
+    `systemctl enable --now metis`.
