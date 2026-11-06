@@ -1,0 +1,32 @@
+#!/sbin/openrc-run
+# OpenRC service for the metis apk package (Alpine has no systemd).
+#
+# Like the systemd unit, the package installs this without adding it to a
+# runlevel. Fill in /etc/metis/metis.env, then:
+#
+#   rc-update add metis default && rc-service metis start
+
+name="metis"
+description="Metis BPM (BPMN and DMN engine)"
+command="/usr/bin/metis"
+command_user="metis:metis"
+directory="/var/lib/metis"
+supervisor="supervise-daemon"
+respawn_delay=5
+output_log="/var/log/metis/metis.log"
+error_log="/var/log/metis/metis.log"
+umask=027
+
+depend() {
+	need net
+	after postgresql
+}
+
+start_pre() {
+	checkpath -d -m 0750 -o metis:metis /var/lib/metis /var/log/metis
+	if [ -f /etc/metis/metis.env ]; then
+		set -a
+		. /etc/metis/metis.env
+		set +a
+	fi
+}
