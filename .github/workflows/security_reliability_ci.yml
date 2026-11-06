@@ -688,3 +688,122 @@ jobs:
           # data that should trigger it, and stays quiet on the shape that
           # should not.
           /tmp/promtool test rules deploy/kubernetes/alerts_test.yaml
+
+  packages:
+    name: Linux packages (build, install, boot)
+    needs: ui
+    runs-on: ubuntu-latest
+
+    # The deb, rpm, apk and Arch packages are built only on a tag, so a broken
+    # nfpms block, a unit that no longer starts, or a maintainer script that
+    # fails on one distribution would otherwise be found on release day by
+    # whoever installed it. This builds them from the same .goreleaser.yaml the
+    # release uses, installs each on its own distribution, and boots the deb
+    # under the runner's real systemd against PostgreSQL, with the unit's
+    # hardening in force.
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: metis
+          POSTGRES_PASSWORD: metis
+          POSTGRES_DB: metis
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U metis"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      # The UI job's dist, so the before hooks (which build the UI) can be
+      # skipped here without embedding an empty directory.
+      - name: Download UI dist
+        uses: actions/download-artifact@v8
+        with:
+          name: ui-dist
+          path: ui/dist
+
+      - name: Check the release config
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: check
+
+      # Both architectures, as the release builds them; only the amd64 ones
+      # can be installed on this runner. `--single-target` would halve the
+      # build but belongs to `goreleaser build`, which makes no packages.
+      - name: Build the packages
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean --skip=before,sbom
+
+      - name: Install on Debian, Rocky, Alpine and Arch
+        run: |
+          set -euo pipefail
+          # The same assertions on every distribution: the user exists, and the
+          # state and settings ended with the owners and modes the package sets.
+          cat > "$RUNNER_TEMP/check.sh" <<'SH'
+          set -eu
+          id metis
+          test "$(stat -c %U:%G:%a /var/lib/metis)" = metis:metis:750
+          test "$(stat -c %U:%G:%a /etc/metis/metis.env)" = root:metis:640
+          SH
+          run() { docker run --rm -v "$PWD/dist:/d" -v "$RUNNER_TEMP/check.sh:/check.sh:ro" "$1" sh -euc "$2"; }
+          run debian:12 \
+            "apt-get install -y /d/*_amd64.deb; sh /check.sh; test -f /usr/lib/systemd/system/metis.service; apt-get purge -y metis"
+          run rockylinux/rockylinux:9 \
+            "rpm -i /d/*.x86_64.rpm; sh /check.sh; test -f /usr/lib/systemd/system/metis.service; rpm -e metis"
+          run alpine:3.22 \
+            "apk add --allow-untrusted /d/*_x86_64.apk; sh /check.sh; test -x /etc/init.d/metis; apk del metis"
+          run archlinux:latest \
+            "pacman -U --noconfirm /d/*-x86_64.pkg.tar.zst; sh /check.sh; test -f /usr/lib/systemd/system/metis.service; pacman -R --noconfirm metis"
+
+      - name: Boot the deb under systemd
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y ./dist/*_amd64.deb
+          sudo systemd-analyze verify metis.service
+          sudo tee -a /etc/metis/metis.env >/dev/null <<ENV
+          DATABASE_URL="postgres://metis:metis@127.0.0.1:5432/metis?sslmode=disable"
+          ENCRYPTION_KEY="$(openssl rand -hex 24)"
+          JWT_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
+          ENV
+          # The template leaves these empty; the appended lines are the ones
+          # that count, because the later assignment wins.
+          sudo systemctl start metis
+          for i in $(seq 1 60); do
+            if curl -fsS localhost:8080/readyz >/dev/null 2>&1; then
+              echo "ready after ${i}s"
+              curl -fsS localhost:8080/healthz; echo
+              exit 0
+            fi
+            if systemctl is-failed --quiet metis; then
+              echo "::error::The service failed instead of serving. Its log:"
+              sudo journalctl -u metis --no-pager | tail -100
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "::error::/readyz never answered within 60s. The service log:"
+          sudo journalctl -u metis --no-pager | tail -100
+          exit 1
+
+      - name: Stop and remove it
+        if: always()
+        run: |
+          sudo journalctl -u metis --no-pager | tail -30 || true
+          sudo apt-get purge -y metis || true

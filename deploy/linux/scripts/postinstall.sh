@@ -10,6 +10,16 @@
 #   it yourself.
 set -e
 
+# The package declares these owners, but pacman unpacks by numeric id, and the
+# metis account's id is only known on this host, so on Arch they come out
+# root:root. Set them here so every format ends the same way. Not recursive:
+# whatever the service wrote under /var/lib/metis is already its own.
+chown root:metis /etc/metis /etc/metis/metis.env
+chmod 0750 /etc/metis
+chmod 0640 /etc/metis/metis.env
+chown metis:metis /var/lib/metis
+chmod 0750 /var/lib/metis
+
 if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload >/dev/null 2>&1 || true
 fi
