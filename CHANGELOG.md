@@ -10,6 +10,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Linux packages.** A release now publishes `.deb`, `.rpm`, `.apk` and Arch
+  packages for amd64 and arm64 beside the archives, built from the same binary.
+  Each installs a `metis` system user, a hardened systemd unit (OpenRC on
+  Alpine), `/etc/metis/metis.env` for the settings and `/var/lib/metis` for the
+  state. The service is installed but not started; see the README.
 - **Protected environments and the Releaser role.** An environment marked
   *protected* (production, usually) refuses a designer's deploy, delete,
   promote and schedule of a process or a decision; a new built-in role,

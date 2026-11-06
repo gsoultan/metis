@@ -1,0 +1,39 @@
+#!/sbin/openrc-run
+# Metis under OpenRC, as the Alpine package installs it. The same contract as
+# the systemd unit: settings in /etc/metis/metis.env, state and config.yaml in
+# /var/lib/metis, running as the metis user. Not added to a runlevel on
+# install; fill in the environment file, then:
+#
+#   rc-update add metis default && rc-service metis start
+
+name="metis"
+description="Metis BPMN and DMN engine"
+
+command="/usr/bin/metis"
+command_user="metis:metis"
+directory="/var/lib/metis"
+supervisor="supervise-daemon"
+respawn_delay=5
+umask=027
+output_log="/var/log/metis/metis.log"
+error_log="/var/log/metis/metis.log"
+# Room for METIS_SHUTDOWN_DRAIN (20s by default) before the process is killed.
+retry="TERM/60/KILL/5"
+
+depend() {
+	need net
+	after firewall postgresql
+}
+
+start_pre() {
+	checkpath --directory --owner metis:metis --mode 0750 /var/lib/metis
+	checkpath --directory --owner metis:metis --mode 0750 /var/log/metis
+	if [ ! -r /etc/metis/metis.env ]; then
+		eerror "/etc/metis/metis.env is missing"
+		return 1
+	fi
+	set -a
+	# shellcheck disable=SC1091
+	. /etc/metis/metis.env
+	set +a
+}
