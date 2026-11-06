@@ -3,10 +3,11 @@
 A tag is what publishes. `.github/workflows/release.yml` runs on a `v*` tag and
 nothing else: it pushes the image to `ghcr.io/gsoultan/metis` with a software
 bill of materials, build provenance and a keyless signature, and attaches Linux
-archives and packages (deb, rpm, apk, Arch) to the GitHub release. A tag with a
-suffix — `v0.5.0-rc.1` — publishes the same way, as a GitHub pre-release
-(`prerelease: auto` in `.goreleaser.yaml`), and leaves the image's `latest`
-where it was, so a release candidate is never anybody's default pull.
+archives and packages (`.deb`, `.rpm`, `.apk`, `.pkg.tar.zst`) to the GitHub
+release. A tag with a suffix — `v0.5.0-rc.1` — publishes
+the same way, as a GitHub pre-release (`prerelease: auto` in `.goreleaser.yaml`),
+and leaves the image's `latest` where it was, so a release candidate is never
+anybody's default pull.
 
 So everything that decides whether a release is good happens before the tag, and
 most of it can only happen with an installation's own data and its own identity

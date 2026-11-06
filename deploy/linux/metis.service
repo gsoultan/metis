@@ -1,74 +1,65 @@
-# Metis as a systemd service, as the deb, rpm and Arch packages install it.
+# systemd unit for the metis Linux packages (deb, rpm, apk, Arch).
 #
-# It does not start on install. Metis refuses to come up without DATABASE_URL,
-# ENCRYPTION_KEY and JWT_SECRET, so a unit enabled before /etc/metis/metis.env
-# is filled in would only restart into the same refusal. Fill that in, then:
+# The package installs this and stops there: it does not enable or start the
+# service, because Metis cannot do anything useful until DATABASE_URL points at
+# a PostgreSQL it can reach. Fill in /etc/metis/metis.env, then:
 #
 #   systemctl enable --now metis
 #
-# Overrides belong in `systemctl edit metis`, not in this file: the package
-# owns it and an upgrade replaces it.
-
+# State lives in /var/lib/metis, which is also the working directory, so the
+# setup wizard's config.yaml lands there and nowhere else. Everything else on
+# the filesystem is read-only to the process.
 [Unit]
-Description=Metis BPMN and DMN engine
+Description=Metis BPM (BPMN and DMN engine)
 Documentation=https://github.com/gsoultan/metis
-# The database is usually on another host. Where it is on this one, add
-# `After=postgresql.service` in an override.
+After=network-online.target postgresql.service
 Wants=network-online.target
-After=network-online.target
 
 [Service]
-Type=exec
+Type=simple
 User=metis
 Group=metis
-EnvironmentFile=/etc/metis/metis.env
-ExecStart=/usr/bin/metis
-
-# config.yaml is read from, and the setup wizard writes it to, the working
-# directory. StateDirectory creates /var/lib/metis owned by the service user,
-# and it is the only place the service can write.
-StateDirectory=metis
-StateDirectoryMode=0750
+EnvironmentFile=-/etc/metis/metis.env
 WorkingDirectory=/var/lib/metis
-UMask=0027
-
-# On SIGTERM a replica waits METIS_SHUTDOWN_DRAIN (20s by default) for the jobs
-# it is running. Leave room for that, so systemd does not kill a job mid-step.
-# Raise this with the drain if you raise the drain.
-TimeoutStopSec=60
-KillMode=mixed
+ExecStart=/usr/bin/metis
 Restart=on-failure
 RestartSec=5s
+# Long enough for the engine to drain in-flight work (METIS_SHUTDOWN_DRAIN)
+# before systemd escalates to SIGKILL.
+TimeoutStopSec=90s
 LimitNOFILE=65536
 
-# Hardening. Metis writes nothing outside its state directory, listens on an
-# unprivileged port by default, and starts no child processes in a server
-# deployment, so it needs none of what this takes away.
+StateDirectory=metis
+StateDirectoryMode=0750
+
+# Hardening. The binary is static and needs no privileges: it listens on an
+# unprivileged port and writes only to its state directory.
 NoNewPrivileges=true
-CapabilityBoundingSet=
-AmbientCapabilities=
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
-ProtectClock=true
-ProtectHostname=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true
 ProtectControlGroups=true
-ProtectProc=invisible
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-RestrictNamespaces=true
-RestrictRealtime=true
+ProtectClock=true
+ProtectHostname=true
 RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
-RemoveIPC=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged
+# Refused calls fail with EPERM rather than killing the process, so a library
+# probing for an optional call degrades instead of taking the engine down.
 SystemCallErrorNumber=EPERM
+UMask=0027
 
 [Install]
 WantedBy=multi-user.target

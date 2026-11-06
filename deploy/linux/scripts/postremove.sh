@@ -1,11 +1,12 @@
 #!/bin/sh
-# Forgets the removed unit. Deliberately keeps /var/lib/metis, /etc/metis and
-# the metis user, even on purge: /var/lib/metis holds config.yaml, which carries
-# the encryption key the database was sealed with, and deleting it would make
-# every encrypted value in that database unreadable. Remove them by hand once
-# the database is gone too.
+# Tell systemd the unit is gone. The metis account, /etc/metis and
+# /var/lib/metis are kept: the state directory may hold config.yaml, which
+# carries the at-rest encryption key, and losing it makes the database's
+# encrypted variables unreadable. Remove them by hand if you mean to.
 set -e
 
 if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
-	systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
 fi
+
+exit 0

@@ -208,27 +208,24 @@ provenance and a `checksums.txt`. There is no macOS or Windows build: Metis
 compiles on both and nothing tests it there, and publishing a binary is a claim
 to support it.
 
-The same binary also ships as **Linux packages**: `.deb` (Debian, Ubuntu),
-`.rpm` (RHEL, Fedora, SUSE), `.apk` (Alpine) and `.pkg.tar.zst` (Arch). Each
-installs `/usr/bin/metis`, a `metis` system user, a hardened systemd unit (an
-OpenRC script on Alpine), its settings in `/etc/metis/metis.env`, and
-`/var/lib/metis` as the working directory, where the setup wizard writes
-`config.yaml`. The package never starts the service: Metis refuses to start
-without a database and its secrets, and an upgrade runs migrations, so starting
-it is the operator's step.
+The same binary also ships as **Linux packages** for both architectures:
+`.deb` (Debian, Ubuntu), `.rpm` (RHEL, Fedora, Rocky, SUSE), `.apk` (Alpine)
+and `.pkg.tar.zst` (Arch). Each creates a `metis` system account, installs a
+hardened systemd unit (an OpenRC service on Alpine) and an environment file at
+`/etc/metis/metis.env`, and keeps state in `/var/lib/metis`. A package never
+starts or restarts the service itself — not on install, where there is no
+database yet, and not on upgrade, where [`docs/upgrading.md`](docs/upgrading.md)
+asks for a backup first:
 
 ```bash
-sudo apt install ./metis_0.7.0_amd64.deb      # or: dnf install ./metis-0.7.0-1.x86_64.rpm
-sudoedit /etc/metis/metis.env                 # DATABASE_URL, ENCRYPTION_KEY, JWT_SECRET
-sudo systemctl enable --now metis
-journalctl -u metis -f
+sudo apt install ./metis_<version>_amd64.deb   # or dnf / apk / pacman -U
+sudoedit /etc/metis/metis.env                  # set DATABASE_URL and the secrets
+sudo systemctl enable --now metis              # http://localhost:8080
 ```
 
-An upgrade leaves a running service on the old version until you restart it,
-and keeps your `metis.env`. Removing the package stops the service and keeps
-`/var/lib/metis`, `/etc/metis` and the user, even on purge: `config.yaml` holds
-the encryption key the database was sealed with. The files are in
-[`deploy/linux/`](deploy/linux/).
+Removing the package stops the service but keeps `/etc/metis`,
+`/var/lib/metis` and the account: `config.yaml` there may hold the at-rest
+encryption key.
 
 ```bash
 make docker                # stamps the image with `git describe`
