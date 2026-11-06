@@ -742,13 +742,14 @@ jobs:
           version: "~> v2"
           args: check
 
-      # amd64 only (--single-target): the arm64 packages are the same nfpms
-      # block over a binary the image job already proves compiles.
+      # Both architectures, as the release builds them; only the amd64 ones
+      # can be installed on this runner. `--single-target` would halve the
+      # build but belongs to `goreleaser build`, which makes no packages.
       - name: Build the packages
         uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          args: release --snapshot --clean --single-target --skip=before,sbom
+          args: release --snapshot --clean --skip=before,sbom
 
       - name: Install on Debian, Rocky, Alpine and Arch
         run: |
