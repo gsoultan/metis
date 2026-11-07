@@ -4,6 +4,7 @@ import (
 	"github.com/go-kit/kit/endpoint"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services"
+	"github.com/gsoultan/metis/server/endpoints/approval"
 	"github.com/gsoultan/metis/server/endpoints/archive"
 	"github.com/gsoultan/metis/server/endpoints/batchoperation"
 	"github.com/gsoultan/metis/server/endpoints/collaboration"
@@ -48,6 +49,7 @@ type Endpoints struct {
 	Definition        definition.Endpoints
 	Environment       environment.Endpoints
 	Participant       participant.Endpoints
+	Approval          approval.Endpoints
 	ParticipantSource participantsource.Endpoints
 	People            people.Endpoints
 	PlatformUser      platformuser.Endpoints
@@ -252,6 +254,18 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// assignee needs it. Importing is not: it takes an endpoint address or a
 	// database connection and a query, which are a network probe and arbitrary
 	// SQL respectively, so it takes the designer role at least.
+	// An approval line is a process definition written as data, so defining
+	// one changes what a runtime runs, as an import does. Submitting,
+	// reading and deciding are anybody's who is signed in: the service and
+	// the task's own rules decide who may decide what.
+	approvalEndpoints := approval.MakeEndpoints(s)
+	approvalEndpoints.DefineApprovalLine = modelChange("DefineApprovalLine")(approvalEndpoints.DefineApprovalLine)
+	approvalEndpoints.GetApprovalLine = protected("GetApprovalLine")(approvalEndpoints.GetApprovalLine)
+	approvalEndpoints.SubmitApproval = protected("SubmitApproval")(approvalEndpoints.SubmitApproval)
+	approvalEndpoints.GetApprovalRequest = protected("GetApprovalRequest")(approvalEndpoints.GetApprovalRequest)
+	approvalEndpoints.ListApprovalRequests = protected("ListApprovalRequests")(approvalEndpoints.ListApprovalRequests)
+	approvalEndpoints.DecideApproval = protected("DecideApproval")(approvalEndpoints.DecideApproval)
+
 	participantEndpoints := participant.MakeEndpoints(s)
 	participantEndpoints.ListParticipants = protected("ListParticipants")(participantEndpoints.ListParticipants)
 	participantEndpoints.ListParticipantGroups = protected("ListParticipantGroups")(participantEndpoints.ListParticipantGroups)
@@ -611,6 +625,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		Definition:        definitionEndpoints,
 		Environment:       environmentEndpoints,
 		Participant:       participantEndpoints,
+		Approval:          approvalEndpoints,
 		ParticipantSource: sourceEndpoints,
 		People:            peopleEndpoints,
 		PlatformUser:      accountEndpoints,
