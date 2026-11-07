@@ -151,6 +151,8 @@ func planStops(plan entities.MigrationPlan) string {
 		return "the move would take an approval away from requests that have not given it; plan it in the designer"
 	case len(plan.Actions) > 0:
 		return "the move would decide a step's work rather than move it; plan it in the designer"
+	case plan.RequiresSecondApprover:
+		return "the move needs a second administrator; ask for it in the designer"
 	}
 	return ""
 }
