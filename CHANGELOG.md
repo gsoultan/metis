@@ -21,6 +21,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   back stays with its submitter. A request the migration would refuse (its
   step is gone, or the move would skip an approval) is left on its version
   with why. Both are an administrator's, as a migration is.
+  In the UI, an approval line's **Version history** lists them, with where
+  each is and who it waits for, to move the chosen ones to the live version.
 - **A migration can rebuild tasks it keeps on the same step.**
   `WithTasksRederived` gives an open task on a node kept by id the target
   version's candidates, name, form and due date, as a task moved to another

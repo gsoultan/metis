@@ -45,6 +45,7 @@ import {
 } from '../hooks/useDefinitions';
 import { useStartProcess } from '../hooks/useProcess';
 import { MigrateInstancesModal } from './MigrateInstancesModal';
+import { ApprovalTakeoverPanel } from './ApprovalTakeoverPanel';
 import { errorMessage } from '../services/shared/errors';
 import type { ApiDefinitionVersion } from '../services/types';
 
@@ -545,6 +546,8 @@ export function VersionHistoryModal({ processKey, onClose, onView }: VersionHist
             })}
           </Table.Tbody>
         </Table>
+
+        <ApprovalTakeoverPanel processKey={processKey} />
 
         {promote.isPending && (
           <Group gap="xs" justify="center">
