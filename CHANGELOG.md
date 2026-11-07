@@ -17,7 +17,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   export writes them back. Before, both were dropped: a decision step deployed
   from a file failed on its first token with no table to evaluate, and a call
   step ran as a step with nothing to call. A service task with a worker topic
-  still waits for the worker. This is what lets a client that deploys BPMN,
+  still waits for the worker. A user or manual task's Camunda form
+  (`camunda:formData` under `extensionElements`) is read as its form and
+  written back; before, it was dropped, and since a task may set only the
+  variables its form declares, an imported approval could not record its
+  decision. This is what lets a client that deploys BPMN,
   such as the Go SDK, deploy those two kinds of step at all.
 - **Linux packages.** Every release now also ships `.deb`, `.rpm`, `.apk`
   and Arch `.pkg.tar.zst` packages for amd64 and arm64. Each creates a `metis`

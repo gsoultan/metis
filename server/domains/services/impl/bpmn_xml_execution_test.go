@@ -87,3 +87,76 @@ func checkWhatItRuns(t *testing.T, def *entities.ProcessDefinition, stage string
 		t.Errorf("%s: a user task took decision %q from an attribute only a business rule task reads", stage, got)
 	}
 }
+
+// A task may set only the variables its form declares, so a user task that
+// lost its form on import could be completed with nothing: the approval's own
+// answer was refused.
+func TestATasksFormSurvivesTheRoundTrip(t *testing.T) {
+	parser := &BPMNXMLParser{}
+	src := `<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:camunda="http://camunda.org/schema/1.0/bpmn">
+  <process id="p" isExecutable="true">
+    <userTask id="approve" camunda:candidateGroups="finance">
+      <extensionElements>
+        <camunda:formData>
+          <camunda:formField id="decision" label="Decision" type="enum">
+            <camunda:value id="approve" name="Approve"/>
+            <camunda:value id="reject" name="Reject"/>
+          </camunda:formField>
+          <camunda:formField id="comment" type="string"/>
+          <camunda:formField id="amount" label="Amount" type="long" defaultValue="0"/>
+        </camunda:formData>
+      </extensionElements>
+    </userTask>
+    <serviceTask id="call">
+      <extensionElements>
+        <camunda:formData><camunda:formField id="ignored" type="string"/></camunda:formData>
+      </extensionElements>
+    </serviceTask>
+  </process>
+</definitions>`
+
+	def, err := parser.Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("Parse returned an error: %v", err)
+	}
+	checkTheForm(t, def, "after import")
+
+	out, err := parser.Export(def)
+	if err != nil {
+		t.Fatalf("Export returned an error: %v", err)
+	}
+	for _, want := range []string{
+		`<camunda:formField id="decision" label="Decision" type="enum">`,
+		`<camunda:value id="reject" name="Reject"></camunda:value>`,
+		`<camunda:formField id="amount" label="Amount" type="long" defaultValue="0">`,
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("the exported file does not carry %s:\n%s", want, out)
+		}
+	}
+	again, err := parser.Parse(strings.NewReader(string(out)))
+	if err != nil {
+		t.Fatalf("re-parsing the exported file failed: %v", err)
+	}
+	checkTheForm(t, again, "after the round trip")
+}
+
+func checkTheForm(t *testing.T, def *entities.ProcessDefinition, stage string) {
+	t.Helper()
+	approve := nodeByID(t, def, "approve")
+	declared := map[string]struct{}{}
+	addFieldIDs(declared, inlineForm(approve.GetTextProperty(formDefinitionProperty)))
+	for _, id := range []string{"decision", "comment", "amount"} {
+		if _, ok := declared[id]; !ok {
+			t.Errorf("%s: the user task's form does not declare %s; it declares %v", stage, id, declared)
+		}
+	}
+	if !strings.Contains(approve.GetTextProperty(formDefinitionProperty), `"options":[{"label":"Approve","value":"approve"}`) {
+		t.Errorf("%s: the decision field lost its choices: %s", stage, approve.GetTextProperty(formDefinitionProperty))
+	}
+	if got := nodeByID(t, def, "call").GetTextProperty(formDefinitionProperty); got != "" {
+		t.Errorf("%s: a service task took a form it never shows anyone: %s", stage, got)
+	}
+}

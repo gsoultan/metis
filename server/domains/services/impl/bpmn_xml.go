@@ -263,9 +263,10 @@ type bpmnNode struct {
 	MetisHTTPURL          string `xml:"metis:httpUrl,attr,omitempty"`
 	MetisHTTPMethod       string `xml:"metis:httpMethod,attr,omitempty"`
 
-	Documentation string   `xml:"documentation,omitempty"`
-	Incoming      []string `xml:"incoming"`
-	Outgoing      []string `xml:"outgoing"`
+	Documentation     string                 `xml:"documentation,omitempty"`
+	ExtensionElements *bpmnExtensionElements `xml:"extensionElements,omitempty"`
+	Incoming          []string               `xml:"incoming"`
+	Outgoing          []string               `xml:"outgoing"`
 
 	TerminateEventDefinition  *struct{}               `xml:"terminateEventDefinition"`
 	ErrorEventDefinition      *bpmnErrorEventDef      `xml:"errorEventDefinition"`
@@ -730,6 +731,11 @@ func (p *BPMNXMLParser) mapNode(bn bpmnNode, nodeType entities.NodeType) *entiti
 	// Only on the kinds of step that read them: a decision reference on a user
 	// task is an assignment table, configured another way, and an address on
 	// anything but a service task is called by nothing.
+	if nodeType == entities.UserTask || nodeType == entities.ManualTask {
+		if form := importedForm(bn.ExtensionElements); form != nil {
+			node.Properties[formDefinitionProperty] = form
+		}
+	}
 	if nodeType == entities.BusinessRuleTask {
 		if ref := strings.TrimSpace(bn.DecisionRef); ref != "" {
 			node.Properties[entities.DecisionKeyProperty] = ref
@@ -1339,6 +1345,9 @@ func (p *BPMNXMLParser) toNode(n *entities.Node) bpmnNode {
 		bn.CompensateEventDefinition = &bpmnCompensateEventDef{
 			ActivityRef: n.GetStringProperty("activity_ref"),
 		}
+	}
+	if n.Type == entities.UserTask || n.Type == entities.ManualTask {
+		bn.ExtensionElements = exportedForm(n)
 	}
 	if n.Type == entities.BusinessRuleTask {
 		bn.CamundaDecisionRef = n.GetStringProperty(entities.DecisionKeyProperty)
