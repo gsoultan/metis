@@ -73,6 +73,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **An older GORM database upgrades without a stop on 0.6.0.** A database
+  that stopped anywhere from migration 42 to 48 is converted to the storm
+  model's tables directly, as one at 49 always was; before, it was refused
+  and had to be started once on 0.6.0 first. Only a database before 42 still
+  needs that, and the refusal now names 0.6.0 and the version it starts
+  from. `scripts/dev.sh` checks a development database before starting the
+  server and, at a terminal, offers to drop and recreate one that is too old.
+
 - **Switching organization switches what the server works in.** The app never
   sent `X-Organization-ID`, so every request went to the account's first
   organization whatever the header showed; it now names the one chosen, and

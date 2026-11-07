@@ -42,14 +42,24 @@ conversion takes as long as your largest tables take to rewrite. Rehearse it
 on a copy of production with `scripts/upgrade-rehearsal.sh` and use the time
 it takes to size a maintenance window.
 
-**A database before migration 49 is refused**, with nothing changed:
+**A database that stopped at migration 42 or later is converted the same
+way.** What 43 to 49 did (new tables, two nullable columns, indexes, and the
+roles made `jsonb`) the conversion does again, so a database left at, say, 48
+by an older build needs no stop on 0.6.0 first.
+
+**A database before migration 42 is refused**, with nothing changed:
 
 ```
-this database is older than the oldest schema this release can upgrade: it is at version 36. Upgrade it with the last release that still has the migrations up to version 49, start that once so it applies them, then start this one
+this database is older than the oldest schema this release can upgrade: it is at version 36, and this release starts from version 42 or later. Start Metis 0.6.0 against it once, which takes it to version 49, then start this release; nothing has been changed
 ```
 
 Start 0.6.0 against it once, let it apply migrations 37 to 49, then start
-this release.
+this release. Migration 42 sealed every webhook secret with
+`ENCRYPTION_KEY`, which is work on rows the conversion cannot repeat.
+
+For a development database, `./scripts/dev.sh` checks this before it starts
+the server and offers to drop the database and start again; `--reset` does
+the same without asking.
 
 **Rolling back** means restoring the backup taken before the upgrade: 0.6.0
 was not written against the converted schema.

@@ -192,19 +192,21 @@ occupied_by_someone_else() {
   port_in_use "$DB_PORT" && ! postgres_answers
 }
 
-# run_psql executes SQL against the maintenance database.
+# run_psql executes SQL against the maintenance database, or the one named
+# second.
 #
 # Through the host's psql when there is one, otherwise inside the container this
 # script started. Requiring a local PostgreSQL client to use a containerised
 # server would be asking for half an installation.
 run_psql() {
+  local db="${2:-postgres}"
   if command -v psql >/dev/null 2>&1; then
-    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -qtAc "$1"
+    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$db" -qtAc "$1"
     return
   fi
   command -v container >/dev/null 2>&1 \
     || die "no psql and no Apple container CLI: install one, or set DATABASE_URL to a database you already have"
-  container exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres -qtAc "$1"
+  container exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$db" -qtAc "$1"
 }
 
 # start_postgres brings up a development database and waits for it.
@@ -290,8 +292,41 @@ ensure_database() {
     run_psql "CREATE DATABASE ${DB_NAME}" >/dev/null
   fi
 
+  check_database_age
+
   export DATABASE_URL="postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=disable"
   ok "database ${DB_NAME} on ${DB_HOST}:${DB_PORT}"
+}
+
+# check_database_age catches a development database too old for this checkout
+# to upgrade, before the server finds out and stops with a page of log.
+#
+# The oldest version the server converts from is read from the code rather
+# than copied here, so the two cannot disagree. A database left behind by a
+# checkout from before that version can still be climbed with the last release
+# that had the old migrations, which the server's refusal names; for a
+# development database starting again is usually what you want, so offer it.
+# Only asked at a terminal, and only of the database this script made: one
+# named in DATABASE_URL is never dropped from here.
+check_database_age() {
+  local source="$ROOT/server/repositories/migrations/migration.go" floor release have answer
+  floor="$(sed -n 's/^const OldestConvertible = \([0-9][0-9]*\)$/\1/p' "$source")"
+  release="$(sed -n 's/^const LastGORMRelease = "\(.*\)"$/\1/p' "$source")"
+  [[ -n "$floor" ]] || return 0
+  # No schema_migrations is an empty database, which the server creates.
+  have="$(run_psql "SELECT max(version) FROM schema_migrations" "$DB_NAME" 2>/dev/null)" || return 0
+  [[ "$have" =~ ^[0-9]+$ ]] || return 0
+  (( have >= floor )) && return 0
+
+  warn "${DB_NAME} is at schema version ${have}; this checkout upgrades from version ${floor} on."
+  warn "To keep its data, start Metis ${release:-0.6.0} against it once, then run this again."
+  if [[ -t 0 ]]; then
+    read -r -p "Drop ${DB_NAME} and start with an empty one? Everything in it is lost. [y/N] " answer || answer=""
+    case "$answer" in
+      y|Y|yes|YES) reset_database; return 0 ;;
+    esac
+  fi
+  die "${DB_NAME} left as it is. To start again with an empty one: ./scripts/dev.sh --reset"
 }
 
 # reset_database drops the development database and starts again.
