@@ -27,6 +27,7 @@ type service struct {
 	contracts.PeopleTaskService
 	contracts.TaskLinkService
 	contracts.PeopleSwitchOverService
+	contracts.ApprovalLineService
 	contracts.PersonAPIKeyService
 	contracts.ExecutionEngine
 	contracts.JobService
@@ -69,6 +70,9 @@ type ServiceParams struct {
 	PeopleTaskService      contracts.PeopleTaskService
 	TaskLinkService        contracts.TaskLinkService
 	PeopleSwitchOver       contracts.PeopleSwitchOverService
+	// ApprovalLines defaults to approval lines run on the definitions, the
+	// engine and the tasks above.
+	ApprovalLines          contracts.ApprovalLineService
 	PersonAPIKeys          contracts.PersonAPIKeyService
 	ExecutionEngine        contracts.ExecutionEngine
 	JobService             contracts.JobService
@@ -141,6 +145,9 @@ func NewService(p ServiceParams) ServiceFacade {
 		p.PeopleSignInService = serviceimpl.NewUnavailablePeopleSignInService(
 			"people cannot sign in: this server was wired without the People sign-in")
 	}
+	if p.ApprovalLines == nil {
+		p.ApprovalLines = serviceimpl.NewApprovalLineService(p.DefinitionService, p.ExecutionEngine, p.TaskService)
+	}
 	if p.SimulationCaseService == nil {
 		p.SimulationCaseService = serviceimpl.NewUnavailableSimulationCaseService()
 	}
@@ -160,6 +167,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		PeopleTaskService:          p.PeopleTaskService,
 		TaskLinkService:            p.TaskLinkService,
 		PeopleSwitchOverService:    p.PeopleSwitchOver,
+		ApprovalLineService:        p.ApprovalLines,
 		PersonAPIKeyService:        p.PersonAPIKeys,
 		ExecutionEngine:            p.ExecutionEngine,
 		JobService:                 p.JobService,

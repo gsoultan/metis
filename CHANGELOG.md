@@ -10,6 +10,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Approval lines, defined as data.** An approval line is a list of
+  approvers in order, each a step offered to users and groups, written as
+  JSON instead of BPMN: `POST /api/v1/projects/{id}/approval-lines` (a
+  designer's, like an import). metis generates the process, with the gateways
+  and the variables each decision is kept in. It is an ordinary definition, so
+  versions, scheduled releases and migration work on it unchanged, and a
+  request already running keeps the version it was submitted on.
+  - `POST …/approval-lines/{key}/requests` submits a request. Who submitted
+    it is whoever is signed in.
+  - `POST /api/v1/approval-tasks/{id}/decision` approves, rejects or sends
+    back a step. A sent-back request goes to its submitter, who resubmits it,
+    correcting only the line's declared `fields`, or withdraws it. Rejecting,
+    sending back and withdrawing need a comment. Who may decide is the task's
+    own rule.
+  - `GET /api/v1/approval-requests/{id}` says where a request is: each
+    step's state, who decided what, who it waits on, and the whole trail
+    across rounds.
+- **An assignee or candidate written as a lone variable is read when the task
+  is made.** `${submittedBy}` (or `${approvers}`, holding a list) now names
+  the person or people the variable holds, as Camunda models expect. Before,
+  the text was kept as written, and the task waited for a user literally
+  called `${submittedBy}`. Anything other than a lone variable is still left
+  as written.
 - **A BPMN file carries what a decision step and a call step run.** Import
   reads a business rule task's `camunda:decisionRef` (and
   `camunda:decisionRefVersion`) as the decision it evaluates, and a service

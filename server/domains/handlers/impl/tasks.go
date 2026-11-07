@@ -64,6 +64,7 @@ type UserTaskHandler struct {
 
 func (h *UserTaskHandler) DoExecute(ctx context.Context, instance *entities.ProcessInstance, def *entities.ProcessDefinition, node entities.Node, iterationID string) error {
 	node = h.resolveAssignment(ctx, instance, def, node)
+	node = resolveVariableAssignment(node, instance.Variables)
 	// The taskService manages the lifecycle of human tasks.
 	return h.taskService.CreateTaskForNode(ctx, *instance, node, iterationID)
 }
