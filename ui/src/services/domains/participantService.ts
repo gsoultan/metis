@@ -122,6 +122,42 @@ export const participantService = {
     return raiseIfRefused(response).gaps ?? [];
   },
 
+  /** The project's open tasks nobody can act on, with why. */
+  async listStrandedTasks(projectId: string, signal?: AbortSignal): Promise<StrandedTask[]> {
+    const response = await requestJSON<{ tasks?: StrandedTask[]; err?: string }>(
+      `/participants/stranded-tasks?project_id=${encodeURIComponent(projectId)}`,
+      { signal },
+    );
+    return raiseIfRefused(response).tasks ?? [];
+  },
+
+  /** The open tasks a person holds, which deactivating them has to settle. */
+  async listHeldTasks(projectId: string, id: string, signal?: AbortSignal): Promise<HeldTask[]> {
+    const response = await requestJSON<{ tasks?: HeldTask[]; err?: string }>(
+      `/participants/${encodeURIComponent(id)}/held-tasks?project_id=${encodeURIComponent(projectId)}`,
+      { signal },
+    );
+    return raiseIfRefused(response).tasks ?? [];
+  },
+
+  /**
+   * Deactivates or reactivates a person. Deactivating says what happens to the
+   * tasks they hold; reactivating moves nothing back.
+   */
+  async setParticipantActive(
+    projectId: string,
+    id: string,
+    active: boolean,
+    work?: HeldWork,
+    signal?: AbortSignal,
+  ): Promise<ActivationResult> {
+    const response = await requestJSON<{ result?: ActivationResult; err?: string }>(
+      `/participants/${encodeURIComponent(id)}/active?project_id=${encodeURIComponent(projectId)}`,
+      { method: "PUT", body: { active, work }, signal },
+    );
+    return raiseIfRefused(response).result ?? { moved: 0 };
+  },
+
   /** Adds the named gaps to the project's People, from the organization's Users and groups. */
   async fillDirectoryGaps(projectId: string, people: string[], groups: string[], signal?: AbortSignal): Promise<DirectoryGapImport> {
     const response = await requestJSON<{ result?: DirectoryGapImport; err?: string }>("/participants/gaps/fill", {
@@ -146,9 +182,51 @@ export interface DirectoryGap {
   members?: string[];
 }
 
+/** One name a stranded task uses, and why it can no longer act. */
+export interface StrandedName {
+  name: string;
+  kind: "person" | "group";
+  /** gone: nobody or no group of that name; inactive: a deactivated person; empty: a group nobody in it can act. */
+  why: "gone" | "inactive" | "empty";
+}
+
+/** An open task nobody can act on. */
+export interface StrandedTask {
+  task_id: string;
+  name: string;
+  node_id?: string;
+  instance_id?: string;
+  since?: string;
+  kind: "assignee_gone" | "assignee_inactive" | "no_candidate";
+  assignee?: string;
+  missing: StrandedName[];
+}
+
 /** What filling the gaps did. */
 export interface DirectoryGapImport {
   people: number;
   groups: number;
   skipped?: { username?: string; reason: string }[];
+}
+
+/** What deactivating somebody does with the tasks they hold. */
+export interface HeldWork {
+  /** keep: leave them (listed as stuck); release: back on offer; hand_over: to one account. */
+  do: "keep" | "release" | "hand_over";
+  to?: string;
+  reason?: string;
+}
+
+/** An open task a person holds. */
+export interface HeldTask {
+  task_id: string;
+  name: string;
+  instance_id?: string;
+  since?: string;
+}
+
+/** What changing whether somebody is active did. */
+export interface ActivationResult {
+  moved: number;
+  kept?: (HeldTask & { why?: string })[];
 }

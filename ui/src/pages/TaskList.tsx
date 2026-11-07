@@ -31,6 +31,7 @@ import {
 import { useTasks, useCompleteTask } from '../hooks/useProcess';
 import { PageHeader } from '../components/PageHeader';
 import { StatusBadge } from '../components/StatusBadge';
+import { StrandedTasks } from '../components/StrandedTasks';
 import { TableLoadingState, ErrorState, EmptyState } from '../components/state';
 import { shortCode, taskReference } from '../domain/taskReference';
 import { taskFacts } from '../domain/taskFacts';
@@ -152,6 +153,8 @@ export function TaskList() {
         title={t('page.allTasks.title')}
         description={t('page.allTasks.subtitle')}
       />
+
+      <StrandedTasks />
 
       <Card shadow="sm" radius="lg" withBorder p={0}>
         <Box p="md">

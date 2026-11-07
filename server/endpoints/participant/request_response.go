@@ -120,3 +120,42 @@ type FillDirectoryGapsResponse struct {
 }
 
 func (r FillDirectoryGapsResponse) Failed() error { return r.Err }
+
+type ListStrandedTasksRequest struct {
+	ProjectID string `json:"project_id"`
+}
+
+type ListStrandedTasksResponse struct {
+	Tasks []entities.StrandedTask `json:"tasks"`
+	Err   error                   `json:"err,omitzero"`
+}
+
+func (r ListStrandedTasksResponse) Failed() error { return r.Err }
+
+type ListParticipantHeldTasksRequest struct {
+	ProjectID string `json:"project_id"`
+	ID        string `json:"id"`
+}
+
+type ListParticipantHeldTasksResponse struct {
+	Tasks []entities.HeldTask `json:"tasks"`
+	Err   error               `json:"err,omitzero"`
+}
+
+func (r ListParticipantHeldTasksResponse) Failed() error { return r.Err }
+
+// SetParticipantActiveRequest deactivates or reactivates a person, and says
+// what becomes of the open tasks they hold when they are deactivated.
+type SetParticipantActiveRequest struct {
+	ProjectID string            `json:"-"`
+	ID        string            `json:"-"`
+	Active    *bool             `json:"active"`
+	Work      entities.HeldWork `json:"work"`
+}
+
+type SetParticipantActiveResponse struct {
+	Result entities.ActivationResult `json:"result"`
+	Err    error                     `json:"err,omitzero"`
+}
+
+func (r SetParticipantActiveResponse) Failed() error { return r.Err }

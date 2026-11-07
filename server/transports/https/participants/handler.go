@@ -60,12 +60,40 @@ func RegisterHandlers(m *http.ServeMux, eps participant.Endpoints, options []htt
 		common.EncodeResponse,
 		options...,
 	))
+	m.Handle("GET /api/v1/participants/stranded-tasks", httptransport.NewServer(
+		eps.ListStrandedTasks,
+		func(_ context.Context, r *http.Request) (any, error) {
+			return participant.ListStrandedTasksRequest{ProjectID: r.URL.Query().Get("project_id")}, nil
+		},
+		common.EncodeResponse,
+		options...,
+	))
 	m.Handle("POST /api/v1/participants/gaps/fill", httptransport.NewServer(
 		eps.FillDirectoryGaps,
 		func(_ context.Context, r *http.Request) (any, error) {
 			var req participant.FillDirectoryGapsRequest
 			if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
 				return nil, apierr.Invalidf("the body must be JSON naming the people and groups to add: %v", err)
+			}
+			return req, nil
+		},
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("GET /api/v1/participants/{id}/held-tasks", httptransport.NewServer(
+		eps.ListHeldTasks,
+		func(_ context.Context, r *http.Request) (any, error) {
+			return participant.ListParticipantHeldTasksRequest{ProjectID: r.URL.Query().Get("project_id"), ID: r.PathValue("id")}, nil
+		},
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("PUT /api/v1/participants/{id}/active", httptransport.NewServer(
+		eps.SetParticipantActive,
+		func(_ context.Context, r *http.Request) (any, error) {
+			req := participant.SetParticipantActiveRequest{ProjectID: r.URL.Query().Get("project_id"), ID: r.PathValue("id")}
+			if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&req); err != nil {
+				return nil, apierr.Invalidf("the body must be JSON saying whether they are active, and what becomes of their open tasks: %v", err)
 			}
 			return req, nil
 		},

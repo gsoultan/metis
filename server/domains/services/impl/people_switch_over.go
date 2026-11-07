@@ -24,16 +24,19 @@ const (
 type peopleSwitchOverService struct {
 	repo         repositories.Repository
 	participants repocontracts.WorkflowUserRepository
+	// tasks moves the open tasks of somebody being deactivated, as the
+	// hand-overs anybody else would make.
+	tasks servicecontracts.TaskHandOverService
 }
 
 // PeopleSwitchOverOf builds the switch-over report on the platform's
 // repositories and the People directory the participants service writes.
-func PeopleSwitchOverOf(repo repositories.Repository, participants servicecontracts.WorkflowUserService) servicecontracts.PeopleSwitchOverService {
+func PeopleSwitchOverOf(repo repositories.Repository, participants servicecontracts.WorkflowUserService, tasks servicecontracts.TaskHandOverService) servicecontracts.PeopleSwitchOverService {
 	concrete, ok := participants.(*workflowUserService)
-	if !ok {
+	if !ok || tasks == nil {
 		return unavailablePeopleSwitchOver{}
 	}
-	return &peopleSwitchOverService{repo: repo, participants: concrete.participants}
+	return &peopleSwitchOverService{repo: repo, participants: concrete.participants, tasks: tasks}
 }
 
 // directory is a project's People and People groups, by name.
@@ -358,4 +361,16 @@ func (unavailablePeopleSwitchOver) DirectoryGaps(context.Context, uuid.UUID) ([]
 
 func (unavailablePeopleSwitchOver) FillDirectoryGaps(context.Context, uuid.UUID, []string, []string) (entities.DirectoryGapImport, error) {
 	return entities.DirectoryGapImport{}, apierr.Invalidf("%s", unavailableReason)
+}
+
+func (unavailablePeopleSwitchOver) StrandedTasks(context.Context, uuid.UUID) ([]entities.StrandedTask, error) {
+	return nil, apierr.Invalidf("%s", unavailableReason)
+}
+
+func (unavailablePeopleSwitchOver) HeldTasks(context.Context, uuid.UUID, uuid.UUID) ([]entities.HeldTask, error) {
+	return nil, apierr.Invalidf("%s", unavailableReason)
+}
+
+func (unavailablePeopleSwitchOver) SetParticipantActive(context.Context, uuid.UUID, uuid.UUID, bool, entities.HeldWork, string) (entities.ActivationResult, error) {
+	return entities.ActivationResult{}, apierr.Invalidf("%s", unavailableReason)
 }

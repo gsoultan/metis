@@ -10,6 +10,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **People can be deactivated and activated again, and their work goes
+  somewhere.** People has a Deactivate action on each person, which lists the
+  open tasks they hold and asks what happens to them: handed to someone (with a
+  reason, kept on each task's history), put back on offer, or left with them,
+  where *Nobody can act on these* lists them until somebody hands them over. A
+  hand-over the rules refuse leaves that task with them and says why. Activate
+  moves nothing back. `GET /api/v1/participants/{id}/held-tasks` and
+  `PUT /api/v1/participants/{id}/active`, a designer's.
+- **Tasks nobody can act on are found and listed.** A task names who may do
+  it by username and group name, so when that person is deactivated or
+  deleted, or the group is deleted or left with nobody active, the task waited
+  for ever and nothing said so. All tasks now opens with a *Nobody can act on
+  these* list, saying for each task who it waits for and why they cannot act,
+  with a **Hand over** that gives it to somebody who can (with a reason, kept
+  on its history). The list is `GET /api/v1/participants/stranded-tasks`, an
+  operator's to read. A task that names nobody, or names someone by an
+  expression, is not listed: the first falls to operators, and who the second
+  means was settled when the task was made.
 - **A BPMN file carries what a decision step and a call step run.** Import
   reads a business rule task's `camunda:decisionRef` (and
   `camunda:decisionRefVersion`) as the decision it evaluates, and a service

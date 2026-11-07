@@ -10,6 +10,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services"
+	"github.com/gsoultan/metis/server/endpoints/principal"
 )
 
 type Endpoints struct {
@@ -20,6 +21,9 @@ type Endpoints struct {
 	SetParticipantPassword endpoint.Endpoint
 	ListDirectoryGaps      endpoint.Endpoint
 	FillDirectoryGaps      endpoint.Endpoint
+	ListStrandedTasks      endpoint.Endpoint
+	ListHeldTasks          endpoint.Endpoint
+	SetParticipantActive   endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -31,6 +35,9 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		SetParticipantPassword: MakeSetParticipantPasswordEndpoint(s),
 		ListDirectoryGaps:      MakeListDirectoryGapsEndpoint(s),
 		FillDirectoryGaps:      MakeFillDirectoryGapsEndpoint(s),
+		ListStrandedTasks:      MakeListStrandedTasksEndpoint(s),
+		ListHeldTasks:          MakeListHeldTasksEndpoint(s),
+		SetParticipantActive:   MakeSetParticipantActiveEndpoint(s),
 	}
 }
 
@@ -189,5 +196,76 @@ func MakeFillDirectoryGapsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		}
 		result, err := s.FillDirectoryGaps(ctx, projectID, req.People, req.Groups)
 		return FillDirectoryGapsResponse{Result: result, Err: err}, nil
+	}
+}
+
+// MakeListStrandedTasksEndpoint answers the project's open tasks nobody can
+// act on.
+func MakeListStrandedTasksEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ListStrandedTasksRequest)
+		if !ok {
+			return nil, fmt.Errorf("participant: expected a ListStrandedTasksRequest, got %T", request)
+		}
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return ListStrandedTasksResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
+		}
+		tasks, err := s.StrandedTasks(ctx, projectID)
+		if tasks == nil {
+			tasks = []entities.StrandedTask{}
+		}
+		return ListStrandedTasksResponse{Tasks: tasks, Err: err}, nil
+	}
+}
+
+// MakeListHeldTasksEndpoint answers the open tasks one person holds.
+func MakeListHeldTasksEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ListParticipantHeldTasksRequest)
+		if !ok {
+			return nil, fmt.Errorf("participant: expected a ListParticipantHeldTasksRequest, got %T", request)
+		}
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return ListParticipantHeldTasksResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
+		}
+		id, err := uuid.Parse(req.ID)
+		if err != nil {
+			return ListParticipantHeldTasksResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
+		}
+		tasks, err := s.HeldTasks(ctx, projectID, id)
+		if tasks == nil {
+			tasks = []entities.HeldTask{}
+		}
+		return ListParticipantHeldTasksResponse{Tasks: tasks, Err: err}, nil
+	}
+}
+
+// MakeSetParticipantActiveEndpoint deactivates or reactivates a person. The
+// tasks it moves are moved as hand-overs by the caller, named from the token.
+func MakeSetParticipantActiveEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(SetParticipantActiveRequest)
+		if !ok {
+			return nil, fmt.Errorf("participant: expected a SetParticipantActiveRequest, got %T", request)
+		}
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return SetParticipantActiveResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
+		}
+		id, err := uuid.Parse(req.ID)
+		if err != nil {
+			return SetParticipantActiveResponse{Err: apierr.Invalidf("id %q is not a valid identifier: %v", req.ID, err)}, nil
+		}
+		if req.Active == nil {
+			return SetParticipantActiveResponse{Err: apierr.Invalidf("say whether they are to be active: {\"active\": true} or false")}, nil
+		}
+		actor, err := principal.Username(ctx)
+		if err != nil {
+			return SetParticipantActiveResponse{Err: err}, nil
+		}
+		result, err := s.SetParticipantActive(ctx, projectID, id, *req.Active, req.Work, actor)
+		return SetParticipantActiveResponse{Result: result, Err: err}, nil
 	}
 }

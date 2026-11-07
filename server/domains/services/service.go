@@ -356,7 +356,7 @@ func NewServiceFacade(
 		TaskService:            taskSvc,
 		PeopleTaskService:      serviceimpl.PeopleTasksOf(taskSvc),
 		TaskLinkService:        serviceimpl.TaskLinksOf(taskSvc, settings.taskLinkLifetime),
-		PeopleSwitchOver:       serviceimpl.PeopleSwitchOverOf(repo, participants),
+		PeopleSwitchOver:       serviceimpl.PeopleSwitchOverOf(repo, participants, taskSvc),
 		ExecutionEngine:        engine,
 		JobService:             jobSvc,
 		ExternalTaskService:    externalTaskSvc,

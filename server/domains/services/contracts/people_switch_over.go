@@ -22,4 +22,23 @@ type PeopleSwitchOverService interface {
 	// organization's group of that name, with its members. A name that is not
 	// a gap, or has nothing to be made from, is skipped and reported.
 	FillDirectoryGaps(ctx context.Context, projectID uuid.UUID, people, groups []string) (entities.DirectoryGapImport, error)
+
+	// StrandedTasks lists the project's open tasks that nobody can act on:
+	// held by somebody who is no longer an account or an active person, or
+	// offered only to people and groups with nobody left who can take them.
+	// A task names who may do it by name, so leaving, deactivation and a
+	// deleted group all leave it waiting for ever unless somebody hands it
+	// over; this is how they find out.
+	StrandedTasks(ctx context.Context, projectID uuid.UUID) ([]entities.StrandedTask, error)
+
+	// HeldTasks lists the project's open tasks one of its people holds: what
+	// deactivating them has to decide about.
+	HeldTasks(ctx context.Context, projectID, participantID uuid.UUID) ([]entities.HeldTask, error)
+
+	// SetParticipantActive deactivates or reactivates one of the project's
+	// people. Deactivating does with the open tasks they hold what work says:
+	// keep them, put them back on offer, or hand them to one account, each as
+	// a hand-over by actor with work's reason. The result names every task
+	// still with them.
+	SetParticipantActive(ctx context.Context, projectID, participantID uuid.UUID, active bool, work entities.HeldWork, actor string) (entities.ActivationResult, error)
 }

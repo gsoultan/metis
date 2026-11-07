@@ -263,6 +263,15 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// filling it writes the directory, so both take the role an import takes.
 	participantEndpoints.ListDirectoryGaps = designer("ListDirectoryGaps")(participantEndpoints.ListDirectoryGaps)
 	participantEndpoints.FillDirectoryGaps = designer("FillDirectoryGaps")(participantEndpoints.FillDirectoryGaps)
+	// The tasks nobody can act on are an operator's to hand over, and the
+	// report names who each task is waiting for, as the task list does.
+	participantEndpoints.ListStrandedTasks = operator("ListStrandedTasks")(participantEndpoints.ListStrandedTasks)
+	// Deactivating somebody takes their sign-in and stops their work, as
+	// removing them does, so it takes the role a removal takes; what they hold
+	// is read by the same role, for the dialog that asks what becomes of it.
+	// The tasks it moves are still moved under the hand-over rules.
+	participantEndpoints.ListHeldTasks = designer("ListParticipantHeldTasks")(participantEndpoints.ListHeldTasks)
+	participantEndpoints.SetParticipantActive = designer("SetParticipantActive")(participantEndpoints.SetParticipantActive)
 	// Removing somebody takes the same role importing does — they are the same
 	// act in opposite directions, and the removal is reversible by an import.
 	participantEndpoints.RemoveParticipant = designer("RemoveParticipant")(participantEndpoints.RemoveParticipant)
