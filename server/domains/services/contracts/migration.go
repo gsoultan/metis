@@ -119,6 +119,15 @@ type MigrationOptions struct {
 	// parked on it, not yet arrived — have to be treated identically. They are
 	// rarely the same decision.
 	Instances []uuid.UUID
+	// Rederive rebuilds an open task from the target's node even when the
+	// task stays on a node of the same id: who it is offered to, its name, its
+	// form and its due date are then the new version's, and a claim on it
+	// does not survive, as for a task moved to another node.
+	//
+	// Off, a task on a node kept by id is left as it is: the same step, still
+	// offered to whoever it was. On is for a change whose point is who does
+	// the step — an approver who left, replaced on the new version.
+	Rederive bool
 	// Actor is who authorised the migration. It is recorded on every instance's
 	// trail, because "a step was skipped" is only half an audit answer; the
 	// other half is who decided that.
@@ -158,6 +167,12 @@ func WithNodeActions(actions map[string]NodeAction) MigrationOption {
 // WithInstances narrows a migration to particular instances.
 func WithInstances(ids ...uuid.UUID) MigrationOption {
 	return func(o *MigrationOptions) { o.Instances = append(o.Instances, ids...) }
+}
+
+// WithTasksRederived rebuilds every open task from the target version's
+// node, kept by id or not. See MigrationOptions.Rederive.
+func WithTasksRederived() MigrationOption {
+	return func(o *MigrationOptions) { o.Rederive = true }
 }
 
 // WithActor records who authorised the migration.

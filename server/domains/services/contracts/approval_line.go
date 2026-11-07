@@ -28,4 +28,11 @@ type ApprovalLineService interface {
 	// GetApprovalRequest says where a request is: each step, who decided, and
 	// who it waits on.
 	GetApprovalRequest(ctx context.Context, instanceID uuid.UUID) (entities.ApprovalRequest, error)
+	// ListApprovalsBehind lists the open requests on versions older than the
+	// live one, with what moving each version's requests would do.
+	ListApprovalsBehind(ctx context.Context, projectID uuid.UUID, key string) (entities.ApprovalTakeover, error)
+	// MoveApprovals moves open requests onto the live version, as actor, by
+	// the same migration, and under the same rules, an administrator applies
+	// in the designer. A request the migration would refuse is left, with why.
+	MoveApprovals(ctx context.Context, projectID uuid.UUID, key string, instanceIDs []uuid.UUID, actor string) (entities.ApprovalMoveResult, error)
 }

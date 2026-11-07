@@ -146,7 +146,7 @@ func NewService(p ServiceParams) ServiceFacade {
 			"people cannot sign in: this server was wired without the People sign-in")
 	}
 	if p.ApprovalLines == nil {
-		p.ApprovalLines = serviceimpl.NewApprovalLineService(p.DefinitionService, p.ExecutionEngine, p.TaskService)
+		p.ApprovalLines = serviceimpl.NewApprovalLineService(p.DefinitionService, p.ExecutionEngine, p.TaskService, p.MigrationService)
 	}
 	if p.SimulationCaseService == nil {
 		p.SimulationCaseService = serviceimpl.NewUnavailableSimulationCaseService()

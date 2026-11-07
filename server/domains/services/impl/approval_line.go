@@ -13,6 +13,7 @@ import (
 
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
+	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
 
@@ -43,13 +44,23 @@ type approvalLineService struct {
 	defs   approvalDefinitions
 	engine approvalEngine
 	tasks  approvalTasks
-	now    func() time.Time
+	// moves is nil on a server wired without migrations; moving requests
+	// is then refused.
+	moves approvalMigrations
+	now   func() time.Time
+}
+
+// approvalMigrations is what moving requests between versions needs: the
+// migration an administrator applies in the designer, nothing of its own.
+type approvalMigrations interface {
+	PlanInstanceMigration(ctx context.Context, sourceDefID, targetDefID uuid.UUID, nodeMapping map[string]string, opts ...servicecontracts.MigrationOption) (entities.MigrationPlan, error)
+	ApplyInstanceMigration(ctx context.Context, sourceDefID uuid.UUID, targetDefID uuid.UUID, nodeMapping map[string]string, opts ...servicecontracts.MigrationOption) (entities.MigrationResult, error)
 }
 
 // NewApprovalLineService runs approval lines on definitions, the engine and
 // tasks: a line is nothing but a definition, and a request an instance.
-func NewApprovalLineService(defs approvalDefinitions, engine approvalEngine, tasks approvalTasks) *approvalLineService {
-	return &approvalLineService{defs: defs, engine: engine, tasks: tasks, now: time.Now}
+func NewApprovalLineService(defs approvalDefinitions, engine approvalEngine, tasks approvalTasks, moves approvalMigrations) *approvalLineService {
+	return &approvalLineService{defs: defs, engine: engine, tasks: tasks, moves: moves, now: time.Now}
 }
 
 // maxCommentRunes bounds a decision's comment, as a hand-over's reason is.

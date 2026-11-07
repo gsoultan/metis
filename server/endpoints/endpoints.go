@@ -265,6 +265,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	approvalEndpoints.GetApprovalRequest = protected("GetApprovalRequest")(approvalEndpoints.GetApprovalRequest)
 	approvalEndpoints.ListApprovalRequests = protected("ListApprovalRequests")(approvalEndpoints.ListApprovalRequests)
 	approvalEndpoints.DecideApproval = protected("DecideApproval")(approvalEndpoints.DecideApproval)
+	// Moving requests onto a newer line is a migration of running instances,
+	// an administrator's as MigrateInstances is; so is the preview of it.
+	approvalEndpoints.ListApprovalsBehind = adminOnly("ListApprovalsBehind")(approvalEndpoints.ListApprovalsBehind)
+	approvalEndpoints.MoveApprovals = adminOnly("MoveApprovals")(approvalEndpoints.MoveApprovals)
 
 	participantEndpoints := participant.MakeEndpoints(s)
 	participantEndpoints.ListParticipants = protected("ListParticipants")(participantEndpoints.ListParticipants)

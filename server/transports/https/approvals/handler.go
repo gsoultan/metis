@@ -34,6 +34,23 @@ func RegisterHandlers(m *http.ServeMux, eps approval.Endpoints, options []httptr
 		eps.GetApprovalRequest, decodeGetRequest, common.EncodeResponse, options...))
 	m.Handle("POST /api/v1/approval-tasks/{id}/decision", httptransport.NewServer(
 		eps.DecideApproval, decodeDecide, common.EncodeResponse, options...))
+	m.Handle("GET /api/v1/projects/{id}/approval-lines/{key}/behind", httptransport.NewServer(
+		eps.ListApprovalsBehind, decodeBehind, common.EncodeResponse, options...))
+	m.Handle("POST /api/v1/projects/{id}/approval-lines/{key}/move", httptransport.NewServer(
+		eps.MoveApprovals, decodeMove, common.EncodeResponse, options...))
+}
+
+func decodeBehind(_ context.Context, r *http.Request) (any, error) {
+	return approval.BehindRequest{ProjectID: r.PathValue("id"), Key: r.PathValue("key")}, nil
+}
+
+func decodeMove(_ context.Context, r *http.Request) (any, error) {
+	req := approval.MoveRequest{}
+	if err := readJSON(r, &req); err != nil {
+		return nil, err
+	}
+	req.ProjectID, req.Key = r.PathValue("id"), r.PathValue("key")
+	return req, nil
 }
 
 func decodeDefine(_ context.Context, r *http.Request) (any, error) {

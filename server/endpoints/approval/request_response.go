@@ -66,3 +66,33 @@ type ListRequestsResponse struct {
 }
 
 func (r ListRequestsResponse) Failed() error { return r.Err }
+
+// BehindRequest asks for the open requests on a line's older versions.
+type BehindRequest struct {
+	ProjectID string `json:"-"`
+	Key       string `json:"-"`
+}
+
+// BehindResponse is those requests, version by version, with what moving
+// them would do.
+type BehindResponse struct {
+	Takeover *entities.ApprovalTakeover `json:"takeover,omitzero"`
+	Err      error                      `json:"err,omitzero"`
+}
+
+func (r BehindResponse) Failed() error { return r.Err }
+
+// MoveRequest moves open requests onto the line's live version.
+type MoveRequest struct {
+	ProjectID string   `json:"-"`
+	Key       string   `json:"-"`
+	Requests  []string `json:"requests"`
+}
+
+// MoveResponse is what the move did.
+type MoveResponse struct {
+	Result *entities.ApprovalMoveResult `json:"result,omitzero"`
+	Err    error                        `json:"err,omitzero"`
+}
+
+func (r MoveResponse) Failed() error { return r.Err }

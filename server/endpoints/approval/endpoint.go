@@ -23,6 +23,8 @@ type Endpoints struct {
 	GetApprovalRequest   endpoint.Endpoint
 	ListApprovalRequests endpoint.Endpoint
 	DecideApproval       endpoint.Endpoint
+	ListApprovalsBehind  endpoint.Endpoint
+	MoveApprovals        endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -33,6 +35,8 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		GetApprovalRequest:   makeGetRequest(s),
 		ListApprovalRequests: makeListRequests(s),
 		DecideApproval:       makeDecide(s),
+		ListApprovalsBehind:  makeBehind(s),
+		MoveApprovals:        makeMove(s),
 	}
 }
 
@@ -154,6 +158,55 @@ func makeDecide(s services.ServiceFacade) endpoint.Endpoint {
 			return RequestResponse{Err: err}, nil
 		}
 		return RequestResponse{Request: &got}, nil
+	}
+}
+
+func makeBehind(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(BehindRequest)
+		if !ok {
+			return nil, fmt.Errorf("approval: expected a BehindRequest, got %T", request)
+		}
+		projectID, err := parseID("project", req.ProjectID)
+		if err != nil {
+			return BehindResponse{Err: err}, nil
+		}
+		got, err := s.ListApprovalsBehind(ctx, projectID, req.Key)
+		if err != nil {
+			return BehindResponse{Err: err}, nil
+		}
+		return BehindResponse{Takeover: &got}, nil
+	}
+}
+
+func makeMove(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(MoveRequest)
+		if !ok {
+			return nil, fmt.Errorf("approval: expected a MoveRequest, got %T", request)
+		}
+		projectID, err := parseID("project", req.ProjectID)
+		if err != nil {
+			return MoveResponse{Err: err}, nil
+		}
+		ids := make([]uuid.UUID, 0, len(req.Requests))
+		for _, raw := range req.Requests {
+			id, err := parseID("request", raw)
+			if err != nil {
+				return MoveResponse{Err: err}, nil
+			}
+			ids = append(ids, id)
+		}
+		// The move is recorded as whoever is signed in, as a migration is.
+		actor, err := principal.Username(ctx)
+		if err != nil {
+			return MoveResponse{Err: err}, nil
+		}
+		got, err := s.MoveApprovals(ctx, projectID, req.Key, ids, actor)
+		if err != nil {
+			return MoveResponse{Err: err}, nil
+		}
+		return MoveResponse{Result: &got}, nil
 	}
 }
 

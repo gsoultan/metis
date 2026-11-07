@@ -233,3 +233,40 @@ type ApprovalWaiting struct {
 	Groups   []string  `json:"groups,omitzero"`
 	Since    time.Time `json:"since,omitzero"`
 }
+
+// ApprovalTakeover is what is still running on a line's older versions once a
+// newer one is live: the requests submitted before the change, version by
+// version, with what moving them onto the live version would do.
+type ApprovalTakeover struct {
+	Key         string           `json:"key"`
+	LiveVersion int              `json:"live_version"`
+	Behind      []ApprovalBehind `json:"behind"`
+}
+
+// ApprovalBehind is one older version's open requests.
+type ApprovalBehind struct {
+	Version      int               `json:"version"`
+	DefinitionID uuid.UUID         `json:"definition_id"`
+	Requests     []ApprovalRequest `json:"requests"`
+	// Plan is what moving every one of them onto the live version would do,
+	// as the migration preview says it: where each step's work lands, and
+	// anything that would stop the move.
+	Plan MigrationPlan `json:"plan"`
+}
+
+// ApprovalMoveResult is what a move of requests onto the live version did.
+type ApprovalMoveResult struct {
+	// Moved counts the requests now on the live version.
+	Moved int `json:"moved"`
+	// Left are the requests left where they were, each with why.
+	Left []ApprovalLeft `json:"left,omitempty"`
+}
+
+// ApprovalLeft is a request a move left on its version.
+type ApprovalLeft struct {
+	InstanceID uuid.UUID `json:"instance_id"`
+	Why        string    `json:"why"`
+}
+
+// MaxApprovalRequestsMoved bounds one move, as a list of requests is bounded.
+const MaxApprovalRequestsMoved = MaxApprovalRequestsListed

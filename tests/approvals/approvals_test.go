@@ -31,9 +31,9 @@ type world struct {
 	tokens  map[string]string
 }
 
-// newWorld is an organization with one project and the four people of an
+// newWorld is an organization with one project and the people of an
 // expense approval: Dana designs it, Rina asks, Budi supervises, Sari heads
-// the unit.
+// the unit, Ada administers and Tono is the next supervisor.
 func newWorld(t *testing.T) world {
 	t.Helper()
 	conn := testutils.SetupTestConn(t)
@@ -67,6 +67,9 @@ func newWorld(t *testing.T) world {
 		{"rina", entities.RoleUser, ""},
 		{"budi", entities.RoleUser, "supervisors"},
 		{"sari", entities.RoleUser, "unit-heads"},
+		// Ada administers; Tono takes over as supervisor when Budi leaves.
+		{"ada", entities.RoleAdmin, ""},
+		{"tono", entities.RoleUser, ""},
 	} {
 		id := uuid.Must(uuid.NewV7())
 		if err := svc.CreateUser(system, entities.User{

@@ -10,6 +10,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Requests on an older approval line can be moved to the new one.** A
+  new version of a line never moves a running request; now an administrator
+  can. `GET /api/v1/projects/{id}/approval-lines/{key}/behind` lists the open
+  requests on each older version, with the migration preview of moving them.
+  `POST …/approval-lines/{key}/move` moves the requests it names, all of them
+  or a chosen few, through the same migration and its rules. A moved
+  request's open step goes to the new line's approvers, so an approver who
+  left and was replaced on the line no longer holds it, and a request sent
+  back stays with its submitter. A request the migration would refuse (its
+  step is gone, or the move would skip an approval) is left on its version
+  with why. Both are an administrator's, as a migration is.
+- **A migration can rebuild tasks it keeps on the same step.**
+  `WithTasksRederived` gives an open task on a node kept by id the target
+  version's candidates, name, form and due date, as a task moved to another
+  node already gets. Off by default, which is today's behaviour. When a
+  task's assignee or candidates are a lone variable, a migration now keeps
+  the person the task was made for, rather than carrying the variable's name
+  across.
 - **Approval lines, defined as data.** An approval line is a list of
   approvers in order, each a step offered to users and groups, written as
   JSON instead of BPMN: `POST /api/v1/projects/{id}/approval-lines` (a

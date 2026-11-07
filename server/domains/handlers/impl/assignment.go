@@ -229,20 +229,7 @@ func resolveVariableAssignment(node entities.Node, vars map[string]any) entities
 }
 
 // loneVariable reports the variable "${name}" or "#{name}" names.
-func loneVariable(written string) (string, bool) {
-	s := strings.TrimSpace(written)
-	for _, opening := range []string{"${", "#{"} {
-		if rest, ok := strings.CutPrefix(s, opening); ok {
-			if inner, ok := strings.CutSuffix(rest, "}"); ok {
-				inner = strings.TrimSpace(inner)
-				if inner != "" && !strings.ContainsAny(inner, " .()[]+-*/<>=!&|'\"") {
-					return inner, true
-				}
-			}
-		}
-	}
-	return "", false
-}
+func loneVariable(written string) (string, bool) { return entities.LoneVariable(written) }
 
 func anyLoneVariable(n int, at func(int) string) bool {
 	for i := range n {
