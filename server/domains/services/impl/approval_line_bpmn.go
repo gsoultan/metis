@@ -56,7 +56,10 @@ func approvalLineBPMN(line entities.ApprovalLine) ([]byte, error) {
 	var b bytes.Buffer
 	esc := func(s string) string {
 		var out bytes.Buffer
-		_ = xml.EscapeText(&out, []byte(s))
+		// Writing to a buffer cannot fail; an empty name is safe if it did.
+		if err := xml.EscapeText(&out, []byte(s)); err != nil {
+			return ""
+		}
 		return out.String()
 	}
 	flow := func(id, from, to, condition string) {

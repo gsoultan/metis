@@ -471,7 +471,10 @@ func approvalTrailOf(vars map[string]any) []entities.ApprovalDecision {
 // trailVariable is the trail as a variable holds it: plain JSON values, so it
 // reads back the same whether or not it went through the database.
 func trailVariable(trail []entities.ApprovalDecision) []any {
-	data, _ := json.Marshal(trail)
+	data, err := json.Marshal(trail)
+	if err != nil {
+		return []any{}
+	}
 	var out []any
 	if err := json.Unmarshal(data, &out); err != nil {
 		return []any{}
