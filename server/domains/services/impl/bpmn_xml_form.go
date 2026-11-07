@@ -103,22 +103,24 @@ func exportedForm(n *entities.Node) *bpmnExtensionElements {
 		if !ok {
 			continue
 		}
-		id, _ := field["id"].(string)
-		kind, _ := field["type"].(string)
+		id := textOf(field, "id")
+		kind := textOf(field, "type")
 		camundaType, known := fieldToCamundaType[kind]
 		if id == "" || !known {
 			continue
 		}
-		label, _ := field["label"].(string)
+		label := textOf(field, "label")
 		out := bpmnFormField{ID: id, Label: label, Type: camundaType}
 		if v, ok := field["defaultValue"].(string); ok {
 			out.DefaultValue = v
 		}
 		if options, ok := field["options"].([]any); ok {
 			for _, o := range options {
-				option, _ := o.(map[string]any)
-				value, _ := option["value"].(string)
-				name, _ := option["label"].(string)
+				option, ok := o.(map[string]any)
+				if !ok {
+					continue
+				}
+				value, name := textOf(option, "value"), textOf(option, "label")
 				if value != "" {
 					out.CamundaVals = append(out.CamundaVals, bpmnFormValue{ID: value, Name: name})
 				}
@@ -130,6 +132,15 @@ func exportedForm(n *entities.Node) *bpmnExtensionElements {
 		return nil
 	}
 	return &bpmnExtensionElements{CamundaFormData: data}
+}
+
+// textOf is a form field's setting as text, "" when it is missing or is not
+// text.
+func textOf(m map[string]any, key string) string {
+	if s, ok := m[key].(string); ok {
+		return s
+	}
+	return ""
 }
 
 func cmpLabel(label, fallback string) string {
