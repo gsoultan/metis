@@ -36,6 +36,12 @@ const (
 	// anyone else; written here, an exported process is deployable as-is by the
 	// engine most of these diagrams came from.
 	nsCamunda = "http://camunda.org/schema/1.0/bpmn"
+	// nsMetis holds what this engine runs and no other engine has an attribute
+	// for: the web address a service task calls. Camunda configures that in a
+	// connector under extensionElements, which it alone reads; a file that
+	// carried the address nowhere lost it on every round trip, and the step it
+	// belonged to ran as a step with nothing to call.
+	nsMetis = "https://github.com/gsoultan/metis/schema/bpmn"
 
 	// exportTargetNamespace is what bpmn.io stamps on its own exports. A
 	// targetNamespace is required by the schema and its value is not
@@ -75,6 +81,7 @@ type bpmnDefinitions struct {
 	XmlnsDI         string `xml:"xmlns:di,attr,omitempty"`
 	XmlnsXSI        string `xml:"xmlns:xsi,attr,omitempty"`
 	XmlnsCamunda    string `xml:"xmlns:camunda,attr,omitempty"`
+	XmlnsMetis      string `xml:"xmlns:metis,attr,omitempty"`
 
 	Processes      []bpmnProcess       `xml:"process"`
 	Collaborations []bpmnCollaboration `xml:"collaboration"`
@@ -241,6 +248,20 @@ type bpmnNode struct {
 	CamundaFormKey   string `xml:"camunda:formKey,attr,omitempty"`
 	CamundaCandUsers string `xml:"camunda:candidateUsers,attr,omitempty"`
 	CamundaCandGroup string `xml:"camunda:candidateGroups,attr,omitempty"`
+
+	// What a business rule task decides with, and what a service task calls.
+	// Read and written in pairs like the ones above. Import used to drop both,
+	// so a decision step deployed from a file had no table to evaluate and
+	// failed on the first token, and a call step had no address and was
+	// skipped as though it had been called.
+	DecisionRef           string `xml:"decisionRef,attr,omitempty"`
+	DecisionRefVersion    string `xml:"decisionRefVersion,attr,omitempty"`
+	HTTPURL               string `xml:"httpUrl,attr,omitempty"`
+	HTTPMethod            string `xml:"httpMethod,attr,omitempty"`
+	CamundaDecisionRef    string `xml:"camunda:decisionRef,attr,omitempty"`
+	CamundaDecisionRefVer string `xml:"camunda:decisionRefVersion,attr,omitempty"`
+	MetisHTTPURL          string `xml:"metis:httpUrl,attr,omitempty"`
+	MetisHTTPMethod       string `xml:"metis:httpMethod,attr,omitempty"`
 
 	Documentation string   `xml:"documentation,omitempty"`
 	Incoming      []string `xml:"incoming"`
@@ -706,6 +727,29 @@ func (p *BPMNXMLParser) mapNode(bn bpmnNode, nodeType entities.NodeType) *entiti
 		node.Properties["called_element"] = bn.CalledElement
 	}
 
+	// Only on the kinds of step that read them: a decision reference on a user
+	// task is an assignment table, configured another way, and an address on
+	// anything but a service task is called by nothing.
+	if nodeType == entities.BusinessRuleTask {
+		if ref := strings.TrimSpace(bn.DecisionRef); ref != "" {
+			node.Properties[entities.DecisionKeyProperty] = ref
+		}
+		// A version that is not a whole number is not pinned: the step uses
+		// the decision's live version, as one that names no version does.
+		if v, err := strconv.Atoi(strings.TrimSpace(bn.DecisionRefVersion)); err == nil && v > 0 {
+			node.Properties["decision_version"] = v
+		}
+	}
+	if nodeType == entities.ServiceTask && bn.Topic == "" {
+		if address := strings.TrimSpace(bn.HTTPURL); address != "" {
+			node.Properties["implementation"] = "push"
+			node.Properties["http_url"] = address
+			if method := strings.ToUpper(strings.TrimSpace(bn.HTTPMethod)); method != "" {
+				node.Properties["http_method"] = method
+			}
+		}
+	}
+
 	// cancelActivity="false" is the only value that carries information: BPMN
 	// defaults a boundary event to interrupting. It is recorded as the
 	// non_interrupting property because that is the one the engine reads —
@@ -895,6 +939,7 @@ func (p *BPMNXMLParser) toBPMNDefinitions(def *entities.ProcessDefinition) bpmnD
 		XmlnsDI:         nsDI,
 		XmlnsXSI:        nsXSI,
 		XmlnsCamunda:    nsCamunda,
+		XmlnsMetis:      nsMetis,
 		Processes:       []bpmnProcess{bp},
 	}
 
@@ -1295,5 +1340,32 @@ func (p *BPMNXMLParser) toNode(n *entities.Node) bpmnNode {
 			ActivityRef: n.GetStringProperty("activity_ref"),
 		}
 	}
+	if n.Type == entities.BusinessRuleTask {
+		bn.CamundaDecisionRef = n.GetStringProperty(entities.DecisionKeyProperty)
+		if v := pinnedDecisionVersion(n.Properties["decision_version"]); v > 0 {
+			bn.CamundaDecisionRefVer = strconv.Itoa(v)
+		}
+	}
+	if n.Type == entities.ServiceTask {
+		if address := n.HTTPURL(); address != "" {
+			bn.MetisHTTPURL = address
+			bn.MetisHTTPMethod = n.GetStringProperty("http_method")
+		}
+	}
 	return bn
+}
+
+// pinnedDecisionVersion is the version a step pins its decision to, 0 when it
+// pins none. A definition saved as JSON holds it as a float64, one imported
+// from a file as an int.
+func pinnedDecisionVersion(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case float64:
+		if n == float64(int(n)) {
+			return int(n)
+		}
+	}
+	return 0
 }
