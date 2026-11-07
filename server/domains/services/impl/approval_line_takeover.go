@@ -202,7 +202,13 @@ func (s *approvalLineService) openRequests(ctx context.Context, projectID uuid.U
 			return nil, nil, err
 		}
 		for _, instance := range got.Items {
-			requests = append(requests, approvalRequestOf(line, instance, nil))
+			// With its tasks, so the list says who each request waits on:
+			// that is what deciding to move it turns on.
+			tasks, err := s.tasks.ListTasksByInstancePaged(ctx, instance.ID, repocontracts.Pagination{Page: 1, PageSize: 100})
+			if err != nil {
+				return nil, nil, err
+			}
+			requests = append(requests, approvalRequestOf(line, instance, tasks.Items))
 			ids = append(ids, instance.ID)
 		}
 		if int64(page*100) >= got.Total || len(got.Items) == 0 {

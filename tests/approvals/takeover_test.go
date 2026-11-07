@@ -84,6 +84,9 @@ func TestRequestsOnAnOldLineAreListedAndMovedOneByOne(t *testing.T) {
 		len(takeover.Behind[0].Requests) != 3 || len(takeover.Behind[0].Plan.Refusals) != 0 {
 		t.Fatalf("behind = %+v, want version 1's three requests and a plan that moves them", takeover)
 	}
+	if first := takeover.Behind[0].Requests[0]; first.Steps[0].Waiting == nil || first.Steps[0].Waiting.Users[0] != "budi" {
+		t.Errorf("a request behind does not say who it waits on: %+v", first.Steps[0])
+	}
 
 	got := w.move(t, waitingForBudi.InstanceID.String(), sentBack.InstanceID.String())
 	if got.Moved != 2 || len(got.Left) != 0 {
