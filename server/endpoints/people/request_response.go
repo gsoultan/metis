@@ -123,3 +123,31 @@ func (r CreateAPIKeyResponse) Failed() error { return r.Err }
 type RevokeAPIKeyRequest struct {
 	ID string `json:"-"`
 }
+
+type DevicesRequest struct{}
+
+type DevicesResponse struct {
+	Devices []entities.PersonDevice `json:"devices"`
+	Err     error                   `json:"err,omitzero"`
+}
+
+func (r DevicesResponse) Failed() error { return r.Err }
+
+// RegisterDeviceRequest is what a person's app sends once the Firebase SDK
+// has given it a token.
+type RegisterDeviceRequest struct {
+	Token    string `json:"token"`
+	Platform string `json:"platform"`
+	Label    string `json:"label,omitzero"`
+}
+
+type RegisterDeviceResponse struct {
+	Device *entities.PersonDevice `json:"device,omitzero"`
+	Err    error                  `json:"err,omitzero"`
+}
+
+func (r RegisterDeviceResponse) Failed() error { return r.Err }
+
+type RemoveDeviceRequest struct {
+	ID string `json:"-"`
+}

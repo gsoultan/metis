@@ -29,6 +29,7 @@ type service struct {
 	contracts.PeopleSwitchOverService
 	contracts.ApprovalLineService
 	contracts.PersonAPIKeyService
+	contracts.DeviceService
 	contracts.ExecutionEngine
 	contracts.JobService
 	contracts.ExternalTaskService
@@ -72,8 +73,10 @@ type ServiceParams struct {
 	PeopleSwitchOver       contracts.PeopleSwitchOverService
 	// ApprovalLines defaults to approval lines run on the definitions, the
 	// engine and the tasks above.
-	ApprovalLines          contracts.ApprovalLineService
-	PersonAPIKeys          contracts.PersonAPIKeyService
+	ApprovalLines contracts.ApprovalLineService
+	PersonAPIKeys contracts.PersonAPIKeyService
+	// PersonDevices are the phones and browsers People registered for push.
+	PersonDevices          contracts.DeviceService
 	ExecutionEngine        contracts.ExecutionEngine
 	JobService             contracts.JobService
 	ExternalTaskService    contracts.ExternalTaskService
@@ -145,6 +148,9 @@ func NewService(p ServiceParams) ServiceFacade {
 		p.PeopleSignInService = serviceimpl.NewUnavailablePeopleSignInService(
 			"people cannot sign in: this server was wired without the People sign-in")
 	}
+	if p.PersonDevices == nil {
+		p.PersonDevices = serviceimpl.NewUnavailablePersonDeviceService()
+	}
 	if p.ApprovalLines == nil {
 		p.ApprovalLines = serviceimpl.NewApprovalLineService(p.DefinitionService, p.ExecutionEngine, p.TaskService, p.MigrationService)
 	}
@@ -169,6 +175,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		PeopleSwitchOverService:    p.PeopleSwitchOver,
 		ApprovalLineService:        p.ApprovalLines,
 		PersonAPIKeyService:        p.PersonAPIKeys,
+		DeviceService:              p.PersonDevices,
 		ExecutionEngine:            p.ExecutionEngine,
 		JobService:                 p.JobService,
 		ExternalTaskService:        p.ExternalTaskService,
@@ -211,6 +218,10 @@ type facadeSettings struct {
 	// WithPeopleSignIn.
 	peopleSignIn contracts.PeopleSignInService
 
+	// personDevices registers People's devices for push. Nil leaves it
+	// unavailable: see WithPersonDevices.
+	personDevices contracts.DeviceService
+
 	// taskLinkLifetime is how long a task link is good for. Zero is
 	// serviceimpl.DefaultTaskLinkLifetime: see WithTaskLinkLifetime.
 	taskLinkLifetime time.Duration
@@ -234,6 +245,13 @@ func WithSoleAdministratorOrganizations(organizations []uuid.UUID) FacadeOption 
 // directory to check them against, and refuses rather than guessing.
 func WithPeopleSignIn(signIn contracts.PeopleSignInService) FacadeOption {
 	return func(settings *facadeSettings) { settings.peopleSignIn = signIn }
+}
+
+// WithPersonDevices is where People's push devices are kept. Built without
+// it, registering a device is refused with the reason: there is no People
+// directory to keep them beside.
+func WithPersonDevices(devices contracts.DeviceService) FacadeOption {
+	return func(settings *facadeSettings) { settings.personDevices = devices }
 }
 
 // WithTaskLinkLifetime is how long a task link is good for once issued. Built
@@ -361,6 +379,7 @@ func NewServiceFacade(
 		ParticipantSyncService: sync,
 		PlatformUserService:    accounts,
 		PeopleSignInService:    settings.peopleSignIn,
+		PersonDevices:          settings.personDevices,
 		TaskService:            taskSvc,
 		PeopleTaskService:      serviceimpl.PeopleTasksOf(taskSvc),
 		TaskLinkService:        serviceimpl.TaskLinksOf(taskSvc, settings.taskLinkLifetime),

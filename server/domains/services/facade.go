@@ -40,6 +40,8 @@ type ServiceFacade interface {
 	serviceContracts.TaskLinkService
 	// PersonAPIKeyService is the keys People give their own systems.
 	serviceContracts.PersonAPIKeyService
+	// DeviceService is the phones and browsers People registered for push.
+	serviceContracts.DeviceService
 	// PeopleSwitchOverService finds and fills what People lack before Users
 	// stop doing tasks.
 	serviceContracts.PeopleSwitchOverService

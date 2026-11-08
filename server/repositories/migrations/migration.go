@@ -90,5 +90,6 @@ func Steps() []Migration {
 		{Version: environmentProtectedVersion, Name: "protected environments", Run: addEnvironmentProtected},
 		{Version: releasesVersion, Name: "releases", Run: addReleases},
 		{Version: releaseApprovalVersion, Name: "release approval", Run: addReleaseApproval},
+		{Version: personDevicesVersion, Name: "person devices", Run: addPersonDevices},
 	}
 }
