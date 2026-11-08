@@ -26,7 +26,10 @@ type errorAnswer struct {
 // sendError turns Firebase's refusal into one of the package's errors.
 func sendError(status int, body []byte) error {
 	var answer errorAnswer
-	_ = json.Unmarshal(body, &answer) // an unreadable body still has a status to go on
+	if err := json.Unmarshal(body, &answer); err != nil {
+		// An unreadable body still has a status to go on.
+		answer = errorAnswer{}
+	}
 	code := ""
 	for _, detail := range answer.Error.Details {
 		if detail.ErrorCode != "" {

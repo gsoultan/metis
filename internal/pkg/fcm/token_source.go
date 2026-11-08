@@ -17,9 +17,9 @@ import (
 
 const (
 	// GoogleTokenURL is where a signed assertion is traded for an access token.
-	GoogleTokenURL = "https://oauth2.googleapis.com/token"
+	GoogleTokenURL = "https://oauth2.googleapis.com/token" //nolint:gosec // a public endpoint address, not a credential
 	messagingScope = "https://www.googleapis.com/auth/firebase.messaging"
-	jwtBearerGrant = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+	jwtBearerGrant = "urn:ietf:params:oauth:grant-type:jwt-bearer" //nolint:gosec // the RFC 7523 grant type name, not a credential
 	assertionLife  = time.Hour
 	// refreshMargin renews a token this long before Google says it expires, so
 	// a send never starts with a token that lapses on the way.
