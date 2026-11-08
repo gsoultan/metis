@@ -205,6 +205,7 @@ func NewConnectorService(
 	s.executors[connectors.HTTPConnectorKey] = connectors.NewHTTPConnector(nil)
 	s.executors[connectors.SlackConnectorKey] = connectors.NewSlackConnector()
 	s.executors[connectors.EmailConnectorKey] = connectors.NewEmailConnector()
+	s.executors[connectors.FCMConnectorKey] = connectors.NewFCMConnector(nil)
 	s.executors[sqlconnector.Key] = sqlconnector.New()
 	s.executors[RabbitMQConnectorKey] = NewRabbitMQExecutor()
 
@@ -638,6 +639,7 @@ func (s *connectorService) EnsureDefaultConnectors(ctx context.Context) error {
 			},
 		},
 		sqlconnector.CatalogueEntry(),
+		connectors.FCMCatalogueEntry(),
 	}
 
 	var failed error
@@ -976,5 +978,6 @@ func BuiltInConnectorKeys() []string {
 		"sendgrid-email",
 		"ms-teams-message",
 		sqlconnector.Key,
+		connectors.FCMConnectorKey,
 	}
 }

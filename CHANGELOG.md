@@ -10,6 +10,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Push notifications through Firebase Cloud Messaging.** A built-in
+  **Firebase Cloud Messaging** connector (`fcm-push`) on the Connectors page
+  sends a push to one device through FCM's HTTP v1 API. Its connection takes
+  the Firebase service account key file, uploaded rather than typed and stored
+  encrypted like every connector secret, and "Use for push in this project",
+  which later reminders and push templates read. A step's payload is `token`,
+  `title` and/or `body`, an optional `link` (passed to the app as data, and as
+  the web push click target when it is https) and optional text `data`. It
+  signs in to Google with the service account itself and adds no dependency;
+  the sign-in is reused until shortly before it lapses. The key file's own
+  `token_uri` is ignored, so a pasted file cannot send the signed assertion
+  anywhere but Google. A device Firebase reports as gone (`UNREGISTERED`, or a
+  token from another Firebase project) and a refused service account each come
+  back with what to do about it.
 - **Requests on an older approval line can be moved to the new one.** A
   new version of a line never moves a running request; now an administrator
   can. `GET /api/v1/projects/{id}/approval-lines/{key}/behind` lists the open
