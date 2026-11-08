@@ -30,6 +30,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   random password and writes the hash of `admin` into the development
   database. This also mends `./scripts/dev.sh --sample` on a fresh database,
   whose setup the floor had been refusing.
+
 - **Requests on an older approval line can be moved to the new one.** A
   new version of a line never moves a running request; now an administrator
   can. `GET /api/v1/projects/{id}/approval-lines/{key}/behind` lists the open
