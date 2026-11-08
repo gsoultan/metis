@@ -6,6 +6,6 @@ export const Route = createLazyFileRoute('/login')({
 })
 
 function LoginPage() {
-  const { redirect: redirectTo } = Route.useSearch()
-  return <Login redirectTo={redirectTo} />
+  const { redirect: redirectTo, reason } = Route.useSearch()
+  return <Login redirectTo={redirectTo} reason={reason} />
 }

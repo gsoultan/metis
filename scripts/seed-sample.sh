@@ -5,6 +5,9 @@
 #   ./scripts/seed-sample.sh            against http://localhost:8273
 #   API_PORT=9000 ./scripts/seed-sample.sh
 #
+#   ./scripts/seed-sample.sh --setup-only
+#                                       set up and create admin / admin, no sample
+#
 # Run the setup wizard if it has not been run, import the two worked examples
 # from docs/data-flow.md, and start a few instances so the screens have
 # something in them: processes to open, a decision table to read, instances
@@ -32,6 +35,20 @@ readonly EXAMPLES="$ROOT/docs/examples"
 # nobody can log into is not a sample.
 readonly ADMIN_USER="${SAMPLE_ADMIN_USER:-admin}"
 readonly ADMIN_PASS="${SAMPLE_ADMIN_PASS:-admin}"
+
+# The server refuses a password under eight characters, at setup and
+# everywhere else, and it should: that floor is for every real installation.
+# "admin" is five. So a development installation is set up with a long random
+# password, and the account's hash is then replaced, straight in the database,
+# with this one — bcrypt of "admin", cost 10, which is what the server writes.
+# Only for "admin": any other password is typed at setup like on any server.
+#
+# Nothing in the server knows about this. It is one row in a development
+# database this script was pointed at, and no build of Metis accepts "admin"
+# from a form.
+readonly DEV_ADMIN_PASS="admin"
+readonly DEV_ADMIN_HASH='$2a$10$iGUb3wIlgXjnRrEZAxjAEuwdwN7UnnGN6atDHBNmzxwEFk2MGGkT.'
+readonly MIN_PASSWORD_LENGTH=8
 
 C_RESET=$'\033[0m'; C_DIM=$'\033[2m'; C_BOLD=$'\033[1m'
 C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_RED=$'\033[31m'
@@ -69,6 +86,38 @@ print($1 if ($1) is not None else '')
 
 TOKEN=""
 
+# run_sql executes one statement against the database the server runs on.
+#
+# DATABASE_URL first, since that is what scripts/dev.sh hands the server; then
+# the DB_* settings it posts to the wizard; and with no psql on the machine,
+# the psql inside the container scripts/dev.sh started.
+run_sql() {
+  if command -v psql >/dev/null 2>&1; then
+    if [[ -n "${DATABASE_URL:-}" ]]; then
+      psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qtAc "$1"
+    else
+      PGPASSWORD="${DB_PASSWORD:-metis}" psql -h "${DB_HOST:-127.0.0.1}" -p "${DB_PORT:-5473}" \
+        -U "${DB_USER:-metis}" -d "${DB_NAME:-metis_dev}" -v ON_ERROR_STOP=1 -qtAc "$1"
+    fi
+    return
+  fi
+  command -v container >/dev/null 2>&1 || return 1
+  container exec -i "${DB_CONTAINER:-metis-dev-pg}" \
+    psql -U "${DB_USER:-metis}" -d "${DB_NAME:-metis_dev}" -v ON_ERROR_STOP=1 -qtAc "$1"
+}
+
+# use_dev_password gives the administrator the development password.
+#
+# Also moves tokens_valid_from, as a password change through the server does,
+# so nothing signed in under the setup password outlives it.
+use_dev_password() {
+  local user="${ADMIN_USER//\'/\'\'}" changed
+  changed="$(run_sql "UPDATE users SET password_hash = '${DEV_ADMIN_HASH}', tokens_valid_from = now()
+                      WHERE username = '${user}' AND deleted_at IS NULL RETURNING 1")" \
+    || die "could not set the development password: no psql, and no ${DB_CONTAINER:-metis-dev-pg} container to run one in"
+  [[ "$changed" == "1" ]] || die "set up, but found no account called \"$ADMIN_USER\" to give the development password"
+}
+
 wait_for_server() {
   local waited=0
   # /readyz, not /health. The embedded UI is a catch-all, so an unknown path
@@ -104,6 +153,15 @@ ensure_configured() {
   # the server printed.
   [[ -n "${METIS_SETUP_TOKEN:-}" ]] || die "not set up yet: set METIS_SETUP_TOKEN to the setup token in the server's log"
   info "Running the setup wizard"
+  # The password the wizard is given. See DEV_ADMIN_HASH for why it is not
+  # always the one printed at the end.
+  local setup_pass="$ADMIN_PASS" dev_pass=0
+  if (( ${#ADMIN_PASS} < MIN_PASSWORD_LENGTH )); then
+    [[ "$ADMIN_PASS" == "$DEV_ADMIN_PASS" ]] \
+      || die "SAMPLE_ADMIN_PASS must be at least ${MIN_PASSWORD_LENGTH} characters (only \"${DEV_ADMIN_PASS}\" is let through, for development)"
+    setup_pass="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+    dev_pass=1
+  fi
   local key secret payload
   key="$(python3 -c 'import secrets,base64; print(base64.b64encode(secrets.token_bytes(32)).decode())')"
   secret="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
@@ -122,7 +180,7 @@ print(json.dumps({
     "db_username": sys.argv[7], "db_password": sys.argv[8], "db_name": sys.argv[9],
     "encryption_key": sys.argv[3], "jwt_secret": sys.argv[4],
     "setup_token": sys.argv[10],
-}))' "$ADMIN_USER" "$ADMIN_PASS" "$key" "$secret" \
+}))' "$ADMIN_USER" "$setup_pass" "$key" "$secret" \
        "${DB_HOST:-127.0.0.1}" "${DB_PORT:-5473}" \
        "${DB_USER:-metis}" "${DB_PASSWORD:-metis}" "${DB_NAME:-metis_dev}" \
        "$METIS_SETUP_TOKEN")"
@@ -130,6 +188,7 @@ print(json.dumps({
   local err
   err="$(api POST /setup "$payload" | json "d.get('error')")"
   [[ -z "$err" ]] || die "setup failed: $err"
+  (( dev_pass )) && use_dev_password
   ok "set up as ${C_BOLD}${ADMIN_USER}${C_RESET} / ${C_BOLD}${ADMIN_PASS}${C_RESET}"
 }
 
@@ -326,6 +385,21 @@ print(json.dumps({
 # --- main ------------------------------------------------------------------
 
 main() {
+  local setup_only=0
+  case "${1:-}" in
+    --setup-only) setup_only=1 ;;
+    "") ;;
+    *) die "unknown argument: $1 (the only one is --setup-only)" ;;
+  esac
+
+  if (( setup_only )); then
+    wait_for_server
+    ensure_configured
+    sign_in
+    ok "Sign in as ${C_BOLD}${ADMIN_USER}${C_RESET} / ${C_BOLD}${ADMIN_PASS}${C_RESET}"
+    return 0
+  fi
+
   info "Seeding a sample into the installation on :${API_PORT}"
   wait_for_server
   ensure_configured

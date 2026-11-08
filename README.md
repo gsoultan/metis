@@ -92,13 +92,19 @@ One command runs the backend and the UI together:
 - The Vite dev server proxies `/api` to the backend, so development is
   same-origin — the app talks to the server exactly as it does in production
 - Development secrets are generated once into `.env.development` (gitignored)
+- A fresh database is set up for you: sign in as **`admin` / `admin`**.
+  The server refuses passwords under eight characters, so the script sets the
+  installation up with a long random one and then writes the hash of `admin`
+  into the development database itself. Nothing in the server is changed by
+  it, and no other installation accepts `admin`
 - `Ctrl-C` stops both
 
 ```bash
 ./scripts/dev.sh backend    # backend only
 ./scripts/dev.sh ui         # UI only
-./scripts/dev.sh --reset    # wipe the local database and re-run setup
+./scripts/dev.sh --reset    # wipe the local database and set up admin / admin again
 ./scripts/dev.sh --sample   # set up and fill it with worked examples
+./scripts/dev.sh --wizard   # leave a fresh database to the setup wizard instead
 UI_PORT=3000 API_PORT=9000 GRPC_PORT=9001 ./scripts/dev.sh   # different ports
 ```
 
@@ -109,7 +115,7 @@ script uses it automatically when present:
 go install github.com/air-verse/air@latest
 ```
 
-Open the UI and the first run walks through the setup wizard. A server started
+Outside `scripts/dev.sh` (or with `--wizard`), the first run walks through the setup wizard. A server started
 with `DATABASE_URL`, `ENCRYPTION_KEY` and `JWT_SECRET` already has its database
 and keys, so the wizard asks only for the organization and first administrator
 and writes no `config.yaml`. Either way it closes once the database holds an
@@ -118,8 +124,8 @@ account.
 The wizard asks first for a **setup token**. A fresh server prints one in its
 log (`Metis is not set up yet … enter this setup token`), or takes the one in
 `METIS_SETUP_TOKEN`. Without it, whoever reached a new installation first
-would become its administrator. `scripts/dev.sh` chooses one for you and
-prints it beside the address.
+would become its administrator. `scripts/dev.sh` chooses one for you, and with
+`--wizard` prints it beside the address.
 
 Release notes are in [`CHANGELOG.md`](CHANGELOG.md). What to check before and during an upgrade — from GoBPM, or from one release to the next — is [`docs/upgrading.md`](docs/upgrading.md); how a release is rehearsed, tagged and verified is [`docs/releasing.md`](docs/releasing.md). Moving a project's processes and decisions from development to production — cut, import staged, go live, roll back — is [`docs/releases.md`](docs/releases.md).
 
@@ -148,7 +154,7 @@ Most of the settings below can also be changed after sign-in under **Settings �
 | `METIS_RELEASE_SIGNING_KEY` | An Ed25519 seed, 32 bytes base64 (`openssl rand -base64 32`), that this installation signs the releases it exports with. Unset, releases cannot be exported as files; moving one between environments of this installation needs nothing. See [Releases](docs/releases.md#between-installations). |
 | `METIS_RELEASE_TRUSTED_KEYS` | The Ed25519 public keys, base64 and comma-separated, of the installations whose release files this one imports. Unset, no release file is imported. A value that is not a key refuses every import until it is fixed. |
 | `METIS_PLATFORM_ADMINS` | The **platform administrators**: account ids, comma-separated, of the administrators who may change what every organization shares, on an installation with more than one organization — install, import, switch on or off and remove connector manifests; add, change and remove connector templates; and grant or take away a role held in every organization, including by creating or deleting an account that holds one. A manifest is installation-wide — a step in any organization that names its key runs it, with that organization's credentials — and a role on the account acts in every organization the account belongs to, so neither is any one organization's to change. Each listed account also needs the Administrator role held in every organization; a role granted in one organization never admits to any of this. Unset on such an installation, nobody may; an administrator who is refused is told their account id to pass on. An installation with one organization needs nothing set: its administrators of every organization may. Ids rather than usernames, because an administrator can rename accounts in their own organization. Roles granted in one organization are that organization's administrators' to change, and need nothing here — see *Roles: in one organization, or in every one* in [`docs/integration.md`](docs/integration.md#roles-in-one-organization-or-in-every-one). |
-| `METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE` | Let a connector manifest take the key of a connector built into Metis (`http-json`, `slack-message`, `email-smtp`, `sendgrid-email`, `discord-message`, `ms-teams-message`, `rabbitmq-publish`, `sql-query`, `fcm-push`). **Off by default**: such a manifest replaces the built-in in every step, in every organization, that uses it, so installing one is refused with a 400 naming the key. A manifest installed under a built-in's key before this setting existed keeps answering; removing it hands the key back to the built-in. |
+| `METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE` | Let a connector manifest take the key of a connector built into Metis (`http-json`, `slack-message`, `email-smtp`, `sendgrid-email`, `discord-message`, `ms-teams-message`, `rabbitmq-publish`, `sql-query`, `panmail-email`, `fcm-push`). **Off by default**: such a manifest replaces the built-in in every step, in every organization, that uses it, so installing one is refused with a 400 naming the key. A manifest installed under a built-in's key before this setting existed keeps answering; removing it hands the key back to the built-in. |
 | `METIS_SCRIPT_TIMEOUT` | Wall-clock budget for script tasks, gateway conditions and DMN cells (default `5s`). |
 | `METIS_SCRIPT_CONCURRENCY` | How many scripts may execute at once (default `4`, below `METIS_JOB_WORKERS`). The sandbox bounds a script's wall-clock time, recursion and host capability, and it cannot bound its memory — goja exposes no heap limit — so the quantity that *is* bounded is how many scripts allocate simultaneously. A slot is held until the script actually finishes, so a runaway that ignored its interrupt keeps being counted; when every slot is held, further scripts are refused with a message naming this variable rather than piling up. Set the container memory limit as the backstop ([`deploy/kubernetes/`](deploy/kubernetes/) uses `1Gi`): a pod the kernel kills is retried on its lease, a node that degrades is not. |
 | `METIS_MAX_EXECUTION_DEPTH` | Nodes traversed per synchronous execution before the engine refuses to continue (default `200`). |
@@ -325,8 +331,9 @@ SAMPLE_ADMIN_PASS='...' ./scripts/seed-sample.sh
 ### Signing in, and getting back in
 
 There is no default account. The administrator username and password are the
-ones typed into the setup wizard on first run — `admin/admin` works only if that
-is what you chose.
+ones typed into the setup wizard on first run. `admin/admin` is only what
+`scripts/dev.sh` gives a development database; the wizard and the API refuse a
+password that short.
 
 Signed-in users change their own password from **Profile → Change Password**,
 which asks for the current one — a session alone is not enough, so a stolen

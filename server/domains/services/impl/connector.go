@@ -206,6 +206,7 @@ func NewConnectorService(
 	s.executors[connectors.SlackConnectorKey] = connectors.NewSlackConnector()
 	s.executors[connectors.EmailConnectorKey] = connectors.NewEmailConnector()
 	s.executors[connectors.FCMConnectorKey] = connectors.NewFCMConnector(nil)
+	s.executors[connectors.PanmailConnectorKey] = connectors.NewPanmailConnector(nil)
 	s.executors[sqlconnector.Key] = sqlconnector.New()
 	s.executors[RabbitMQConnectorKey] = NewRabbitMQExecutor()
 
@@ -638,6 +639,21 @@ func (s *connectorService) EnsureDefaultConnectors(ctx context.Context) error {
 				{Key: "from", Label: "From Email", Type: "string", Required: true},
 			},
 		},
+		{
+			ID:          uuid.MustParse("018e1a1a-1a1a-7a1a-a1a1-1a1a1a1a1a22"),
+			Key:         connectors.PanmailConnectorKey,
+			Name:        "Panmail Email",
+			Description: "Send an email through a Panmail gateway",
+			Icon:        "Mail",
+			Type:        "messaging",
+			Schema: []entities.ConnectorProperty{
+				{Key: "url", Label: "Gateway URL", Type: "string", Required: true, Description: "The gateway's origin, such as https://mail.example.com"},
+				{Key: "api_key", Label: "API Key", Type: "password", Required: true, Description: "A Panmail API key with the email:send scope"},
+				{Key: "provider_id", Label: "Provider ID", Type: "string", Required: true, Description: "The provider's id from Panmail's Email Providers page"},
+				{Key: "from", Label: "From Email", Type: "string", Required: true},
+				{Key: "reply_to", Label: "Reply-To Email", Type: "string"},
+			},
+		},
 		sqlconnector.CatalogueEntry(),
 		connectors.FCMCatalogueEntry(),
 	}
@@ -979,5 +995,6 @@ func BuiltInConnectorKeys() []string {
 		"ms-teams-message",
 		sqlconnector.Key,
 		connectors.FCMConnectorKey,
+		connectors.PanmailConnectorKey,
 	}
 }
