@@ -7,12 +7,19 @@
 #   ./scripts/dev.sh backend      backend only
 #   ./scripts/dev.sh ui           UI only
 #   ./scripts/dev.sh --reset      drop and recreate the local database first
+#   ./scripts/dev.sh --wizard     leave a fresh install to the setup wizard
+#                                 instead of creating admin / admin
 #   ./scripts/dev.sh --sample     set up and fill it with worked examples:
 #                                 two processes, the decisions they consult,
 #                                 approvals waiting in an inbox, the people and
 #                                 groups they are offered to, and one instance
 #                                 that fails on purpose so the incident inbox
 #                                 has something in it
+#
+# A fresh installation is set up for you, with the administrator admin / admin
+# (development only: see scripts/seed-sample.sh for how, since the server
+# itself refuses a password that short). --wizard skips that, for working on
+# the wizard. An installation that is already set up is left as it is.
 #
 # The UI runs on :5273 and proxies /api to the backend on :8273, so
 # development is same-origin — the app talks to the server exactly as it does
@@ -535,6 +542,20 @@ start_sample() {
   run_prefixed "seed" "$C_YELLOW" "$ROOT/scripts/seed-sample.sh"
 }
 
+# Set a fresh installation up with admin / admin and nothing else in it.
+start_setup() {
+  run_prefixed "setup" "$C_YELLOW" "$ROOT/scripts/seed-sample.sh" --setup-only
+}
+
+# start_first_run runs whichever of the two this run asked for.
+start_first_run() {
+  if (( sample )); then
+    start_sample
+  elif (( ! wizard )); then
+    start_setup
+  fi
+}
+
 start_ui() {
   # Tells the Vite proxy where the backend actually is, so a non-default
   # API_PORT still works end to end.
@@ -549,7 +570,7 @@ start_ui() {
 # --- main ------------------------------------------------------------------
 
 main() {
-  local target="all" reset=0 sample=0 arg
+  local target="all" reset=0 sample=0 wizard=0 arg
   for arg in "$@"; do
     case "$arg" in
       backend|api) target="backend" ;;
@@ -557,7 +578,8 @@ main() {
       all) target="all" ;;
       --reset) reset=1 ;;
       --sample|--samples|--seed) sample=1 ;;
-      -h|--help) sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+      --wizard) wizard=1 ;;
+      -h|--help) sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
       *) die "unknown argument: $arg (try --help)" ;;
     esac
   done
@@ -596,16 +618,17 @@ main() {
   case "$target" in
     backend) STARTED_PORTS=("$API_PORT" "$GRPC_PORT")
              start_backend
-             (( sample )) && start_sample
+             start_first_run
              ;;
     ui)      STARTED_PORTS=("$UI_PORT");               start_ui ;;
     all)     STARTED_PORTS=("$API_PORT" "$GRPC_PORT" "$UI_PORT")
              start_backend
-             (( sample )) && start_sample
+             start_first_run
              start_ui
              printf '\n'
-             if (( sample )); then
+             if (( sample || ! wizard )); then
                ok "Open ${C_BOLD}http://localhost:${UI_PORT}${C_RESET} — sign in as admin / admin"
+               (( sample )) || printf '%s     Empty? Ctrl-C, then: ./scripts/dev.sh --sample%s\n' "$C_DIM" "$C_RESET"
              else
                ok "Open ${C_BOLD}http://localhost:${UI_PORT}${C_RESET} — first run shows the setup wizard"
                printf '%s     Its setup token: %s%s\n' "$C_DIM" "$METIS_SETUP_TOKEN" "$C_RESET"
