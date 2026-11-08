@@ -1,6 +1,8 @@
 import { API_BASE_URL } from "../shared/config";
-import { getAuthHeaders } from "../shared/auth";
-import { requestJSON } from "../shared/rest";
+import { getAuthHeaders, getAuthToken } from "../shared/auth";
+import { statusMessage } from "../shared/errors";
+import { RequestError, requestJSON } from "../shared/rest";
+import { reportSessionRefused } from "../shared/sessionRefusal";
 import { raiseIfRefused } from "../raise";
 import type { ImportSummary, Participant } from "../../domain/participantImport";
 import type { PersonDevice } from "./peopleService";
@@ -69,15 +71,17 @@ export const participantService = {
       form.append("file", source.file);
       // Not requestJSON: it sets a JSON content type, and multipart needs the
       // browser to set its own boundary.
+      const token = getAuthToken();
       const response = await fetch(`${API_BASE_URL}/participants/import`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: form,
         signal,
       });
+      if (response.status === 401) reportSessionRefused(token);
       const body = (await response.json().catch(() => ({}))) as ImportParticipantsResponse;
       if (!response.ok) {
-        throw new Error(body.err || `Import failed (${response.status})`);
+        throw new RequestError(body.err || statusMessage(response.status), response.status);
       }
       return raiseIfRefused(body) as ImportSummary;
     }

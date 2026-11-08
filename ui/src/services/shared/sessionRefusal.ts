@@ -10,9 +10,15 @@
  * decides what to do about it (see endSessionOnRefusal). The token is passed
  * so a refusal of a token that is no longer the session's — a slow request
  * sent before the person signed in again — does not sign out the new session.
+ *
+ * A request can also be refused for carrying no token at all while this tab
+ * still believes it is signed in: the person signed out, or was signed out, in
+ * another tab, which empties the storage every tab reads the token from but
+ * not this tab's copy of the store. Every page then answered "Unauthorized"
+ * and stayed put. That is reported too, with `null` for the token.
  */
 
-type RefusalListener = (tokenSent: string) => void;
+type RefusalListener = (tokenSent: string | null) => void;
 
 let listener: RefusalListener | null = null;
 
@@ -24,8 +30,11 @@ export function onSessionRefused(next: RefusalListener): () => void {
   };
 }
 
-/** Called by a transport when a request carrying `tokenSent` came back 401 / unauthenticated. */
-export function reportSessionRefused(tokenSent: string): void {
+/**
+ * Called by a transport when a request came back 401 / unauthenticated, with
+ * the token it carried, or null when it carried none.
+ */
+export function reportSessionRefused(tokenSent: string | null): void {
   listener?.(tokenSent);
 }
 
@@ -39,11 +48,16 @@ interface SessionStore {
  * A dozen queries fail together when a token expires. The first refusal
  * clears the token; the rest find it already gone, or replaced by a new
  * sign-in, and do nothing.
+ *
+ * A refusal of a request that carried no token ends the session only when this
+ * tab still holds one: the token was taken out of storage under it. With none
+ * held there is no session to end — the request belonged to a page that does
+ * not need one, such as a People page, which signs in on its own.
  */
 export function endSessionOnRefusal(store: SessionStore, goToSignIn: () => void): RefusalListener {
   return (tokenSent) => {
     const { token, clearAuth } = store.getState();
-    if (!token || token !== tokenSent) {
+    if (!token || (tokenSent !== null && token !== tokenSent)) {
       return;
     }
     clearAuth();

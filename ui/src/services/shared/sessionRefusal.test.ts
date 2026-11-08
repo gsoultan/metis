@@ -106,3 +106,39 @@ describe("a token the server no longer accepts", () => {
     expect(stub.sent.length).toBe(1);
   });
 });
+
+describe("a request refused for carrying no token", () => {
+  let restore = () => {};
+  let stopListening = () => {};
+  afterEach(() => {
+    restore();
+    stopListening();
+  });
+
+  test("ends a session another tab already signed out of", async () => {
+    const store = signedIn();
+    let sentToSignIn = 0;
+    stopListening = onSessionRefused(endSessionOnRefusal(store, () => { sentToSignIn += 1; }));
+    ({ restore } = stubFetch({ error: "Unauthorized" }, 401));
+    // The other tab's sign-out emptied the storage this tab reads its token from.
+    (globalThis as { localStorage?: Pick<Storage, "getItem"> }).localStorage = { getItem: () => null };
+
+    await Promise.allSettled([requestJSON("/tasks"), organizationClient.listOrganizations({})]);
+
+    expect(store.getState().token).toBeNull();
+    expect(sentToSignIn).toBe(1);
+  });
+
+  test("does nothing when nobody is signed in here", async () => {
+    const store = signedIn();
+    store.setState({ token: null });
+    let sentToSignIn = 0;
+    stopListening = onSessionRefused(endSessionOnRefusal(store, () => { sentToSignIn += 1; }));
+    ({ restore } = stubFetch({ error: "Unauthorized" }, 401));
+    (globalThis as { localStorage?: Pick<Storage, "getItem"> }).localStorage = { getItem: () => null };
+
+    await expect(requestJSON("/tasks")).rejects.toThrow();
+
+    expect(sentToSignIn).toBe(0);
+  });
+});

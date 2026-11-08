@@ -35,7 +35,15 @@ export const transport = createConnectTransport({
     (next) => async (req) => {
       const token = getAuthToken();
       if (!token) {
-        return next(req);
+        try {
+          return await next(req);
+        } catch (error) {
+          // Sent with no token while this tab may still think it is signed in.
+          if (ConnectError.from(error).code === Code.Unauthenticated) {
+            reportSessionRefused(null);
+          }
+          throw error;
+        }
       }
       req.header.set("Authorization", `Bearer ${token}`);
       // Every call but the list of organizations names the one being worked
