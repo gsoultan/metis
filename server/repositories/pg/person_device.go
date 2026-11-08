@@ -2,7 +2,9 @@ package pg
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
@@ -10,6 +12,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/store/persondevice"
+	"github.com/gsoultan/storm/runtime"
 )
 
 // tokenTailLength is how much of a device token a list shows.
@@ -132,6 +135,31 @@ func (r *personDeviceRepository) removeWhere(ctx context.Context, preds ...perso
 	}
 	if err := persondevice.Delete(ctx, ex, row.ID); err != nil {
 		return fmt.Errorf("could not remove the device: %w", err)
+	}
+	return nil
+}
+
+func (r *personDeviceRepository) Forget(ctx context.Context, id uuid.UUID) error {
+	ex, err := r.conn.MainExecutor(ctx)
+	if err != nil {
+		return err
+	}
+	if err := persondevice.Delete(ctx, ex, id); err != nil && !errors.Is(err, runtime.ErrNoRow) {
+		return fmt.Errorf("could not forget the device: %w", err)
+	}
+	return nil
+}
+
+func (r *personDeviceRepository) MarkSent(ctx context.Context, id uuid.UUID, at time.Time) error {
+	ex, err := r.conn.MainExecutor(ctx)
+	if err != nil {
+		return err
+	}
+	// Only the one column, keyed by id: a device removed meanwhile stays removed.
+	mut := persondevice.MutateKey(id)
+	mut.SetLastSentAt(at.UTC())
+	if err := mut.Update(ctx, ex); err != nil && !errors.Is(err, runtime.ErrNoRow) {
+		return fmt.Errorf("could not record the push: %w", err)
 	}
 	return nil
 }

@@ -10,6 +10,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Metis sends pushes to a person's devices.** The server can now push to
+  every device a person registered in their project, through the project's
+  Firebase connection marked "Use for push" (the newest, if several are). A
+  device Firebase reports gone is removed; a refused service account stops
+  the send and is reported; nobody to reach (no connection, no devices) is an
+  answer rather than an error, so a caller can fall back to email. Each send
+  records the device's last push. Nothing is written to the notifications
+  table. Approval reminders and push templates use this; nothing calls it on
+  its own yet.
 - **People register their phones for push notifications.** A person's app
   registers the device the Firebase SDK gave it a token for, with their
   People sign-in or one of their API keys: `POST /api/v1/people/devices`

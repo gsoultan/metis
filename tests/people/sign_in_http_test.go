@@ -57,7 +57,7 @@ func newWorld(t *testing.T) world {
 		impl.NewWorkflowUserService(pg.NewWorkflowUserRepository(conn)), nil, nil,
 		services.WithPeopleSignIn(impl.NewPeopleSignInService(pg.NewPersonSignInRepository(conn), keys,
 			impl.WithPersonAPIKeys(pg.NewPersonAPIKeyRepository(conn)))),
-		services.WithPersonDevices(impl.NewPersonDeviceService(pg.NewPersonDeviceRepository(conn))))
+		services.WithPersonDevices(pg.NewPersonDeviceRepository(conn)))
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, conn)
 
 	system := entities.WithSystemContext(t.Context())
