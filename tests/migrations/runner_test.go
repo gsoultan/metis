@@ -10,6 +10,7 @@ package migrations_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -161,9 +162,9 @@ func TestAFailingStepIsRolledBackAndStopsTheRun(t *testing.T) {
 	}
 }
 
-// A database with only some of GORM's migrations cannot be brought forward
-// from here, and is told how to get there.
-func TestADatabaseOlderThanGORMsLastVersionIsRefused(t *testing.T) {
+// A database that stopped before the oldest GORM version the conversion starts
+// from cannot be brought forward from here, and is told how to get there.
+func TestADatabaseOlderThanTheOldestConvertibleIsRefused(t *testing.T) {
 	pool := testutils.EmptySchema(t)
 	ctx := t.Context()
 	if _, err := migrations.Run(ctx, pool, nil); err != nil {
@@ -174,10 +175,11 @@ func TestADatabaseOlderThanGORMsLastVersionIsRefused(t *testing.T) {
 		t.Fatalf("forget the creation: %v", err)
 	}
 	old := schemamigration.Create()
-	old.SetVersion(30)
+	older := int64(migrations.OldestConvertible - 1)
+	old.SetVersion(older)
 	old.SetName("an older release")
 	if _, err := old.Insert(ctx, ex); err != nil {
-		t.Fatalf("record version 30: %v", err)
+		t.Fatalf("record version %d: %v", older, err)
 	}
 	before := tables(t, pool)
 
@@ -190,14 +192,17 @@ func TestADatabaseOlderThanGORMsLastVersionIsRefused(t *testing.T) {
 	if !errors.Is(err, migrations.ErrBeforeBaseline) {
 		t.Fatalf("run: %v; want ErrBeforeBaseline", err)
 	}
-	if !strings.Contains(err.Error(), "version 30") {
+	if !strings.Contains(err.Error(), fmt.Sprintf("version %d,", older)) {
 		t.Errorf("the refusal does not say where the database is: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Metis "+migrations.LastGORMRelease) {
+		t.Errorf("the refusal does not name the release to climb on: %v", err)
 	}
 	if ran {
 		t.Error("a step ran against a database the runner refused")
 	}
-	if got := versions(t, pool); !slices.Equal(got, []int64{30}) {
-		t.Errorf("recorded %v; want it left at 30", got)
+	if got := versions(t, pool); !slices.Equal(got, []int64{older}) {
+		t.Errorf("recorded %v; want it left at %d", got, older)
 	}
 	if after := tables(t, pool); !slices.Equal(before, after) {
 		t.Errorf("the tables changed: %v, then %v", before, after)

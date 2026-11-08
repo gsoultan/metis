@@ -25,8 +25,8 @@ import (
 // rather than hangs.
 const lockWait = 5 * time.Minute
 
-// ErrBeforeBaseline is a database that has some of GORM's migrations and not
-// all of them.
+// ErrBeforeBaseline is a database that stopped before OldestConvertible, at a
+// GORM version the conversion cannot start from.
 var ErrBeforeBaseline = errors.New("this database is older than the oldest schema this release can upgrade")
 
 // ErrUnknownDatabase is a database with the product's tables and no migration
@@ -48,8 +48,8 @@ type Result struct {
 // Run brings the database the pool reaches up to the last of steps.
 //
 // An empty database is created from the model and recorded at
-// ConvertedVersion. One GORM left at GORMVersion is converted to the model
-// first. One recorded at ConvertedVersion or later has every step it has not
+// ConvertedVersion. One GORM left at OldestConvertible or later is converted to
+// the model first. One recorded at ConvertedVersion or later has every step it has not
 // had applied, in version order, each in its own transaction with its record.
 // Anything else is refused, and nothing is changed.
 //
@@ -74,10 +74,11 @@ func Run(ctx context.Context, pool *pgxpool.Pool, steps []Migration) (Result, er
 			return Result{}, err
 		}
 		result.Created = true
-	case last < GORMVersion:
-		return Result{}, fmt.Errorf("%w: it is at version %d. Upgrade it with the last release that still "+
-			"has the migrations up to version %d, start that once so it applies them, then start this one",
-			ErrBeforeBaseline, last, GORMVersion)
+	case last < OldestConvertible:
+		return Result{}, fmt.Errorf("%w: it is at version %d, and this release starts from version %d or later. "+
+			"Start Metis %s against it once, which takes it to version %d, then start this release; "+
+			"nothing has been changed",
+			ErrBeforeBaseline, last, OldestConvertible, LastGORMRelease, GORMVersion)
 	case !slices.Contains(recorded, ConvertedVersion):
 		if err := shape(ctx, pool, namespace, acceptConversion, convertedName); err != nil {
 			return Result{}, fmt.Errorf("convert the database to the storm model's tables: %w", err)

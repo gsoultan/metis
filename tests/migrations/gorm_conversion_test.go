@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -36,6 +37,14 @@ var gormV49 []byte
 // rows the conversion has to carry across.
 func gormDatabase(t *testing.T, rows ...string) *pgxpool.Pool {
 	t.Helper()
+	return gormDatabaseAt(t, migrations.GORMVersion, rows...)
+}
+
+// gormDatabaseAt is a database GORM stopped at version: the last release's
+// tables with what the versions after it added taken away again, and a record
+// of versions 1 to version.
+func gormDatabaseAt(t *testing.T, version int64, rows ...string) *pgxpool.Pool {
+	t.Helper()
 	var shape schema.Schema
 	if err := json.Unmarshal(gormV49, &shape); err != nil {
 		t.Fatalf("read the GORM schema: %v", err)
@@ -45,17 +54,46 @@ func gormDatabase(t *testing.T, rows ...string) *pgxpool.Pool {
 	if _, err := migrate.AutoPool(ctx, pool, &shape, migrate.AutoOptions{Schema: db.Namespace(pool)}); err != nil {
 		t.Fatalf("create GORM's tables: %v", err)
 	}
-	// Migration 49, the last GORM release's, made the server settings by hand
-	// rather than from GORM's models, so its table is not in the snapshot.
-	rows = append(installationSettingsV49[:len(installationSettingsV49):len(installationSettingsV49)], rows...)
-	rows = append(rows, `INSERT INTO schema_migrations (version, name, applied_at, duration_ms)
-		SELECT v, 'gorm ' || v, now(), 1 FROM generate_series(1, 49) AS v`)
+	var setup []string
+	for v := int64(migrations.GORMVersion); v > version; v-- {
+		undo, ok := gormUndo[v]
+		if !ok {
+			t.Fatalf("no way to take version %d away again", v)
+		}
+		setup = append(setup, undo...)
+	}
+	if version >= migrations.GORMVersion {
+		// Migration 49, the last GORM release's, made the server settings by
+		// hand rather than from GORM's models, so its table is not in the
+		// snapshot.
+		setup = append(setup, installationSettingsV49...)
+	}
+	rows = append(setup, rows...)
+	rows = append(rows, fmt.Sprintf(`INSERT INTO schema_migrations (version, name, applied_at, duration_ms)
+		SELECT v, 'gorm ' || v, now(), 1 FROM generate_series(1, %d) AS v`, version))
 	for _, row := range rows {
 		if _, err := pool.Exec(ctx, row); err != nil {
 			t.Fatalf("write as GORM did: %v\n%s", err, row)
 		}
 	}
 	return pool
+}
+
+// gormUndo takes away what each of GORM's later versions added to the tables,
+// so a database can be made as it stood before that version ran. The GORM
+// releases never wrote the roles as jsonb before 49: as text, the JSON array
+// in characters, and the empty string for none.
+var gormUndo = map[int64][]string{
+	49: {
+		`ALTER TABLE users ALTER COLUMN roles TYPE text USING roles::text`,
+		`ALTER TABLE groups ALTER COLUMN roles TYPE text USING roles::text`,
+	},
+	48: {`DROP TABLE person_api_keys`},
+	47: {`DROP TABLE task_links`},
+	46: {`ALTER TABLE audit_logs DROP COLUMN actor`},
+	45: {`DROP TABLE batch_operation_items`, `DROP TABLE batch_operations`},
+	44: {`ALTER TABLE jobs DROP COLUMN organization_id`},
+	43: {`DROP TABLE simulation_cases`},
 }
 
 // installationSettingsV49 is the table migration 49 made, as it made it.
@@ -194,6 +232,55 @@ func TestAConversionThatMeetsANullReferenceChangesNothing(t *testing.T) {
 	var unknown *migrate.DestructiveError
 	if errors.As(err, &unknown) {
 		t.Fatalf("the conversion was refused as a plan rather than failing on the row: %v", err)
+	}
+}
+
+// A database GORM stopped short of its last version, at any version from
+// OldestConvertible on, is converted as one at the last version is: what the
+// versions it missed added is built from the model, its roles held as text
+// become jsonb, and nothing has to be climbed on an older release first.
+func TestADatabaseGORMStoppedShortOfItsLastVersionIsConverted(t *testing.T) {
+	for _, version := range []int64{migrations.OldestConvertible, 48} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			const account = "0190a3c1-0000-7000-8000-000000000008"
+			const noRoles = "0190a3c1-0000-7000-8000-000000000009"
+			rows := append(append([]string{}, gormRows[1:]...),
+				`INSERT INTO users (id, created_at, updated_at, username, roles)
+					VALUES ('`+account+`', now(), now(), 'ada', '["admin"]')`,
+				`INSERT INTO users (id, created_at, updated_at, username, roles)
+					VALUES ('`+noRoles+`', now(), now(), 'bob', '')`)
+			pool := gormDatabaseAt(t, version, rows...)
+			ctx := t.Context()
+
+			result, err := migrations.Run(ctx, pool, nil)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			if !result.Converted {
+				t.Fatalf("result %+v; want the database converted", result)
+			}
+			want, err := migrations.Target()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if drift := driftFrom(t, pool, want); len(drift) != 0 {
+				t.Errorf("a converted database still differs from the model:\n%s", strings.Join(drift, "\n"))
+			}
+			if got := versions(t, pool); int64(len(got)) != version+1 || got[len(got)-1] != migrations.ConvertedVersion {
+				t.Fatalf("recorded %v; want 1 to %d and the conversion", got, version)
+			}
+			var roles, none *string
+			if err := pool.QueryRow(ctx, `SELECT (SELECT roles::text FROM users WHERE id = $1), (SELECT roles::text FROM users WHERE id = $2)`,
+				account, noRoles).Scan(&roles, &none); err != nil {
+				t.Fatalf("read the roles: %v", err)
+			}
+			if roles == nil || *roles != `["admin"]` {
+				t.Errorf("the account's roles read %v, want [\"admin\"] carried across", roles)
+			}
+			if none != nil && *none != "null" {
+				t.Errorf("the account with no roles reads %q, want none", *none)
+			}
+		})
 	}
 }
 

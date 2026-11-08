@@ -21,9 +21,30 @@ import (
 	"github.com/gsoultan/storm/schema"
 )
 
-// GORMVersion is the last version the GORM releases recorded. A database at
-// it is converted to the model's shape; one before it is refused.
+// GORMVersion is the last version the GORM releases recorded.
 const GORMVersion = 49
+
+// OldestConvertible is the oldest GORM version the conversion starts from. A
+// database at it or later is converted to the model's shape; one before it is
+// refused.
+//
+// Not GORMVersion, because what 43 to 49 did the conversion does again: each
+// added a table (simulation cases, batch operations, task links, personal API
+// keys, server settings), a nullable column (a job's organization, an audit
+// entry's actor) or an index, or made text JSON jsonb (an account's and a
+// group's roles). The conversion builds whatever the model declares and the
+// database lacks, and makes text JSON jsonb in every column, so a database
+// that stopped at any of them ends where one that had all of them does. 42 is
+// the floor because it sealed every webhook secret with the encryption key,
+// which is work on rows and not a shape the model can describe.
+//
+// Moving it lower takes that same argument for each version it passes, and a
+// test that converts a database stopped there.
+const OldestConvertible = 42
+
+// LastGORMRelease is the last release that kept the schema with GORM and
+// still applies every version up to GORMVersion.
+const LastGORMRelease = "0.6.0"
 
 // ConvertedVersion is the database in the model's shape: converted from
 // GORMVersion, or created that way.
