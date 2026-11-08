@@ -4,6 +4,7 @@ import './App.css'
 import { routerFallbacks } from './routerFallbacks'
 import { useAppStore } from './store/useAppStore'
 import { endSessionOnRefusal, onSessionRefused } from './services/shared/sessionRefusal'
+import { isSignInPage } from './domain/signInReturn'
 
 // The router used to be handed the whole app store as `context.auth` from a
 // component that subscribed to all of it — so every store write, a sidebar
@@ -21,9 +22,12 @@ declare module '@tanstack/react-router' {
 }
 
 // A token the server no longer accepts ends the session here, the same way the
-// sign-out item does — see services/shared/sessionRefusal.
+// sign-out item does — see services/shared/sessionRefusal. The sign-in page
+// says why, and signing in returns to the page the person was on.
 onSessionRefused(endSessionOnRefusal(useAppStore, () => {
-  void router.navigate({ to: '/login', search: { redirect: router.state.location.href } })
+  const { pathname, href } = router.state.location
+  if (isSignInPage(pathname)) return
+  void router.navigate({ to: '/login', search: { redirect: href, reason: 'expired' } })
 }))
 
 function App() {

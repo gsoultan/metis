@@ -80,3 +80,53 @@ describe('a refusal kept for a log', () => {
     );
   });
 });
+
+/*
+ * The auth middleware answers a missing or expired session with http.Error's
+ * bare "Unauthorized", and a request that never left the browser fails with
+ * "Failed to fetch". Both were shown as they were.
+ */
+describe('a failure the server did not explain', () => {
+  it('says the session ended for a bare or Connect 401', async () => {
+    const { RequestError } = await import('./rest');
+    expect(errorMessage(new RequestError('Unauthorized', 401))).toBe('Your session has ended. Sign in again to continue.');
+    expect(errorMessage(new ConnectError('token expired', Code.Unauthenticated))).toBe(
+      'Your session has ended. Sign in again to continue.',
+    );
+  });
+
+  it('keeps a 401 that explains itself, such as a wrong current password', async () => {
+    const { RequestError } = await import('./rest');
+    expect(errorMessage(new RequestError('invalid credentials', 401))).toBe('invalid credentials');
+  });
+
+  it('says the server cannot be reached when the request never arrived', () => {
+    for (const words of ['Failed to fetch', 'NetworkError when attempting to fetch resource.', 'Load failed']) {
+      expect(errorMessage(new TypeError(words))).toContain("can't be reached");
+    }
+    expect(errorMessage(new ConnectError('Failed to fetch', Code.Unknown))).toContain("can't be reached");
+    expect(errorMessage(new ConnectError('upstream connect error', Code.Unavailable))).toContain("can't be reached");
+  });
+
+  it('replaces a status name with what it means', async () => {
+    const { RequestError } = await import('./rest');
+    expect(errorMessage(new RequestError('Forbidden', 403))).toContain("don't have permission");
+    expect(errorMessage(new RequestError('Internal Server Error', 500))).toContain('went wrong on the server');
+    expect(errorMessage(new RequestError('', 404))).toContain("couldn't find");
+  });
+
+  it("keeps the server's own explanation", async () => {
+    const { RequestError } = await import('./rest');
+    expect(errorMessage(new RequestError('forbidden: this needs the ADMIN role', 403))).toBe('this needs the ADMIN role');
+    expect(errorMessage(new RequestError('the definition has no start event', 400))).toBe('the definition has no start event');
+  });
+
+  it('leaves an error that is not a reply alone', () => {
+    expect(errorMessage(new Error('Unauthorized'))).toBe('Unauthorized');
+  });
+
+  it('keeps the technical detail for whoever asks for it', async () => {
+    const { RequestError } = await import('./rest');
+    expect(errorDetail(new RequestError('Unauthorized', 401))).toBe('Unauthorized');
+  });
+});

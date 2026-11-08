@@ -1,6 +1,7 @@
 import { API_BASE_URL } from "./config";
 import { getAuthHeaders, getAuthToken } from "./auth";
 import { reportSessionRefused } from "./sessionRefusal";
+import { statusMessage } from "./errors";
 
 type RequestOptions = {
   method?: string;
@@ -26,14 +27,6 @@ export class RequestError extends Error {
   }
 }
 
-const toErrorMessage = (statusText: string, fallback: string) => {
-  if (statusText) {
-    return statusText;
-  }
-
-  return fallback;
-};
-
 export const requestJSON = async <T>(path: string, options: RequestOptions = {}): Promise<T> => {
   const { method = "GET", body, signal, headers = {}, auth = true, checksCredentials = false } = options;
 
@@ -54,9 +47,11 @@ export const requestJSON = async <T>(path: string, options: RequestOptions = {})
     signal,
   });
 
-  // Only a request that carried the session's token can say the session is
-  // over: /login and /setup send none, and a wrong password there is a 401 too.
-  if (response.status === 401 && token && !checksCredentials) {
+  // Only a request that asked for the session can say the session is over:
+  // /login and /setup do not (auth: false), and a wrong password there is a
+  // 401 too. One that asked and found no token says the token was taken out
+  // from under this tab — see sessionRefusal.
+  if (response.status === 401 && auth && !checksCredentials) {
     reportSessionRefused(token);
   }
 
@@ -66,9 +61,12 @@ export const requestJSON = async <T>(path: string, options: RequestOptions = {})
 
   const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok) {
-    const errorMessage = typeof data.error === "string"
+    // A reply with no words of its own — http.Error's plain-text "Unauthorized",
+    // a proxy's HTML error page — is described by its status, in plain words,
+    // not by the status line ("Unauthorized", "Request failed").
+    const errorMessage = typeof data.error === "string" && data.error.trim() !== ""
       ? data.error
-      : toErrorMessage(response.statusText, "Request failed");
+      : statusMessage(response.status);
     throw new RequestError(errorMessage, response.status);
   }
 
