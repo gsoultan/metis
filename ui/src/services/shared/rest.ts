@@ -1,7 +1,6 @@
 import { API_BASE_URL } from "./config";
 import { getAuthHeaders, getAuthToken } from "./auth";
 import { reportSessionRefused } from "./sessionRefusal";
-import { statusMessage } from "./errors";
 
 type RequestOptions = {
   method?: string;
@@ -62,11 +61,12 @@ export const requestJSON = async <T>(path: string, options: RequestOptions = {})
   const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok) {
     // A reply with no words of its own — http.Error's plain-text "Unauthorized",
-    // a proxy's HTML error page — is described by its status, in plain words,
-    // not by the status line ("Unauthorized", "Request failed").
+    // a proxy's HTML error page — keeps only its status line. errorMessage()
+    // turns that, by the status, into plain words; it is not imported here
+    // because this module is on the first paint and those words are not.
     const errorMessage = typeof data.error === "string" && data.error.trim() !== ""
       ? data.error
-      : statusMessage(response.status);
+      : response.statusText;
     throw new RequestError(errorMessage, response.status);
   }
 
