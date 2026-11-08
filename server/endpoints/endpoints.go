@@ -293,6 +293,11 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// Removing somebody takes the same role importing does — they are the same
 	// act in opposite directions, and the removal is reversible by an import.
 	participantEndpoints.RemoveParticipant = designer("RemoveParticipant")(participantEndpoints.RemoveParticipant)
+	// A person's devices say where they can be reached, so who sees and
+	// removes them is who manages the directory, not everybody who reads it.
+	participantEndpoints.ListDevices = designer("ListParticipantDevices")(participantEndpoints.ListDevices)
+	participantEndpoints.DeviceCounts = designer("CountParticipantDevices")(participantEndpoints.DeviceCounts)
+	participantEndpoints.RemoveDevice = designer("RemoveParticipantDevice")(participantEndpoints.RemoveDevice)
 
 	// A directory source holds a connection string or an endpoint token, so
 	// every operation on one is administrative — reading the list included,
@@ -540,6 +545,11 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	peopleEndpoints.ListAPIKeys = person("ListPersonAPIKeys")(peopleEndpoints.ListAPIKeys)
 	peopleEndpoints.CreateAPIKey = person("CreatePersonAPIKey")(peopleEndpoints.CreateAPIKey)
 	peopleEndpoints.RevokeAPIKey = person("RevokePersonAPIKey")(peopleEndpoints.RevokeAPIKey)
+	// A person's own app registers their phone with their API key, so these
+	// take a key as a sign-in does; each acts only on the person it names.
+	peopleEndpoints.ListDevices = person("ListPersonDevices")(peopleEndpoints.ListDevices)
+	peopleEndpoints.RegisterDevice = person("RegisterPersonDevice")(peopleEndpoints.RegisterDevice)
+	peopleEndpoints.RemoveDevice = person("RemovePersonDevice")(peopleEndpoints.RemoveDevice)
 	userEndpoints.ListUsers = protected("ListUsers")(userEndpoints.ListUsers)
 	// Self-service, so protected rather than adminOnly: changing your own
 	// password is the one thing here every account must be able to do. It was

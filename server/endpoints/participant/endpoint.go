@@ -24,6 +24,9 @@ type Endpoints struct {
 	ListStrandedTasks      endpoint.Endpoint
 	ListHeldTasks          endpoint.Endpoint
 	SetParticipantActive   endpoint.Endpoint
+	ListDevices            endpoint.Endpoint
+	DeviceCounts           endpoint.Endpoint
+	RemoveDevice           endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -38,6 +41,9 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		ListStrandedTasks:      MakeListStrandedTasksEndpoint(s),
 		ListHeldTasks:          MakeListHeldTasksEndpoint(s),
 		SetParticipantActive:   MakeSetParticipantActiveEndpoint(s),
+		ListDevices:            MakeListParticipantDevicesEndpoint(s),
+		DeviceCounts:           MakeDeviceCountsEndpoint(s),
+		RemoveDevice:           MakeRemoveParticipantDeviceEndpoint(s),
 	}
 }
 

@@ -80,6 +80,7 @@ func RegisterHandlers(m *http.ServeMux, eps people.Endpoints, options []httptran
 		common.EncodeResponse,
 		options...,
 	))
+	registerDeviceHandlers(m, eps, options)
 	// POST, both of them. Mail scanners open every link in a message, and
 	// opening a link must never act on a task; the read changes nothing, and
 	// the token travels in the body, out of every access log.

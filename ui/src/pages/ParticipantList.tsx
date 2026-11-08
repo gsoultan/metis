@@ -19,6 +19,9 @@ import { useState, useTransition } from 'react';
 
 import { PageHeader } from '../components/PageHeader';
 import { ParticipantActivation } from '../components/ParticipantActivation';
+import { DeviceCount } from '../components/DeviceCount';
+import { ParticipantDevices } from '../components/ParticipantDevices';
+import { useDeviceCounts } from '../hooks/useParticipantDevices';
 import { ParticipantImportModal } from '../components/ParticipantImportModal';
 import { ParticipantSources } from '../components/ParticipantSources';
 import { PeopleSwitchOver } from '../components/PeopleSwitchOver';
@@ -65,6 +68,8 @@ export function ParticipantList() {
   const { t } = useTranslation();
   const isAdmin = useAppStore((state) => hasRole(state.user, PRIVILEGED_ROLE));
   const isDesigner = useAppStore((state) => hasRole(state.user, PRIVILEGED_ROLE) || hasRole(state.user, 'DESIGNER'));
+  const deviceCounts = useDeviceCounts(isDesigner);
+  const [devicesOf, setDevicesOf] = useState<{ id: string; name: string } | null>(null);
   const projectId = useAppStore((state) => state.currentProjectId);
   const signInAddress = projectId ? `${window.location.origin}/p/?project=${encodeURIComponent(projectId)}` : '';
   const { data, isLoading, error, refetch } = useParticipants();
@@ -182,6 +187,7 @@ export function ParticipantList() {
                   <Table.Th>Email</Table.Th>
                   <Table.Th>Teams</Table.Th>
                   <Table.Th>Standing</Table.Th>
+                  {isDesigner && <Table.Th>Phones for push</Table.Th>}
                   <Table.Th ta="right">Actions</Table.Th>
                 </Table.Tr>
               </Table.Thead>
@@ -224,6 +230,15 @@ export function ParticipantList() {
                           </Badge>
                         </Tooltip>
                       </Table.Td>
+                      {isDesigner && (
+                        <Table.Td>
+                          <DeviceCount
+                            count={deviceCounts.data?.[person.id] ?? 0}
+                            loading={deviceCounts.isLoading}
+                            onOpen={() => setDevicesOf({ id: person.id, name: person.display_name || person.username })}
+                          />
+                        </Table.Td>
+                      )}
                       <Table.Td ta="right">
                         <Group gap={4} justify="flex-end" wrap="nowrap">
                           <Tooltip label="Set the password they sign in to their tasks with">
@@ -350,6 +365,7 @@ export function ParticipantList() {
       </Modal>
 
       <ParticipantActivation person={activatingPerson} onClose={() => setActivating(null)} />
+      <ParticipantDevices person={devicesOf} onClose={() => setDevicesOf(null)} />
 
       <ParticipantImportModal
         opened={importOpen}

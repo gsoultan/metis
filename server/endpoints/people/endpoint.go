@@ -30,6 +30,9 @@ type Endpoints struct {
 	ListAPIKeys        endpoint.Endpoint
 	CreateAPIKey       endpoint.Endpoint
 	RevokeAPIKey       endpoint.Endpoint
+	ListDevices        endpoint.Endpoint
+	RegisterDevice     endpoint.Endpoint
+	RemoveDevice       endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -46,6 +49,9 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		ListAPIKeys:        MakeListAPIKeysEndpoint(s),
 		CreateAPIKey:       MakeCreateAPIKeyEndpoint(s),
 		RevokeAPIKey:       MakeRevokeAPIKeyEndpoint(s),
+		ListDevices:        MakeListDevicesEndpoint(s),
+		RegisterDevice:     MakeRegisterDeviceEndpoint(s),
+		RemoveDevice:       MakeRemoveDeviceEndpoint(s),
 	}
 }
 

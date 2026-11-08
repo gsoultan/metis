@@ -39,6 +39,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/outgoingwebhookdelivery"
 	"github.com/gsoultan/metis/server/repositories/store/participantsource"
 	"github.com/gsoultan/metis/server/repositories/store/personapikey"
+	"github.com/gsoultan/metis/server/repositories/store/persondevice"
 	"github.com/gsoultan/metis/server/repositories/store/platformrole"
 	"github.com/gsoultan/metis/server/repositories/store/platformroleassignment"
 	"github.com/gsoultan/metis/server/repositories/store/platformuser"
@@ -106,29 +107,30 @@ var FlushOrder = map[string]int{
 	"outgoing_webhooks":           31,
 	"participant_sources":         32,
 	"person_api_keys":             33,
-	"platform_role_assignments":   34,
-	"process_definition_releases": 35,
-	"process_definitions":         36,
-	"process_instances":           37,
-	"service_calls":               38,
-	"tasks":                       39,
-	"user_organizations":          40,
-	"user_projects":               41,
-	"variable_snapshots":          42,
-	"webhook_deliveries":          43,
-	"workflow_group_memberships":  44,
-	"batch_operation_items":       45,
-	"broadcast_events":            46,
-	"compensatable_activities":    47,
-	"deployment_resources":        48,
-	"deviation_requests":          49,
-	"event_subscriptions":         50,
-	"external_tasks":              51,
-	"instance_deviations":         52,
-	"jobs":                        53,
-	"notifications":               54,
-	"outgoing_webhook_deliveries": 55,
-	"incidents":                   56,
+	"person_devices":              34,
+	"platform_role_assignments":   35,
+	"process_definition_releases": 36,
+	"process_definitions":         37,
+	"process_instances":           38,
+	"service_calls":               39,
+	"tasks":                       40,
+	"user_organizations":          41,
+	"user_projects":               42,
+	"variable_snapshots":          43,
+	"webhook_deliveries":          44,
+	"workflow_group_memberships":  45,
+	"batch_operation_items":       46,
+	"broadcast_events":            47,
+	"compensatable_activities":    48,
+	"deployment_resources":        49,
+	"deviation_requests":          50,
+	"event_subscriptions":         51,
+	"external_tasks":              52,
+	"instance_deviations":         53,
+	"jobs":                        54,
+	"notifications":               55,
+	"outgoing_webhook_deliveries": 56,
+	"incidents":                   57,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -7318,6 +7320,240 @@ func (p PersonAPIKeyWithParticipantQuery) All(ctx context.Context, ex runtime.Ex
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "person_api_keys", "workflow_users")
 		}
 		out[i].Participant = targets[j]
+	}
+	return out, nil
+}
+
+// PersonDeviceWithParticipantRow is person_devices with its Participant loaded.
+type PersonDeviceWithParticipantRow struct {
+	persondevice.Row
+	Participant workflowuser.Row
+}
+
+type PersonDeviceWithParticipantQuery struct {
+	q persondevice.Query
+}
+
+// PersonDeviceWithParticipant starts the plan.
+func PersonDeviceWithParticipant() PersonDeviceWithParticipantQuery {
+	return PersonDeviceWithParticipantQuery{q: persondevice.New()}
+}
+
+func (p PersonDeviceWithParticipantQuery) Where(ps ...persondevice.Pred) PersonDeviceWithParticipantQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p PersonDeviceWithParticipantQuery) WhereIf(cond bool, pr persondevice.Pred) PersonDeviceWithParticipantQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p PersonDeviceWithParticipantQuery) Any(ps ...persondevice.Pred) PersonDeviceWithParticipantQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p PersonDeviceWithParticipantQuery) Not(pr persondevice.Pred) PersonDeviceWithParticipantQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p PersonDeviceWithParticipantQuery) NotAny(ps ...persondevice.Pred) PersonDeviceWithParticipantQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p PersonDeviceWithParticipantQuery) Order(ts ...persondevice.Sort) PersonDeviceWithParticipantQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p PersonDeviceWithParticipantQuery) Limit(n int64) PersonDeviceWithParticipantQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p PersonDeviceWithParticipantQuery) Offset(n int64) PersonDeviceWithParticipantQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p PersonDeviceWithParticipantQuery) After(r PersonDeviceWithParticipantRow) PersonDeviceWithParticipantQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p PersonDeviceWithParticipantQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p PersonDeviceWithParticipantQuery) All(ctx context.Context, ex runtime.Executor) ([]PersonDeviceWithParticipantRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]PersonDeviceWithParticipantRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = PersonDeviceWithParticipantRow{Row: r}
+		key := r.ParticipantID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := workflowuser.New().Unordered().
+		Where(workflowuser.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.ParticipantID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "person_devices", "workflow_users")
+		}
+		out[i].Participant = targets[j]
+	}
+	return out, nil
+}
+
+// PersonDeviceWithProjectRow is person_devices with its Project loaded.
+type PersonDeviceWithProjectRow struct {
+	persondevice.Row
+	Project project.Row
+}
+
+type PersonDeviceWithProjectQuery struct {
+	q persondevice.Query
+}
+
+// PersonDeviceWithProject starts the plan.
+func PersonDeviceWithProject() PersonDeviceWithProjectQuery {
+	return PersonDeviceWithProjectQuery{q: persondevice.New()}
+}
+
+func (p PersonDeviceWithProjectQuery) Where(ps ...persondevice.Pred) PersonDeviceWithProjectQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p PersonDeviceWithProjectQuery) WhereIf(cond bool, pr persondevice.Pred) PersonDeviceWithProjectQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p PersonDeviceWithProjectQuery) Any(ps ...persondevice.Pred) PersonDeviceWithProjectQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p PersonDeviceWithProjectQuery) Not(pr persondevice.Pred) PersonDeviceWithProjectQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p PersonDeviceWithProjectQuery) NotAny(ps ...persondevice.Pred) PersonDeviceWithProjectQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p PersonDeviceWithProjectQuery) Order(ts ...persondevice.Sort) PersonDeviceWithProjectQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p PersonDeviceWithProjectQuery) Limit(n int64) PersonDeviceWithProjectQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p PersonDeviceWithProjectQuery) Offset(n int64) PersonDeviceWithProjectQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p PersonDeviceWithProjectQuery) After(r PersonDeviceWithProjectRow) PersonDeviceWithProjectQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p PersonDeviceWithProjectQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p PersonDeviceWithProjectQuery) All(ctx context.Context, ex runtime.Executor) ([]PersonDeviceWithProjectRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]PersonDeviceWithProjectRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = PersonDeviceWithProjectRow{Row: r}
+		key := r.ProjectID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := project.New().Unordered().
+		Where(project.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.ProjectID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "person_devices", "projects")
+		}
+		out[i].Project = targets[j]
 	}
 	return out, nil
 }

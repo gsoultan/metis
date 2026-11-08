@@ -1,6 +1,7 @@
 import { Alert, Badge, Button, Card, Center, Container, Group, Loader, Paper, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core';
 import { AlertCircle, CheckCircle2, LogOut } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { PersonDevices } from '../components/PersonDevices';
 import { PersonKeys } from '../components/PersonKeys';
 import { TaskForm } from '../components/TaskForm';
 import { useTranslation } from '../i18n/context';
@@ -227,6 +228,7 @@ function Inbox({ session, onSignOut, onEnded }: { session: PeopleSession; onSign
           </Stack>
         )
       )}
+      {!open && <PersonDevices token={session.token} onEnded={onEnded} />}
       {!open && <PersonKeys token={session.token} onEnded={onEnded} />}
     </Stack>
   );

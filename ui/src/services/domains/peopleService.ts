@@ -135,6 +135,28 @@ export const personKeyService = {
   },
 };
 
+/** A phone or browser a person registered for push, as they see it: never the token. */
+export interface PersonDevice {
+  id: string;
+  platform: "android" | "ios" | "web";
+  label?: string;
+  token_tail: string;
+  created_at: string;
+  last_sent_at?: string;
+}
+
+/** The person's push devices. Their app registers one; here they see and remove them. */
+export const personDeviceService = {
+  async list(token: string, signal?: AbortSignal): Promise<PersonDevice[]> {
+    const data = raiseIfRefused(await asPerson<{ devices?: PersonDevice[]; err?: string }>(token, "/people/devices", { signal }));
+    return data.devices ?? [];
+  },
+
+  async remove(token: string, id: string): Promise<void> {
+    raiseIfRefused(await asPerson<{ err?: string }>(token, `/people/devices/${encodeURIComponent(id)}`, { method: "DELETE" }));
+  },
+};
+
 /** What a person may do with a task, from where it stands. */
 export function actionsFor(task: PersonTask, username: string): { claim: boolean; release: boolean; complete: boolean } {
   const holder = task.assignee?.username ?? "";

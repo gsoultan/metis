@@ -100,6 +100,7 @@ func RegisterHandlers(m *http.ServeMux, eps participant.Endpoints, options []htt
 		common.EncodeResponse,
 		options...,
 	))
+	registerDeviceHandlers(m, eps, options)
 	m.Handle("PUT /api/v1/participants/{id}/password", httptransport.NewServer(
 		eps.SetParticipantPassword,
 		decodeSetParticipantPasswordRequest,
