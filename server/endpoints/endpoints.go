@@ -295,9 +295,9 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	participantEndpoints.RemoveParticipant = designer("RemoveParticipant")(participantEndpoints.RemoveParticipant)
 	// A person's devices say where they can be reached, so who sees and
 	// removes them is who manages the directory, not everybody who reads it.
-	participantEndpoints.ListDevices = designer("ListParticipantDevices")(participantEndpoints.ListDevices)
+	participantEndpoints.ListParticipantDevices = designer("ListParticipantDevices")(participantEndpoints.ListParticipantDevices)
 	participantEndpoints.DeviceCounts = designer("CountParticipantDevices")(participantEndpoints.DeviceCounts)
-	participantEndpoints.RemoveDevice = designer("RemoveParticipantDevice")(participantEndpoints.RemoveDevice)
+	participantEndpoints.RemoveParticipantDevice = designer("RemoveParticipantDevice")(participantEndpoints.RemoveParticipantDevice)
 
 	// A directory source holds a connection string or an endpoint token, so
 	// every operation on one is administrative — reading the list included,

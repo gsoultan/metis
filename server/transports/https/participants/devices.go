@@ -23,7 +23,7 @@ func registerDeviceHandlers(m *http.ServeMux, eps participant.Endpoints, options
 		options...,
 	))
 	m.Handle("GET /api/v1/participants/{id}/devices", httptransport.NewServer(
-		eps.ListDevices,
+		eps.ListParticipantDevices,
 		func(_ context.Context, r *http.Request) (any, error) {
 			return participant.ParticipantDevicesRequest{ProjectID: r.URL.Query().Get("project_id"), ID: r.PathValue("id")}, nil
 		},
@@ -31,7 +31,7 @@ func registerDeviceHandlers(m *http.ServeMux, eps participant.Endpoints, options
 		options...,
 	))
 	m.Handle("DELETE /api/v1/participants/{id}/devices/{device}", httptransport.NewServer(
-		eps.RemoveDevice,
+		eps.RemoveParticipantDevice,
 		func(_ context.Context, r *http.Request) (any, error) {
 			return participant.RemoveParticipantDeviceRequest{
 				ProjectID: r.URL.Query().Get("project_id"), ID: r.PathValue("id"), DeviceID: r.PathValue("device"),

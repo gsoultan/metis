@@ -14,36 +14,36 @@ import (
 )
 
 type Endpoints struct {
-	ListParticipants       endpoint.Endpoint
-	ListParticipantGroups  endpoint.Endpoint
-	ImportParticipants     endpoint.Endpoint
-	RemoveParticipant      endpoint.Endpoint
-	SetParticipantPassword endpoint.Endpoint
-	ListDirectoryGaps      endpoint.Endpoint
-	FillDirectoryGaps      endpoint.Endpoint
-	ListStrandedTasks      endpoint.Endpoint
-	ListHeldTasks          endpoint.Endpoint
-	SetParticipantActive   endpoint.Endpoint
-	ListDevices            endpoint.Endpoint
-	DeviceCounts           endpoint.Endpoint
-	RemoveDevice           endpoint.Endpoint
+	ListParticipants        endpoint.Endpoint
+	ListParticipantGroups   endpoint.Endpoint
+	ImportParticipants      endpoint.Endpoint
+	RemoveParticipant       endpoint.Endpoint
+	SetParticipantPassword  endpoint.Endpoint
+	ListDirectoryGaps       endpoint.Endpoint
+	FillDirectoryGaps       endpoint.Endpoint
+	ListStrandedTasks       endpoint.Endpoint
+	ListHeldTasks           endpoint.Endpoint
+	SetParticipantActive    endpoint.Endpoint
+	ListParticipantDevices  endpoint.Endpoint
+	DeviceCounts            endpoint.Endpoint
+	RemoveParticipantDevice endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	return Endpoints{
-		ListParticipants:       MakeListParticipantsEndpoint(s),
-		ListParticipantGroups:  MakeListParticipantGroupsEndpoint(s),
-		ImportParticipants:     MakeImportParticipantsEndpoint(s),
-		RemoveParticipant:      MakeRemoveParticipantEndpoint(s),
-		SetParticipantPassword: MakeSetParticipantPasswordEndpoint(s),
-		ListDirectoryGaps:      MakeListDirectoryGapsEndpoint(s),
-		FillDirectoryGaps:      MakeFillDirectoryGapsEndpoint(s),
-		ListStrandedTasks:      MakeListStrandedTasksEndpoint(s),
-		ListHeldTasks:          MakeListHeldTasksEndpoint(s),
-		SetParticipantActive:   MakeSetParticipantActiveEndpoint(s),
-		ListDevices:            MakeListParticipantDevicesEndpoint(s),
-		DeviceCounts:           MakeDeviceCountsEndpoint(s),
-		RemoveDevice:           MakeRemoveParticipantDeviceEndpoint(s),
+		ListParticipants:        MakeListParticipantsEndpoint(s),
+		ListParticipantGroups:   MakeListParticipantGroupsEndpoint(s),
+		ImportParticipants:      MakeImportParticipantsEndpoint(s),
+		RemoveParticipant:       MakeRemoveParticipantEndpoint(s),
+		SetParticipantPassword:  MakeSetParticipantPasswordEndpoint(s),
+		ListDirectoryGaps:       MakeListDirectoryGapsEndpoint(s),
+		FillDirectoryGaps:       MakeFillDirectoryGapsEndpoint(s),
+		ListStrandedTasks:       MakeListStrandedTasksEndpoint(s),
+		ListHeldTasks:           MakeListHeldTasksEndpoint(s),
+		SetParticipantActive:    MakeSetParticipantActiveEndpoint(s),
+		ListParticipantDevices:  MakeListParticipantDevicesEndpoint(s),
+		DeviceCounts:            MakeDeviceCountsEndpoint(s),
+		RemoveParticipantDevice: MakeRemoveParticipantDeviceEndpoint(s),
 	}
 }
 
