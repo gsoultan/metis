@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -52,11 +53,18 @@ func TaskLinkURL(publicURL, token string) string {
 // transaction that issued it commits: a link to a task a rollback undid is a
 // link to nothing.
 //
+// It is nil when settings has no way to send mail.
+//
 // The address is the person's in the directory, read when the link was
 // issued and carried on it, rather than a User's: a link is for People.
 func NewTaskLinkMailer(settings EmailSettings, publicURL string, schedule DeliveryScheduler, opts ...EmailOption) func(context.Context, servicecontracts.IssuedTaskLink, entities.ProcessEvent) {
 	if schedule == nil {
 		schedule = DeliverNow
+	}
+	// Built once here so settings the mail cannot go out with are reported
+	// once, at start, and no mailer is handed out for them.
+	if NewEmailNotificationChannel(settings, func(context.Context, string) (string, error) { return "", nil }, opts...) == nil {
+		return nil
 	}
 	return func(ctx context.Context, link servicecontracts.IssuedTaskLink, event entities.ProcessEvent) {
 		to := link.Person.Email
@@ -66,6 +74,9 @@ func NewTaskLinkMailer(settings EmailSettings, publicURL string, schedule Delive
 			return
 		}
 		notification := entities.Notification{
+			// Named after the link, so the mail for one link is one message
+			// to a gateway that is asked again after it went quiet.
+			ID:      uuid.NewSHA1(uuid.NameSpaceOID, []byte(hashTaskLinkToken(link.Token))),
 			User:    &entities.User{Username: link.Person.Username},
 			Type:    entities.NotificationTaskAssignment,
 			Title:   taskLinkSubject(event),

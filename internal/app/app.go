@@ -1276,13 +1276,19 @@ func (a *App) taskLinkSender(ctx context.Context) func(context.Context, servicec
 	}
 	mail := notificationMailSettings()
 	if !mail.Configured() {
-		log.Info().Msg("Task links are not sent: no NOTIFICATION_SMTP_HOST and NOTIFICATION_SMTP_FROM to send them by")
+		log.Info().Str("transport", mail.Transport()).Strs("missing", mail.Missing()).
+			Msg("Task links are not sent: the mail settings are not complete")
 		return nil
 	}
 	schedule := serviceimpl.DeliverAfterCommit(ctx, a.repo.UnitOfWork().AfterCommit,
 		notificationDeliveryWorkers, notificationDeliveryQueue)
-	log.Info().Str("public_url", a.publicURL).Msg("Task links will be mailed to the People a task names")
-	return serviceimpl.NewTaskLinkMailer(mail, a.publicURL, schedule)
+	send := serviceimpl.NewTaskLinkMailer(mail, a.publicURL, schedule)
+	if send == nil {
+		return nil
+	}
+	log.Info().Str("public_url", a.publicURL).Str("transport", mail.Transport()).
+		Msg("Task links will be mailed to the People a task names")
+	return send
 }
 
 // sharedRateLimit pools a limiter's count across replicas when there is a
@@ -1333,7 +1339,12 @@ func (a *App) notificationDelivery(ctx context.Context) servicecontracts.Notific
 				}
 				return user.Email, nil
 			}))
-		log.Info().Str("host", mail.Host).Msg("Notifications will also be emailed")
+		log.Info().Str("transport", mail.Transport()).Msg("Notifications will also be emailed")
+	} else if mail.Panmail.Chosen() {
+		// Chosen and half set up is a mistake, not a choice to send nothing,
+		// and the SMTP server is not used in its place.
+		log.Warn().Strs("missing", mail.Missing()).
+			Msg("Notifications are not emailed: NOTIFICATION_PANMAIL_URL is set but the Panmail settings are not complete")
 	}
 
 	// After the transaction that stored the notification commits, on a small
@@ -1345,8 +1356,9 @@ func (a *App) notificationDelivery(ctx context.Context) servicecontracts.Notific
 	return serviceimpl.NewDeliveringNotificationService(a.svc, schedule, channels...)
 }
 
-// notificationMailSettings is the mail server notifications and task links
-// are sent through.
+// notificationMailSettings is how notifications and task links are mailed:
+// through a Panmail gateway when NOTIFICATION_PANMAIL_URL is set, otherwise
+// through the SMTP server.
 func notificationMailSettings() serviceimpl.EmailSettings {
 	return serviceimpl.EmailSettings{
 		Host:     envvar.Get("NOTIFICATION_SMTP_HOST"),
@@ -1354,6 +1366,11 @@ func notificationMailSettings() serviceimpl.EmailSettings {
 		Username: envvar.Get("NOTIFICATION_SMTP_USERNAME"),
 		Password: envvar.Get("NOTIFICATION_SMTP_PASSWORD"),
 		From:     envvar.Get("NOTIFICATION_SMTP_FROM"),
+		Panmail: serviceimpl.PanmailSettings{
+			URL:        envvar.Get("NOTIFICATION_PANMAIL_URL"),
+			APIKey:     envvar.Get("NOTIFICATION_PANMAIL_API_KEY"),
+			ProviderID: envvar.Get("NOTIFICATION_PANMAIL_PROVIDER_ID"),
+		},
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"net/smtp"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/metis/internal/pkg/httpclient"
@@ -195,28 +196,84 @@ func (c *WebhookNotificationChannel) Deliver(ctx context.Context, n entities.Not
 
 // ─── email ──────────────────────────────────────────────────────────────────
 
-// EmailSettings is what an installation needs to send mail.
+// EmailSettings is what an installation needs to send mail: an SMTP server,
+// or a Panmail gateway, and the address every message is from.
 type EmailSettings struct {
 	Host     string
 	Port     string
 	Username string
 	Password string
 	From     string
+	// Panmail, once its URL is set, sends the mail instead of the SMTP server.
+	Panmail PanmailSettings
 }
+
+// Transport names how mail leaves: "panmail" or "smtp".
+func (s EmailSettings) Transport() string {
+	if s.Panmail.Chosen() {
+		return MailTransportPanmail
+	}
+	return MailTransportSMTP
+}
+
+// The two ways the installation's own mail can leave.
+const (
+	MailTransportSMTP    = "smtp"
+	MailTransportPanmail = "panmail"
+)
 
 // Configured reports whether there is enough here to send anything.
 func (s EmailSettings) Configured() bool {
-	return s.Host != "" && s.From != ""
+	return len(s.Missing()) == 0
+}
+
+// Missing names what the chosen transport still needs, in the words of the
+// settings that supply it. A gateway chosen and half set up is reported
+// rather than quietly replaced by the SMTP server: the administrator chose
+// where the mail goes, and mail going somewhere else is a surprise worth not
+// springing.
+func (s EmailSettings) Missing() []string {
+	var missing []string
+	if s.Panmail.Chosen() {
+		if s.Panmail.APIKey == "" {
+			missing = append(missing, "an API key")
+		}
+		if s.Panmail.ProviderID == "" {
+			missing = append(missing, "a provider id")
+		}
+	} else if s.Host == "" {
+		missing = append(missing, "a mail server")
+	}
+	if s.From == "" {
+		missing = append(missing, "a sender address")
+	}
+	return missing
 }
 
 // AddressLookup answers where to send a person's mail.
 type AddressLookup func(ctx context.Context, username string) (string, error)
 
+// outgoingMail is one plain-text message to one person.
+type outgoingMail struct {
+	to      string
+	subject string
+	text    string
+	// key names what is being sent rather than the attempt, so a transport
+	// that may repeat a send whose outcome it did not hear can be told the
+	// second is the first again.
+	key string
+}
+
+// mailTransport hands one message to whatever sends the installation's mail.
+type mailTransport func(ctx context.Context, m outgoingMail) error
+
 // EmailNotificationChannel sends each notification to its recipient's address.
 type EmailNotificationChannel struct {
-	settings EmailSettings
-	address  AddressLookup
-	send     MailSender
+	settings      EmailSettings
+	address       AddressLookup
+	send          MailSender
+	panmailClient *http.Client
+	transport     mailTransport
 }
 
 // MailSender hands a message to an SMTP server, giving up at ctx's deadline.
@@ -229,6 +286,13 @@ type EmailOption func(*EmailNotificationChannel)
 // It exists so a test can assert what would be sent without a mail server.
 func WithMailSender(send MailSender) EmailOption {
 	return func(c *EmailNotificationChannel) { c.send = send }
+}
+
+// WithPanmailHTTPClient replaces the client a Panmail gateway is called with.
+// It exists so a test can stand a gateway up on loopback, which the shared,
+// egress-guarded client rightly refuses.
+func WithPanmailHTTPClient(client *http.Client) EmailOption {
+	return func(c *EmailNotificationChannel) { c.panmailClient = client }
 }
 
 // NewEmailNotificationChannel returns a channel that emails notifications, or
@@ -246,6 +310,19 @@ func NewEmailNotificationChannel(settings EmailSettings, address AddressLookup, 
 	channel := &EmailNotificationChannel{settings: settings, address: address, send: mail.Send}
 	for _, opt := range opts {
 		opt(channel)
+	}
+	if settings.Panmail.Chosen() {
+		transport, err := newPanmailTransport(settings, channel.panmailClient)
+		if err != nil {
+			// The address or the key is one the gateway client refuses — a
+			// remote gateway over plain http, say. Logged once, here, where
+			// it is built, rather than once for every message not sent.
+			log.Error().Err(err).Msg("Mail is not sent: the Panmail gateway settings are refused")
+			return nil
+		}
+		channel.transport = transport
+	} else {
+		channel.transport = channel.sendBySMTP
 	}
 	return channel
 }
@@ -266,18 +343,44 @@ func (c *EmailNotificationChannel) Deliver(ctx context.Context, n entities.Notif
 		return nil
 	}
 
+	text := n.Message
+	if n.Link != "" {
+		text += "\r\n\r\n" + n.Link
+	}
+	message := outgoingMail{
+		to: to,
+		// The title is built from process data, so a line break in it would
+		// end the Subject header and begin whatever followed.
+		subject: mail.HeaderText(n.Title),
+		text:    text,
+		key:     notificationMailKey(n),
+	}
+	if err := c.transport(ctx, message); err != nil {
+		return fmt.Errorf("notification email: send to %s: %w", to, err)
+	}
+	return nil
+}
+
+// notificationMailKey names a notification's mail for as long as the
+// notification is the same one. A notification not yet stored has no id, and
+// gets a fresh key: repeats within this delivery are still recognised.
+func notificationMailKey(n entities.Notification) string {
+	id := n.ID
+	if id == uuid.Nil {
+		id = uuid.New()
+	}
+	return "metis-notification-" + id.String()
+}
+
+// sendBySMTP writes the message and hands it to the SMTP server.
+func (c *EmailNotificationChannel) sendBySMTP(ctx context.Context, m outgoingMail) error {
 	var body strings.Builder
 	body.WriteString("From: " + c.settings.From + "\r\n")
-	body.WriteString("To: " + to + "\r\n")
-	// The title is built from process data, so a line break in it would end
-	// the Subject header and begin whatever followed.
-	body.WriteString("Subject: " + mail.HeaderText(n.Title) + "\r\n")
+	body.WriteString("To: " + m.to + "\r\n")
+	body.WriteString("Subject: " + m.subject + "\r\n")
 	body.WriteString("MIME-Version: 1.0\r\n")
 	body.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
-	body.WriteString(n.Message)
-	if n.Link != "" {
-		body.WriteString("\r\n\r\n" + n.Link)
-	}
+	body.WriteString(m.text)
 
 	var auth smtp.Auth
 	if c.settings.Username != "" {
@@ -287,8 +390,5 @@ func (c *EmailNotificationChannel) Deliver(ctx context.Context, n entities.Notif
 	// addressed it to itself for a while and every message went to the noreply
 	// mailbox, which is a mistake worth only making once.
 	addr := c.settings.Host + ":" + c.settings.Port
-	if err := c.send(ctx, addr, auth, c.settings.From, []string{to}, []byte(body.String())); err != nil {
-		return fmt.Errorf("notification email: send to %s: %w", to, err)
-	}
-	return nil
+	return c.send(ctx, addr, auth, c.settings.From, []string{m.to}, []byte(body.String()))
 }

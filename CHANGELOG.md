@@ -10,6 +10,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Notifications and task links through Panmail.** Metis's own mail — the
+  notifications it emails and the task links it mails to People — can go
+  through a Panmail gateway instead of an SMTP server. Set
+  `NOTIFICATION_PANMAIL_URL`, `NOTIFICATION_PANMAIL_API_KEY` (with the
+  `email:send` scope) and `NOTIFICATION_PANMAIL_PROVIDER_ID`, in the
+  environment or on the Settings page; the From address stays
+  `NOTIFICATION_SMTP_FROM`. Once the gateway URL is set the SMTP server is
+  not used, and a gateway missing its key, provider or sender sends nothing
+  and says so at start rather than quietly falling back to SMTP. Each message
+  carries a key named after the notification or the link, so a send retried
+  after a dropped connection is answered with the message already accepted.
+  Nothing changes for an installation that sets none of these.
 - **Email through Panmail.** A built-in **Panmail Email** connector
   (`panmail-email`) sends a step's mail through a Panmail gateway. A
   connection takes the gateway URL, an API key with the `email:send` scope,

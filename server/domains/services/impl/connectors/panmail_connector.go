@@ -69,7 +69,7 @@ func (c *PanmailConnector) Execute(ctx context.Context, config map[string]any, p
 	}
 	result, err := client.Send(ctx, msg)
 	if err != nil {
-		return nil, fmt.Errorf("panmail connector: send: %w", explainPanmailError(err))
+		return nil, fmt.Errorf("panmail connector: send: %w", ExplainPanmailError(err))
 	}
 	// "status": "sent" as every other mail connector reports it. It means the
 	// gateway has the message, not that it has arrived; message_id is what
