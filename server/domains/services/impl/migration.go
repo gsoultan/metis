@@ -647,7 +647,7 @@ func (s *migrationService) apply(
 					continue
 				}
 				mapped := mapNode(nodeMapping, task.NodeID)
-				if mapped == task.NodeID {
+				if mapped == task.NodeID && !options.Rederive {
 					continue
 				}
 				node, ok := targetNodes[mapped]
@@ -658,7 +658,9 @@ func (s *migrationService) apply(
 					return apierr.Invalidf("version %d of %q no longer has node %q",
 						target.Version, target.Key, mapped)
 				}
-				moved[task.NodeID] = mapped
+				if mapped != task.NodeID {
+					moved[task.NodeID] = mapped
+				}
 				if err := s.repo.Task().Update(txCtx, retargetTask(task, node)); err != nil {
 					return err
 				}
@@ -1128,8 +1130,16 @@ func retargetTask(task models.TaskModel, node models.FlowNode) models.TaskModel 
 	task.Priority = node.Priority
 	task.FormKey = node.FormKey
 	task.FormDefinition = entities.PropertyText(node.Properties, "form_definition")
-	task.CandidateUsers = slices.Clone(node.CandidateUsers)
-	task.CandidateGroups = slices.Clone(node.CandidateGroups)
+	// A candidate list or an assignee written as a lone variable was read from
+	// the instance's variables when the task was made. The node only holds the
+	// variable's name, so what the task was given is kept: carried across, the
+	// name would offer the task to a user literally called "${submittedBy}".
+	if !anyLoneVariable(node.CandidateUsers) {
+		task.CandidateUsers = slices.Clone(node.CandidateUsers)
+	}
+	if !anyLoneVariable(node.CandidateGroups) {
+		task.CandidateGroups = slices.Clone(node.CandidateGroups)
+	}
 
 	// A duration counts from when the task appeared, not from the move: moving
 	// work to another version must not quietly extend its deadline.
@@ -1143,9 +1153,23 @@ func retargetTask(task models.TaskModel, node models.FlowNode) models.TaskModel 
 	// step that was deleted, not the one they are now looking at. Nor does a
 	// delegation: left on, the moved task would wait for a delegate who no
 	// longer holds it to hand it back.
+	// The task was made for its owner when it was delegated, and for its
+	// assignee otherwise.
+	madeFor := task.Assignee
+	if task.Owner != "" {
+		madeFor = task.Owner
+	}
 	task.Owner = ""
 	task.DelegationState = ""
-	if node.Assignee != "" {
+	if _, isVariable := entities.LoneVariable(node.Assignee); isVariable {
+		// Who the variable named is who the task was made for, on either
+		// version, so they keep it.
+		if madeFor != "" {
+			task.Assignee = madeFor
+			task.Status = models.TaskClaimed
+			return task
+		}
+	} else if node.Assignee != "" {
 		task.Assignee = node.Assignee
 		task.Status = models.TaskClaimed
 		return task
@@ -1153,6 +1177,16 @@ func retargetTask(task models.TaskModel, node models.FlowNode) models.TaskModel 
 	task.Assignee = ""
 	task.Status = models.TaskUnclaimed
 	return task
+}
+
+// anyLoneVariable says whether any name in a list is a lone variable.
+func anyLoneVariable(names []string) bool {
+	for _, name := range names {
+		if _, ok := entities.LoneVariable(name); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // boundaryRefusals reports mappings that would detach a boundary event from the

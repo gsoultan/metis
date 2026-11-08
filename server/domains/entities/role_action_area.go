@@ -47,10 +47,16 @@ var actionNouns = []struct{ noun, area string }{
 	{"Participant", areaPeople},
 	// What a project's People lack before the switch-over, read and filled.
 	{"DirectoryGap", areaPeople},
+	// The open tasks whose person or group can no longer act, for handing over.
+	{"StrandedTask", areaPeople},
 	{"Connector", areaConnectors},
 	{"Environment", areaEnvironments},
 	// A release moves a project's models from one environment to the next.
 	{"Release", areaEnvironments},
+	// An approval line is a process definition written as data; a request on
+	// one is an instance, and deciding it is the instance's work.
+	{"ApprovalLine", areaProcesses},
+	{"Approval", areaInstances},
 	{"Definition", areaProcesses},
 	{"Script", areaProcesses},
 	{"Simulate", areaProcesses},

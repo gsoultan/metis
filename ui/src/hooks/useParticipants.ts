@@ -5,6 +5,7 @@ import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
 import type { ImportSummary } from '../domain/participantImport';
 import { errorMessage } from '../services/shared/errors';
+import type { HeldWork } from '../services/domains/participantService';
 
 type ParticipantsResult = Awaited<ReturnType<typeof processService.listParticipants>>;
 
@@ -144,6 +145,25 @@ export const useDirectoryGaps = (enabled: boolean) => {
   });
 };
 
+/**
+ * The project's open tasks nobody can act on. Refused for anybody below an
+ * operator, which the caller treats as nothing to show.
+ */
+export const useStrandedTasks = () => {
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const token = useAppStore((state) => state.token);
+  return useQuery({
+    queryKey: ['tasks', 'stranded', currentProjectId],
+    queryFn: ({ signal }) =>
+      currentProjectId ? processService.listStrandedTasks(currentProjectId, signal) : Promise.resolve([]),
+    enabled: !!currentProjectId && !!token,
+    retry: false,
+    // It reads every open task of the project; a minute old is fresh enough
+    // for a list of work that has been stuck for hours.
+    staleTime: 60_000,
+  });
+};
+
 /** Adds gaps the report listed to the project's People. */
 export const useFillDirectoryGaps = () => {
   const queryClient = useQueryClient();
@@ -166,6 +186,54 @@ export const useFillDirectoryGaps = () => {
       notifications.show({
         title: 'Nothing was added',
         message: errorMessage(error, 'The directory is unchanged.'),
+        color: 'red',
+      });
+    },
+  });
+};
+
+/** The open tasks one person holds; read when their deactivation is being decided. */
+export const useHeldTasks = (participantId: string | null) => {
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  const token = useAppStore((state) => state.token);
+  return useQuery({
+    queryKey: ['participants', currentProjectId, 'held', participantId],
+    queryFn: ({ signal }) =>
+      currentProjectId && participantId
+        ? processService.listHeldTasks(currentProjectId, participantId, signal)
+        : Promise.resolve([]),
+    enabled: !!currentProjectId && !!token && !!participantId,
+  });
+};
+
+/**
+ * Deactivates or reactivates somebody. The reply says how many held tasks
+ * moved and which stayed, so a refused hand-over is shown rather than lost.
+ */
+export const useSetParticipantActive = () => {
+  const queryClient = useQueryClient();
+  const currentProjectId = useAppStore((state) => state.currentProjectId);
+  return useMutation({
+    mutationFn: ({ id, active, work }: { id: string; active: boolean; work?: HeldWork }) => {
+      if (!currentProjectId) throw new Error('No project selected');
+      return processService.setParticipantActive(currentProjectId, id, active, work);
+    },
+    onSuccess: (result, { active }) => {
+      queryClient.invalidateQueries({ queryKey: ['participants', currentProjectId] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      const kept = result.kept?.length ?? 0;
+      notifications.show({
+        title: active ? 'Activated' : 'Deactivated',
+        message: active
+          ? 'They receive new work again. Nothing was moved back to them.'
+          : `${result.moved} ${result.moved === 1 ? 'task' : 'tasks'} moved${kept ? `; ${kept} still with them, listed under Nobody can act` : ''}.`,
+        color: kept ? 'yellow' : 'teal',
+      });
+    },
+    onError: (error: unknown) => {
+      notifications.show({
+        title: 'Nothing changed',
+        message: errorMessage(error, 'They are as they were.'),
         color: 'red',
       });
     },

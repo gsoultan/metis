@@ -43,6 +43,10 @@ type ServiceFacade interface {
 	// PeopleSwitchOverService finds and fills what People lack before Users
 	// stop doing tasks.
 	serviceContracts.PeopleSwitchOverService
+
+	// ApprovalLineService runs approval lines: approvers defined as data and
+	// deployed as an ordinary process definition.
+	serviceContracts.ApprovalLineService
 	serviceContracts.ExecutionEngine
 	serviceContracts.JobService
 	serviceContracts.ExternalTaskService

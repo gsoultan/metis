@@ -185,3 +185,87 @@ func describeAssignment(key string, values map[string]any) string {
 	}
 	return fmt.Sprintf("%s set %s", key, strings.Join(parts, ", "))
 }
+
+// resolveVariableAssignment reads an assignee or candidate written as a lone
+// variable — "${submittedBy}", as Camunda models write "${initiator}" — from
+// the instance's variables when the task is made.
+//
+// Only a lone variable is read. Anything else in the braces is left as
+// written, which names nobody, as it did before: an expression language here
+// would be a second one to sandbox. A variable that is missing or empty
+// leaves the name as written too, so the task is reported as stuck rather
+// than quietly offered to nobody. The definition's node is not changed: the
+// candidate lists are copied before anything in them is replaced.
+func resolveVariableAssignment(node entities.Node, vars map[string]any) entities.Node {
+	if name, ok := loneVariable(node.Assignee); ok {
+		if who, ok := textValue(vars[name]); ok {
+			node.Assignee = who
+		}
+	}
+	if anyLoneVariable(len(node.CandidateUsers), func(i int) string { return userName(node.CandidateUsers[i]) }) {
+		users := make([]*entities.User, 0, len(node.CandidateUsers))
+		for _, u := range node.CandidateUsers {
+			for _, who := range expandName(userName(u), vars) {
+				users = append(users, &entities.User{Username: who})
+			}
+		}
+		node.CandidateUsers = users
+	}
+	if anyLoneVariable(len(node.CandidateGroups), func(i int) string { return groupName(node.CandidateGroups[i]) }) {
+		groups := make([]*entities.Group, 0, len(node.CandidateGroups))
+		for _, g := range node.CandidateGroups {
+			name := groupName(g)
+			if _, isVariable := loneVariable(name); !isVariable {
+				groups = append(groups, g)
+				continue
+			}
+			for _, who := range expandName(name, vars) {
+				groups = append(groups, &entities.Group{Name: who})
+			}
+		}
+		node.CandidateGroups = groups
+	}
+	return node
+}
+
+// loneVariable reports the variable "${name}" or "#{name}" names.
+func loneVariable(written string) (string, bool) { return entities.LoneVariable(written) }
+
+func anyLoneVariable(n int, at func(int) string) bool {
+	for i := range n {
+		if _, ok := loneVariable(at(i)); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// expandName is the names one written name stands for: itself, or what the
+// variable it names holds — one name, a list, or a comma-separated text.
+func expandName(written string, vars map[string]any) []string {
+	name, ok := loneVariable(written)
+	if !ok {
+		if written == "" {
+			return nil
+		}
+		return []string{written}
+	}
+	if values, ok := textListValue(vars[name]); ok {
+		return values
+	}
+	return []string{written}
+}
+
+func userName(u *entities.User) string {
+	if u == nil {
+		return ""
+	}
+	return u.Username
+}
+
+func groupName(g *entities.Group) string {
+	if g == nil {
+		return ""
+	}
+	return g.Name
+}

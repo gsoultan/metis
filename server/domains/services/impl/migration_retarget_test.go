@@ -29,3 +29,30 @@ func TestAMigratedTaskLosesItsDelegation(t *testing.T) {
 			given.Status, given.Assignee, given.Owner, given.DelegationState)
 	}
 }
+
+// A task made for whoever a variable names (the submitter, sent a request
+// back) is theirs on the new version too: the node holds only the
+// variable's name, and carried across that would wait for a user called
+// "${submittedBy}".
+func TestRetargetKeepsWhatALoneVariableResolvedTo(t *testing.T) {
+	task := models.TaskModel{
+		NodeID: "revise", Assignee: "rina", Status: models.TaskClaimed,
+		CandidateGroups: []string{"requesters"},
+	}
+	node := models.FlowNode{ID: "revise", Name: "Revise", Assignee: "${submittedBy}", CandidateGroups: []string{"#{team}"}}
+
+	got := retargetTask(task, node)
+	if got.Assignee != "rina" || got.Status != models.TaskClaimed {
+		t.Errorf("assignee = %q (%s), want rina, claimed", got.Assignee, got.Status)
+	}
+	if len(got.CandidateGroups) != 1 || got.CandidateGroups[0] != "requesters" {
+		t.Errorf("candidate groups = %v, want the ones the task was given", got.CandidateGroups)
+	}
+
+	// Written names still come from the new node.
+	fixed := models.FlowNode{ID: "approve", Name: "Approve", CandidateUsers: []string{"sari"}}
+	got = retargetTask(models.TaskModel{NodeID: "approve", Assignee: "budi", Status: models.TaskClaimed}, fixed)
+	if got.Assignee != "" || got.Status != models.TaskUnclaimed || len(got.CandidateUsers) != 1 || got.CandidateUsers[0] != "sari" {
+		t.Errorf("a written candidate list was not taken from the node: %+v", got)
+	}
+}

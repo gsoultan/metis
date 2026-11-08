@@ -14,10 +14,11 @@ import {
   ThemeIcon,
   Tooltip,
 } from '@mantine/core';
-import { KeyRound, Search, Trash2, Upload, UserCircle, Users } from 'lucide-react';
+import { KeyRound, Search, Trash2, Upload, UserCheck, UserCircle, UserX, Users } from 'lucide-react';
 import { useState, useTransition } from 'react';
 
 import { PageHeader } from '../components/PageHeader';
+import { ParticipantActivation } from '../components/ParticipantActivation';
 import { ParticipantImportModal } from '../components/ParticipantImportModal';
 import { ParticipantSources } from '../components/ParticipantSources';
 import { PeopleSwitchOver } from '../components/PeopleSwitchOver';
@@ -76,6 +77,8 @@ export function ParticipantList() {
   // reversible, so this asks rather than warns — but it still asks, because the
   // row it hides is somebody a running process may be about to assign work to.
   const [removing, setRemoving] = useState<string | null>(null);
+  // The person being deactivated or activated.
+  const [activating, setActivating] = useState<string | null>(null);
   const importParticipants = useImportParticipants();
   const [query, setQuery] = useState('');
   const [importOpen, setImportOpen] = useState(false);
@@ -87,6 +90,7 @@ export function ParticipantList() {
   // "this participant", because the row it is about has already scrolled.
   const removedPerson = everyone.find((person) => person.id === removing) ?? null;
   const passwordPerson = everyone.find((person) => person.id === passwordFor) ?? null;
+  const activatingPerson = everyone.find((person) => person.id === activating) ?? null;
   const people = query
     ? everyone.filter((p) => matchesQuery(query, p.username, p.display_name ?? '', p.email ?? ''))
     : everyone;
@@ -231,6 +235,18 @@ export function ParticipantList() {
                               <KeyRound size={16} />
                             </ActionIcon>
                           </Tooltip>
+                          {isDesigner && (
+                            <Tooltip label={person.active ? 'Stop them signing in and getting work; settle the tasks they hold' : 'Let them sign in and get work again'}>
+                              <ActionIcon
+                                variant="subtle"
+                                color={person.active ? 'orange' : 'teal'}
+                                aria-label={`${person.active ? 'Deactivate' : 'Activate'} ${person.display_name || person.username}`}
+                                onClick={() => setActivating(person.id)}
+                              >
+                                {person.active ? <UserX size={16} /> : <UserCheck size={16} />}
+                              </ActionIcon>
+                            </Tooltip>
+                          )}
                           <Tooltip label="Take them out of this project's directory">
                             <ActionIcon
                               variant="subtle"
@@ -332,6 +348,8 @@ export function ParticipantList() {
           </Stack>
         </form>
       </Modal>
+
+      <ParticipantActivation person={activatingPerson} onClose={() => setActivating(null)} />
 
       <ParticipantImportModal
         opened={importOpen}

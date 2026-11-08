@@ -10,6 +10,67 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Requests on an older approval line can be moved to the new one.** A
+  new version of a line never moves a running request; now an administrator
+  can. `GET /api/v1/projects/{id}/approval-lines/{key}/behind` lists the open
+  requests on each older version, with the migration preview of moving them.
+  `POST …/approval-lines/{key}/move` moves the requests it names, all of them
+  or a chosen few, through the same migration and its rules. A moved
+  request's open step goes to the new line's approvers, so an approver who
+  left and was replaced on the line no longer holds it, and a request sent
+  back stays with its submitter. A request the migration would refuse (its
+  step is gone, or the move would skip an approval) is left on its version
+  with why. Both are an administrator's, as a migration is.
+  In the UI, an approval line's **Version history** lists them, with where
+  each is and who it waits for, to move the chosen ones to the live version.
+- **A migration can rebuild tasks it keeps on the same step.**
+  `WithTasksRederived` gives an open task on a node kept by id the target
+  version's candidates, name, form and due date, as a task moved to another
+  node already gets. Off by default, which is today's behaviour. When a
+  task's assignee or candidates are a lone variable, a migration now keeps
+  the person the task was made for, rather than carrying the variable's name
+  across.
+- **Approval lines, defined as data.** An approval line is a list of
+  approvers in order, each a step offered to users and groups, written as
+  JSON instead of BPMN: `POST /api/v1/projects/{id}/approval-lines` (a
+  designer's, like an import). metis generates the process, with the gateways
+  and the variables each decision is kept in. It is an ordinary definition, so
+  versions, scheduled releases and migration work on it unchanged, and a
+  request already running keeps the version it was submitted on.
+  - `POST …/approval-lines/{key}/requests` submits a request. Who submitted
+    it is whoever is signed in.
+  - `POST /api/v1/approval-tasks/{id}/decision` approves, rejects or sends
+    back a step. A sent-back request goes to its submitter, who resubmits it,
+    correcting only the line's declared `fields`, or withdraws it. Rejecting,
+    sending back and withdrawing need a comment. Who may decide is the task's
+    own rule.
+  - `GET /api/v1/approval-requests/{id}` says where a request is: each
+    step's state, who decided what, who it waits on, and the whole trail
+    across rounds.
+- **An assignee or candidate written as a lone variable is read when the task
+  is made.** `${submittedBy}` (or `${approvers}`, holding a list) now names
+  the person or people the variable holds, as Camunda models expect. Before,
+  the text was kept as written, and the task waited for a user literally
+  called `${submittedBy}`. Anything other than a lone variable is still left
+  as written.
+- **People can be deactivated and activated again, and their work goes
+  somewhere.** People has a Deactivate action on each person, which lists the
+  open tasks they hold and asks what happens to them: handed to someone (with a
+  reason, kept on each task's history), put back on offer, or left with them,
+  where *Nobody can act on these* lists them until somebody hands them over. A
+  hand-over the rules refuse leaves that task with them and says why. Activate
+  moves nothing back. `GET /api/v1/participants/{id}/held-tasks` and
+  `PUT /api/v1/participants/{id}/active`, a designer's.
+- **Tasks nobody can act on are found and listed.** A task names who may do
+  it by username and group name, so when that person is deactivated or
+  deleted, or the group is deleted or left with nobody active, the task waited
+  for ever and nothing said so. All tasks now opens with a *Nobody can act on
+  these* list, saying for each task who it waits for and why they cannot act,
+  with a **Hand over** that gives it to somebody who can (with a reason, kept
+  on its history). The list is `GET /api/v1/participants/stranded-tasks`, an
+  operator's to read. A task that names nobody, or names someone by an
+  expression, is not listed: the first falls to operators, and who the second
+  means was settled when the task was made.
 - **A BPMN file carries what a decision step and a call step run.** Import
   reads a business rule task's `camunda:decisionRef` (and
   `camunda:decisionRefVersion`) as the decision it evaluates, and a service
