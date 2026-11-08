@@ -10,6 +10,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Email through Panmail.** A built-in **Panmail Email** connector
+  (`panmail-email`) sends a step's mail through a Panmail gateway. A
+  connection takes the gateway URL, an API key with the `email:send` scope,
+  the provider id and the From address, with an optional Reply-To. A step
+  sends `to`, `cc` and `bcc` (comma-separated), a `subject`, and a plain
+  `body`, an `html` body or both, the same keys the SMTP connector reads.
+  The result is `status: sent` and Panmail's `message_id`, which its
+  delivery events are keyed by. A send made by a job carries the job's
+  idempotency key, so a job retried after a timeout is answered with the
+  message already accepted rather than mailing the person twice. A gateway
+  over plain `http` is refused unless it is on the same machine, because the
+  API key would cross the network in the clear. A bad key, a suppressed
+  recipient or a wrong provider id fails the step with what to fix.
 - **`scripts/dev.sh` signs you in as `admin` / `admin`.** A fresh
   development database is set up on start with that administrator, instead of
   stopping at the setup wizard; `--wizard` keeps the old behaviour. The

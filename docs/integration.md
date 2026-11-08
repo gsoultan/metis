@@ -2159,7 +2159,8 @@ higher one an upgrade, but going back is almost always a stale copy.
 
 **A built-in's key.** A manifest under the key of a connector built into Metis —
 `http-json`, `slack-message`, `email-smtp`, `sendgrid-email`,
-`discord-message`, `ms-teams-message`, `rabbitmq-publish` or `sql-query` —
+`discord-message`, `ms-teams-message`, `rabbitmq-publish`, `sql-query` or
+`panmail-email` —
 replaces that connector in every step, in every organization, that uses it. So
 installing one is refused with a 400 naming the key unless the operator sets
 `METIS_ALLOW_BUILTIN_CONNECTOR_OVERRIDE=true`. A manifest installed under a
