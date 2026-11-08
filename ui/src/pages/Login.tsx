@@ -26,9 +26,11 @@ import {
   Lock,
   GitBranch,
   BarChart3,
+  Clock,
 } from 'lucide-react';
 import { toStoreUser } from '../mappers/userMapper';
 import { signInError } from '../domain/signInError';
+import { signInNotice, signInReturnAddress, type SignInReason } from '../domain/signInReturn';
 
 // Plain statements of what the product does, not marketing superlatives. The
 // login page used to claim "sub-millisecond" execution and "GDPR-compliant"
@@ -43,13 +45,14 @@ const BRAND_FEATURES = [
   { icon: BarChart3, title: 'Connectors', desc: 'Call external services and receive signed webhooks' },
 ] as const;
 
-export function Login({ redirectTo }: { redirectTo?: string }) {
+export function Login({ redirectTo, reason }: { redirectTo?: string; reason?: SignInReason }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const setAuth = useAppStore((state) => state.setAuth);
   const navigate = useNavigate();
+  const notice = signInNotice(reason);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,7 +66,8 @@ export function Login({ redirectTo }: { redirectTo?: string }) {
         setError(err.message || 'Login failed');
       } else if (user && token) {
         setAuth(toStoreUser(user), token);
-        await navigate({ to: redirectTo || '/' });
+        // The address came in the query string: only an in-app path is followed.
+        await navigate({ href: signInReturnAddress(redirectTo) });
       } else {
         setError('Invalid response from server');
       }
@@ -232,6 +236,16 @@ export function Login({ redirectTo }: { redirectTo?: string }) {
                       is now the whole alert, and it carries what to do next.
                       See domain/signInError.ts.
                     */}
+                    {!error && notice && (
+                      <Alert
+                        icon={<Clock size={18} />}
+                        color="blue"
+                        radius="md"
+                        variant="light"
+                      >
+                        <Text size="sm">{notice}</Text>
+                      </Alert>
+                    )}
                     {error && (() => {
                       const { message, hint } = signInError(error);
                       return (

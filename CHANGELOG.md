@@ -23,6 +23,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   over plain `http` is refused unless it is on the same machine, because the
   API key would cross the network in the clear. A bad key, a suppressed
   recipient or a wrong provider id fails the step with what to fix.
+- **`scripts/dev.sh` signs you in as `admin` / `admin`.** A fresh
+  development database is set up on start with that administrator, instead of
+  stopping at the setup wizard; `--wizard` keeps the old behaviour. The
+  server's eight-character floor is unchanged: the script sets up with a long
+  random password and writes the hash of `admin` into the development
+  database. This also mends `./scripts/dev.sh --sample` on a fresh database,
+  whose setup the floor had been refusing.
 - **Requests on an older approval line can be moved to the new one.** A
   new version of a line never moves a running request; now an administrator
   can. `GET /api/v1/projects/{id}/approval-lines/{key}/behind` lists the open
@@ -147,6 +154,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **An ended session goes to the sign-in page, and back.** A page whose
+  requests came back 401 because the person had signed out in another tab
+  showed "Unauthorized" on every card and stayed there; it now signs out and
+  opens the sign-in page, as an expired token already did. The sign-in page
+  says the session ended, and signing in returns to the page and filters the
+  person was on. The return address is only followed when it is a path inside
+  the app.
+- **Errors read as sentences.** A reply with no explanation of its own (the
+  bare "Unauthorized", "Forbidden" or "Internal Server Error", a proxy's error
+  page) and a request that never reached the server ("Failed to fetch") are
+  now shown as what they mean and what to do, such as "Your session has
+  ended. Sign in again to continue." or "Metis can't be reached right now.".
+  The server's own explanations are shown as before.
 - **An older GORM database upgrades without a stop on 0.6.0.** A database
   that stopped anywhere from migration 42 to 48 is converted to the storm
   model's tables directly, as one at 49 always was; before, it was refused
