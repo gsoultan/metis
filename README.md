@@ -92,13 +92,19 @@ One command runs the backend and the UI together:
 - The Vite dev server proxies `/api` to the backend, so development is
   same-origin — the app talks to the server exactly as it does in production
 - Development secrets are generated once into `.env.development` (gitignored)
+- A fresh database is set up for you: sign in as **`admin` / `admin`**.
+  The server refuses passwords under eight characters, so the script sets the
+  installation up with a long random one and then writes the hash of `admin`
+  into the development database itself. Nothing in the server is changed by
+  it, and no other installation accepts `admin`
 - `Ctrl-C` stops both
 
 ```bash
 ./scripts/dev.sh backend    # backend only
 ./scripts/dev.sh ui         # UI only
-./scripts/dev.sh --reset    # wipe the local database and re-run setup
+./scripts/dev.sh --reset    # wipe the local database and set up admin / admin again
 ./scripts/dev.sh --sample   # set up and fill it with worked examples
+./scripts/dev.sh --wizard   # leave a fresh database to the setup wizard instead
 UI_PORT=3000 API_PORT=9000 GRPC_PORT=9001 ./scripts/dev.sh   # different ports
 ```
 
@@ -109,7 +115,7 @@ script uses it automatically when present:
 go install github.com/air-verse/air@latest
 ```
 
-Open the UI and the first run walks through the setup wizard. A server started
+Outside `scripts/dev.sh` (or with `--wizard`), the first run walks through the setup wizard. A server started
 with `DATABASE_URL`, `ENCRYPTION_KEY` and `JWT_SECRET` already has its database
 and keys, so the wizard asks only for the organization and first administrator
 and writes no `config.yaml`. Either way it closes once the database holds an
@@ -118,8 +124,8 @@ account.
 The wizard asks first for a **setup token**. A fresh server prints one in its
 log (`Metis is not set up yet … enter this setup token`), or takes the one in
 `METIS_SETUP_TOKEN`. Without it, whoever reached a new installation first
-would become its administrator. `scripts/dev.sh` chooses one for you and
-prints it beside the address.
+would become its administrator. `scripts/dev.sh` chooses one for you, and with
+`--wizard` prints it beside the address.
 
 Release notes are in [`CHANGELOG.md`](CHANGELOG.md). What to check before and during an upgrade — from GoBPM, or from one release to the next — is [`docs/upgrading.md`](docs/upgrading.md); how a release is rehearsed, tagged and verified is [`docs/releasing.md`](docs/releasing.md). Moving a project's processes and decisions from development to production — cut, import staged, go live, roll back — is [`docs/releases.md`](docs/releases.md).
 
@@ -325,8 +331,9 @@ SAMPLE_ADMIN_PASS='...' ./scripts/seed-sample.sh
 ### Signing in, and getting back in
 
 There is no default account. The administrator username and password are the
-ones typed into the setup wizard on first run — `admin/admin` works only if that
-is what you chose.
+ones typed into the setup wizard on first run. `admin/admin` is only what
+`scripts/dev.sh` gives a development database; the wizard and the API refuse a
+password that short.
 
 Signed-in users change their own password from **Profile → Change Password**,
 which asks for the current one — a session alone is not enough, so a stolen
