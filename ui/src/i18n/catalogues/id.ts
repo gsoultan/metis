@@ -557,6 +557,13 @@ const id: Catalogue = {
   'people.keys.name': 'Kunci baru untuk',
   'people.keys.namePlaceholder': 'Sistem yang akan memakainya',
   'people.keys.make': 'Buat kunci',
+  'people.devices.title': 'Perangkat Anda untuk notifikasi',
+  'people.devices.about': 'Ponsel Anda ditambahkan saat Anda masuk ke aplikasi, dan menerima notifikasi saat ada tugas yang menunggu Anda. Hapus yang tidak lagi Anda pakai.',
+  'people.devices.failed': 'Tindakan itu tidak berhasil.',
+  'people.devices.none': 'Belum ada. Masuk ke aplikasi di ponsel Anda untuk menerima notifikasi di sana.',
+  'people.devices.added': 'Ditambahkan {date}',
+  'people.devices.remove': 'Hapus: notifikasi berhenti dikirim ke perangkat ini',
+  'people.devices.removeNamed': 'Hapus {name}',
   'taskLink.doneTitle': 'Selesai, terima kasih',
   'taskLink.doneBody': 'Tugas sudah selesai. Anda dapat menutup halaman ini.',
 

@@ -603,6 +603,13 @@ const en: Catalogue = {
   'people.keys.name': 'New key for',
   'people.keys.namePlaceholder': 'The system that will use it',
   'people.keys.make': 'Make key',
+  'people.devices.title': 'Your devices for notifications',
+  'people.devices.about': 'Your phone is added when you sign in to the app, and gets a notification when a task is waiting for you. Remove one you no longer use.',
+  'people.devices.failed': 'That did not go through.',
+  'people.devices.none': 'None yet. Sign in to the app on your phone to get notifications there.',
+  'people.devices.added': 'Added {date}',
+  'people.devices.remove': 'Remove: notifications stop going to it',
+  'people.devices.removeNamed': 'Remove {name}',
   'taskLink.doneTitle': 'Done, thank you',
   'taskLink.doneBody': 'The task is complete. You can close this page.',
 

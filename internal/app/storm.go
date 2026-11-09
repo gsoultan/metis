@@ -227,6 +227,15 @@ func (a *App) peopleSignInService() servicecontracts.PeopleSignInService {
 		serviceimpl.WithPersonAPIKeys(pg.NewPersonAPIKeyRepository(a.storm)))
 }
 
+// personDeviceService builds the push device registry, or nothing on an
+// installation with no People directory; the facade then refuses with why.
+func (a *App) personDeviceService() servicecontracts.DeviceService {
+	if a.storm == nil {
+		return nil
+	}
+	return serviceimpl.NewPersonDeviceService(pg.NewPersonDeviceRepository(a.storm))
+}
+
 // platformUserService builds the account manager, or nothing.
 //
 // Nothing on any engine but PostgreSQL, like the participant directory. The

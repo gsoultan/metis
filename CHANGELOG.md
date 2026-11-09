@@ -10,6 +10,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **People register their phones for push notifications.** A person's app
+  registers the device the Firebase SDK gave it a token for, with their
+  People sign-in or one of their API keys: `POST /api/v1/people/devices`
+  (`token`, `platform` of `android`, `ios` or `web`, an optional `label`),
+  listed with `GET` and removed with `DELETE /api/v1/people/devices/{id}`.
+  Registering the same token again changes nothing; registering a token
+  another person had moves the device to whoever registered it last, so a
+  phone that changes hands stops getting the first person's notifications.
+  A person holds at most 20. The token is never sent back, only its last
+  four characters. The People inbox lists the person's devices to remove
+  one. On the People page, whoever manages the directory sees how many
+  devices each person has and removes a lost one
+  (`GET /api/v1/participants/device-counts`,
+  `GET` and `DELETE /api/v1/participants/{id}/devices[/{device}]`, each with
+  `project_id`). Migration 55 adds the table; see `docs/upgrading.md`.
 - **Push notifications through Firebase Cloud Messaging.** A built-in
   **Firebase Cloud Messaging** connector (`fcm-push`) on the Connectors page
   sends a push to one device through FCM's HTTP v1 API. Its connection takes
