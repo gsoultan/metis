@@ -441,7 +441,7 @@ export interface ListLiveVersionsResponse {
 export interface ApiConnectorProperty {
   key: string;
   label: string;
-  /** string | password | boolean | number | select | textarea, and mapping for a step field */
+  /** string | password | secret-file | boolean | number | select | textarea, and mapping for a step field */
   type: string;
   description?: string;
   default_value?: string;
