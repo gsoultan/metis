@@ -5,6 +5,7 @@ import { RequestError, requestJSON } from "../shared/rest";
 import { reportSessionRefused } from "../shared/sessionRefusal";
 import { raiseIfRefused } from "../raise";
 import type { ImportSummary, Participant } from "../../domain/participantImport";
+import type { PersonDevice } from "./peopleService";
 
 interface ListParticipantsResponse {
   participants?: Participant[];
@@ -160,6 +161,33 @@ export const participantService = {
       { method: "PUT", body: { active, work }, signal },
     );
     return raiseIfRefused(response).result ?? { moved: 0 };
+  },
+
+  /** How many push devices each person in the project has, by their id. */
+  async deviceCounts(projectId: string, signal?: AbortSignal): Promise<Record<string, number>> {
+    const response = await requestJSON<{ counts?: Record<string, number>; err?: string }>(
+      `/participants/device-counts?project_id=${encodeURIComponent(projectId)}`,
+      { signal },
+    );
+    return raiseIfRefused(response).counts ?? {};
+  },
+
+  /** One person's push devices. */
+  async listParticipantDevices(projectId: string, id: string, signal?: AbortSignal): Promise<PersonDevice[]> {
+    const response = await requestJSON<{ devices?: PersonDevice[]; err?: string }>(
+      `/participants/${encodeURIComponent(id)}/devices?project_id=${encodeURIComponent(projectId)}`,
+      { signal },
+    );
+    return raiseIfRefused(response).devices ?? [];
+  },
+
+  /** Removes a person's device, such as a phone they lost. */
+  async removeParticipantDevice(projectId: string, id: string, deviceId: string): Promise<void> {
+    const response = await requestJSON<{ err?: string }>(
+      `/participants/${encodeURIComponent(id)}/devices/${encodeURIComponent(deviceId)}?project_id=${encodeURIComponent(projectId)}`,
+      { method: "DELETE" },
+    );
+    raiseIfRefused(response);
   },
 
   /** Adds the named gaps to the project's People, from the organization's Users and groups. */

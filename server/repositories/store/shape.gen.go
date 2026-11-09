@@ -546,6 +546,22 @@ func _assertPersonAPIKeyShape(m m0.PersonAPIKey) {
 	}
 }
 
+// _assertPersonDeviceShape fails to compile if m0.PersonDevice gains, loses, renames or
+// reorders a field. Regenerate: `storm generate`.
+func _assertPersonDeviceShape(m m0.PersonDevice) {
+	type shape m0.PersonDevice
+	_ = shape{
+		m.Model,
+		m.Project,
+		m.Participant,
+		m.Token,
+		m.TokenHash,
+		m.Platform,
+		m.Label,
+		m.LastSentAt,
+	}
+}
+
 // _assertPlatformRoleShape fails to compile if m0.PlatformRole gains, loses, renames or
 // reorders a field. Regenerate: `storm generate`.
 func _assertPlatformRoleShape(m m0.PlatformRole) {

@@ -159,3 +159,41 @@ type SetParticipantActiveResponse struct {
 }
 
 func (r SetParticipantActiveResponse) Failed() error { return r.Err }
+
+// ParticipantDevicesRequest names one person's devices by project and id, so
+// the two are checked to agree.
+type ParticipantDevicesRequest struct {
+	ProjectID string `json:"-"`
+	ID        string `json:"-"`
+}
+
+type ParticipantDevicesResponse struct {
+	Devices []entities.PersonDevice `json:"devices"`
+	Err     error                   `json:"err,omitzero"`
+}
+
+func (r ParticipantDevicesResponse) Failed() error { return r.Err }
+
+type DeviceCountsRequest struct {
+	ProjectID string `json:"-"`
+}
+
+// DeviceCountsResponse maps a participant's id to how many devices they have.
+type DeviceCountsResponse struct {
+	Counts map[string]int `json:"counts"`
+	Err    error          `json:"err,omitzero"`
+}
+
+func (r DeviceCountsResponse) Failed() error { return r.Err }
+
+type RemoveParticipantDeviceRequest struct {
+	ProjectID string `json:"-"`
+	ID        string `json:"-"`
+	DeviceID  string `json:"-"`
+}
+
+type RemoveParticipantDeviceResponse struct {
+	Err error `json:"err,omitzero"`
+}
+
+func (r RemoveParticipantDeviceResponse) Failed() error { return r.Err }

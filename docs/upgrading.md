@@ -151,6 +151,17 @@ Migration 54 adds `releases.imported_by` and `releases.approved_by`. A
 release imported before it has neither, and in a protected environment is
 approved by a second person before it goes live, as a new one is.
 
+## Push devices (migration 55)
+
+Migration 55 creates `person_devices`, empty: the phones and browsers People
+register for push notifications. Nothing is sent until a project has a
+Firebase Cloud Messaging connection and somebody's app registers a device.
+A row is deleted when the device is removed or Firebase reports it gone; the
+table does not keep history.
+
+**Rolling back** to a release without the table leaves it in place and
+unread.
+
 ## A group's roles grant what they say
 
 A group's `roles` were stored and shown in the group editor, which said that

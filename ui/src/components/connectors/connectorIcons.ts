@@ -1,7 +1,8 @@
-import { Globe, Mail, MessageSquare, Send, Users, Zap, type LucideIcon } from 'lucide-react';
+import { BellRing, Globe, Mail, MessageSquare, Send, Users, Zap, type LucideIcon } from 'lucide-react';
 
 /** The icons a connector may name, by the name the catalogue stores. */
 export const CONNECTOR_ICONS: Record<string, LucideIcon> = {
+  BellRing,
   Globe,
   MessageSquare,
   Mail,

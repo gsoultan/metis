@@ -10,6 +10,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/peopletoken"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/model"
 	"github.com/gsoultan/metis/server/repositories/pg"
@@ -225,6 +226,15 @@ func (a *App) peopleSignInService() servicecontracts.PeopleSignInService {
 	}
 	return serviceimpl.NewPeopleSignInService(pg.NewPersonSignInRepository(a.storm), a.peopleKeys,
 		serviceimpl.WithPersonAPIKeys(pg.NewPersonAPIKeyRepository(a.storm)))
+}
+
+// personDevices is the push device registry, or nothing on an
+// installation with no People directory; the facade then refuses with why.
+func (a *App) personDevices() repocontracts.PersonDeviceRepository {
+	if a.storm == nil {
+		return nil
+	}
+	return pg.NewPersonDeviceRepository(a.storm)
 }
 
 // platformUserService builds the account manager, or nothing.
