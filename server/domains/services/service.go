@@ -12,6 +12,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/services/contracts"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/repositories"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
 
 type service struct {
@@ -30,6 +31,7 @@ type service struct {
 	contracts.ApprovalLineService
 	contracts.PersonAPIKeyService
 	contracts.DeviceService
+	contracts.PushSender
 	contracts.ExecutionEngine
 	contracts.JobService
 	contracts.ExternalTaskService
@@ -76,7 +78,9 @@ type ServiceParams struct {
 	ApprovalLines contracts.ApprovalLineService
 	PersonAPIKeys contracts.PersonAPIKeyService
 	// PersonDevices are the phones and browsers People registered for push.
-	PersonDevices          contracts.DeviceService
+	PersonDevices contracts.DeviceService
+	// PushSender sends pushes to People's devices.
+	PushSender             contracts.PushSender
 	ExecutionEngine        contracts.ExecutionEngine
 	JobService             contracts.JobService
 	ExternalTaskService    contracts.ExternalTaskService
@@ -151,6 +155,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	if p.PersonDevices == nil {
 		p.PersonDevices = serviceimpl.NewUnavailablePersonDeviceService()
 	}
+	if p.PushSender == nil {
+		p.PushSender = serviceimpl.NewUnavailablePushSender()
+	}
 	if p.ApprovalLines == nil {
 		p.ApprovalLines = serviceimpl.NewApprovalLineService(p.DefinitionService, p.ExecutionEngine, p.TaskService, p.MigrationService)
 	}
@@ -176,6 +183,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		ApprovalLineService:        p.ApprovalLines,
 		PersonAPIKeyService:        p.PersonAPIKeys,
 		DeviceService:              p.PersonDevices,
+		PushSender:                 p.PushSender,
 		ExecutionEngine:            p.ExecutionEngine,
 		JobService:                 p.JobService,
 		ExternalTaskService:        p.ExternalTaskService,
@@ -218,9 +226,9 @@ type facadeSettings struct {
 	// WithPeopleSignIn.
 	peopleSignIn contracts.PeopleSignInService
 
-	// personDevices registers People's devices for push. Nil leaves it
-	// unavailable: see WithPersonDevices.
-	personDevices contracts.DeviceService
+	// personDevices is where People's push devices are kept. Nil leaves
+	// devices and push unavailable: see WithPersonDevices.
+	personDevices repocontracts.PersonDeviceRepository
 
 	// taskLinkLifetime is how long a task link is good for. Zero is
 	// serviceimpl.DefaultTaskLinkLifetime: see WithTaskLinkLifetime.
@@ -250,7 +258,7 @@ func WithPeopleSignIn(signIn contracts.PeopleSignInService) FacadeOption {
 // WithPersonDevices is where People's push devices are kept. Built without
 // it, registering a device is refused with the reason: there is no People
 // directory to keep them beside.
-func WithPersonDevices(devices contracts.DeviceService) FacadeOption {
+func WithPersonDevices(devices repocontracts.PersonDeviceRepository) FacadeOption {
 	return func(settings *facadeSettings) { settings.personDevices = devices }
 }
 
@@ -379,7 +387,8 @@ func NewServiceFacade(
 		ParticipantSyncService: sync,
 		PlatformUserService:    accounts,
 		PeopleSignInService:    settings.peopleSignIn,
-		PersonDevices:          settings.personDevices,
+		PersonDevices:          personDevicesOf(settings.personDevices),
+		PushSender:             pushSenderOf(connectorSvc, settings.personDevices),
 		TaskService:            taskSvc,
 		PeopleTaskService:      serviceimpl.PeopleTasksOf(taskSvc),
 		TaskLinkService:        serviceimpl.TaskLinksOf(taskSvc, settings.taskLinkLifetime),
@@ -422,3 +431,19 @@ func NewServiceFacade(
 
 // Ensure service implements ServiceFacade
 var _ ServiceFacade = (*service)(nil)
+
+// personDevicesOf is the device service over devices, or nil without them.
+func personDevicesOf(devices repocontracts.PersonDeviceRepository) contracts.DeviceService {
+	if devices == nil {
+		return nil
+	}
+	return serviceimpl.NewPersonDeviceService(devices)
+}
+
+// pushSenderOf is the push sender over devices, or nil without them.
+func pushSenderOf(connectors contracts.ConnectorService, devices repocontracts.PersonDeviceRepository) contracts.PushSender {
+	if devices == nil {
+		return nil
+	}
+	return serviceimpl.NewPushSender(connectors, devices, nil)
+}

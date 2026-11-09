@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -12,6 +13,7 @@ import (
 type PersonDeviceRepository interface {
 	PersonOwnDevices
 	ProjectDevices
+	PushDeviceLedger
 }
 
 // PersonOwnDevices is a signed-in person's view of their own devices. The
@@ -37,4 +39,13 @@ type ProjectDevices interface {
 	// RemoveInProject deletes one participant's device. apierr.ErrNotFound
 	// when the project has no such device for them.
 	RemoveInProject(ctx context.Context, projectID, participantID, id uuid.UUID) error
+}
+
+// PushDeviceLedger is what sending records about a device.
+type PushDeviceLedger interface {
+	// Forget deletes a device Firebase said is gone. A device already gone is
+	// not an error: two sends can learn the same thing at once.
+	Forget(ctx context.Context, id uuid.UUID) error
+	// MarkSent records when a push was last accepted for a device.
+	MarkSent(ctx context.Context, id uuid.UUID, at time.Time) error
 }

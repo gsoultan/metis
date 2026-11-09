@@ -42,6 +42,8 @@ type ServiceFacade interface {
 	serviceContracts.PersonAPIKeyService
 	// DeviceService is the phones and browsers People registered for push.
 	serviceContracts.DeviceService
+	// PushSender sends pushes to People's devices through the project's push connection.
+	serviceContracts.PushSender
 	// PeopleSwitchOverService finds and fills what People lack before Users
 	// stop doing tasks.
 	serviceContracts.PeopleSwitchOverService
