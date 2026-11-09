@@ -37,6 +37,7 @@ import {
 } from '../../domain/connectorSecrets';
 import type { ApiConnector, ApiConnectorProperty } from '../../services/types';
 import { ConnectorGlyph } from './ConnectorGlyph';
+import { SecretFileField } from './SecretFileField';
 import type { InstanceFormState } from './instanceForm';
 
 /** The wizard's steps, by position. */
@@ -199,6 +200,18 @@ function ConfigField({ prop, value, keepsStored, onChange }: ConfigFieldProps) {
     placeholder,
   };
 
+  if (prop.type === 'secret-file') {
+    return (
+      <SecretFileField
+        label={prop.label}
+        description={prop.description}
+        required={prop.required}
+        value={value}
+        keepsStored={keepsStored}
+        onChange={onChange}
+      />
+    );
+  }
   if (prop.type === 'password' || isSensitiveKey(prop.key)) {
     return <PasswordInput {...common} value={shown} onChange={(e) => onText(e.currentTarget.value)} />;
   }
