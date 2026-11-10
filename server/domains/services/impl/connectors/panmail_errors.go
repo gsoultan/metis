@@ -11,10 +11,10 @@ import (
 // not act on, which for a send is nearly always the provider or the sender.
 const panmailCodeInvalidArgument = "invalid_argument"
 
-// explainPanmailError adds what to do about the refusals somebody can fix,
-// because the job's incident is where an administrator reads it, and
-// "unauthenticated" alone does not say which setting is wrong.
-func explainPanmailError(err error) error {
+// ExplainPanmailError adds what to do about the refusals somebody can fix,
+// because a job's incident or the server log is where an administrator reads
+// it, and "unauthenticated" alone does not say which setting is wrong.
+func ExplainPanmailError(err error) error {
 	var auth *panmail.AuthError
 	var suppressed *panmail.SuppressedRecipientError
 	var backlog *panmail.BacklogFullError

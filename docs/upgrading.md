@@ -1024,7 +1024,7 @@ held by a long query or transaction. Start the server again once that ends.
 
 The table keeps only the SHA-256 of each link's token, never the token. No
 link is sent until `METIS_PUBLIC_URL` and the `NOTIFICATION_SMTP_*` settings
-are set.
+(or the `NOTIFICATION_PANMAIL_*` ones) are set.
 
 **Rolling back** leaves the table in place. The previous release neither
 reads nor writes it, and the links it holds stop working with it.
