@@ -203,6 +203,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   deletion. Another organization's page offers to switch to it first, since
   the server answers for the organization being worked in.
 
+### Security
+
+- **PostgreSQL driver moves to pgx 5.12.0.** It fixes two advisories:
+  GHSA-95fj-3fxw-g62g, where a server impersonating PostgreSQL could skip
+  authentication despite `require_auth` or `channel_binding=require` when the
+  connection did not verify the server's certificate, and GHSA-j38q-h3ph-jjpq,
+  an injection in simple-protocol batches, which Metis did not use (database
+  lookups already force the extended protocol). The AWS SDK and storm 1.12.0
+  move with it; the generated store is regenerated and only its header changes.
+
 ### Fixed
 
 - **An ended session goes to the sign-in page, and back.** A page whose
