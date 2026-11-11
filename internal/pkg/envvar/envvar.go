@@ -49,6 +49,31 @@ var warned sync.Map
 // replaced whole and never mutated, so a reader sees one consistent set.
 var saved atomic.Pointer[map[string]string]
 
+// file is what the setup wizard wrote into config.yaml's server section,
+// installed as the server starts. It sits between the environment and the
+// saved settings: the operator wrote both the environment and the file, and
+// the environment is the more deliberate of the two.
+var file atomic.Pointer[map[string]string]
+
+// UseFile installs the values config.yaml sets.
+func UseFile(values map[string]string) {
+	installed := maps.Clone(values)
+	file.Store(&installed)
+}
+
+// FromOperator returns the value the operator gave name: in the environment,
+// or else in config.yaml. Never what was saved on the Settings page.
+func FromOperator(name string) (string, bool) {
+	if value, ok := FromEnvironment(name); ok {
+		return value, true
+	}
+	if values := file.Load(); values != nil {
+		value, ok := (*values)[name]
+		return value, ok
+	}
+	return "", false
+}
+
 // UseSaved installs the values set on the Settings page. The environment
 // still wins wherever it sets a variable: an operator's deployment is the
 // last word, and the page shows such a setting as locked.
@@ -58,13 +83,14 @@ func UseSaved(values map[string]string) {
 }
 
 // Lookup returns the value of name: from the environment, under its current
-// or its pre-rename spelling, or else as saved on the Settings page.
+// or its pre-rename spelling, or else as config.yaml sets it, or else as saved
+// on the Settings page.
 //
 // name is always the current METIS_ spelling; callers do not know the old one.
 // The boolean distinguishes "set to empty" from "not set", which several
 // callers depend on to tell a deliberate blank from an absent setting.
 func Lookup(name string) (string, bool) {
-	if value, ok := FromEnvironment(name); ok {
+	if value, ok := FromOperator(name); ok {
 		return value, true
 	}
 	if values := saved.Load(); values != nil {

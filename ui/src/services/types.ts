@@ -630,6 +630,10 @@ export interface SetupRequest {
   project_name: string;
   /** The one-time token the server prints in its log on a fresh install. */
   setup_token: string;
+  /** Where the server listens, such as `:8080`. Empty keeps the default. */
+  http_address: string;
+  /** The address people reach the server at, for links in e-mails. Optional. */
+  public_url: string;
 }
 
 

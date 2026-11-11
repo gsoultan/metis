@@ -10,6 +10,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **The database is chosen in the setup wizard.** A server started with no
+  `config.yaml` and no `DATABASE_URL` no longer refuses to start: it serves
+  the setup wizard and nothing else at `/setup` (behind the setup token in
+  its log), answers every other API call with 503, and reports not ready on
+  `/readyz`. Once the wizard has saved the database and the keys to
+  `config.yaml`, the same process starts on them, with no restart. A Linux
+  package install is now `systemctl enable --now metis` and a browser, with
+  nothing to edit in `/etc/metis/metis.env` first. `--reset-password` and
+  `--reseal` still refuse without a database.
+- **The setup wizard sets where the server listens.** A new Server step
+  writes the listen address (`METIS_HTTP_ADDRESS`) and the public address
+  (`METIS_PUBLIC_URL`) to a `server:` section of `config.yaml`, checked
+  before anything is written. The environment still wins over the file, and
+  the Settings page shows the value in use. A `config.yaml` with a `server:`
+  section is not read by an older release, which refuses unknown keys;
+  remove the section before downgrading.
+
 - **Notifications and task links through Panmail.** Metis's own mail — the
   notifications it emails and the task links it mails to People — can go
   through a Panmail gateway instead of an SMTP server. Set

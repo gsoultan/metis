@@ -22,6 +22,11 @@ export interface SetupStatus {
    * wizard asks only for the organization and its first administrator.
    */
   configured_by_environment?: boolean;
+  /**
+   * The server started with no database and serves only the wizard. Once
+   * setup has saved the configuration it starts on it by itself.
+   */
+  wizard_only?: boolean;
 }
 
 export const setupService = {

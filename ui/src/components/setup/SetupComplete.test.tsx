@@ -9,11 +9,11 @@ import { SetupComplete } from './SetupComplete';
 
 const textOf = (html: string) => html.replace(/<style[^>]*>[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
-const rendered = (fromEnvironment: boolean) =>
+const rendered = (fromEnvironment: boolean, wizardOnly = false) =>
   textOf(
     renderToStaticMarkup(
       <MantineProvider>
-        <SetupComplete fromEnvironment={fromEnvironment} onComplete={() => {}} />
+        <SetupComplete fromEnvironment={fromEnvironment} wizardOnly={wizardOnly} onComplete={() => {}} />
       </MantineProvider>,
     ),
   );
@@ -32,6 +32,15 @@ describe('SetupComplete', () => {
     const text = rendered(true);
     expect(text).toContain('nothing to save');
     expect(text).toContain('You can now log in with your administrator account');
+    expect(text).not.toContain('Restart');
+  });
+
+  // A server that was serving only the wizard starts on what it saved by
+  // itself, so asking for a restart would send somebody to do it twice.
+  it('says the server is starting when it was serving only the wizard', () => {
+    const text = rendered(false, true);
+    expect(text).toContain('config.yaml');
+    expect(text).toContain('Metis is starting on the database you chose');
     expect(text).not.toContain('Restart');
   });
 
