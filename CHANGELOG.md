@@ -206,7 +206,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 ### Fixed
 
 - **Built with Go 1.27.4.** CI and the container image move from Go 1.27.3
-  to 1.27.4, which fixes GO-2026-6859: a race on a `MaxBytesReader` body's
+  to 1.27.4 (and go.mod requires it, so release builds use it too), which fixes GO-2026-6859: a race on a `MaxBytesReader` body's
   headers that can crash an HTTP/1 server. govulncheck finds it reachable
   from every Metis HTTP handler. The fix is in the standard library, so
   nothing in Metis's own code changes.
