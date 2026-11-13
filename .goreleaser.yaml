@@ -25,6 +25,12 @@ before:
     # last left lying around.
     - sh -c "cd ui && bun install --frozen-lockfile"
     - sh -c "cd ui && bun run build"
+    # release.json: what this release does to a database, read from the
+    # migration list compiled into it. An installation reads it before it
+    # upgrades, to say whether the database will change and whether its
+    # version can be reached without a stop in between. Listed in
+    # checksums.txt below, so the signature over that file covers it too.
+    - go run ./cmd/releasemanifest -release {{ if .IsSnapshot }}{{ .Version }}{{ else }}{{ .Tag }}{{ end }} -out .release/release.json
 
 builds:
   - id: metis
@@ -126,13 +132,43 @@ nfpms:
         file_info:
           mode: 0644
         packager: deb
+      - src: deploy/linux/metis-upgrade.path
+        dst: /usr/lib/systemd/system/metis-upgrade.path
+        file_info:
+          mode: 0644
+        packager: deb
+      - src: deploy/linux/metis-upgrade.service
+        dst: /usr/lib/systemd/system/metis-upgrade.service
+        file_info:
+          mode: 0644
+        packager: deb
       - src: deploy/linux/metis.service
         dst: /usr/lib/systemd/system/metis.service
         file_info:
           mode: 0644
         packager: rpm
+      - src: deploy/linux/metis-upgrade.path
+        dst: /usr/lib/systemd/system/metis-upgrade.path
+        file_info:
+          mode: 0644
+        packager: rpm
+      - src: deploy/linux/metis-upgrade.service
+        dst: /usr/lib/systemd/system/metis-upgrade.service
+        file_info:
+          mode: 0644
+        packager: rpm
       - src: deploy/linux/metis.service
         dst: /usr/lib/systemd/system/metis.service
+        file_info:
+          mode: 0644
+        packager: archlinux
+      - src: deploy/linux/metis-upgrade.path
+        dst: /usr/lib/systemd/system/metis-upgrade.path
+        file_info:
+          mode: 0644
+        packager: archlinux
+      - src: deploy/linux/metis-upgrade.service
+        dst: /usr/lib/systemd/system/metis-upgrade.service
         file_info:
           mode: 0644
         packager: archlinux
@@ -197,6 +233,30 @@ nfpms:
 checksum:
   name_template: checksums.txt
   algorithm: sha256
+  extra_files:
+    - glob: .release/release.json
+
+# A signature over checksums.txt, and through it over every package, archive
+# and release.json it lists. The provenance attestation below says which
+# workflow built the bytes, but reading it needs the GitHub API and a token; a
+# cosign bundle is one file beside the release that a host can check with
+# nothing but the bundle, the file and the identity it expects. That is what an
+# installation upgrading itself verifies before it runs anything it downloaded.
+#
+# Keyless, like the image: the certificate is issued to this workflow's OIDC
+# identity and logged in the public transparency log, so there is no private
+# key to keep.
+signs:
+  - id: checksums
+    cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - --yes
+      - --bundle=${signature}
+      - ${artifact}
+    output: true
 
 # One bill of materials per archive, generated from the built artifact rather
 # than from go.mod, so it lists what is actually in the binary. The image
@@ -220,6 +280,8 @@ changelog:
 
 release:
   draft: false
+  extra_files:
+    - glob: .release/release.json
   # A pre-release tag stays marked as one, matching the image job's rule that
   # `latest` only moves for a final release. Somebody running a release
   # candidate in production should have chosen to.
@@ -236,7 +298,16 @@ release:
     The archives above are the same build for anyone deploying a binary
     directly, and the `.deb`, `.rpm`, `.apk` and `.pkg.tar.zst` packages
     install it as a service. Verify one against `checksums.txt` before
-    running it. A package installs the service without starting it: run
+    running it, and verify `checksums.txt` against its signature:
+
+    ```
+    cosign verify-blob checksums.txt \
+      --bundle checksums.txt.sigstore.json \
+      --certificate-identity https://github.com/gsoultan/metis/.github/workflows/release.yml@refs/tags/{{ .Tag }} \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    ```
+
+    A package installs the service without starting it: run
     `systemctl enable --now metis`, then open `http://<server>:8080/setup`
     and choose the database there, with the setup token from
     `journalctl -u metis`.

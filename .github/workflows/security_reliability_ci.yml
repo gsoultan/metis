@@ -744,6 +744,12 @@ jobs:
           version: "~> v2"
           args: check
 
+      # The before hooks are skipped, and one of them writes release.json,
+      # which checksums.txt lists. Written here the same way, so the snapshot
+      # proves the manifest generator still builds and the checksum covers it.
+      - name: Write the release manifest
+        run: go run ./cmd/releasemanifest -release v0.0.0-ci -out .release/release.json
+
       # Both architectures, as the release builds them; only the amd64 ones
       # can be installed on this runner. `--single-target` would halve the
       # build but belongs to `goreleaser build`, which makes no packages.
@@ -751,7 +757,12 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          args: release --snapshot --clean --skip=before,sbom
+          # `sign` too: the keyless signature needs the release workflow's
+          # OIDC identity, which a pull request does not have.
+          args: release --snapshot --clean --skip=before,sbom,sign
+
+      - name: The checksums cover the release manifest
+        run: grep -E '  release\.json$' dist/checksums.txt
 
       - name: Install on Debian, Rocky, Alpine and Arch
         run: |

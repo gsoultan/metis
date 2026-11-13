@@ -112,4 +112,8 @@ type ServiceFacade interface {
 	// Settings page: a platform administrator's act with a reason, every
 	// change kept, no secret ever returned.
 	serviceContracts.InstallationSettingService
+
+	// UpgradeService finds newer releases of Metis for the Upgrades page: a
+	// platform administrator's, read-only.
+	serviceContracts.UpgradeService
 }

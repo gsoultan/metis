@@ -56,3 +56,4 @@ graphify-out/
 # GoReleaser writes the release artifacts here. Anchored to the root, because
 # ui/dist is a different directory with its own rule above.
 /dist/
+/.release/

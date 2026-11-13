@@ -23,6 +23,14 @@ chmod 0750 /var/lib/metis
 
 if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload >/dev/null 2>&1 || true
+    # The Upgrades page's button: it watches for a request file and starts
+    # nothing on its own. Disable it to keep upgrades to the command line.
+    # Enabled on the first install only, so an operator who disabled it is
+    # not overruled by the next upgrade.
+    if [ ! -e /var/lib/metis/.upgrade-path-offered ]; then
+        systemctl enable --now metis-upgrade.path >/dev/null 2>&1 || true
+        : > /var/lib/metis/.upgrade-path-offered
+    fi
 fi
 
 cat <<'MSG'

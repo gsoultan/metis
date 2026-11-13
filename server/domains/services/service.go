@@ -56,6 +56,7 @@ type service struct {
 	contracts.RetentionPeriodService
 	contracts.ArchiveService
 	contracts.InstallationSettingService
+	contracts.UpgradeService
 	contracts.BatchOperationService
 	contracts.OperationLogService
 }
@@ -106,8 +107,10 @@ type ServiceParams struct {
 	ArchiveService         contracts.ArchiveService
 	// InstallationSettingService is the Settings page's server settings.
 	InstallationSettingService contracts.InstallationSettingService
-	BatchOperationService      contracts.BatchOperationService
-	OperationLogService        contracts.OperationLogService
+	// UpgradeService is the Upgrades page. Nil refuses every call.
+	UpgradeService        contracts.UpgradeService
+	BatchOperationService contracts.BatchOperationService
+	OperationLogService   contracts.OperationLogService
 }
 
 func NewService(p ServiceParams) ServiceFacade {
@@ -129,6 +132,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	}
 	if p.InstallationSettingService == nil {
 		p.InstallationSettingService = serviceimpl.NewUnavailableInstallationSettingService()
+	}
+	if p.UpgradeService == nil {
+		p.UpgradeService = serviceimpl.NewUnavailableUpgradeService()
 	}
 	if p.BatchOperationService == nil {
 		p.BatchOperationService = serviceimpl.NewUnavailableBatchOperationService()
@@ -208,6 +214,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		RetentionPeriodService:     p.RetentionPeriodService,
 		ArchiveService:             p.ArchiveService,
 		InstallationSettingService: p.InstallationSettingService,
+		UpgradeService:             p.UpgradeService,
 		BatchOperationService:      p.BatchOperationService,
 		OperationLogService:        p.OperationLogService,
 	}
@@ -233,6 +240,10 @@ type facadeSettings struct {
 	// taskLinkLifetime is how long a task link is good for. Zero is
 	// serviceimpl.DefaultTaskLinkLifetime: see WithTaskLinkLifetime.
 	taskLinkLifetime time.Duration
+
+	// upgrades is the Upgrades page. Nil refuses every call: see
+	// WithUpgrades.
+	upgrades contracts.UpgradeService
 }
 
 // FacadeOption changes what the services are built with.
@@ -266,6 +277,12 @@ func WithPersonDevices(devices repocontracts.PersonDeviceRepository) FacadeOptio
 // without it, a link lasts serviceimpl.DefaultTaskLinkLifetime.
 func WithTaskLinkLifetime(lifetime time.Duration) FacadeOption {
 	return func(settings *facadeSettings) { settings.taskLinkLifetime = lifetime }
+}
+
+// WithUpgrades is the Upgrades page's service. Built without it, the page is
+// refused with the reason.
+func WithUpgrades(upgrades contracts.UpgradeService) FacadeOption {
+	return func(settings *facadeSettings) { settings.upgrades = upgrades }
 }
 
 // NewServiceFacade creates and wires all sub-service implementations.
@@ -423,6 +440,7 @@ func NewServiceFacade(
 		RetentionPeriodService:     serviceimpl.NewRetentionPeriodService(repo),
 		ArchiveService:             serviceimpl.NewArchiveService(repo),
 		InstallationSettingService: serviceimpl.NewInstallationSettingService(repo.InstallationSetting()),
+		UpgradeService:             settings.upgrades,
 		BatchOperationService: serviceimpl.NewBatchOperationService(repo, instanceDeviator, jobSvc,
 			serviceimpl.AccountLoader(userSvc), serviceimpl.DefaultBatchOperationSettings()),
 		OperationLogService: serviceimpl.NewOperationLogService(repo),

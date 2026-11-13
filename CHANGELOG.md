@@ -10,6 +10,60 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **An Upgrade button on the Upgrades page.** On a package install, a
+  platform administrator can upgrade to the newest release from the page:
+  they type the release again to confirm, and the server, which cannot
+  install anything itself, leaves `/var/lib/metis/upgrade-request.json`. The
+  new `metis-upgrade.path` unit, enabled on first install, starts
+  `metis-upgrade.service` as root, which runs `metis upgrade` on the request
+  with every check the command makes; a request cannot ask for a downgrade.
+  The page then shows each step as it finishes, keeps asking through the
+  restart, and every open tab reloads into the new version. A refusal, a
+  rollback or a database that needs restoring is shown with what to do.
+  The button is offered only when the release publishes `release.json`, the
+  database can reach it and the trigger is enabled; otherwise the page says
+  why. `systemctl disable --now metis-upgrade.path` keeps upgrades to the
+  command line.
+- **`sudo metis upgrade --to vX.Y.Z` installs a newer release.** On a host
+  where the deb, rpm, apk or Arch package installed Metis, the command checks
+  the release's signature (issued to this repository's release workflow for
+  that exact tag, verified against Sigstore's public root), checks every file
+  it downloads against the signed `checksums.txt`, refuses a database too old
+  to reach the new release in one step, takes a `pg_dump` backup into
+  `/var/lib/metis/backups`, then stops the service, installs the package with
+  the host's package manager and waits for the new version to answer
+  `/readyz`. If it does not come up and nothing migrated, the previous
+  release (downloaded and verified before anything stopped) is reinstalled
+  and started. If the database had already migrated, Metis is left stopped
+  and the backup is named, because the older release cannot read the newer
+  schema. Progress is written to `/var/lib/metis/upgrade/status.json`.
+  A downgrade needs `--allow-downgrade`; two upgrades never run at once.
+- **Metis says when a newer release is out.** Every six hours the server
+  asks GitHub's public API for the release list, and a platform administrator
+  sees a banner on every page and an **Upgrades** page: the version running,
+  the newest release, its notes, which migrations it would apply to this
+  database, whether the database can go straight to it, and how this
+  installation (package, container or binary) is upgraded. **Check now** asks
+  again, at most once a minute. Nothing is downloaded or installed, and
+  nothing about the installation is sent. `METIS_UPGRADE_CHECK=false` turns
+  it off; `METIS_UPGRADE_CHANNEL=prerelease` offers release candidates too.
+- **Releases say what they do to a database, and sign their checksums.**
+  Every tag now publishes `release.json` beside the packages: the schema
+  version the release brings a database to, each migration it can apply, and
+  the oldest schema it upgrades from without a stop on an earlier release.
+  `checksums.txt`, which lists it, now carries a keyless cosign signature
+  (`checksums.txt.sigstore.json`) issued to the release workflow, so a host
+  can verify a download with `cosign verify-blob` and the identity in the
+  release notes. This is the first part of letting an installation upgrade
+  itself; nothing changes for an installation yet.
+- **An open page notices when Metis has been upgraded.** A tab left open
+  kept running the interface it was loaded with, against a server that had
+  moved on, until somebody happened to reload it. Every open page now asks
+  which build is serving it once a minute while it is in view, and again when
+  it comes back into view or back online. When the answer changes it says
+  "Metis is now v…", fetches the new version in the background, and reloads
+  into it at the next move to another page, which is the moment a reload
+  cannot cost anybody what they were typing. **Reload now** does it at once.
 - **The database is chosen in the setup wizard.** A server started with no
   `config.yaml` and no `DATABASE_URL` no longer refuses to start: it serves
   the setup wizard and nothing else at `/setup` (behind the setup token in
