@@ -35,6 +35,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/simulation"
 	"github.com/gsoultan/metis/server/endpoints/simulationcase"
 	"github.com/gsoultan/metis/server/endpoints/task"
+	"github.com/gsoultan/metis/server/endpoints/upgrade"
 	"github.com/gsoultan/metis/server/endpoints/user"
 	"github.com/gsoultan/metis/server/endpoints/webhook"
 	"github.com/gsoultan/metis/server/interceptors"
@@ -62,6 +63,7 @@ type Endpoints struct {
 	RetentionPeriod   retentionperiod.Endpoints
 	Archive           archive.Endpoints
 	ServerSetting     serversetting.Endpoints
+	Upgrade           upgrade.Endpoints
 	Organization      organization.Endpoints
 	Process           process.Endpoints
 	Project           project.Endpoints
@@ -421,6 +423,13 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	serverSettingEndpoints.ChangeServerSetting = platformAdmin("ChangeServerSetting")(serverSettingEndpoints.ChangeServerSetting)
 	serverSettingEndpoints.ServerSettingHistory = platformAdmin("ServerSettingHistory")(serverSettingEndpoints.ServerSettingHistory)
 
+	// Which version this installation runs and what an upgrade would change is
+	// about every organization on it, so it is a platform administrator's,
+	// reading included. The service asks again who is calling.
+	upgradeEndpoints := upgrade.MakeEndpoints(s)
+	upgradeEndpoints.UpgradeStatus = platformAdmin("UpgradeStatus")(upgradeEndpoints.UpgradeStatus)
+	upgradeEndpoints.CheckForUpgrade = platformAdmin("CheckForUpgrade")(upgradeEndpoints.CheckForUpgrade)
+
 	// Retrying or cancelling many instances at once runs the organization
 	// day to day, as resolving one incident does. The service asks again who
 	// is calling, and refuses a cancel to anybody but an administrator, as a
@@ -652,6 +661,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		RetentionPeriod:   periodEndpoints,
 		Archive:           archiveEndpoints,
 		ServerSetting:     serverSettingEndpoints,
+		Upgrade:           upgradeEndpoints,
 		Organization:      organizationEndpoints,
 		Process:           processEndpoints,
 		Project:           projectEndpoints,

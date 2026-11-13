@@ -32,6 +32,7 @@ import { Route as AuthenticatedReleasesRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedSdkRouteImport } from './routes/_authenticated.sdk'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated.settings'
 import { Route as AuthenticatedTasksRouteImport } from './routes/_authenticated.tasks'
+import { Route as AuthenticatedUpgradesRouteImport } from './routes/_authenticated.upgrades'
 import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated.users'
 import { Route as PIndexRouteImport } from './routes/p.index'
 import { Route as PTRouteImport } from './routes/p.t'
@@ -182,6 +183,13 @@ const AuthenticatedTasksRoute = AuthenticatedTasksRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_authenticated.tasks.lazy').then((d) => d.Route),
 )
+const AuthenticatedUpgradesRoute = AuthenticatedUpgradesRouteImport.update({
+  id: '/upgrades',
+  path: '/upgrades',
+  getParentRoute: () => AuthenticatedRoute,
+} as any).lazy(() =>
+  import('./routes/_authenticated.upgrades.lazy').then((d) => d.Route),
+)
 const AuthenticatedUsersRoute = AuthenticatedUsersRouteImport.update({
   id: '/users',
   path: '/users',
@@ -233,6 +241,7 @@ export interface FileRoutesByFullPath {
   '/sdk': typeof AuthenticatedSdkRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/tasks': typeof AuthenticatedTasksRoute
+  '/upgrades': typeof AuthenticatedUpgradesRoute
   '/users': typeof AuthenticatedUsersRoute
   '/p/t': typeof PTRoute
   '/p/': typeof PIndexRoute
@@ -260,6 +269,7 @@ export interface FileRoutesByTo {
   '/sdk': typeof AuthenticatedSdkRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/tasks': typeof AuthenticatedTasksRoute
+  '/upgrades': typeof AuthenticatedUpgradesRoute
   '/users': typeof AuthenticatedUsersRoute
   '/p/t': typeof PTRoute
   '/': typeof AuthenticatedIndexRoute
@@ -290,6 +300,7 @@ export interface FileRoutesById {
   '/_authenticated/sdk': typeof AuthenticatedSdkRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/tasks': typeof AuthenticatedTasksRoute
+  '/_authenticated/upgrades': typeof AuthenticatedUpgradesRoute
   '/_authenticated/users': typeof AuthenticatedUsersRoute
   '/p/t': typeof PTRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
@@ -321,6 +332,7 @@ export interface FileRouteTypes {
     | '/sdk'
     | '/settings'
     | '/tasks'
+    | '/upgrades'
     | '/users'
     | '/p/t'
     | '/p/'
@@ -348,6 +360,7 @@ export interface FileRouteTypes {
     | '/sdk'
     | '/settings'
     | '/tasks'
+    | '/upgrades'
     | '/users'
     | '/p/t'
     | '/'
@@ -377,6 +390,7 @@ export interface FileRouteTypes {
     | '/_authenticated/sdk'
     | '/_authenticated/settings'
     | '/_authenticated/tasks'
+    | '/_authenticated/upgrades'
     | '/_authenticated/users'
     | '/p/t'
     | '/_authenticated/'
@@ -555,6 +569,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTasksRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/upgrades': {
+      id: '/_authenticated/upgrades'
+      path: '/upgrades'
+      fullPath: '/upgrades'
+      preLoaderRoute: typeof AuthenticatedUpgradesRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/users': {
       id: '/_authenticated/users'
       path: '/users'
@@ -606,6 +627,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedSdkRoute: typeof AuthenticatedSdkRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedTasksRoute: typeof AuthenticatedTasksRoute
+  AuthenticatedUpgradesRoute: typeof AuthenticatedUpgradesRoute
   AuthenticatedUsersRoute: typeof AuthenticatedUsersRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedOrganizationsOrganizationIdRoute: typeof AuthenticatedOrganizationsOrganizationIdRoute
@@ -631,6 +653,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedSdkRoute: AuthenticatedSdkRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedTasksRoute: AuthenticatedTasksRoute,
+  AuthenticatedUpgradesRoute: AuthenticatedUpgradesRoute,
   AuthenticatedUsersRoute: AuthenticatedUsersRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedOrganizationsOrganizationIdRoute:

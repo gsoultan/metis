@@ -10,6 +10,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Metis says when a newer release is out.** Every six hours the server
+  asks GitHub's public API for the release list, and a platform administrator
+  sees a banner on every page and an **Upgrades** page: the version running,
+  the newest release, its notes, which migrations it would apply to this
+  database, whether the database can go straight to it, and how this
+  installation (package, container or binary) is upgraded. **Check now** asks
+  again, at most once a minute. Nothing is downloaded or installed, and
+  nothing about the installation is sent. `METIS_UPGRADE_CHECK=false` turns
+  it off; `METIS_UPGRADE_CHANNEL=prerelease` offers release candidates too.
 - **Releases say what they do to a database, and sign their checksums.**
   Every tag now publishes `release.json` beside the packages: the schema
   version the release brings a database to, each migration it can apply, and

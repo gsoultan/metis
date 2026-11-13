@@ -5,7 +5,7 @@ import { Link, useLocation } from '@tanstack/react-router';
 import { FolderGit2 } from 'lucide-react';
 import React from 'react';
 import { HelpDrawer } from '../components/HelpDrawer';
-import { AppHeader, RuntimeBanner, Sidebar } from '../components/shell';
+import { AppHeader, RuntimeBanner, Sidebar, UpgradeBanner } from '../components/shell';
 import { EmptyState } from '../components/state';
 import { selectionNeedsUpdate, resolveSelection } from '../domain/activeSelection';
 import { useOrganizations, useSwitchOrganization } from '../hooks/useOrganization';
@@ -86,7 +86,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const isDesigner = location.pathname.includes('/designer');
   const worksWithoutProject =
     location.pathname === '/' ||
-    ['/projects', '/organizations', '/users', '/groups', '/audit', '/settings', '/profile'].some((path) =>
+    ['/projects', '/organizations', '/users', '/groups', '/audit', '/settings', '/profile', '/upgrades'].some((path) =>
       location.pathname.includes(path),
     );
 
@@ -122,6 +122,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         }}
       >
         <RuntimeBanner />
+        <UpgradeBanner />
         {/*
           A max width on text-and-table content. Without one, a table stretches
           to whatever the monitor is, and the eye loses the row it was reading

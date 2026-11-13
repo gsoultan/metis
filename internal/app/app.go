@@ -41,6 +41,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/logger"
 	"github.com/gsoultan/metis/internal/pkg/metrics"
 	"github.com/gsoultan/metis/internal/pkg/redaction"
+	"github.com/gsoultan/metis/internal/pkg/releasecheck"
 	"github.com/gsoultan/metis/internal/pkg/tenantscope"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/observers/impl"
@@ -91,6 +92,9 @@ type App struct {
 	// peopleKeys seal People tokens. Nil when METIS_PEOPLE_TOKEN_KEY is unset,
 	// and then nobody can sign in as a person.
 	peopleKeys *peopletoken.Keys
+	// releaseChecker asks GitHub for new releases. Nil when
+	// METIS_UPGRADE_CHECK turns it off.
+	releaseChecker *releasecheck.Checker
 	// publicURL is where people reach this server, which task links are
 	// written against. Empty when METIS_PUBLIC_URL is unset, and then no
 	// links are sent.
@@ -773,6 +777,7 @@ func (a *App) startBackgroundWork(ctx context.Context) {
 	a.startSSEFanout(ctx)
 	a.startSharedLimits(ctx)
 	a.startRetentionSweeps(ctx)
+	a.startUpgradeChecks(ctx)
 	go a.reloadSavedSettings(ctx)
 	// Off unless configured. Each starts in the background, so a broker, a
 	// project or a connection that is not there yet does not hold up the boot.

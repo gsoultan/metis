@@ -43,6 +43,7 @@ var actionNouns = []struct{ noun, area string }{
 	{"PlatformRole", areaPlatform},
 	// The server's settings are every organization's.
 	{"ServerSetting", areaPlatform},
+	{"Upgrade", areaPlatform},
 	{"ParticipantSource", areaDirectories},
 	{"Participant", areaPeople},
 	// What a project's People lack before the switch-over, read and filled.

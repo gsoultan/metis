@@ -2,6 +2,7 @@ import { Tooltip } from '@mantine/core';
 import { Link, useRouterState } from '@tanstack/react-router';
 import {
   Archive,
+  ArrowUpCircle,
   PackageCheck,
   Building2,
   Contact,
@@ -139,6 +140,13 @@ const sections: NavSection[] = [
         label: 'nav.audit',
         to: '/audit',
         hint: 'Who did what across this organization',
+        adminOnly: true,
+      },
+      {
+        icon: ArrowUpCircle,
+        label: 'nav.upgrades',
+        to: '/upgrades',
+        hint: 'New releases of Metis for this installation',
         adminOnly: true,
       },
     ],

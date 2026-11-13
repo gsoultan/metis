@@ -164,5 +164,6 @@ func (a *App) newServices(dispatcher observercontracts.EventDispatcher, jwtSecre
 		a.participantService(), a.participantSyncService(serviceimpl.NewNoOpLocker()), a.platformUserService(),
 		append(a.control.serviceOptions(), services.WithPeopleSignIn(a.peopleSignInService()),
 			services.WithPersonDevices(a.personDevices()),
-			services.WithTaskLinkLifetime(a.taskLinkLifetime))...)
+			services.WithTaskLinkLifetime(a.taskLinkLifetime),
+			services.WithUpgrades(a.upgradeService()))...)
 }

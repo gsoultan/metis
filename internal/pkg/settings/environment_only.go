@@ -18,6 +18,7 @@ const (
 	reasonProtected      = "Marks this installation's runtime as production, where only a releaser or an administrator may change the models. An administrator could otherwise unlock their own production."
 	reasonReleaseKey     = "Signs the releases this installation exports. Kept in the database, anyone who could write one row could sign a release production trusts."
 	reasonReleaseTrust   = "Decides whose releases this installation imports. An administrator could otherwise trust a release nobody tested."
+	reasonUpgradeSource  = "Decides whether this installation asks GitHub for new releases, and which ones it is offered. Calling out of the installation is the operator's decision."
 	reasonArchiveStore   = "Where archived instances' records are kept, opened at start-up with the payload directory. A wrong value saved from the UI would leave records nobody can read."
 )
 
@@ -37,6 +38,8 @@ var environmentOnly = []Fixed{
 	{Name: "METIS_DB_MAX_IDLE_CONNS", Class: ClassBootstrap, Reason: reasonPool},
 	{Name: "METIS_DB_CONN_MAX_LIFETIME", Class: ClassBootstrap, Reason: reasonPool},
 	{Name: "METIS_DB_CONN_MAX_IDLE_TIME", Class: ClassBootstrap, Reason: reasonPool},
+	{Name: "METIS_UPGRADE_CHECK", Class: ClassGuardrail, Reason: reasonUpgradeSource},
+	{Name: "METIS_UPGRADE_CHANNEL", Class: ClassGuardrail, Reason: reasonUpgradeSource},
 	{Name: "METIS_HTTP_ADDRESS", Class: ClassBootstrap, Reason: reasonListener},
 	{Name: "METIS_GRPC_ADDRESS", Class: ClassBootstrap, Reason: reasonListener},
 	{Name: "METIS_METRICS_ENABLED", Class: ClassBootstrap, Reason: reasonListener},
