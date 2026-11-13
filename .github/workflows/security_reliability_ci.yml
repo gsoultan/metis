@@ -22,8 +22,10 @@ env:
   # in this repository's code. 1.27.2 supersedes it, and carries the fixes
   # for GO-2026-6599 to GO-2026-6617 (net/http, http2, textproto, tls,
   # html/template). 1.27.3 carries the fix for GO-2026-6809 (crypto/x509
-  # distrusting compromised intermediate certificates).
-  GO_VERSION: '1.27.3'
+  # distrusting compromised intermediate certificates). 1.27.4 carries the fix
+  # for GO-2026-6859 (HTTP/1 server crash from a MaxBytesReader header race in
+  # net/http).
+  GO_VERSION: '1.27.4'
 
 jobs:
   ui:
