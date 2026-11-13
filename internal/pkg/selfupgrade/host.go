@@ -163,7 +163,7 @@ func (s LocalServer) Ready(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	closing(resp.Body, "/readyz")
+	defer closing(resp.Body, "/readyz")
 	return resp.StatusCode == http.StatusOK
 }
 
