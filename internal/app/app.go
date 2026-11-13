@@ -273,6 +273,11 @@ func (a *App) Run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// `metis upgrade` is a command of its own, run as root beside the service.
+	if len(os.Args) > 1 && os.Args[1] == "upgrade" {
+		return a.runUpgradeCommand(ctx, os.Args[2:], os.Stdout)
+	}
+
 	// 0. Flag Parsing
 	buildUI := flag.Bool("build-ui", false, "Build the UI using bun")
 	resetPassword := flag.String("reset-password", "", "Set a new password for the named user, then exit")

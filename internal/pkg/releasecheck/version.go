@@ -102,3 +102,14 @@ func sign(n int) int {
 	}
 	return 0
 }
+
+// CompareTags orders two release tags. ok is false when either is not a
+// release tag, which cannot be ordered against one.
+func CompareTags(a, b string) (order int, ok bool) {
+	va, okA := parseTag(a)
+	vb, okB := parseTag(b)
+	if !okA || !okB {
+		return 0, false
+	}
+	return compare(va, vb), true
+}

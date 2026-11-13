@@ -10,6 +10,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **`sudo metis upgrade --to vX.Y.Z` installs a newer release.** On a host
+  where the deb, rpm, apk or Arch package installed Metis, the command checks
+  the release's signature (issued to this repository's release workflow for
+  that exact tag, verified against Sigstore's public root), checks every file
+  it downloads against the signed `checksums.txt`, refuses a database too old
+  to reach the new release in one step, takes a `pg_dump` backup into
+  `/var/lib/metis/backups`, then stops the service, installs the package with
+  the host's package manager and waits for the new version to answer
+  `/readyz`. If it does not come up and nothing migrated, the previous
+  release (downloaded and verified before anything stopped) is reinstalled
+  and started. If the database had already migrated, Metis is left stopped
+  and the backup is named, because the older release cannot read the newer
+  schema. Progress is written to `/var/lib/metis/upgrade/status.json`.
+  A downgrade needs `--allow-downgrade`; two upgrades never run at once.
 - **Metis says when a newer release is out.** Every six hours the server
   asks GitHub's public API for the release list, and a platform administrator
   sees a banner on every page and an **Upgrades** page: the version running,
