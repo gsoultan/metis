@@ -87,3 +87,25 @@ func ReadStatus(path string) (*Status, error) {
 	}
 	return &s, nil
 }
+
+// RecordRefusal writes a refused status for an upgrade that stopped before
+// its plan could start, so the page that asked for it is told why.
+func RecordRefusal(dir string, gid int, s Status) error {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	s.Outcome = OutcomeRefused
+	s.UpdatedAt = time.Now().UTC()
+	if s.StartedAt.IsZero() {
+		s.StartedAt = s.UpdatedAt
+	}
+	path := filepath.Join(dir, "status.json")
+	if err := writeStatus(path, s); err != nil {
+		return err
+	}
+	if gid > 0 {
+		_ = os.Chown(dir, -1, gid)
+		_ = os.Chown(path, -1, gid)
+	}
+	return nil
+}

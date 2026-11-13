@@ -10,6 +10,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **An Upgrade button on the Upgrades page.** On a package install, a
+  platform administrator can upgrade to the newest release from the page:
+  they type the release again to confirm, and the server, which cannot
+  install anything itself, leaves `/var/lib/metis/upgrade-request.json`. The
+  new `metis-upgrade.path` unit, enabled on first install, starts
+  `metis-upgrade.service` as root, which runs `metis upgrade` on the request
+  with every check the command makes; a request cannot ask for a downgrade.
+  The page then shows each step as it finishes, keeps asking through the
+  restart, and every open tab reloads into the new version. A refusal, a
+  rollback or a database that needs restoring is shown with what to do.
+  The button is offered only when the release publishes `release.json`, the
+  database can reach it and the trigger is enabled; otherwise the page says
+  why. `systemctl disable --now metis-upgrade.path` keeps upgrades to the
+  command line.
 - **`sudo metis upgrade --to vX.Y.Z` installs a newer release.** On a host
   where the deb, rpm, apk or Arch package installed Metis, the command checks
   the release's signature (issued to this repository's release workflow for

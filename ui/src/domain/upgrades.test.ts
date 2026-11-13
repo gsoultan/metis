@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'bun:test';
 
 import type { UpgradeStatus } from '../services/domains/upgradeService';
-import { checkedLabel, installGuidance, migrationLines, migrationsLabel, upgradeAvailable } from './upgrades';
+import {
+  checkedLabel,
+  installGuidance,
+  migrationLines,
+  migrationsLabel,
+  progressView,
+  upgradeAvailable,
+  upgradeInFlight,
+} from './upgrades';
 
 function status(over: Partial<UpgradeStatus> = {}): UpgradeStatus {
   return {
@@ -13,6 +21,7 @@ function status(over: Partial<UpgradeStatus> = {}): UpgradeStatus {
     schema_version: 55,
     pending: [],
     reachable: true,
+    can_start: false,
     ...over,
   };
 }
@@ -91,5 +100,57 @@ describe('checkedLabel', () => {
     ['2026-11-13T02:00:00Z', '6 hours ago'],
   ])('%s reads %s', (checkedAt, label) => {
     expect(checkedLabel(checkedAt, now)).toBe(label);
+  });
+});
+
+describe('progressView', () => {
+  const progress = {
+    from: 'v0.8.2',
+    to: 'v0.9.0',
+    step: 'backed up',
+    started_at: '2026-11-13T09:00:00Z',
+    updated_at: '2026-11-13T09:01:00Z',
+    steps: [],
+  };
+
+  it('says nothing when no upgrade was asked for', () => {
+    expect(progressView(status())).toBeNull();
+    expect(upgradeInFlight(status())).toBe(false);
+  });
+
+  it('says who asked, and keeps asking the server while it waits', () => {
+    const waiting = status({ requested: { to: 'v0.9.0', requested_by: 'root', requested_at: '2026-11-13T09:00:00Z' } });
+    expect(progressView(waiting)?.title).toBe('Upgrade to v0.9.0 asked for');
+    expect(progressView(waiting)?.body).toContain('root asked for it');
+    expect(upgradeInFlight(waiting)).toBe(true);
+  });
+
+  it('names the step while running', () => {
+    const running = status({ progress: { ...progress, outcome: 'running' } });
+    expect(progressView(running)?.body).toContain('Now: backed up');
+    expect(upgradeInFlight(running)).toBe(true);
+  });
+
+  it('is quiet about an upgrade that ended in the version running', () => {
+    expect(progressView(status({ current: 'v0.9.0', progress: { ...progress, outcome: 'done' } }))).toBeNull();
+  });
+
+  it('says nothing changed when the upgrade was refused', () => {
+    const view = progressView(status({ progress: { ...progress, outcome: 'refused', detail: 'verify v0.9.0: not verified' } }));
+    expect(view?.color).toBe('orange');
+    expect(view?.body).toBe('Nothing on this host was changed. verify v0.9.0: not verified');
+  });
+
+  it('names the backup when the database needs a restore', () => {
+    const view = progressView(status({ progress: { ...progress, outcome: 'needs_restore', backup: '/var/lib/metis/backups/x.dump' } }));
+    expect(view?.color).toBe('red');
+    expect(view?.body).toContain('Restore /var/lib/metis/backups/x.dump and reinstall v0.8.2');
+    expect(upgradeInFlight(status({ progress: { ...progress, outcome: 'needs_restore' } }))).toBe(false);
+  });
+
+  it('says the previous release is back after a rollback', () => {
+    expect(progressView(status({ progress: { ...progress, outcome: 'rolled_back' } }))?.title).toBe(
+      'v0.9.0 did not come up, so v0.8.2 is serving again',
+    );
   });
 });

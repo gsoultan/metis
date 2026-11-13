@@ -8,8 +8,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +26,12 @@ const (
 	// The package's own paths; see deploy/linux and .goreleaser.yaml.
 	packageEnvFile  = "/etc/metis/metis.env"
 	packageStateDir = "/var/lib/metis"
+	// UpgradeRequestFile is where the Upgrades page leaves a request, in the
+	// service's own state directory; metis-upgrade.path watches it.
+	UpgradeRequestFile = packageStateDir + "/upgrade-request.json"
+	// UpgradeStatusFile is where the helper reports progress.
+	UpgradeStatusFile = packageStateDir + "/upgrade/status.json"
+	serviceGroup      = "metis"
 
 	upgradeStartTimeout = 5 * time.Minute
 )
@@ -39,8 +47,19 @@ func (a *App) runUpgradeCommand(ctx context.Context, args []string, out io.Write
 	requestedBy := flags.String("requested-by", "", "who asked for the upgrade, kept in its status")
 	envFile := flags.String("env-file", packageEnvFile, "the service's environment file")
 	stateDir := flags.String("state-dir", packageStateDir, "the service's working directory")
+	fromRequest := flags.String("from-request", "", "take the release and requester from the Upgrades page's request file")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if *fromRequest != "" {
+		if *to != "" || *allowDowngrade {
+			return errors.New("--from-request takes the release from the request; it is not combined with --to or --allow-downgrade")
+		}
+		request, err := selfupgrade.TakeRequest(*fromRequest)
+		if err != nil {
+			return err
+		}
+		*to, *requestedBy = request.To, request.RequestedBy
 	}
 	if *to == "" {
 		return errors.New("say which release to install: metis upgrade --to vX.Y.Z (the Upgrades page names the newest)")
@@ -52,11 +71,21 @@ func (a *App) runUpgradeCommand(ctx context.Context, args []string, out io.Write
 		return fmt.Errorf("this metis was not installed from a Linux package (%s), so it is upgraded the way it was installed; see docs/upgrading.md", install)
 	}
 
+	gid := 0
+	if group, err := user.LookupGroup(serviceGroup); err == nil {
+		gid, _ = strconv.Atoi(group.Gid)
+	}
 	plan, err := a.upgradePlan(ctx, *to, *envFile, *stateDir)
 	if err != nil {
+		if *fromRequest != "" {
+			_ = selfupgrade.RecordRefusal(filepath.Join(*stateDir, "upgrade"), gid, selfupgrade.Status{
+				To: *to, RequestedBy: *requestedBy, Step: "prepare", Detail: err.Error(),
+			})
+		}
 		return err
 	}
 	plan.AllowDowngrade = *allowDowngrade
+	plan.StatusGID = gid
 	plan.RequestedBy = strings.TrimSpace(*requestedBy)
 	if plan.RequestedBy == "" {
 		plan.RequestedBy = os.Getenv("SUDO_USER")

@@ -30,6 +30,36 @@ export interface AvailableRelease {
 
 export type InstallKind = "package" | "container" | "binary";
 
+/** An upgrade asked for on this page that the helper has not taken yet. Mirrors selfupgrade.Request. */
+export interface UpgradeRequest {
+  to: string;
+  requested_by: string;
+  requested_at: string;
+}
+
+export type UpgradeOutcome = "running" | "done" | "refused" | "rolled_back" | "needs_restore";
+
+/** One finished step of an upgrade. Mirrors selfupgrade.StepRecord. */
+export interface UpgradeStep {
+  name: string;
+  detail?: string;
+  at: string;
+}
+
+/** The helper's report of the last upgrade. Mirrors selfupgrade.Status. */
+export interface UpgradeProgress {
+  from: string;
+  to: string;
+  requested_by?: string;
+  outcome: UpgradeOutcome;
+  step: string;
+  detail?: string;
+  backup?: string;
+  started_at: string;
+  updated_at: string;
+  steps: UpgradeStep[] | null;
+}
+
 /** What the Upgrades page shows. Mirrors contracts.UpgradeStatus. */
 export interface UpgradeStatus {
   current: string;
@@ -43,6 +73,10 @@ export interface UpgradeStatus {
   schema_version: number;
   pending: UpgradeMigration[] | null;
   reachable: boolean;
+  can_start: boolean;
+  cannot_start?: string;
+  requested?: UpgradeRequest;
+  progress?: UpgradeProgress;
 }
 
 interface StatusResponse {
@@ -70,5 +104,18 @@ export const upgradeService = {
   /** Asks GitHub now. The server asks at most once a minute, whatever is pressed. */
   async checkNow(signal?: AbortSignal) {
     return statusOf(await requestJSON<StatusResponse>("/upgrades/check", { method: "POST", signal }));
+  },
+
+  /**
+   * Asks the host's upgrade helper to install `to`. The server only leaves the
+   * request; the helper verifies the release again before it installs it.
+   */
+  async start(to: string, confirm: string) {
+    return statusOf(
+      await requestJSON<StatusResponse>("/upgrades/start", {
+        method: "POST",
+        body: { to, confirm },
+      }),
+    );
   },
 };

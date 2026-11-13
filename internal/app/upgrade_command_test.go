@@ -45,3 +45,11 @@ func TestTheServiceEnvironmentWinsOverTheShell(t *testing.T) {
 		t.Fatalf("a missing file: %v", err)
 	}
 }
+
+func TestFromRequestIsNotCombinedWithAVersion(t *testing.T) {
+	var out bytes.Buffer
+	err := (&App{}).runUpgradeCommand(t.Context(), []string{"--from-request", "x", "--allow-downgrade"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "not combined") {
+		t.Fatalf("err %v", err)
+	}
+}

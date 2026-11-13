@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -20,6 +21,9 @@ const (
 	// weekly event at most; four requests a day is well inside the sixty an
 	// hour GitHub allows a host without a token.
 	upgradeCheckInterval = 6 * time.Hour
+
+	// upgradeTriggerEnabled exists while metis-upgrade.path is enabled.
+	upgradeTriggerEnabled = "/etc/systemd/system/paths.target.wants/metis-upgrade.path"
 )
 
 // upgradeService builds the Upgrades page's service, and the checker that
@@ -39,6 +43,14 @@ func (a *App) upgradeService() servicecontracts.UpgradeService {
 		Channel:       channel,
 		Install:       serviceimpl.DetectInstall(),
 		SchemaVersion: appliedSchemaVersion(),
+	}
+	if settings.Install == servicecontracts.InstallPackage {
+		settings.RequestPath = UpgradeRequestFile
+		settings.StatusPath = UpgradeStatusFile
+		// Enabled, not merely installed: an operator who disabled it chose the
+		// command line.
+		_, err := os.Stat(upgradeTriggerEnabled)
+		settings.Triggered = err == nil
 	}
 	switch value := envvar.Get(envUpgradeCheck); value {
 	case "", "true":

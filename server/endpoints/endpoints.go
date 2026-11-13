@@ -429,6 +429,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	upgradeEndpoints := upgrade.MakeEndpoints(s)
 	upgradeEndpoints.UpgradeStatus = platformAdmin("UpgradeStatus")(upgradeEndpoints.UpgradeStatus)
 	upgradeEndpoints.CheckForUpgrade = platformAdmin("CheckForUpgrade")(upgradeEndpoints.CheckForUpgrade)
+	upgradeEndpoints.StartUpgrade = platformAdmin("StartUpgrade")(upgradeEndpoints.StartUpgrade)
 
 	// Retrying or cancelling many instances at once runs the organization
 	// day to day, as resolving one incident does. The service asks again who

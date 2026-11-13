@@ -12,6 +12,7 @@ import (
 type Endpoints struct {
 	UpgradeStatus   endpoint.Endpoint
 	CheckForUpgrade endpoint.Endpoint
+	StartUpgrade    endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -20,6 +21,14 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		// endpoints are built, and that dereferences the facade then.
 		UpgradeStatus:   statusEndpoint(func(ctx context.Context) (contracts.UpgradeStatus, error) { return s.UpgradeStatus(ctx) }),
 		CheckForUpgrade: statusEndpoint(func(ctx context.Context) (contracts.UpgradeStatus, error) { return s.CheckForUpgrade(ctx) }),
+		StartUpgrade: func(ctx context.Context, request any) (any, error) {
+			start, _ := request.(contracts.UpgradeStart)
+			status, err := s.StartUpgrade(ctx, start)
+			if err != nil {
+				return StatusResponse{Err: err}, nil
+			}
+			return StatusResponse{Status: &status}, nil
+		},
 	}
 }
 

@@ -91,7 +91,10 @@ func (r *run) save() {
 	r.status.UpdatedAt = r.plan.now()
 	// A status that cannot be written does not stop the upgrade: the steps
 	// are what matter, and they are in the journal too.
-	_ = writeStatus(filepath.Join(r.plan.Dir, "status.json"), r.status)
+	path := filepath.Join(r.plan.Dir, "status.json")
+	if writeStatus(path, r.status) == nil && r.plan.StatusGID > 0 {
+		_ = os.Chown(path, -1, r.plan.StatusGID)
+	}
 }
 
 // lock takes an exclusive lock on path, so two upgrades never overlap.

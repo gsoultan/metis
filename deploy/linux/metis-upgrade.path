@@ -1,0 +1,20 @@
+# Starts metis-upgrade.service when the Upgrades page asks for an upgrade.
+#
+# The page runs as the unprivileged metis account and cannot install anything;
+# it only leaves /var/lib/metis/upgrade-request.json naming a release. The
+# service, run as root, verifies that release from scratch and removes the
+# request before it starts, so a request is acted on once.
+#
+# The package enables this. To keep upgrades to the command line only:
+#
+#   systemctl disable --now metis-upgrade.path
+[Unit]
+Description=Watch for a Metis upgrade asked for on the Upgrades page
+Documentation=https://github.com/gsoultan/metis/blob/main/docs/upgrading.md
+
+[Path]
+PathExists=/var/lib/metis/upgrade-request.json
+Unit=metis-upgrade.service
+
+[Install]
+WantedBy=paths.target

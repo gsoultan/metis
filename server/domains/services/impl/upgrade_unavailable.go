@@ -22,3 +22,7 @@ func (unavailableUpgrades) UpgradeStatus(context.Context) (contracts.UpgradeStat
 func (unavailableUpgrades) CheckForUpgrade(context.Context) (contracts.UpgradeStatus, error) {
 	return contracts.UpgradeStatus{}, errNoUpgrades
 }
+
+func (unavailableUpgrades) StartUpgrade(context.Context, contracts.UpgradeStart) (contracts.UpgradeStatus, error) {
+	return contracts.UpgradeStatus{}, errNoUpgrades
+}

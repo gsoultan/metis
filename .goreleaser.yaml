@@ -132,13 +132,43 @@ nfpms:
         file_info:
           mode: 0644
         packager: deb
+      - src: deploy/linux/metis-upgrade.path
+        dst: /usr/lib/systemd/system/metis-upgrade.path
+        file_info:
+          mode: 0644
+        packager: deb
+      - src: deploy/linux/metis-upgrade.service
+        dst: /usr/lib/systemd/system/metis-upgrade.service
+        file_info:
+          mode: 0644
+        packager: deb
       - src: deploy/linux/metis.service
         dst: /usr/lib/systemd/system/metis.service
         file_info:
           mode: 0644
         packager: rpm
+      - src: deploy/linux/metis-upgrade.path
+        dst: /usr/lib/systemd/system/metis-upgrade.path
+        file_info:
+          mode: 0644
+        packager: rpm
+      - src: deploy/linux/metis-upgrade.service
+        dst: /usr/lib/systemd/system/metis-upgrade.service
+        file_info:
+          mode: 0644
+        packager: rpm
       - src: deploy/linux/metis.service
         dst: /usr/lib/systemd/system/metis.service
+        file_info:
+          mode: 0644
+        packager: archlinux
+      - src: deploy/linux/metis-upgrade.path
+        dst: /usr/lib/systemd/system/metis-upgrade.path
+        file_info:
+          mode: 0644
+        packager: archlinux
+      - src: deploy/linux/metis-upgrade.service
+        dst: /usr/lib/systemd/system/metis-upgrade.service
         file_info:
           mode: 0644
         packager: archlinux

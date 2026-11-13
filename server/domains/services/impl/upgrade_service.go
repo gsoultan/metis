@@ -3,10 +3,14 @@ package impl
 import (
 	"context"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/internal/pkg/releasecheck"
+	"github.com/gsoultan/metis/internal/pkg/selfupgrade"
 	"github.com/gsoultan/metis/server/domains/services/contracts"
 )
 
@@ -23,7 +27,18 @@ type UpgradeSettings struct {
 	Install       string
 	SchemaVersion int64
 	Now           func() time.Time
+	// RequestPath is where a request for the helper is written, and
+	// StatusPath where the helper reports; both empty off a package install.
+	RequestPath string
+	StatusPath  string
+	// Triggered is whether something on this host acts on a request: the
+	// enabled metis-upgrade.path unit.
+	Triggered bool
 }
+
+// runningStaleAfter is how long a status may say "running" without a word
+// before the page stops believing it: a helper killed mid-step leaves one.
+const runningStaleAfter = 2 * time.Hour
 
 type upgradeService struct {
 	settings UpgradeSettings
@@ -61,6 +76,31 @@ func (s *upgradeService) CheckForUpgrade(ctx context.Context) (contracts.Upgrade
 	return s.view(), nil
 }
 
+func (s *upgradeService) StartUpgrade(ctx context.Context, start contracts.UpgradeStart) (contracts.UpgradeStatus, error) {
+	caller, err := settingsCaller(ctx)
+	if err != nil {
+		return contracts.UpgradeStatus{}, apierr.Forbiddenf("only an administrator of every organization can see or start an upgrade")
+	}
+	view := s.view()
+	if !view.CanStart {
+		return view, apierr.Invalidf("%s", view.CannotStart)
+	}
+	to := strings.TrimSpace(start.To)
+	if to != view.Newest.Tag {
+		return view, apierr.Invalidf("the release offered is %s, not %q; reload the page", view.Newest.Tag, to)
+	}
+	if strings.TrimSpace(start.Confirm) != to {
+		return view, apierr.Invalidf("type %s to confirm the upgrade", to)
+	}
+	request := selfupgrade.Request{To: to, RequestedBy: caller.Username, RequestedAt: s.settings.Now().UTC()}
+	if err := selfupgrade.WriteRequest(s.settings.RequestPath, request); err != nil {
+		return view, apierr.Invalidf("could not ask for the upgrade: %s", err.Error())
+	}
+	log.Warn().Str("from", view.Current).Str("to", to).Str("by", caller.Username).
+		Msg("An upgrade was asked for on the Upgrades page; metis-upgrade.service will verify and install it")
+	return s.view(), nil
+}
+
 func (s *upgradeService) view() contracts.UpgradeStatus {
 	view := contracts.UpgradeStatus{
 		Enabled:       s.settings.Checker != nil,
@@ -78,7 +118,54 @@ func (s *upgradeService) view() contracts.UpgradeStatus {
 		view.Pending = view.Newest.Manifest.Pending(s.settings.SchemaVersion)
 		view.Reachable = view.Newest.Manifest.Reachable(s.settings.SchemaVersion)
 	}
+	s.readProgress(&view)
+	view.CannotStart = s.cannotStart(view)
+	view.CanStart = view.CannotStart == ""
 	return view
+}
+
+// readProgress adds what the helper has left on disk. A file that cannot be
+// read is left out rather than failing the page.
+func (s *upgradeService) readProgress(view *contracts.UpgradeStatus) {
+	if s.settings.RequestPath != "" {
+		view.Requested, _ = selfupgrade.PendingRequest(s.settings.RequestPath)
+	}
+	if s.settings.StatusPath != "" {
+		view.Progress, _ = selfupgrade.ReadStatus(s.settings.StatusPath)
+	}
+}
+
+// cannotStart is why the button is not offered, or "" when it is. Each answer
+// says what to do instead.
+func (s *upgradeService) cannotStart(view contracts.UpgradeStatus) string {
+	newest := view.Newest
+	switch {
+	case view.Install == contracts.InstallContainer:
+		return "this installation runs from a container image; change the image tag where it is deployed"
+	case view.Install != contracts.InstallPackage || s.settings.RequestPath == "":
+		return "this installation is a binary placed by hand; replace it the way it was placed"
+	case newest == nil:
+		return "no newer release is known"
+	}
+	if order, ok := releasecheck.CompareTags(newest.Tag, view.Current); !ok || order <= 0 {
+		return "no newer release is known"
+	}
+	switch {
+	case newest.Manifest == nil:
+		return newest.Tag + " publishes no release.json, so what it does to the database cannot be checked; upgrade it by hand following docs/upgrading.md"
+	case !view.Reachable:
+		return "the database is too old to go straight to " + newest.Tag + "; start " + newest.Manifest.ViaRelease + " against it first"
+	case view.Requested != nil:
+		return "an upgrade to " + view.Requested.To + " has already been asked for"
+	case view.Progress != nil && view.Progress.Outcome == selfupgrade.OutcomeRunning &&
+		s.settings.Now().Sub(view.Progress.UpdatedAt) < runningStaleAfter:
+		return "an upgrade to " + view.Progress.To + " is running"
+	case view.Progress != nil && view.Progress.Outcome == selfupgrade.OutcomeNeedsRestore:
+		return "the last upgrade left the database for a restore; restore " + view.Progress.Backup + ", then remove the upgrade status file to offer upgrades again"
+	case !s.settings.Triggered:
+		return "the upgrade trigger is not enabled on this host: run `sudo systemctl enable --now metis-upgrade.path`, or upgrade from a shell with `sudo metis upgrade --to " + newest.Tag + "`"
+	}
+	return ""
 }
 
 // upgradeCaller is the platform administrator check every upgrade read makes,

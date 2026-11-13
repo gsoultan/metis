@@ -37,6 +37,9 @@ type Plan struct {
 	// StartTimeout bounds how long the new release has to answer /readyz.
 	StartTimeout time.Duration
 	PollEvery    time.Duration
+	// StatusGID, when set, is the group given read access to Dir and
+	// status.json: the service's own, so the Upgrades page can show progress.
+	StatusGID int
 
 	Releases  Releases
 	Verifier  Verifier
@@ -59,6 +62,11 @@ func (p *Plan) Run(ctx context.Context) (Status, error) {
 	r := &run{plan: p, status: Status{To: p.To, RequestedBy: p.RequestedBy, Outcome: OutcomeRunning, StartedAt: p.now()}}
 	if err := os.MkdirAll(p.Dir, 0o750); err != nil {
 		return r.status, err
+	}
+	if p.StatusGID > 0 {
+		if err := os.Chown(p.Dir, -1, p.StatusGID); err != nil {
+			return r.status, err
+		}
 	}
 	unlock, err := lock(filepath.Join(p.Dir, "lock"))
 	if err != nil {

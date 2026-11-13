@@ -5,6 +5,7 @@ import (
 
 	"github.com/gsoultan/metis/internal/pkg/releasecheck"
 	"github.com/gsoultan/metis/internal/pkg/releasemanifest"
+	"github.com/gsoultan/metis/internal/pkg/selfupgrade"
 )
 
 // How Metis was installed on this host, which decides how it is upgraded.
@@ -39,6 +40,21 @@ type UpgradeStatus struct {
 	// Reachable is false when the database is older than the newest release
 	// upgrades from, so a release in between has to be started first.
 	Reachable bool `json:"reachable"`
+	// CanStart is whether the page may ask for an upgrade to Newest now;
+	// CannotStart says why not, and what to do instead.
+	CanStart    bool   `json:"can_start"`
+	CannotStart string `json:"cannot_start,omitempty"`
+	// Requested is an upgrade asked for that the helper has not taken yet.
+	Requested *selfupgrade.Request `json:"requested,omitempty"`
+	// Progress is the helper's report of the last upgrade, running or ended.
+	Progress *selfupgrade.Status `json:"progress,omitempty"`
+}
+
+// UpgradeStart asks for an upgrade. Confirm is the release typed again by
+// the administrator, so a stray click upgrades nothing.
+type UpgradeStart struct {
+	To      string `json:"to"`
+	Confirm string `json:"confirm"`
 }
 
 // UpgradeService finds newer releases of Metis for the Upgrades page.
@@ -51,4 +67,8 @@ type UpgradeService interface {
 	UpgradeStatus(ctx context.Context) (UpgradeStatus, error)
 	// CheckForUpgrade asks GitHub now, at most once a minute.
 	CheckForUpgrade(ctx context.Context) (UpgradeStatus, error)
+	// StartUpgrade leaves a request for the upgrade helper to install the
+	// newest release. The server never installs anything itself: it cannot,
+	// and the helper verifies the release again before it does.
+	StartUpgrade(ctx context.Context, start UpgradeStart) (UpgradeStatus, error)
 }
