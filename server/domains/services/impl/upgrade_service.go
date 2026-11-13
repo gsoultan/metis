@@ -163,7 +163,7 @@ func (s *upgradeService) cannotStart(view contracts.UpgradeStatus) string {
 	case view.Progress != nil && view.Progress.Outcome == selfupgrade.OutcomeNeedsRestore:
 		return "the last upgrade left the database for a restore; restore " + view.Progress.Backup + ", then remove the upgrade status file to offer upgrades again"
 	case !s.settings.Triggered:
-		return "the upgrade trigger is not enabled on this host: run `sudo systemctl enable --now metis-upgrade.path`, or upgrade from a shell with `sudo metis upgrade --to " + newest.Tag + "`"
+		return "nothing on this host acts on an upgrade request, so upgrade from a shell with `sudo metis upgrade --to " + newest.Tag + "`; on systemd, `sudo systemctl enable --now metis-upgrade.path` turns this button on"
 	}
 	return ""
 }

@@ -18,6 +18,94 @@ The first version of one of them silently left every form without its
 definition. `tests/upgrade` is the automated version of the same rehearsal and
 runs in CI; this is the one that uses your data.
 
+## Upgrading a package install from Metis itself
+
+On a host where the deb, rpm, apk or Arch package installed Metis, the
+upgrade can be run by Metis's own helper, from a shell or from the
+**Upgrades** page. Either way it is the same program, `metis upgrade`, run as
+root beside the service. The service itself never installs anything: its
+systemd unit keeps `/usr/bin` read-only to it, and that does not change.
+
+```sh
+sudo metis upgrade --to v0.8.0
+```
+
+What it does, in order. Each step that fails before the service is stopped
+leaves the host exactly as it was:
+
+1. Reads `/healthz` to learn the running release, and refuses the same
+   release, an older one (unless `--allow-downgrade`), or anything that is
+   not a release tag.
+2. Downloads `checksums.txt` and `checksums.txt.sigstore.json` and verifies
+   the signature against Sigstore's public root of trust. The signature must
+   be issued to
+   `https://github.com/gsoultan/metis/.github/workflows/release.yml@refs/tags/<the tag>`
+   by `https://token.actions.githubusercontent.com`, with a transparency log
+   entry. That identity is compiled into the binary doing the checking; a
+   signature for another tag, workflow, fork or issuer is refused.
+3. Downloads `release.json` and the package for this host, and checks each
+   against the signed checksums. `release.json` must name the tag.
+4. Refuses when the database is older than the release upgrades from in one
+   step, and names the release to start in between.
+5. Downloads and verifies the *running* release's package too, so a rollback
+   never depends on the network.
+6. Counts process instances, live and archived, and takes a `pg_dump`
+   backup in custom format into `/var/lib/metis/backups`. No backup, no
+   upgrade: install the PostgreSQL client tools (`postgresql-client`) on the
+   host first. `pg_dump` must be at least the server's major version.
+7. Stops the service, installs the package with the host's package manager,
+   starts it and waits up to five minutes for `/healthz` to report the new
+   release and `/readyz` to answer.
+8. Counts the instances again and says so if any are missing.
+
+When the new release does not come up:
+
+- **Nothing had migrated** (the schema version is unchanged): the previous
+  release is reinstalled and started, and the outcome is *rolled back*.
+- **The database had migrated**: the previous release cannot read the newer
+  schema, so Metis is left **stopped** and the outcome is *needs restore*.
+  Restore the backup it names with `pg_restore --clean --if-exists`, reinstall
+  the previous package (it is in `/var/lib/metis/upgrade/<tag>/`), start the
+  service, then remove `/var/lib/metis/upgrade/status.json` so the page offers
+  upgrades again.
+
+Progress and the outcome are written to `/var/lib/metis/upgrade/status.json`,
+which the service's group can read; the Upgrades page shows it. A lock in the
+same directory keeps two upgrades from running at once.
+
+The helper reads `/etc/metis/metis.env` and `/var/lib/metis/config.yaml`
+exactly as the service does, so it backs up the database the service uses,
+not one a `DATABASE_URL` in your shell names. It needs to reach
+`github.com` and the hosts its release downloads redirect to, and
+`tuf-repo-cdn.sigstore.dev` for Sigstore's root of trust.
+
+### The Upgrade button
+
+The packages install two systemd units and enable one of them on the first
+install:
+
+- `metis-upgrade.path` watches for `/var/lib/metis/upgrade-request.json`;
+- `metis-upgrade.service` runs `metis upgrade --from-request` on it, as root.
+
+When a platform administrator presses **Upgrade** and types the release again,
+the server writes that request file, and nothing else. The helper removes the
+request before acting on it, reads it without following links, and takes only
+a release tag from it: a request cannot ask for a downgrade, and the release
+is verified as if typed at a shell. The button is offered only when the
+newest release publishes `release.json`, the database can reach it, no other
+upgrade is waiting or running, and the trigger is enabled.
+
+To keep upgrades to the command line:
+
+```sh
+sudo systemctl disable --now metis-upgrade.path
+```
+
+OpenRC (Alpine) has no path units, so there the page shows the command
+instead of the button. Containers and hand-placed binaries are never
+upgraded by Metis: the page says what to move to, and whoever owns the image
+or the binary moves it.
+
 ## Migration 50: the database takes the storm model's shape
 
 Releases up to 0.6.0 kept the schema with GORM and recorded migrations 1 to
