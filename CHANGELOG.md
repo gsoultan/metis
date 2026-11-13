@@ -56,6 +56,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   can verify a download with `cosign verify-blob` and the identity in the
   release notes. This is the first part of letting an installation upgrade
   itself; nothing changes for an installation yet.
+- **An open page notices when Metis has been upgraded.** A tab left open
+  kept running the interface it was loaded with, against a server that had
+  moved on, until somebody happened to reload it. Every open page now asks
+  which build is serving it once a minute while it is in view, and again when
+  it comes back into view or back online. When the answer changes it says
+  "Metis is now v…", fetches the new version in the background, and reloads
+  into it at the next move to another page, which is the moment a reload
+  cannot cost anybody what they were typing. **Reload now** does it at once.
 - **Notifications and task links through Panmail.** Metis's own mail — the
   notifications it emails and the task links it mails to People — can go
   through a Panmail gateway instead of an SMTP server. Set

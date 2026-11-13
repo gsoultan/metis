@@ -2,12 +2,14 @@ import { Button, Group, Notification, Stack, Text } from '@mantine/core';
 import { CloudOff, RefreshCw, Upload } from 'lucide-react';
 
 import { useOutbox } from './useOutbox';
+import { useServerUpgrade } from './useServerUpgrade';
 import { useOnlineStatus, useServiceWorker } from './useServiceWorker';
 
 /**
- * The two things the service worker needs to say out loud.
+ * The things the service worker needs to say out loud.
  *
- * A new version is waiting, and the connection has gone. Both are fixed to the
+ * The server was upgraded, a new version is waiting, and the connection has
+ * gone. All are fixed to the
  * bottom of the screen rather than shown as a toast, because a toast that
  * disappears after four seconds is no use for a state that persists.
  */
@@ -15,8 +17,20 @@ export function ServiceWorkerPrompt() {
   const { updateReady, update, dismiss } = useServiceWorker();
   const online = useOnlineStatus();
   const { summary, flush, unowned, unownedSummary, discardUnowned } = useOutbox();
+  const server = useServerUpgrade();
+  const upgraded = server.kind === 'upgraded';
 
-  if (!updateReady && online && summary === '' && unownedSummary === '') {
+  // Through the waiting worker when there is one, so the reload is served by
+  // the new worker and not the old one's cache; a plain reload otherwise.
+  const reloadIntoNewVersion = () => {
+    if (updateReady) {
+      update();
+    } else {
+      window.location.reload();
+    }
+  };
+
+  if (!upgraded && !updateReady && online && summary === '' && unownedSummary === '') {
     return null;
   }
 
@@ -102,7 +116,33 @@ export function ServiceWorkerPrompt() {
         </Notification>
       )}
 
-      {updateReady && (
+      {/*
+        The server under this page was upgraded. Not dismissable: this page is
+        the old interface talking to a new server, and the reload at the next
+        change of page happens whether this is read or not.
+      */}
+      {upgraded && (
+        <Notification
+          icon={<RefreshCw size={18} />}
+          color="blue"
+          title={`Metis is now ${server.label}`}
+          withCloseButton={false}
+        >
+          <Stack gap="xs">
+            <Text size="sm">
+              This page is still the previous version. It reloads into the new one when you
+              move to another page, or reload now if you have nothing unsaved here.
+            </Text>
+            <Group gap="xs">
+              <Button size="xs" onClick={reloadIntoNewVersion}>
+                Reload now
+              </Button>
+            </Group>
+          </Stack>
+        </Notification>
+      )}
+
+      {updateReady && !upgraded && (
         <Notification
           icon={<RefreshCw size={18} />}
           color="blue"
