@@ -72,7 +72,9 @@ func (s *upgradeService) CheckForUpgrade(ctx context.Context) (contracts.Upgrade
 	}
 	// A failed check is shown on the page, with the previous answer kept;
 	// it is not a failed request.
-	_, _ = s.settings.Checker.Check(ctx)
+	if _, err := s.settings.Checker.Check(ctx); err != nil {
+		log.Info().Err(err).Msg("The check for a new release did not reach GitHub; the page shows the last answer")
+	}
 	return s.view(), nil
 }
 
@@ -128,10 +130,18 @@ func (s *upgradeService) view() contracts.UpgradeStatus {
 // read is left out rather than failing the page.
 func (s *upgradeService) readProgress(view *contracts.UpgradeStatus) {
 	if s.settings.RequestPath != "" {
-		view.Requested, _ = selfupgrade.PendingRequest(s.settings.RequestPath)
+		requested, err := selfupgrade.PendingRequest(s.settings.RequestPath)
+		if err != nil {
+			log.Warn().Err(err).Msg("The waiting upgrade request could not be read")
+		}
+		view.Requested = requested
 	}
 	if s.settings.StatusPath != "" {
-		view.Progress, _ = selfupgrade.ReadStatus(s.settings.StatusPath)
+		progress, err := selfupgrade.ReadStatus(s.settings.StatusPath)
+		if err != nil {
+			log.Warn().Err(err).Msg("The upgrade helper's status could not be read")
+		}
+		view.Progress = progress
 	}
 }
 

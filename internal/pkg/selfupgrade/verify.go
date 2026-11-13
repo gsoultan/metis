@@ -46,7 +46,7 @@ type SignatureVerifier struct {
 func (v SignatureVerifier) VerifyChecksums(checksums, bundleJSON []byte, tag string) error {
 	var b bundle.Bundle
 	if err := b.UnmarshalJSON(bundleJSON); err != nil {
-		return fmt.Errorf("%w: the signature bundle could not be read: %v", ErrNotVerified, err)
+		return fmt.Errorf("%w: the signature bundle could not be read: %w", ErrNotVerified, err)
 	}
 	return v.verifyEntity(&b, checksums, tag)
 }
@@ -64,17 +64,17 @@ func (v SignatureVerifier) verifyEntity(entity verify.SignedEntity, checksums []
 	}
 	verifier, err := verify.NewVerifier(v.Trusted, options...)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrNotVerified, err)
+		return fmt.Errorf("%w: %w", ErrNotVerified, err)
 	}
 	identity, err := verify.NewShortCertificateIdentity(OIDCIssuer, "", WorkflowIdentityPrefix+tag, "")
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrNotVerified, err)
+		return fmt.Errorf("%w: %w", ErrNotVerified, err)
 	}
 	if _, err := verifier.Verify(entity, verify.NewPolicy(
 		verify.WithArtifact(bytes.NewReader(checksums)),
 		verify.WithCertificateIdentity(identity),
 	)); err != nil {
-		return fmt.Errorf("%w: checksums.txt is not signed by the metis release workflow for %s: %v", ErrNotVerified, tag, err)
+		return fmt.Errorf("%w: checksums.txt is not signed by the metis release workflow for %s: %w", ErrNotVerified, tag, err)
 	}
 	return nil
 }
@@ -104,7 +104,7 @@ func ParseChecksums(raw []byte) (Checksums, error) {
 		out[name] = digest
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrNotVerified, err)
+		return nil, fmt.Errorf("%w: %w", ErrNotVerified, err)
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("%w: checksums.txt lists nothing", ErrNotVerified)

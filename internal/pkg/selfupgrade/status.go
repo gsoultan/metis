@@ -2,6 +2,7 @@ package selfupgrade
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"time"
@@ -57,14 +58,12 @@ func writeStatus(path string, s Status) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
+	defer removing(tmp.Name())
 	if _, err := tmp.Write(raw); err != nil {
-		_ = tmp.Close()
-		return err
+		return errors.Join(err, tmp.Close())
 	}
 	if err := tmp.Chmod(0o640); err != nil {
-		_ = tmp.Close()
-		return err
+		return errors.Join(err, tmp.Close())
 	}
 	if err := tmp.Close(); err != nil {
 		return err
@@ -103,9 +102,7 @@ func RecordRefusal(dir string, gid int, s Status) error {
 	if err := writeStatus(path, s); err != nil {
 		return err
 	}
-	if gid > 0 {
-		_ = os.Chown(dir, -1, gid)
-		_ = os.Chown(path, -1, gid)
-	}
+	sharing(dir, gid)
+	sharing(path, gid)
 	return nil
 }

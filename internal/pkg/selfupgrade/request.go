@@ -44,10 +44,9 @@ func WriteRequest(path string, r Request) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
+	defer removing(tmp.Name())
 	if _, err := tmp.Write(raw); err != nil {
-		_ = tmp.Close()
-		return err
+		return errors.Join(err, tmp.Close())
 	}
 	if err := tmp.Close(); err != nil {
 		return err
@@ -64,9 +63,9 @@ func TakeRequest(path string) (Request, error) {
 	if err != nil {
 		return Request{}, fmt.Errorf("open the upgrade request: %w", err)
 	}
-	defer func() { _ = f.Close() }()
+	defer closing(f, "the upgrade request")
 	// Removed whatever it holds: a request that cannot be read is not retried.
-	defer func() { _ = os.Remove(path) }()
+	defer removing(path)
 	info, err := f.Stat()
 	if err != nil {
 		return Request{}, err

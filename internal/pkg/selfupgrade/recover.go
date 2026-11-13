@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // recover is the way back after the service was stopped. With the schema
@@ -18,7 +20,11 @@ import (
 func (r *run) recover(ctx context.Context, previous verified, schemaBefore int64, cause error) (Status, error) {
 	p := r.plan
 	r.step("failed", cause.Error())
-	_ = p.Service.Stop(ctx)
+	// Stopped before anything else is decided. A service that will not stop
+	// is carried in the cause: what follows may be installing under it.
+	if err := p.Service.Stop(ctx); err != nil {
+		cause = errors.Join(cause, fmt.Errorf("stop metis: %w", err))
+	}
 
 	schemaAfter, err := p.Database.SchemaVersion(ctx)
 	if err != nil || schemaAfter != schemaBefore {
@@ -92,9 +98,11 @@ func (r *run) save() {
 	// A status that cannot be written does not stop the upgrade: the steps
 	// are what matter, and they are in the journal too.
 	path := filepath.Join(r.plan.Dir, "status.json")
-	if writeStatus(path, r.status) == nil && r.plan.StatusGID > 0 {
-		_ = os.Chown(path, -1, r.plan.StatusGID)
+	if err := writeStatus(path, r.status); err != nil {
+		log.Warn().Err(err).Str("path", path).Msg("upgrade: could not write its status")
+		return
 	}
+	sharing(path, r.plan.StatusGID)
 }
 
 // lock takes an exclusive lock on path, so two upgrades never overlap.
@@ -104,11 +112,15 @@ func lock(path string) (func(), error) {
 		return nil, err
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = f.Close()
+		closing(f, "the upgrade lock")
 		return nil, errors.New("another upgrade is already running")
 	}
 	return func() {
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		_ = f.Close()
+		// Closing the file releases the lock too, so an unlock that fails
+		// is only said.
+		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
+			log.Debug().Err(err).Msg("upgrade: could not release its lock")
+		}
+		closing(f, "the upgrade lock")
 	}, nil
 }

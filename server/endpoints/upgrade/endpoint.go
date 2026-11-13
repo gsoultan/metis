@@ -2,6 +2,7 @@ package upgrade
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/gsoultan/metis/server/domains/services"
@@ -22,7 +23,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		UpgradeStatus:   statusEndpoint(func(ctx context.Context) (contracts.UpgradeStatus, error) { return s.UpgradeStatus(ctx) }),
 		CheckForUpgrade: statusEndpoint(func(ctx context.Context) (contracts.UpgradeStatus, error) { return s.CheckForUpgrade(ctx) }),
 		StartUpgrade: func(ctx context.Context, request any) (any, error) {
-			start, _ := request.(contracts.UpgradeStart)
+			start, ok := request.(contracts.UpgradeStart)
+			if !ok {
+				return nil, fmt.Errorf("upgrade: expected an UpgradeStart, got %T", request)
+			}
 			status, err := s.StartUpgrade(ctx, start)
 			if err != nil {
 				return StatusResponse{Err: err}, nil

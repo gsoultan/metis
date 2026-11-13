@@ -54,7 +54,7 @@ func (g GitHubReleases) Asset(ctx context.Context, tag, name string) ([]byte, er
 	if err != nil {
 		return nil, fmt.Errorf("download %s of %s: %w", name, tag, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer closing(resp.Body, "a download")
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download %s of %s: %s", name, tag, resp.Status)
 	}
@@ -142,7 +142,7 @@ func (s LocalServer) Version(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer closing(resp.Body, "/healthz")
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("/healthz answered %s", resp.Status)
 	}
@@ -163,7 +163,7 @@ func (s LocalServer) Ready(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	_ = resp.Body.Close()
+	closing(resp.Body, "/readyz")
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -203,8 +203,9 @@ func (p Postgres) query(ctx context.Context, fn func(*pgx.Conn) error) error {
 	if err != nil {
 		return fmt.Errorf("connect to the database: %w", err)
 	}
-	defer func() { _ = conn.Close(ctx) }()
-	return fn(conn)
+	// A read that worked and a connection that would not close is still a
+	// failed read: the upgrade acts on nothing it is unsure of.
+	return errors.Join(fn(conn), conn.Close(ctx))
 }
 
 // Backup runs pg_dump in its custom format, which pg_restore reads. The
@@ -224,7 +225,7 @@ func (p Postgres) Backup(ctx context.Context, path string) (int64, error) {
 	cmd := exec.CommandContext(ctx, "pg_dump", "--format=custom", "--file="+path) // #nosec G204 -- the path is built by the plan
 	cmd.Env = append(os.Environ(), env...)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		_ = os.Remove(path)
+		removing(path)
 		return 0, fmt.Errorf("pg_dump: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	info, err := os.Stat(path)

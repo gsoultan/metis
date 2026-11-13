@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/gsoultan/metis/internal/pkg/releasemanifest"
 )
 
@@ -244,7 +246,11 @@ func (c *Checker) getJSON(ctx context.Context, url string, limit int64, into any
 	if err != nil {
 		return err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Debug().Err(err).Msg("release check: could not close a response body")
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%s answered %d", req.URL.Host, resp.StatusCode)
 	}

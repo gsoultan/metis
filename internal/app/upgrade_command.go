@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/sigstore/sigstore-go/pkg/root"
 
 	"github.com/gsoultan/metis/internal/pkg/selfupgrade"
@@ -73,14 +74,18 @@ func (a *App) runUpgradeCommand(ctx context.Context, args []string, out io.Write
 
 	gid := 0
 	if group, err := user.LookupGroup(serviceGroup); err == nil {
-		gid, _ = strconv.Atoi(group.Gid)
+		// A group id that is not a number leaves the status root's alone.
+		if n, err := strconv.Atoi(group.Gid); err == nil {
+			gid = n
+		}
 	}
 	plan, err := a.upgradePlan(ctx, *to, *envFile, *stateDir)
 	if err != nil {
 		if *fromRequest != "" {
-			_ = selfupgrade.RecordRefusal(filepath.Join(*stateDir, "upgrade"), gid, selfupgrade.Status{
-				To: *to, RequestedBy: *requestedBy, Step: "prepare", Detail: err.Error(),
-			})
+			refusal := selfupgrade.Status{To: *to, RequestedBy: *requestedBy, Step: "prepare", Detail: err.Error()}
+			if writeErr := selfupgrade.RecordRefusal(filepath.Join(*stateDir, "upgrade"), gid, refusal); writeErr != nil {
+				log.Warn().Err(writeErr).Msg("The Upgrades page will not show why this upgrade was refused")
+			}
 		}
 		return err
 	}
@@ -91,17 +96,23 @@ func (a *App) runUpgradeCommand(ctx context.Context, args []string, out io.Write
 		plan.RequestedBy = os.Getenv("SUDO_USER")
 	}
 
-	fmt.Fprintf(out, "Upgrading to %s. Progress is kept in %s.\n", *to, filepath.Join(plan.Dir, "status.json"))
+	say := func(format string, args ...any) {
+		// The terminal may be gone, as under systemd; status.json has it all.
+		if _, err := fmt.Fprintf(out, format, args...); err != nil {
+			log.Debug().Err(err).Msg("upgrade: could not write to its output")
+		}
+	}
+	say("Upgrading to %s. Progress is kept in %s.\n", *to, filepath.Join(plan.Dir, "status.json"))
 	status, err := plan.Run(ctx)
 	for _, step := range status.Steps {
-		fmt.Fprintf(out, "  %s  %-10s %s\n", step.At.Local().Format("15:04:05"), step.Name, step.Detail)
+		say("  %s  %-10s %s\n", step.At.Local().Format("15:04:05"), step.Name, step.Detail)
 	}
 	if err != nil {
 		return fmt.Errorf("%s: %w", status.Outcome, err)
 	}
-	fmt.Fprintf(out, "Metis %s is serving. The backup taken first is %s.\n", status.To, status.Backup)
+	say("Metis %s is serving. The backup taken first is %s.\n", status.To, status.Backup)
 	if status.Detail != "" {
-		fmt.Fprintln(out, status.Detail)
+		say("%s\n", status.Detail)
 	}
 	return nil
 }
