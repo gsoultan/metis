@@ -8,6 +8,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"os"
@@ -44,16 +45,14 @@ func run(release, out string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+	var buf bytes.Buffer
+	if err := releasemanifest.Write(&buf, m); err != nil {
 		return err
 	}
-	f, err := os.Create(out)
-	if err != nil {
+	// 0750 and 0600: it is read back only by GoReleaser, as the same user,
+	// to upload and checksum it.
+	if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
 		return err
 	}
-	if err := releasemanifest.Write(f, m); err != nil {
-		f.Close()
-		return err
-	}
-	return f.Close()
+	return os.WriteFile(filepath.Clean(out), buf.Bytes(), 0o600)
 }
