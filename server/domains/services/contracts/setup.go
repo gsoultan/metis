@@ -13,6 +13,11 @@ type SetupStatus struct {
 	// and the first administrator. It writes no file in that case — the
 	// container deployments run on a read-only root, where it could not.
 	ConfiguredByEnvironment bool `json:"configured_by_environment"`
+
+	// WizardOnly says the server started with no database at all and is
+	// serving nothing but this wizard. Once setup has saved the
+	// configuration it moves onto it by itself, with no restart.
+	WizardOnly bool `json:"wizard_only"`
 }
 
 // InstallationProbe answers whether the database a server runs on already
@@ -49,6 +54,12 @@ type SetupRequest struct {
 
 	// JWT secret for signing authentication tokens
 	JWTSecret string `json:"jwt_secret"`
+
+	// Where the server listens, and the address people reach it at. Both are
+	// optional and are written to config.yaml with the database; empty keeps
+	// the default (every interface, port 8080) and sends no links.
+	HTTPAddress string `json:"http_address"`
+	PublicURL   string `json:"public_url"`
 }
 
 // TestConnectionRequest contains the database connection parameters for testing connectivity.

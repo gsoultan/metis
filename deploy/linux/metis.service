@@ -1,10 +1,13 @@
 # systemd unit for the metis Linux packages (deb, rpm, apk, Arch).
 #
 # The package installs this and stops there: it does not enable or start the
-# service, because Metis cannot do anything useful until DATABASE_URL points at
-# a PostgreSQL it can reach. Fill in /etc/metis/metis.env, then:
+# service, because starting it opens the setup wizard on the network. When you
+# are ready:
 #
 #   systemctl enable --now metis
+#
+# With no DATABASE_URL in /etc/metis/metis.env it serves only the setup
+# wizard, at http://<this server>:8080/setup, which chooses the database.
 #
 # State lives in /var/lib/metis, which is also the working directory, so the
 # setup wizard's config.yaml lands there and nowhere else. Everything else on

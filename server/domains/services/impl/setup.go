@@ -45,6 +45,20 @@ type setupService struct {
 	// token is what makes the wizard the operator's rather than the first
 	// visitor's. See setupToken.
 	token *setupToken
+	// configured is called once setup has written config.yaml, when the
+	// server is running only the wizard and waits to move onto it. Nil
+	// otherwise.
+	configured func()
+}
+
+// SetupOption adjusts the wizard as it is built.
+type SetupOption func(*setupService)
+
+// WizardOnly is for a server that started with no database and serves
+// nothing but the wizard: configured is called once setup has saved the
+// configuration, so the server can move onto it without a restart.
+func WizardOnly(configured func()) SetupOption {
+	return func(s *setupService) { s.configured = configured }
 }
 
 // NewSetupService builds the first-run wizard.
@@ -58,8 +72,12 @@ type setupService struct {
 //
 // token is the operator's chosen setup token (EnvSetupToken); empty generates
 // one, which AnnounceSetupToken prints.
-func NewSetupService(installation contracts.InstallationProbe, token string) contracts.SetupService {
-	return &setupService{installation: installation, token: newSetupToken(token)}
+func NewSetupService(installation contracts.InstallationProbe, token string, opts ...SetupOption) contracts.SetupService {
+	s := &setupService{installation: installation, token: newSetupToken(token)}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // AnnounceSetupToken says in the server's log how to open the wizard, while
@@ -94,6 +112,7 @@ func (s *setupService) GetSetupStatus(ctx context.Context) (contracts.SetupStatu
 	return contracts.SetupStatus{
 		IsInitialized:           setUp,
 		ConfiguredByEnvironment: configuredByEnvironment(),
+		WizardOnly:              s.configured != nil,
 	}, nil
 }
 
@@ -171,6 +190,15 @@ func (s *setupService) Setup(ctx context.Context, req contracts.SetupRequest) er
 		return err
 	}
 	s.markSetUp()
+
+	// A server serving only the wizard has nothing to keep: it moves onto
+	// what was just written, and the administrator just created can sign in
+	// as soon as it has.
+	if s.configured != nil {
+		log.Info().Str("config", config.DefaultConfigPath).Msg("Setup saved the configuration. Starting on it")
+		s.configured()
+		return nil
+	}
 
 	// Nothing moves this process onto what it just wrote. The repositories, the
 	// engine and the signing key were built at boot from the database and keys it
@@ -318,6 +346,23 @@ func validateWizardConfiguration(req contracts.SetupRequest) error {
 	if req.JWTSecret == "" {
 		return apierr.Invalidf("jwt secret is required")
 	}
+	return validateServerConfiguration(req)
+}
+
+// validateServerConfiguration checks where the server is to listen and the
+// address people reach it at, before either is written. A listen address the
+// server cannot use would be a server that does not come back after setup.
+func validateServerConfiguration(req contracts.SetupRequest) error {
+	if address := strings.TrimSpace(req.HTTPAddress); address != "" {
+		if err := config.ValidateListenAddress(address); err != nil {
+			return fmt.Errorf("%w: %w", apierr.ErrInvalidArgument, err)
+		}
+	}
+	if publicURL := strings.TrimSpace(req.PublicURL); publicURL != "" {
+		if _, err := ParsePublicURL(publicURL); err != nil {
+			return fmt.Errorf("%w: %w", apierr.ErrInvalidArgument, err)
+		}
+	}
 	return nil
 }
 
@@ -336,6 +381,14 @@ func saveConfiguration(req contracts.SetupRequest) error {
 	if err != nil {
 		return fmt.Errorf("failed to create configuration: %w", err)
 	}
+	// Read the way the server reads it, so the file holds what it will use.
+	publicURL := strings.TrimSpace(req.PublicURL)
+	if publicURL != "" {
+		if publicURL, err = ParsePublicURL(publicURL); err != nil {
+			return fmt.Errorf("%w: %w", apierr.ErrInvalidArgument, err)
+		}
+	}
+	cfg.Server = config.ServerConfig{HTTPAddress: strings.TrimSpace(req.HTTPAddress), PublicURL: publicURL}
 
 	if err := cfg.Save(config.DefaultConfigPath); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)

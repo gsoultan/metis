@@ -121,6 +121,12 @@ and keys, so the wizard asks only for the organization and first administrator
 and writes no `config.yaml`. Either way it closes once the database holds an
 account.
 
+A server started with **no database at all** — no `config.yaml` and no
+`DATABASE_URL` — serves the wizard and nothing else at `/setup`, and reports
+itself not ready on `/readyz` the whole time. The wizard chooses the database,
+the keys, the listen address and the public address, writes them to
+`config.yaml`, and the server starts on them straight away, with no restart.
+
 The wizard asks first for a **setup token**. A fresh server prints one in its
 log (`Metis is not set up yet … enter this setup token`), or takes the one in
 `METIS_SETUP_TOKEN`. Without it, whoever reached a new installation first
@@ -140,13 +146,13 @@ Most of the settings below can also be changed after sign-in under **Settings �
 | `JWT_SECRET` | **Required** once configured. Rotating it invalidates every session. A weak one is forgeable into an administrator's token. |
 | `METIS_PEOPLE_TOKEN_KEY` | The secret People sign-in tokens are sealed with (PASETO `v4.local`). Separate from `JWT_SECRET`, so one leaked secret never opens both the platform and People's tasks. Unset, People cannot sign in; set but weak, the server refuses to start. Generate one with `openssl rand -base64 48`. Rotating it signs every person out. |
 | `METIS_PEOPLE_TOKEN_KEY_PREVIOUS` | The People key being rotated away from. Tokens it sealed are still read until they expire (12 hours); nothing new is sealed with it. Remove it after that. |
-| `METIS_PUBLIC_URL` | The address people reach this server at, such as `https://metis.example.com`. Task links mailed to People are written against it, as `<address>/p/t#<token>`. Unset, no links are sent; set but not an absolute `http`/`https` address, the server refuses to start. Links are mailed through the `NOTIFICATION_SMTP_*` settings, or through Panmail when `NOTIFICATION_PANMAIL_URL` is set. |
+| `METIS_PUBLIC_URL` | The address people reach this server at, such as `https://metis.example.com`. The setup wizard can write it to `config.yaml`; the environment wins over the file. Task links mailed to People are written against it, as `<address>/p/t#<token>`. Unset, no links are sent; set but not an absolute `http`/`https` address, the server refuses to start. Links are mailed through the `NOTIFICATION_SMTP_*` settings, or through Panmail when `NOTIFICATION_PANMAIL_URL` is set. |
 | `NOTIFICATION_PANMAIL_URL`, `NOTIFICATION_PANMAIL_API_KEY`, `NOTIFICATION_PANMAIL_PROVIDER_ID` | Send notification and task-link mail through a Panmail gateway instead of the SMTP server. The URL is the gateway's origin, the key needs the `email:send` scope, and the provider id names the Panmail provider the mail goes out through; the From address is still `NOTIFICATION_SMTP_FROM`. **Once the URL is set, the `NOTIFICATION_SMTP_HOST` server is not used**: with the key, the provider or the sender missing, no mail is sent and the server logs which is missing. A gateway over plain `http` is refused unless it is on the same machine. Each message carries a key named after the notification or link, so a send retried after a dropped connection does not mail the person twice. Changeable from the Settings page; applied at restart. |
 | `METIS_TASK_LINK_LIFETIME` | How long a task link is good for, as a duration from `1h` to `2160h`. Default `168h` (7 days). A link also stops working once used, or once its task is completed, withdrawn or given to somebody else, or its person is removed or deactivated. |
 | `METIS_SETUP_TOKEN` | The setup token the first-run wizard asks for, instead of the one a fresh server generates and prints in its log. Set it to automate installs, or when several replicas share one address and would each print a different token. Refused if weak, which closes the wizard rather than leaving it open. Useless once an administrator exists. |
 | `METIS_ALLOW_WEAK_SECRETS` | Start anyway with a secret that would be refused, while a weak `ENCRYPTION_KEY` is rotated to a strong one; warns on every boot. |
-| `DATABASE_URL` | PostgreSQL DSN. Required unless `config.yaml` names a database; there is no local-file fallback, because one that appears silently is one somebody starts using and then loses. |
-| `METIS_HTTP_ADDRESS` | HTTP listen address (default `:8080`). |
+| `DATABASE_URL` | PostgreSQL DSN. When neither it nor `config.yaml` names a database, the server serves only the setup wizard, which chooses one; there is no local-file fallback, because one that appears silently is one somebody starts using and then loses. |
+| `METIS_HTTP_ADDRESS` | HTTP listen address (default `:8080`, which is every interface; `127.0.0.1:8080` limits it to this machine). The setup wizard can also write it to `config.yaml`; the environment wins over the file. |
 | `METIS_GRPC_ADDRESS` | gRPC listen address. **Unset means no gRPC listener**, which is the default: it applies none of the HTTP chain — no authentication, rate or body limit — so only the calls that need no sign-in answer on it. The same services are served over HTTP through Connect. |
 | `METIS_CORS_ORIGINS` | Comma-separated allowed origins, or `*`. Unset means no CORS, which is correct when the Go server serves the UI. |
 | `METIS_HTTP_ALLOW_PRIVATE_NETWORKS` | Allow service tasks to call loopback/RFC1918 addresses. Blocked by default to prevent SSRF via user-authored definitions. |
@@ -220,15 +226,23 @@ The same binary also ships as **Linux packages** for both architectures:
 and `.pkg.tar.zst` (Arch). Each creates a `metis` system account, installs a
 hardened systemd unit (an OpenRC service on Alpine) and an environment file at
 `/etc/metis/metis.env`, and keeps state in `/var/lib/metis`. A package never
-starts or restarts the service itself — not on install, where there is no
-database yet, and not on upgrade, where [`docs/upgrading.md`](docs/upgrading.md)
-asks for a backup first:
+starts or restarts the service itself — not on install, and not on upgrade,
+where [`docs/upgrading.md`](docs/upgrading.md) asks for a backup first:
 
 ```bash
 sudo apt install ./metis_<version>_amd64.deb   # or dnf / apk / pacman -U
-sudoedit /etc/metis/metis.env                  # set DATABASE_URL and the secrets
-sudo systemctl enable --now metis              # http://localhost:8080
+sudo systemctl enable --now metis              # listens on every interface, port 8080
+sudo journalctl -u metis | grep "setup token"  # the token the wizard asks for
+# then open http://<server-address>:8080/setup and choose the database there
 ```
+
+Nothing has to be edited first: with no database configured the server serves
+only the setup wizard, which writes the database, the keys and the server's
+address to `/var/lib/metis/config.yaml` and then starts on them. Settings in
+`/etc/metis/metis.env` still win over the file, for an install that would
+rather keep them there. If the page does not open from another machine, the
+port is closed in a firewall (`sudo ufw allow 8080/tcp`, or `firewall-cmd
+--add-port=8080/tcp --permanent && firewall-cmd --reload`).
 
 Removing the package stops the service but keeps `/etc/metis`,
 `/var/lib/metis` and the account: `config.yaml` there may hold the at-rest

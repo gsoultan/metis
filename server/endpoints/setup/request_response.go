@@ -31,6 +31,8 @@ type SetupRequest struct {
 	EncryptionKey    string `json:"encryption_key"`
 	JWTSecret        string `json:"jwt_secret"`
 	SetupToken       string `json:"setup_token"`
+	HTTPAddress      string `json:"http_address"`
+	PublicURL        string `json:"public_url"`
 }
 
 type SetupResponse struct {

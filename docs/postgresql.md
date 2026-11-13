@@ -20,8 +20,9 @@ DATABASE_URL=host=db.internal user=metis password=… dbname=metis port=5432 ssl
 fails at startup with a parse error rather than silently using SQLite, which is
 deliberate.
 
-Once the setup wizard has run, the connection lives encrypted in `config.yaml`
-and that takes precedence. `ENCRYPTION_KEY` must be the key it was written with;
+With neither `DATABASE_URL` nor a `config.yaml`, the server serves only the
+setup wizard, where the database is chosen. Once the setup wizard has run, the
+connection lives encrypted in `config.yaml` and that takes precedence. `ENCRYPTION_KEY` must be the key it was written with;
 a mismatch refuses to start, and the message says so.
 
 ---

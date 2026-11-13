@@ -7,13 +7,14 @@ const (
 	reasonSigningKey     = "A signing key. Kept in the database, anyone who could write one row could mint an administrator's token."
 	reasonPool           = "Sizes the database pool, which is open before the saved settings can be read."
 	reasonListener       = "One wrong value saved from the UI would make the UI unreachable, with no way back through it."
+	reasonSetupListener  = reasonListener + " Set in the environment, or in config.yaml by the setup wizard."
 	reasonBreakGlass     = "A development or recovery switch, which has to work when the UI does not."
 	reasonWhoIsAdmin     = "Decides who may change installation-wide settings, or relaxes the second-approver rule. An administrator could otherwise widen their own power."
 	reasonEgress         = "The fence that keeps process definitions and connectors off the internal network."
 	reasonPerimeter      = "Decides which clients and browser origins are trusted."
 	reasonRelaxation     = "Relaxes a rule that refuses by default. Switching it on is the operator's decision, not an administrator's."
 	reasonLeavesInstall  = "Sends a project's work to a broker outside Metis: whether work leaves the installation is the operator's decision."
-	reasonLinks          = "Task links carry sign-in tokens; the address they point at is the operator's to choose."
+	reasonLinks          = "Task links carry sign-in tokens; the address they point at is the operator's to choose. Set in the environment, or in config.yaml by the setup wizard."
 	reasonDeprecated     = "Deprecated: register each receiver as a project's outgoing webhook instead."
 	reasonProtected      = "Marks this installation's runtime as production, where only a releaser or an administrator may change the models. An administrator could otherwise unlock their own production."
 	reasonReleaseKey     = "Signs the releases this installation exports. Kept in the database, anyone who could write one row could sign a release production trusts."
@@ -22,7 +23,8 @@ const (
 )
 
 // environmentOnly is every setting the server reads that the Settings page
-// does not change, and why. The page lists them read-only, so an
+// does not change, and why. The value shown is the operator's: the
+// environment's, or config.yaml's for the two the setup wizard writes. The page lists them read-only, so an
 // administrator can see what the server runs with and where to change it.
 var environmentOnly = []Fixed{
 	{Name: "DATABASE_URL", Class: ClassBootstrap, Reason: reasonUnlocksStorage, Secret: true},
@@ -37,7 +39,7 @@ var environmentOnly = []Fixed{
 	{Name: "METIS_DB_MAX_IDLE_CONNS", Class: ClassBootstrap, Reason: reasonPool},
 	{Name: "METIS_DB_CONN_MAX_LIFETIME", Class: ClassBootstrap, Reason: reasonPool},
 	{Name: "METIS_DB_CONN_MAX_IDLE_TIME", Class: ClassBootstrap, Reason: reasonPool},
-	{Name: "METIS_HTTP_ADDRESS", Class: ClassBootstrap, Reason: reasonListener},
+	{Name: "METIS_HTTP_ADDRESS", Class: ClassBootstrap, Reason: reasonSetupListener},
 	{Name: "METIS_GRPC_ADDRESS", Class: ClassBootstrap, Reason: reasonListener},
 	{Name: "METIS_METRICS_ENABLED", Class: ClassBootstrap, Reason: reasonListener},
 	{Name: "METIS_METRICS_ADDRESS", Class: ClassBootstrap, Reason: reasonListener},

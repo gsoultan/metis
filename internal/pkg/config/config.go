@@ -51,6 +51,10 @@ type Config struct {
 	Database      DatabaseConfig `yaml:"database" json:"database"`
 	EncryptionKey string         `yaml:"encryption_key" json:"encryption_key,omitzero"`
 	JWTSecret     string         `yaml:"jwt_secret" json:"jwt_secret,omitzero"`
+	// Server is where the server listens and the address people reach it at,
+	// as the setup wizard chose them. Omitted when empty, so a file written
+	// without them reads the same in a release that does not know the section.
+	Server ServerConfig `yaml:"server,omitempty" json:"server,omitzero"`
 }
 
 // Save writes the configuration to the specified file path as YAML.

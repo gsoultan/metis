@@ -152,3 +152,30 @@ func TestSavedValuesAreReadUnderTheEnvironment(t *testing.T) {
 		t.Fatal("FromEnvironment reported a value the environment does not set")
 	}
 }
+
+// config.yaml's server section is read under the environment and over the
+// Settings page: the operator wrote it, and an administrator did not.
+func TestTheConfigFileIsReadBetweenTheEnvironmentAndThePage(t *testing.T) {
+	const fileOnly, fileAndEnv, fileAndPage = "METIS_FILE_ONLY_FOR_TEST", "METIS_FILE_AND_ENV_FOR_TEST", "METIS_FILE_AND_PAGE_FOR_TEST"
+	t.Cleanup(func() { file.Store(nil); saved.Store(nil) })
+	t.Setenv(fileAndEnv, "from the environment")
+
+	UseFile(map[string]string{fileOnly: "from the file", fileAndEnv: "from the file", fileAndPage: "from the file"})
+	UseSaved(map[string]string{fileAndPage: "from the page"})
+
+	if got := Get(fileOnly); got != "from the file" {
+		t.Fatalf("a value config.yaml sets was not read: %q", got)
+	}
+	if got := Get(fileAndEnv); got != "from the environment" {
+		t.Fatalf("the environment must win over config.yaml, got %q", got)
+	}
+	if got := Get(fileAndPage); got != "from the file" {
+		t.Fatalf("config.yaml must win over the Settings page, got %q", got)
+	}
+	if got, _ := FromOperator(fileAndPage); got != "from the file" {
+		t.Fatalf("FromOperator did not read config.yaml: %q", got)
+	}
+	if _, ok := FromEnvironment(fileOnly); ok {
+		t.Fatal("FromEnvironment reported a value only config.yaml sets")
+	}
+}
