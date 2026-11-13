@@ -10,6 +10,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Releases say what they do to a database, and sign their checksums.**
+  Every tag now publishes `release.json` beside the packages: the schema
+  version the release brings a database to, each migration it can apply, and
+  the oldest schema it upgrades from without a stop on an earlier release.
+  `checksums.txt`, which lists it, now carries a keyless cosign signature
+  (`checksums.txt.sigstore.json`) issued to the release workflow, so a host
+  can verify a download with `cosign verify-blob` and the identity in the
+  release notes. This is the first part of letting an installation upgrade
+  itself; nothing changes for an installation yet.
 - **Notifications and task links through Panmail.** Metis's own mail — the
   notifications it emails and the task links it mails to People — can go
   through a Panmail gateway instead of an SMTP server. Set
