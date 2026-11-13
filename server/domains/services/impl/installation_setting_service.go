@@ -58,7 +58,7 @@ func (s *installationSettingService) ServerSettings(ctx context.Context) (contra
 		view.Settings = append(view.Settings, settingView(definition, saved[definition.Name]))
 	}
 	for _, fixed := range settings.EnvironmentOnly() {
-		value, set := envvar.FromEnvironment(fixed.Name)
+		value, set := envvar.FromOperator(fixed.Name)
 		shown := contracts.EnvironmentSetting{Fixed: fixed, IsSet: set}
 		if !fixed.Secret {
 			shown.Value = value

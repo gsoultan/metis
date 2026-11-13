@@ -1,15 +1,39 @@
 import { Button, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import { CheckCircle2, Rocket } from 'lucide-react';
+import { signInAddress } from '../../domain/setupWizard';
+
+interface SetupCompleteProps {
+  fromEnvironment: boolean;
+  /** The server was serving only the wizard, and starts on the saved configuration by itself. */
+  wizardOnly?: boolean;
+  httpAddress?: string;
+  publicURL?: string;
+  onComplete: () => void;
+}
 
 /**
  * The wizard's last step: what setup did, and what to do next.
  *
- * A server set up from its environment is already running on the database and
- * keys setup used. One whose configuration setup has just written is not: it
- * keeps the database and keys it started with until it restarts, and the
- * account setup created may be in a database it is not reading.
+ * Three ways it can finish. A server set up from its environment is already
+ * running on the database and keys setup used. One that was serving only the
+ * wizard starts on what setup saved, by itself, in a few seconds — possibly on
+ * another address. Any other keeps the database and keys it started with
+ * until it restarts, and the account setup created may be in a database it is
+ * not reading.
  */
-export function SetupComplete({ fromEnvironment, onComplete }: { fromEnvironment: boolean; onComplete: () => void }) {
+export function SetupComplete({ fromEnvironment, wizardOnly = false, httpAddress = '', publicURL = '', onComplete }: SetupCompleteProps) {
+  const elsewhere =
+    wizardOnly && typeof window !== 'undefined'
+      ? signInAddress(new URL(window.location.href), httpAddress, publicURL)
+      : null;
+  const goToSignIn = () => {
+    if (elsewhere) {
+      window.location.assign(elsewhere);
+      return;
+    }
+    onComplete();
+  };
+
   return (
     <Stack align="center" gap="md" mt="xl" py="xl">
       <ThemeIcon size={80} radius={100} color="green" variant="light">
@@ -21,6 +45,12 @@ export function SetupComplete({ fromEnvironment, onComplete }: { fromEnvironment
           Metis BPM has been successfully initialized.<br />
           This server reads its database and keys from its environment, so there was nothing to save.<br />
           You can now log in with your administrator account.
+        </Text>
+      ) : wizardOnly ? (
+        <Text ta="center" c="dimmed">
+          Your configuration has been saved to <strong>config.yaml</strong> with encrypted credentials.<br />
+          Metis is starting on the database you chose. This takes a few seconds, and then you can sign in
+          with your administrator account{elsewhere ? <> at <strong>{elsewhere.replace(/\/login$/, '')}</strong></> : null}.
         </Text>
       ) : (
         <Text ta="center" c="dimmed">
@@ -35,7 +65,7 @@ export function SetupComplete({ fromEnvironment, onComplete }: { fromEnvironment
         Once you are signed in, set up email, single sign-on and retention under{' '}
         <strong>Settings → Server settings</strong>.
       </Text>
-      <Button size="lg" mt="md" onClick={onComplete} rightSection={<Rocket size={18} />}>
+      <Button size="lg" mt="md" onClick={goToSignIn} rightSection={<Rocket size={18} />}>
         {fromEnvironment ? 'Get Started' : 'Go to sign-in'}
       </Button>
     </Stack>

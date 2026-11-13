@@ -2,8 +2,9 @@
 # Reload systemd so it sees the unit. Deliberately does not enable, start or
 # restart the service:
 #
-# - On a fresh install there is no DATABASE_URL yet, so a start would only
-#   come up in pre-setup mode on an address nobody chose.
+# - On a fresh install starting it is the operator's call: it serves the
+#   setup wizard to anyone who can reach the port (behind the setup token in
+#   the log), and they may want a firewall or an address chosen first.
 # - On an upgrade the new binary may carry schema migrations, and
 #   docs/upgrading.md asks for a backup before the first start of a new
 #   release. The running server keeps running the old binary until you restart
@@ -34,8 +35,10 @@ fi
 
 cat <<'MSG'
 metis is installed. To run it:
-  1. set DATABASE_URL (and the secrets) in /etc/metis/metis.env
-  2. systemctl enable --now metis
+  1. systemctl enable --now metis
+  2. open http://<this server>:8080/setup and choose the database there;
+     the setup token is in: journalctl -u metis | grep "setup token"
+  (or set DATABASE_URL and the secrets in /etc/metis/metis.env first)
 After an upgrade, take a backup (docs/upgrading.md), then: systemctl restart metis
 MSG
 

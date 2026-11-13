@@ -303,6 +303,22 @@ func (a *App) Run() error {
 	//    are built with it, and with nothing read later.
 	a.control = logFeatureConfiguration()
 
+	// 0a. Nothing names a database: serve the setup wizard alone until it has
+	//     chosen one, then carry on as if config.yaml had been there from the
+	//     start. Not for a maintenance command, which has nothing to do
+	//     without a database and is told so by resolveDSN.
+	if awaitsWizard() && !*reseal && !*resealCheck && *resetPassword == "" {
+		if err := serveWizardOnly(ctx); err != nil {
+			return err
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+	}
+	// 0b. Where to listen and the public address, as the wizard wrote them,
+	//     under whatever the environment says.
+	useConfigFile()
+
 	// 1. Install the at-rest encryption key before any repository can read or
 	//    write an encrypted column.
 	if err := a.setupEncryption(); err != nil {

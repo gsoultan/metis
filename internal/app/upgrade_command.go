@@ -116,6 +116,8 @@ func (a *App) upgradePlan(ctx context.Context, to, envFile, stateDir string) (*s
 	if err := os.Chdir(stateDir); err != nil {
 		return nil, err
 	}
+	// The listen address the setup wizard saved there, as the service reads it.
+	useConfigFile()
 	dsn, err := a.resolveDSN()
 	if err != nil {
 		return nil, err

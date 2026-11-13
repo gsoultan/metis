@@ -39,11 +39,12 @@ import {
   Check,
   PlugZap,
   Loader2,
+  Globe,
 } from 'lucide-react';
 import { processService } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
 import { MIN_PASSWORD_LENGTH } from '../domain/password';
-import { firstSetupStep, SETUP_STEPS, setupRequestFor } from '../domain/setupWizard';
+import { firstSetupStep, listenAddressError, publicURLError, SETUP_STEPS, setupRequestFor } from '../domain/setupWizard';
 import { setupService } from '../services/domains/setupService';
 import { errorMessage } from '../services/shared/errors';
 import { SetupComplete } from '../components/setup/SetupComplete';
@@ -118,6 +119,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
     staleTime: Infinity,
   });
   const fromEnvironment = setupState?.status?.configured_by_environment === true;
+  const wizardOnly = setupState?.status?.wizard_only === true;
   const firstStep = firstSetupStep(fromEnvironment);
   // Derived rather than set: the answer arrives after the first render, and a
   // wizard that had already started on the database step moves past it.
@@ -142,6 +144,10 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
       organization_name: '',
       project_name: 'Default Project',
       setup_token: '',
+      http_address: '',
+      // Where this page was opened is the best first guess at where people
+      // will reach the server; the operator corrects it behind a proxy.
+      public_url: typeof window === 'undefined' ? '' : window.location.origin,
     },
     validate: (values) => {
       // Asked on whichever step comes first: nothing the wizard does is
@@ -175,6 +181,12 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
               : values.jwt_secret.length < MIN_ENCRYPTION_KEY_LENGTH
                 ? `JWT secret must be at least ${MIN_ENCRYPTION_KEY_LENGTH} characters`
                 : null,
+        };
+      }
+      if (step === SETUP_STEPS.server) {
+        return {
+          http_address: listenAddressError(values.http_address),
+          public_url: publicURLError(values.public_url),
         };
       }
       if (step === SETUP_STEPS.administrator) {
@@ -279,7 +291,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
         overflowY: 'auto',
       }}
     >
-      {/* lg, not md: five steps with a label and a description need about
+      {/* lg, not md: six steps with a label and a description need about
           1100px, and md left them ~900 — so they wrapped, stranding the
           connector after the fourth pointing at nothing. */}
       <Container size="lg" w="100%">
@@ -500,7 +512,41 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                 </Stack>
               </Stepper.Step>
 
-              {/* Step 2: Administrator */}
+              {/* Step 2: Server */}
+              <Stepper.Step
+                label="Server"
+                description={fromEnvironment ? 'Set by the environment' : 'Address'}
+                icon={<Globe size={18} />}
+              >
+                <Stack gap="md" mt="xl">
+                  <Title order={4}>Server Address</Title>
+                  <Text size="sm" c="dimmed">
+                    Where Metis listens, and the address people use to reach it. Both are saved to{' '}
+                    <strong>config.yaml</strong> with the database. An environment variable set on the server
+                    still wins over what you choose here.
+                  </Text>
+                  <TextInput
+                    label="Listen address"
+                    placeholder=":8080"
+                    description="host:port. Leave empty for every network interface on port 8080, or give one address, such as 10.0.0.5:8080."
+                    {...form.getInputProps('http_address')}
+                  />
+                  <TextInput
+                    label="Public address"
+                    placeholder="https://metis.example.com"
+                    description="The address people open in a browser. Links in e-mails point here; leave empty to send no links."
+                    {...form.getInputProps('public_url')}
+                  />
+                  {wizardOnly && (
+                    <Alert variant="light" color="blue" icon={<Globe size={16} />}>
+                      Metis starts on the new address as soon as setup finishes. If you change the port, open
+                      Metis on the new port afterwards.
+                    </Alert>
+                  )}
+                </Stack>
+              </Stepper.Step>
+
+              {/* Step 3: Administrator */}
               <Stepper.Step
                 label="Administrator"
                 description="Create root account"
@@ -588,7 +634,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                 </Stack>
               </Stepper.Step>
 
-              {/* Step 3: Organization */}
+              {/* Step 4: Organization */}
               <Stepper.Step
                 label="Organization"
                 description="Corporate identity"
@@ -606,7 +652,7 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
                 </Stack>
               </Stepper.Step>
 
-              {/* Step 4: Project */}
+              {/* Step 5: Project */}
               <Stepper.Step
                 label="Project"
                 description="Initial workspace"
@@ -626,7 +672,13 @@ export function Setup({ onComplete }: { onComplete: () => void }) {
 
               {/* Completed */}
               <Stepper.Completed>
-                <SetupComplete fromEnvironment={fromEnvironment} onComplete={onComplete} />
+                <SetupComplete
+                  fromEnvironment={fromEnvironment}
+                  wizardOnly={wizardOnly}
+                  httpAddress={form.values.http_address}
+                  publicURL={form.values.public_url}
+                  onComplete={onComplete}
+                />
               </Stepper.Completed>
             </Stepper>
 

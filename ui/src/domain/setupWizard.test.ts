@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { firstSetupStep, SETUP_STEPS, setupRequestFor } from './setupWizard';
+import { firstSetupStep, listenAddressError, publicURLError, signInAddress, SETUP_STEPS, setupRequestFor } from './setupWizard';
 import type { SetupRequest } from '../services/types';
 
 const everything: SetupRequest = {
@@ -20,6 +20,8 @@ const everything: SetupRequest = {
   organization_name: 'Acme',
   project_name: 'Finance',
   setup_token: 'the-token-from-the-log',
+  http_address: '0.0.0.0:8080',
+  public_url: 'https://metis.example.com',
 };
 
 describe('firstSetupStep', () => {
@@ -55,5 +57,55 @@ describe('setupRequestFor', () => {
 
   test('sends everything to a wizard that writes its own configuration', () => {
     expect(setupRequestFor(everything, false)).toEqual(everything);
+  });
+});
+
+describe('listenAddressError', () => {
+  test('empty keeps the default', () => {
+    expect(listenAddressError('')).toBeNull();
+  });
+
+  test('takes a port alone, or a host and a port', () => {
+    for (const address of [':8080', '0.0.0.0:8080', '10.0.0.5:9000', '[::]:8080', 'metis.internal:80']) {
+      expect(listenAddressError(address)).toBeNull();
+    }
+  });
+
+  test('refuses what the server could not bind', () => {
+    for (const address of ['8080', ':0', ':70000', ':http', 'bad host:8080']) {
+      expect(listenAddressError(address)).not.toBeNull();
+    }
+  });
+});
+
+describe('publicURLError', () => {
+  test('takes an http or https address', () => {
+    expect(publicURLError('https://metis.example.com')).toBeNull();
+    expect(publicURLError('http://10.0.0.5:8080')).toBeNull();
+    expect(publicURLError('')).toBeNull();
+  });
+
+  test('refuses what the server refuses', () => {
+    for (const url of ['metis.example.com', 'ftp://metis.example.com', 'https://metis.example.com/?a=1', 'https://u:p@metis.example.com']) {
+      expect(publicURLError(url)).not.toBeNull();
+    }
+  });
+});
+
+describe('signInAddress', () => {
+  const here = new URL('http://10.0.0.5:8080/setup');
+
+  test('stays here when nothing about the address changed', () => {
+    expect(signInAddress(here, '', '')).toBeNull();
+    expect(signInAddress(here, '0.0.0.0:8080', '')).toBeNull();
+    expect(signInAddress(here, '', 'http://10.0.0.5:8080/')).toBeNull();
+  });
+
+  test('goes to the public address when there is one', () => {
+    expect(signInAddress(here, '', 'https://metis.example.com/')).toBe('https://metis.example.com/login');
+  });
+
+  test('follows the server to its new port', () => {
+    expect(signInAddress(here, ':9000', '')).toBe('http://10.0.0.5:9000/login');
   });
 });

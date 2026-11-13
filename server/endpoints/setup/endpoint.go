@@ -56,6 +56,8 @@ func MakeSetupEndpoint(s contracts.SetupService) endpoint.Endpoint {
 			EncryptionKey:    req.EncryptionKey,
 			JWTSecret:        req.JWTSecret,
 			SetupToken:       req.SetupToken,
+			HTTPAddress:      req.HTTPAddress,
+			PublicURL:        req.PublicURL,
 		})
 		return SetupResponse{Err: err}, nil
 	}

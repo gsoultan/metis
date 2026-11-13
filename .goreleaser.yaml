@@ -94,8 +94,8 @@ archives:
 # apk is Alpine (OpenRC, not systemd); archlinux is Arch and its derivatives.
 #
 # The packages install and stop there. They do not enable, start or restart
-# the service, on install or on upgrade: a fresh host has no DATABASE_URL yet,
-# and docs/upgrading.md asks for a backup before a new release first starts
+# the service, on install or on upgrade: on a fresh host that opens the setup
+# wizard on the network, which is the operator's call, and docs/upgrading.md asks for a backup before a new release first starts
 # against an existing database. The install message says what to do next.
 #
 # Removing a package stops the service but keeps /etc/metis, /var/lib/metis
@@ -307,6 +307,7 @@ release:
       --certificate-oidc-issuer https://token.actions.githubusercontent.com
     ```
 
-    A package installs the service without starting it: set
-    `DATABASE_URL` in `/etc/metis/metis.env`, then
-    `systemctl enable --now metis`.
+    A package installs the service without starting it: run
+    `systemctl enable --now metis`, then open `http://<server>:8080/setup`
+    and choose the database there, with the setup token from
+    `journalctl -u metis`.
