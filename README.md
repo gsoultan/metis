@@ -426,6 +426,14 @@ make race    # race detector
 make vet     # go vet, module-wide
 ```
 
+End-to-end tests drive the real UI in Chromium, using Playwright, against a real server and a
+seeded PostgreSQL database. They cover sign-in, the designer, decisions, tasks, instances,
+administration, connectors, webhooks, settings and upgrades:
+```bash
+DATABASE_URL="postgres://metis:metis@localhost:5432/metis_e2e?sslmode=disable" make e2e
+```
+The database name must contain `e2e`, because the run seeds it. See [`e2e/README.md`](e2e/README.md).
+
 ## 🔒 Security
 
 Reporting a vulnerability, what counts as untrusted input, and which
