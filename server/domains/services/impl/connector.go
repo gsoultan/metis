@@ -639,9 +639,11 @@ func (s *connectorService) EnsureDefaultConnectors(ctx context.Context) error {
 			Type:        "messaging",
 			Schema: []entities.ConnectorProperty{
 				{Key: "host", Label: "SMTP Host", Type: "string", Required: true},
-				{Key: "port", Label: "SMTP Port", Type: "number", Required: true, DefaultValue: "587"},
-				{Key: "username", Label: "Username", Type: "string", Required: true},
-				{Key: "password", Label: "Password", Type: "password", Required: true},
+				{Key: "port", Label: "SMTP Port", Type: "number", Required: true, DefaultValue: "587",
+					Description: "587 or 25 upgrade with STARTTLS; 465 speaks TLS from the start"},
+				{Key: "username", Label: "Username", Type: "string",
+					Description: "Leave blank for a relay that takes mail without signing in"},
+				{Key: "password", Label: "Password", Type: "password"},
 				{Key: "from", Label: "From Email", Type: "string", Required: true},
 			},
 		},
@@ -777,6 +779,12 @@ func (e *SendGridEmailExecutor) Execute(ctx context.Context, config map[string]a
 	if content == "" {
 		content, _ = connectors.TextSetting(config, "content")
 	}
+	// Checked here rather than left to SendGrid: a call with no key or no
+	// recipient is refused there with a 400 or 401 that is then retried, and
+	// the incident reads as SendGrid's fault rather than the step's.
+	if missing := missingSendGridSettings(apiKey, fromEmail, toEmail, subject, content); len(missing) > 0 {
+		return nil, fmt.Errorf("sendgrid-email: missing %s", strings.Join(missing, ", "))
+	}
 
 	sgPayload := map[string]any{
 		"personalizations": []map[string]any{
@@ -817,6 +825,21 @@ func (e *SendGridEmailExecutor) Execute(ctx context.Context, config map[string]a
 	}
 
 	return map[string]any{"status": "sent"}, nil
+}
+
+// missingSendGridSettings names each value a SendGrid send needs and was not
+// given, in the words the Connectors page and the step use.
+func missingSendGridSettings(apiKey, fromEmail, toEmail, subject, content string) []string {
+	var missing []string
+	for _, setting := range []struct{ name, value string }{
+		{"the API key", apiKey}, {"the From email", fromEmail}, {"the To email", toEmail},
+		{"the subject", subject}, {"the content", content},
+	} {
+		if strings.TrimSpace(setting.value) == "" {
+			missing = append(missing, setting.name)
+		}
+	}
+	return missing
 }
 
 // maxBrokerConnections bounds the connections the RabbitMQ connector keeps

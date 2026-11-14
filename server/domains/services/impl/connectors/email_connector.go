@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/smtp"
-	"strings"
 
 	"github.com/gsoultan/metis/internal/pkg/mail"
 )
@@ -65,54 +64,6 @@ func extractSMTPConfig(config map[string]any) (smtpConfig, error) {
 	return smtpConfig{host: host, port: port, username: username, password: password, from: from}, nil
 }
 
-// buildEmailMessage returns the envelope recipients and the message.
-//
-// The two are returned together because they have to agree: a "To:" header
-// naming one address and an envelope naming another is a mail that arrives
-// somewhere nobody looked for it, and SMTP reports that as a success.
-func buildEmailMessage(cfg smtpConfig, payload map[string]any) ([]string, []byte, error) {
-	to, _ := textSetting(payload, "to")
-	if to == "" {
-		return nil, nil, fmt.Errorf("email connector: missing required payload key 'to'")
-	}
-	// Refused, not folded. The To header is written as given, and a line
-	// break between two addresses survives the trimming that keeps each one
-	// valid on the envelope — so it would end the header and start another.
-	if strings.ContainsAny(to, "\r\n") {
-		return nil, nil, fmt.Errorf("email connector: payload key 'to' contains a line break")
-	}
-	recipients := splitRecipients(to)
-	if len(recipients) == 0 {
-		return nil, nil, fmt.Errorf("email connector: payload key 'to' names no address")
-	}
-	subject, _ := textSetting(payload, "subject")
-	if subject == "" {
-		return nil, nil, fmt.Errorf("email connector: missing required payload key 'subject'")
-	}
-	body, _ := textSetting(payload, "body")
-
-	var sb strings.Builder
-	sb.WriteString("From: " + cfg.from + "\r\n")
-	sb.WriteString("To: " + to + "\r\n")
-	sb.WriteString("Subject: " + mail.HeaderText(subject) + "\r\n")
-	sb.WriteString("MIME-Version: 1.0\r\n")
-	sb.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
-	sb.WriteString(body)
-	return recipients, []byte(sb.String()), nil
-}
-
-// splitRecipients reads the comma-separated list the payload documents.
-func splitRecipients(to string) []string {
-	parts := strings.Split(to, ",")
-	recipients := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			recipients = append(recipients, trimmed)
-		}
-	}
-	return recipients
-}
-
 // sendEmail hands the message to the SMTP server.
 //
 // The envelope recipients are the addresses the payload asked for. They used to
@@ -130,7 +81,13 @@ func sendEmail(ctx context.Context, cfg smtpConfig, recipients []string, msg []b
 	if cfg.username != "" {
 		auth = smtp.PlainAuth("", cfg.username, cfg.password, cfg.host)
 	}
-	if err := mail.Send(ctx, addr, auth, cfg.from, recipients, msg); err != nil {
+	send := mail.Send
+	// A server on 465 speaks TLS from the first byte. Sent in plain text, the
+	// greeting never came and the step waited out its deadline.
+	if cfg.port == mail.ImplicitTLSPort {
+		send = mail.SendOverTLS
+	}
+	if err := send(ctx, addr, auth, cfg.from, recipients, msg); err != nil {
 		return fmt.Errorf("email connector: send mail: %w", err)
 	}
 	return nil

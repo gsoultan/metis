@@ -294,6 +294,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **SMTP on port 465 works.** A connection on 465 now speaks TLS from the
+  first byte, as servers on that port expect; it used to wait for a greeting
+  until the step timed out. Messages also carry `Date` and `Message-ID`
+  headers, a subject that is not plain ASCII is encoded so it reads as
+  written, and a step can send `cc`, `bcc` and an `html` body beside the
+  text. Username and password are optional on new installations, for relays
+  that take mail without signing in.
+- **SendGrid says what is missing before it calls SendGrid.** A send with no
+  API key, sender, recipient, subject or content fails the step and names the
+  value, instead of failing at SendGrid and being retried.
+- **An HTTP connection with unreadable headers stops the call.** Headers that
+  are not a JSON object used to be dropped with a log line, so a mistyped
+  `Authorization` header sent the request unauthenticated. The step now fails
+  and says to fix the headers on the Connectors page.
 - **Discord and Teams steps with no message fail instead of posting filler.**
   They used to post "No content provided" or "No message text provided" and
   report the message sent. Like Slack, they now fail the step and say which
