@@ -143,7 +143,6 @@ test.describe('all tasks', () => {
   });
 
   test('"Complete" on a task with a form asks for the form instead of finishing it', async ({ page }) => {
-    knownBug('UI/UX audit #1: one click on Complete in All Tasks finishes the task with no answers (being fixed in PR 248)');
     await page.goto('/tasks');
     const row = page.getByRole('row', { name: new RegExp(about) });
     await row.getByRole('button', { name: 'Complete', exact: true }).click();

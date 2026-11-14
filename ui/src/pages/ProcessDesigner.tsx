@@ -396,6 +396,7 @@ export function ProcessDesigner({
             onNameChange={handleProcessNameChange}
             processKey={processKey}
             lastSaved={lastSaved}
+            deployedVersion={designer.deployed?.version ?? null}
             simulating={simulating}
             onModeChange={(mode) =>
               navigate({

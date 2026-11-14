@@ -294,6 +294,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   hide that field, so an API or SDK caller can't skip it either. A client
   that completed such a task with no variables now gets an invalid-argument
   error naming the fields.
+- **Opening a process no longer makes an unsaved draft.** The designer saved
+  the canvas to the browser a few seconds after it opened, edited or not, so
+  the next visit said "You have unsaved changes … never deployed" about a
+  process nobody had changed, and the header said "Not deployed yet" on a live
+  one. A draft is now kept only when the canvas differs from the deployed
+  version (moved shapes count, measured sizes don't). A draft that matches the
+  deployed version is forgotten, including ones left by earlier builds. The
+  header names the version ("Version 3 · no unsaved changes", or "Changes to
+  version 3 kept in this browser").
 - **Built with Go 1.27.4.** CI and the container image move from Go 1.27.3
   to 1.27.4 (and go.mod requires it, so release builds use it too), which fixes GO-2026-6859: a race on a `MaxBytesReader` body's
   headers that can crash an HTTP/1 server. govulncheck finds it reachable
