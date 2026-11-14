@@ -1,5 +1,5 @@
 import { Designer } from '../support/designer';
-import { expect, knownBug, test, uniqueName } from '../support/test';
+import { expect, test, uniqueName } from '../support/test';
 
 /**
  * The process designer, on the sample's expense approval.
@@ -28,7 +28,6 @@ test.describe('the process designer', () => {
   });
 
   test('opening a live process without changing it does not claim unsaved changes', async ({ page }) => {
-    knownBug('UI/UX audit #3: a live process opens as "Not deployed yet", and clicking a step keeps a draft');
     const designer = new Designer(page);
     await designer.openFromProcesses('Expense approval');
     await designer.select('Who approves?');
@@ -72,7 +71,6 @@ test.describe('the process designer', () => {
     });
 
     test('the fall-back picker names each path by the step it leads to', async ({ page }) => {
-      knownBug('Fall-back paths are listed by their condition, not where they go (being fixed in PR 247)');
       const designer = new Designer(page);
       await designer.openFromProcesses('Expense approval');
 
