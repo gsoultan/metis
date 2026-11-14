@@ -72,8 +72,8 @@ func missingRequiredFields(fields []any, vars map[string]any) []string {
 		if !ok {
 			continue
 		}
-		id, _ := described[formFieldIDKey].(string)
-		if id == "" || described[formFieldRequiredKey] != true || mayBeHidden(described) {
+		id, ok := described[formFieldIDKey].(string)
+		if !ok || id == "" || described[formFieldRequiredKey] != true || mayBeHidden(described) {
 			continue
 		}
 		if value, ok := vars[id]; ok && value != nil && value != "" {
@@ -93,6 +93,6 @@ func mayBeHidden(field map[string]any) bool {
 	if !ok {
 		return false
 	}
-	condition, _ := logic[formFieldHiddenIfKey].(string)
-	return strings.TrimSpace(condition) != ""
+	condition, ok := logic[formFieldHiddenIfKey].(string)
+	return ok && strings.TrimSpace(condition) != ""
 }
