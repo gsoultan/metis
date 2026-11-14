@@ -3,6 +3,9 @@
 # Start Metis BPM for local development: the Go backend and the Vite dev
 # server, together, with one Ctrl-C stopping both.
 #
+# The web app lives in gsoultan/metis-server. The UI target runs it from a
+# checkout next to this one (../metis-server), or from METIS_SERVER_DIR.
+#
 #   ./scripts/dev.sh              backend + UI (default)
 #   ./scripts/dev.sh backend      backend only
 #   ./scripts/dev.sh ui           UI only
@@ -51,6 +54,7 @@ cd "$ROOT"
 # the development script asks for, and it asks for something nobody else wants.
 # Override any of them for a one-off run.
 readonly UI_PORT="${UI_PORT:-5273}"
+readonly SERVER_DIR="${METIS_SERVER_DIR:-$ROOT/../metis-server}"
 readonly API_PORT="${API_PORT:-8273}"
 
 # Ports this run actually bound, so shutdown only reports its own.
@@ -560,11 +564,14 @@ start_ui() {
   # Tells the Vite proxy where the backend actually is, so a non-default
   # API_PORT still works end to end.
   export METIS_BACKEND="http://localhost:${API_PORT}"
-  [[ -d ui/node_modules ]] || { info "Installing UI dependencies"; (cd ui && bun install); }
-  info "UI       → http://localhost:${UI_PORT}"
+  local ui_dir="$SERVER_DIR/ui"
+  [[ -f "$ui_dir/package.json" ]] \
+    || die "the web app is in gsoultan/metis-server: clone it to $SERVER_DIR, or set METIS_SERVER_DIR (or run ./scripts/dev.sh backend)"
+  [[ -d "$ui_dir/node_modules" ]] || { info "Installing UI dependencies"; (cd "$ui_dir" && bun install); }
+  info "UI       → http://localhost:${UI_PORT} (from $SERVER_DIR)"
   # `bun --cwd` is not accepted by all bun versions, so cd in a subshell and
   # exec so the process group leader is vite itself.
-  run_prefixed "ui" "$C_BLUE" bash -c 'cd ui && exec bun run dev -- --port "$1" --strictPort' _ "$UI_PORT"
+  run_prefixed "ui" "$C_BLUE" bash -c 'cd "$2" && exec bun run dev -- --port "$1" --strictPort' _ "$UI_PORT" "$ui_dir"
 }
 
 # --- main ------------------------------------------------------------------

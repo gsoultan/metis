@@ -154,20 +154,6 @@ jobs:
           # version is a second thing to forget when it moves.
           go-version-file: go.mod
 
-      # `bun run build` ends by running `node scripts/check-bundle-budget.mjs`,
-      # and those budgets are tuned to within a kilobyte. With no node on PATH,
-      # bun answers that call with its own shim, whose zlib compresses about
-      # 0.8% worse — enough to fail the first-paint budget on a bundle whose
-      # bytes are identical, and to fail a release for it. See the same note in
-      # security_reliability_ci.yml.
-      - name: Set up Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
       # GoReleaser shells out to syft for the per-archive bill of materials.
       # Without it on PATH the sboms step fails the release outright rather than
       # quietly publishing archives nobody can inspect.

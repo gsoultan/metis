@@ -17,14 +17,6 @@ project_name: metis
 
 before:
   hooks:
-    # ui/embed.go carries `//go:embed all:dist`, and ui/dist is gitignored — so
-    # on a clean checkout there is no directory to embed and *any* Go build of
-    # this module fails before it starts. The UI is built here rather than in
-    # the workflow so that a local `goreleaser release --snapshot` produces the
-    # same artifact CI does, rather than silently embedding whatever dist was
-    # last left lying around.
-    - sh -c "cd ui && bun install --frozen-lockfile"
-    - sh -c "cd ui && bun run build"
     # release.json: what this release does to a database, read from the
     # migration list compiled into it. An installation reads it before it
     # upgrades, to say whether the database will change and whether its

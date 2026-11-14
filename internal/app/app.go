@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"os"
-	"os/exec"
 	"os/signal"
 	"runtime"
 	"strconv"
@@ -279,15 +278,10 @@ func (a *App) Run() error {
 	}
 
 	// 0. Flag Parsing
-	buildUI := flag.Bool("build-ui", false, "Build the UI using bun")
 	resetPassword := flag.String("reset-password", "", "Set a new password for the named user, then exit")
 	reseal := flag.Bool("reseal", false, "Seal every value again under the current ENCRYPTION_KEY, then exit")
 	resealCheck := flag.Bool("reseal-check", false, "Report what is still sealed under ENCRYPTION_KEY_PREVIOUS, then exit; fails while anything is")
 	flag.Parse()
-
-	if *buildUI {
-		return a.handleBuildUI(ctx)
-	}
 
 	// 0. Initialize Logger
 	logger.Init()
@@ -462,24 +456,6 @@ func generatePassword() (string, error) {
 		out[i] = alphabet[n.Int64()]
 	}
 	return string(out), nil
-}
-
-func (a *App) handleBuildUI(ctx context.Context) error {
-	fmt.Println("Building UI...")
-	if _, err := exec.LookPath("bun"); err != nil {
-		return fmt.Errorf("'bun' not found in PATH. Please install Bun to build the UI")
-	}
-	// Bound by the signal context, so Ctrl-C stops the build rather than
-	// leaving bun running after this process has gone.
-	cmd := exec.CommandContext(ctx, "bun", "run", "build")
-	cmd.Dir = "ui"
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("error building UI: %w", err)
-	}
-	fmt.Println("UI build successful!")
-	return nil
 }
 
 // setupEncryption installs the AES key used for process/task variables at rest.

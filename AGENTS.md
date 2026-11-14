@@ -268,7 +268,7 @@ Each profile has **Owns** (what it is accountable for), **Vetoes** (what it can 
 | `server/interceptors/**`, auth, tenant, crypto, setup | `sec` | `arch`, `test` |
 | `server/repositories/**`, models, queries, migrations | `go` | `perf`, `sec` |
 | `endpoints/**`, `transports/**`, proto/API shape | `arch` | `sec`, `po` |
-| `ui/src/pages/**`, `components/**`, `hooks/**` | `fe` | `ux`, `perf` |
+| The web app: in gsoultan/metis-server, under its own AGENTS.md | `fe` | `ux`, `perf` |
 | Designer, Task Inbox, Troubleshooter, forms | `ux` | `fe`, `bpm` |
 | `tests/**`, CI workflows, tooling | `test` | `lead` |
 | README, `.junie/*`, this file | `pm` | `lead` |
@@ -309,7 +309,7 @@ Each profile has **Owns** (what it is accountable for), **Vetoes** (what it can 
 | `server/repositories/` | `contracts` / `models` / `gorms`, UoW, queries | `go` |
 | `server/transports/` | HTTP, gRPC, Connect | `arch` |
 | `tests/` | Integration & scenario tests | `test` |
-| `ui/src/` | React app (routes, pages, components, hooks, store) | `fe` / `ux` |
+| *(gsoultan/metis-server)* | The web app (`ui/`), its Playwright suite (`e2e/`) and the server in front of the engine. Not in this repository | `fe` / `ux` |
 | `graphify-out/` | Knowledge graph — query this before reading source | all |
 
 ---
@@ -320,27 +320,15 @@ Each profile has **Owns** (what it is accountable for), **Vetoes** (what it can 
 
 Backend:
 ```bash
-cd ui && bun install && bun run build && cd ..   # REQUIRED FIRST — ui/embed.go embeds
-                                # ui/dist, which is gitignored, so on a clean checkout
-                                # `//go:embed all:dist` matches nothing and every Go build
-                                # fails before it starts. `go run ./cmd/metis --build-ui`
-                                # cannot bootstrap it — cmd/metis reaches ui through
-                                # server/transports/https/http.go and needs the same embed
-                                # to compile. It is the right command once dist exists.
-go build ./...
+go build ./...                  # no UI build first: the web app is gsoultan/metis-server
 go vet ./...                    # must not regress; module-wide, not a package allowlist
 go test ./...                   # module-wide — ./server/... alone SKIPS the entire tests/ tree
 go test -race ./...             # required for anything touching the engine or workers
 make strict-scope               # the production paths under METIS_FEATURE_STRICT_TENANT_SCOPE=true
 ```
 
-Frontend:
-```bash
-cd ui && bun install
-bunx tsc --noEmit
-bun run lint
-bun run build
-```
+Frontend: in gsoultan/metis-server (`make gate` there), which also runs the Playwright
+suite against an engine built from this repository's main.
 
 Persist:
 ```bash
@@ -356,14 +344,10 @@ rtk graphify export obsidian --dir ~/Documents/ObsidianVault/Metis
 | `make vet` | green — was 145 lock-copy findings + a test-compile failure |
 | `make test` | green — was 7 of 12 `tests/` packages failing to build |
 | `make race` | green — one real data race fixed |
-| `bunx tsc --noEmit` | green |
-| `bun run build` | green |
-| `bun run lint` | green — was 231 errors (Phase 0.6, cleared) |
 | `make strict-scope` | green — **the whole module** under the strict tenant scope. Widened from seven named suites on 2026-09-21, when the ~175 failing tests that had justified the narrower list were given the tenant identity a request carries. The flag still ships off; what remains is the staging soak, not the suite |
 | `tests/ci` | green — asserts every dialect-gated package is actually run by the dialects job. A new one added to `tests/` otherwise skips for want of a DSN, reports ok, and is never run against a real database by anything |
 | `tests/slo` | green — the §1 targets are asserted, not assumed. Reads p95 11.1ms/150ms, actions 13.8ms/500ms, 0.000% 5xx, 170k starts/min on PostgreSQL 17 |
 | `image` (CI only) | green — builds the Dockerfile and boots it against PostgreSQL with a read-only root, waiting on `/readyz`. Nothing built the image before this; the README calls it the supported artifact |
-| `e2e` (CI; `make e2e` locally) | green: the Playwright suite drives the embedded UI against a real server and a seeded PostgreSQL. Known product bugs are written as `knownBug()` tests that assert the intended behaviour and are expected to fail; one that starts passing fails the run, so remove the marker when the fix lands |
 | `golangci-lint` | **green, and runs clean with the caps off** — measure it as `golangci-lint run --max-issues-per-linter=0 --max-same-issues=0`, because the defaults collapse identical messages to three per linter and report a few dozen findings for a few hundred. That is not a footnote: enabling `gosec` looked like 21 findings under the defaults and was 61. |
 
 `make gate` runs everything **that can run on a developer machine**. Do not narrow it —
@@ -415,7 +399,6 @@ Vetoes raised & answered:
 Verification:
   go vet ./...      → <result>
   go test -race ./... → <result>
-  bun run build     → <result>
 Persisted: graphify updated · <memory written, if any>
 ```
 

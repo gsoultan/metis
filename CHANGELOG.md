@@ -8,6 +8,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Changed
+
+- **Metis is the engine only; the web app moved to
+  [metis-server](https://github.com/gsoultan/metis-server).** This server
+  serves the API and no pages: `/` and any other path outside the API answer a
+  JSON 404 that says where the app went. The designer, inbox and
+  administration pages, and the Playwright suite, are now in metis-server,
+  which serves them and forwards the browser's API calls here; set
+  `METIS_TRUSTED_PROXIES` to include metis-server's address so the engine sees
+  each browser's own address. The `--build-ui` flag is gone, `go build` no
+  longer needs a UI build first, and the image and Linux archives no longer
+  carry the UI. The engine's Content-Security-Policy is now `default-src
+  'none'`, since it serves nothing that loads.
+
 ### Added
 
 - **An Upgrade button on the Upgrades page.** On a package install, a
