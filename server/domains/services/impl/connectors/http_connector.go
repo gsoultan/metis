@@ -127,7 +127,7 @@ func configuredHeaders(config map[string]any) (map[string]any, error) {
 		}
 		var parsed map[string]any
 		if err := json.Unmarshal([]byte(text), &parsed); err != nil {
-			return nil, fmt.Errorf("http connector: the connection's headers are not a JSON object (%v); fix them on the Connectors page", err)
+			return nil, fmt.Errorf("http connector: the connection's headers are not a JSON object; fix them on the Connectors page: %w", err)
 		}
 		return parsed, nil
 	default:

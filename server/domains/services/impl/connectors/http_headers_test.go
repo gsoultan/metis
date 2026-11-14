@@ -13,9 +13,11 @@ import (
 func TestHeadersThatAreNotJSONStopTheCall(t *testing.T) {
 	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
 	var called atomic.Int32
+	var authorization atomic.Value
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called.Add(1)
-		_, _ = w.Write([]byte(`{"auth":"` + r.Header.Get("Authorization") + `"}`))
+		authorization.Store(r.Header.Get("Authorization"))
+		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer server.Close()
 
@@ -34,7 +36,7 @@ func TestHeadersThatAreNotJSONStopTheCall(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			before := called.Load()
-			out, err := NewHTTPConnector(nil).Execute(t.Context(),
+			_, err := NewHTTPConnector(nil).Execute(t.Context(),
 				map[string]any{"url": server.URL, "method": "GET", "headers": tc.headers}, nil)
 			if tc.wantErr {
 				if err == nil || !strings.Contains(err.Error(), "headers") {
@@ -51,8 +53,8 @@ func TestHeadersThatAreNotJSONStopTheCall(t *testing.T) {
 			if err != nil {
 				t.Fatalf("execute: %v", err)
 			}
-			if out["auth"] != tc.want {
-				t.Errorf("Authorization = %v, want %q", out["auth"], tc.want)
+			if got := authorization.Load(); got != tc.want {
+				t.Errorf("Authorization = %v, want %q", got, tc.want)
 			}
 		})
 	}
