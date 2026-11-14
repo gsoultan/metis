@@ -44,6 +44,7 @@ import { RawSchemaCard } from './RawSchemaCard';
 import { computeDataFlow, sampleDataOf } from '../domain/dataFlow';
 import { ApiExample } from './properties/CommonProperties';
 import { vocabularyFor } from '../domain/bpmnVocabulary';
+import { pathTitle, stepName } from '../domain/processValidation';
 import type { BPMNNodeData, BPMNEdgeData } from '../types/bpmn';
 
 /**
@@ -120,9 +121,13 @@ export function PropertyPanel({
   // read "Node Properties: Approve" — "Node Properties" is a category from the
   // spec, and the person editing it just wants to know what this step does.
   const nodeVocab = selectedNode ? vocabularyFor(String(selectedNode.type)) : undefined;
+  // Neither falls back to an id: an unnamed step is called what it is, and a
+  // path, which has no name, by the steps at its two ends.
   const title = selectedNode
-    ? String(selectedNode.data.label || selectedNode.id)
-    : String(selectedEdge?.label || selectedEdge?.id || 'Connection');
+    ? stepName(selectedNode)
+    : selectedEdge
+      ? pathTitle(selectedEdge, nodes)
+      : 'Path';
   const kindName = selectedNode
     ? nodeVocab
       ? expertMode ? nodeVocab.bpmnName : nodeVocab.plainName
