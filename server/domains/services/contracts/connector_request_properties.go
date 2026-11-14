@@ -15,3 +15,12 @@ const (
 	// designer already writes it under this name for a script task.
 	ResultVariableProperty = "result_variable"
 )
+
+// StepFieldPrefix starts the node property a step stores one of its
+// connector's message fields under: connector_field_text is the text a chat
+// step sends, connector_field_to the address an email step writes to.
+//
+// Prefixed rather than bare, so a field named like another node property —
+// "name", "type" — cannot be confused with it, and the designer can clear
+// every field a step had when the step changes connector.
+const StepFieldPrefix = "connector_field_"

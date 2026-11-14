@@ -826,7 +826,10 @@ func (s *jobService) resolveAndExecuteConnector(ctx context.Context, def *entiti
 		return nil, fmt.Errorf("connector lookup failed: %w", err)
 	}
 	req := connectorRequestFor(node, payload)
-	req.Variables = stepInputs(node, payload)
+	req.Variables, err = withStepFields(node, stepInputs(node, payload), payload)
+	if err != nil {
+		return nil, err
+	}
 	result, err := s.connectorSvc.ExecuteConnectorRequest(ctx, connector.Key, ci.Config, req)
 	if err != nil {
 		return nil, fmt.Errorf("connector execution failed: %w", err)

@@ -214,8 +214,7 @@ func NewConnectorService(
 	s.executors["discord-message"] = &DiscordMessageExecutor{}
 	// SendGrid Connector
 	s.executors["sendgrid-email"] = &SendGridEmailExecutor{}
-	// MS Teams Connector
-	s.executors["ms-teams-message"] = &MSTeamsMessageExecutor{}
+	s.executors[connectors.TeamsConnectorKey] = connectors.NewTeamsConnector()
 
 	// Seed the catalogue for an already-configured installation. A first run
 	// writes into the bootstrap database instead, so setup calls this again
@@ -261,6 +260,12 @@ var nodeSchemas = map[string]func() []entities.ConnectorProperty{
 func withNodeSchema(c entities.Connector) entities.Connector {
 	if schema, ok := nodeSchemas[c.Key]; ok {
 		c.NodeSchema = schema()
+		return c
+	}
+	// The connectors that send a message ask for it, its recipient and its
+	// subject; see connectors/step_fields.go.
+	if fields, ok := connectors.StepFieldSchemas()[c.Key]; ok {
+		c.NodeSchema = fields
 	}
 	return c
 }
@@ -598,13 +603,14 @@ func (s *connectorService) EnsureDefaultConnectors(ctx context.Context) error {
 		},
 		{
 			ID:          uuid.MustParse("018e1a1a-1a1a-7a1a-a1a1-1a1a1a1a1a1f"),
-			Key:         "ms-teams-message",
+			Key:         connectors.TeamsConnectorKey,
 			Name:        "MS Teams Connector",
 			Description: "Send a message to a Microsoft Teams channel via Webhook",
 			Icon:        "Users",
 			Type:        "social",
 			Schema: []entities.ConnectorProperty{
-				{Key: "webhook_url", Label: "Webhook URL", Type: "password", Required: true},
+				{Key: "webhook_url", Label: "Webhook URL", Type: "password", Required: true,
+					Description: "From a Teams Workflows flow, \"Post to a channel when a webhook request is received\""},
 			},
 		},
 		{
@@ -633,9 +639,11 @@ func (s *connectorService) EnsureDefaultConnectors(ctx context.Context) error {
 			Type:        "messaging",
 			Schema: []entities.ConnectorProperty{
 				{Key: "host", Label: "SMTP Host", Type: "string", Required: true},
-				{Key: "port", Label: "SMTP Port", Type: "number", Required: true, DefaultValue: "587"},
-				{Key: "username", Label: "Username", Type: "string", Required: true},
-				{Key: "password", Label: "Password", Type: "password", Required: true},
+				{Key: "port", Label: "SMTP Port", Type: "number", Required: true, DefaultValue: "587",
+					Description: "587 or 25 upgrade with STARTTLS; 465 speaks TLS from the start"},
+				{Key: "username", Label: "Username", Type: "string",
+					Description: "Leave blank for a relay that takes mail without signing in"},
+				{Key: "password", Label: "Password", Type: "password"},
 				{Key: "from", Label: "From Email", Type: "string", Required: true},
 			},
 		},
@@ -712,8 +720,14 @@ func (e *DiscordMessageExecutor) Execute(ctx context.Context, config map[string]
 	if content == "" {
 		content, _ = connectors.TextSetting(payload, "text")
 	}
+	// A message with nothing in it is the step's mistake, not a message. It
+	// used to be posted as "No content provided" and reported as sent, so the
+	// process carried on as if somebody had been told.
 	if content == "" {
-		content = "No content provided"
+		return nil, fmt.Errorf("discord-message: missing required payload key 'content' (or 'text')")
+	}
+	if webhookURL == "" {
+		return nil, fmt.Errorf("discord-message: missing required config key 'webhook_url'")
 	}
 
 	discordPayload := map[string]any{
@@ -765,6 +779,12 @@ func (e *SendGridEmailExecutor) Execute(ctx context.Context, config map[string]a
 	if content == "" {
 		content, _ = connectors.TextSetting(config, "content")
 	}
+	// Checked here rather than left to SendGrid: a call with no key or no
+	// recipient is refused there with a 400 or 401 that is then retried, and
+	// the incident reads as SendGrid's fault rather than the step's.
+	if missing := missingSendGridSettings(apiKey, fromEmail, toEmail, subject, content); len(missing) > 0 {
+		return nil, fmt.Errorf("sendgrid-email: missing %s", strings.Join(missing, ", "))
+	}
 
 	sgPayload := map[string]any{
 		"personalizations": []map[string]any{
@@ -807,40 +827,19 @@ func (e *SendGridEmailExecutor) Execute(ctx context.Context, config map[string]a
 	return map[string]any{"status": "sent"}, nil
 }
 
-type MSTeamsMessageExecutor struct{}
-
-func (e *MSTeamsMessageExecutor) Execute(ctx context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {
-	webhookURL, _ := connectors.TextSetting(config, "webhook_url")
-	text, _ := connectors.TextSetting(payload, "text")
-	if text == "" {
-		text = "No message text provided"
+// missingSendGridSettings names each value a SendGrid send needs and was not
+// given, in the words the Connectors page and the step use.
+func missingSendGridSettings(apiKey, fromEmail, toEmail, subject, content string) []string {
+	var missing []string
+	for _, setting := range []struct{ name, value string }{
+		{"the API key", apiKey}, {"the From email", fromEmail}, {"the To email", toEmail},
+		{"the subject", subject}, {"the content", content},
+	} {
+		if strings.TrimSpace(setting.value) == "" {
+			missing = append(missing, setting.name)
+		}
 	}
-
-	teamsPayload := map[string]any{
-		"text": text,
-	}
-
-	body, err := json.Marshal(teamsPayload)
-	if err != nil {
-		return nil, fmt.Errorf("ms-teams-message: could not encode the request: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpclient.Shared().Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer closeResponse(resp.Body, "ms-teams-message")
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("MS Teams API error: %s", resp.Status)
-	}
-
-	return map[string]any{"status": "sent"}, nil
+	return missing
 }
 
 // maxBrokerConnections bounds the connections the RabbitMQ connector keeps
@@ -992,7 +991,7 @@ func BuiltInConnectorKeys() []string {
 		RabbitMQConnectorKey,
 		"discord-message",
 		"sendgrid-email",
-		"ms-teams-message",
+		connectors.TeamsConnectorKey,
 		sqlconnector.Key,
 		connectors.FCMConnectorKey,
 		connectors.PanmailConnectorKey,

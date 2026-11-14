@@ -52,6 +52,13 @@ describe('connector steps', () => {
     expect('resultVariable' in cleared).toBe(true);
   });
 
+  it('clears the message fields written for the connector a step had', () => {
+    const cleared = clearedStepFields({ connector_field_text: 'Approve {{po}}', connector_field_to: 'a@b.c', name: 'Notify' });
+    expect('connector_field_text' in cleared).toBe(true);
+    expect('connector_field_to' in cleared).toBe(true);
+    expect('name' in cleared).toBe(false);
+  });
+
   it('names the required fields a step has left empty', () => {
     const missing = missingStepFields({ connector_statement: '  ' }, lookup.node_schema ?? []);
     expect(missing.map((field) => field.label)).toEqual(['Query', 'Store the answer as']);

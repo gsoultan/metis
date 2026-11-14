@@ -11,7 +11,6 @@ import (
 
 	"github.com/gsoultan/metis/internal/pkg/httpclient"
 	"github.com/gsoultan/metis/internal/pkg/idempotency"
-	"github.com/rs/zerolog/log"
 )
 
 const HTTPConnectorKey = "http-json"
@@ -45,11 +44,15 @@ func (c *HTTPConnector) Execute(ctx context.Context, config map[string]any, payl
 	if err != nil {
 		return nil, err
 	}
+	headers, err := configuredHeaders(config)
+	if err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return nil, fmt.Errorf("http connector: build request: %w", err)
 	}
-	applyHeaders(req, config)
+	applyHeaders(req, headers)
 
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
@@ -83,7 +86,7 @@ func buildRequestBody(method string, payload map[string]any) (io.Reader, error) 
 	return bytes.NewReader(data), nil
 }
 
-func applyHeaders(req *http.Request, config map[string]any) {
+func applyHeaders(req *http.Request, headers map[string]any) {
 	req.Header.Set("Content-Type", "application/json")
 	// The engine may repeat this call — a job whose result failed to commit is
 	// retried — so it says which unit of work it belongs to and leaves the
@@ -91,7 +94,7 @@ func applyHeaders(req *http.Request, config map[string]any) {
 	if key, ok := idempotency.KeyFrom(req.Context()); ok {
 		req.Header.Set(idempotency.Header, key)
 	}
-	for k, v := range configuredHeaders(config) {
+	for k, v := range headers {
 		if s, ok := v.(string); ok {
 			req.Header.Set(k, s)
 		}
@@ -106,29 +109,29 @@ func applyHeaders(req *http.Request, config map[string]any) {
 // dropped every header typed into the page — an Authorization header
 // configured there never left the server, and the call went out without it.
 //
-// A value that is neither, or text that is not a JSON object, is a mistake in
-// the connection's settings rather than headers, and is still treated as none
-// as it always was. It is logged now, because a header somebody meant to send
-// that silently is not sent is otherwise found only in the partner's access
-// log. The log names the parse error and not the text, which may hold a token.
-func configuredHeaders(config map[string]any) map[string]any {
+// Text that is not a JSON object is refused, and the step fails. It used to be
+// logged and the call sent without any headers, so a mistyped Authorization
+// header sent the request unauthenticated, and the partner's answer — or worse,
+// its acceptance — was the first sign. The error names the parse failure and
+// not the text, which may hold a token.
+func configuredHeaders(config map[string]any) (map[string]any, error) {
 	switch headers := config["headers"].(type) {
+	case nil:
+		return nil, nil
 	case map[string]any:
-		return headers
+		return headers, nil
 	case string:
 		text := strings.TrimSpace(headers)
 		if text == "" {
-			return nil
+			return nil, nil
 		}
 		var parsed map[string]any
 		if err := json.Unmarshal([]byte(text), &parsed); err != nil {
-			log.Warn().Err(err).Str("connector", HTTPConnectorKey).
-				Msg("A connection's headers are not a JSON object; the call is sent without them")
-			return nil
+			return nil, fmt.Errorf("http connector: the connection's headers are not a JSON object; fix them on the Connectors page: %w", err)
 		}
-		return parsed
+		return parsed, nil
 	default:
-		return nil
+		return nil, fmt.Errorf("http connector: the connection's headers are a %T, not a JSON object", headers)
 	}
 }
 

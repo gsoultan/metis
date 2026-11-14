@@ -73,7 +73,7 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
         !data.connector_id ? (
           <PropertySection title="Choose a connector">
             <ConnectorCatalog
-              onSelect={(c) => onUpdate({ connector_id: c.id, connector_instance_id: '', ...clearedStepFields() })}
+              onSelect={(c) => onUpdate({ connector_id: c.id, connector_instance_id: '', ...clearedStepFields(data as Record<string, unknown>) })}
             />
           </PropertySection>
         ) : (
@@ -101,7 +101,7 @@ export function ServiceTaskConfig({ data, onUpdate }: NodeConfigProps) {
                         variant="subtle"
                         color="red"
                         onClick={() =>
-                          onUpdate({ connector_id: undefined, connector_instance_id: undefined, ...clearedStepFields() })
+                          onUpdate({ connector_id: undefined, connector_instance_id: undefined, ...clearedStepFields(data as Record<string, unknown>) })
                         }
                       >
                         <Trash2 size={14} />

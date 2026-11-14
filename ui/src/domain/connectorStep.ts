@@ -19,6 +19,13 @@ export type StepSchemas = ReadonlyMap<string, readonly ApiConnectorProperty[]>;
  */
 export const STEP_REQUEST_KEYS = ['connector_statement', 'connector_params', 'result_variable'] as const;
 
+/**
+ * What a message field — the text, the recipient, the subject — is stored
+ * under, before its name. Mirrors StepFieldPrefix in
+ * server/domains/services/contracts/connector_request_properties.go.
+ */
+export const STEP_FIELD_PREFIX = 'connector_field_';
+
 const PARAMS_KEY = 'connector_params';
 const STATEMENT_KEY = 'connector_statement';
 
@@ -52,12 +59,17 @@ export function stepFieldPatch(key: string, value: unknown): Record<string, unkn
  * database lookup to the server, which would refuse to deploy it for anybody
  * who may not author queries — over a query nobody can see any more.
  */
-export function clearedStepFields(): Record<string, undefined> {
+export function clearedStepFields(data: Record<string, unknown> = {}): Record<string, undefined> {
   const cleared: Record<string, undefined> = {};
   for (const key of STEP_REQUEST_KEYS) {
     cleared[key] = undefined;
     const alias = editorKeyFor(key);
     if (alias) cleared[alias] = undefined;
+  }
+  // A message, recipient or subject written for the connector the step had
+  // would otherwise be sent by the one it has now.
+  for (const key of Object.keys(data)) {
+    if (key.startsWith(STEP_FIELD_PREFIX)) cleared[key] = undefined;
   }
   return cleared;
 }
