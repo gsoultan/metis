@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/tests/webapp"
 )
 
 // The legend beside each role on the Platform access page groups what the role
@@ -15,11 +16,11 @@ import (
 // screen as "access.area.billing", so every area the server can place an
 // action in must have words in every language the interface offers.
 
-// catalogues are the translations the interface ships, relative to the
-// repository root.
+// catalogues are the translations the interface ships, in the metis-server
+// checkout (see tests/webapp).
 var catalogues = []string{
-	"../../ui/src/i18n/catalogues/en.ts",
-	"../../ui/src/i18n/catalogues/id.ts",
+	webapp.File("ui/src/i18n/catalogues/en.ts"),
+	webapp.File("ui/src/i18n/catalogues/id.ts"),
 }
 
 // unplacedArea is the heading the interface shows an action under when the

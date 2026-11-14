@@ -38,9 +38,9 @@ Thumbs.db
 .vscode/
 
 # ─── Node.js / Frontend ───────────────────────────────────────────────────────
-ui/node_modules/
-ui/dist/*
-!ui/dist/.gitkeep
+# The web app moved to gsoultan/metis-server; ignore what an old checkout left.
+ui/
+e2e/
 
 # ─── Go tool cache ────────────────────────────────────────────────────────────
 vendor/

@@ -1,40 +1,9 @@
-# Metis BPM — production image.
+# Metis BPM — the engine's production image.
 #
-# Two stages, in this order for a reason: ui/embed.go carries `//go:embed
-# all:dist`, so the Go build cannot even compile until ui/dist exists. That is
-# also why the tree ships a placeholder there and .gitignore keeps the real
-# output out — a clone has the file but not the assets.
-#
-# The UI is built by bun directly rather than by `metis --build-ui`, which
-# shells out to bun itself: using the binary here would mean building the binary
-# to build the UI to build the binary.
+# The engine only: the web app is gsoultan/metis-server, a separate image that
+# serves the pages and forwards the browser's API calls here.
 
-# ---- stage 1: the UI ----------------------------------------------------
-# Pinned to the *build* platform. The output is JavaScript, which is the same
-# whatever it was bundled on, so emulating bun to produce an identical dist
-# would only cost time.
-FROM --platform=$BUILDPLATFORM oven/bun:1-alpine AS ui
-
-WORKDIR /src/ui
-# Manifests first, so a source-only change does not re-resolve the dependency
-# tree. --frozen-lockfile makes the image reproduce the lockfile rather than
-# quietly drifting to newer versions at build time.
-COPY ui/package.json ui/bun.lock* ./
-# ui/scripts too: package.json declares a postinstall that bun runs during
-# install, so without it the install fails outright. It exists to give
-# typescript-eslint a compiler it can load — irrelevant to this image, which
-# does not lint — but skipping scripts wholesale would also skip any dependency
-# that legitimately needs one. Copying the directory keeps this install the same
-# one a developer runs.
-COPY ui/scripts ./scripts
-RUN bun install --frozen-lockfile
-
-COPY ui/ ./
-# `bun run build` ends in the bundle budget check, so an image cannot be built
-# from a tree that has blown it.
-RUN bun run build
-
-# ---- stage 2: the server ------------------------------------------------
+# ---- stage 1: the engine ------------------------------------------------
 # Also the build platform, with Go cross-compiling to the target. CGO is off and
 # every driver is pure Go, so this is a real cross-compile rather than
 # emulation: an arm64 image builds at native speed instead of running the whole
@@ -50,7 +19,6 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-COPY --from=ui /src/ui/dist ./ui/dist
 
 # VERSION is the tag this image is built from; it lands in logs, traces and
 # /healthz. The default stays "dev" rather than a fake number, because a trace
@@ -73,10 +41,10 @@ RUN go build -trimpath \
       -ldflags "-s -w -X github.com/gsoultan/metis/internal/app.version=${VERSION}" \
       -o /out/metis ./cmd/metis
 
-# ---- stage 3: what actually ships ---------------------------------------
+# ---- stage 2: what actually ships ---------------------------------------
 # distroless static: no shell, no package manager, nothing to exec if the
-# process is ever made to run something it should not. The UI is embedded in the
-# binary, so the image is one file plus certificates.
+# process is ever made to run something it should not. The image is one file
+# plus certificates.
 FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=build /out/metis /usr/local/bin/metis
@@ -86,7 +54,7 @@ COPY --from=build /out/metis /usr/local/bin/metis
 # filesystem can be mounted read-only.
 USER nonroot:nonroot
 
-# 8080 HTTP (API + embedded UI). gRPC is off unless METIS_GRPC_ADDRESS is set,
+# 8080 HTTP (the API). gRPC is off unless METIS_GRPC_ADDRESS is set,
 # and is not exposed: it applies none of the HTTP chain's authentication or
 # limits. Metrics default to loopback :9464 and are deliberately not exposed
 # either; publish them explicitly via METIS_METRICS_ADDRESS if something needs
