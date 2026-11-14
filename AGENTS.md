@@ -363,6 +363,7 @@ rtk graphify export obsidian --dir ~/Documents/ObsidianVault/Metis
 | `tests/ci` | green — asserts every dialect-gated package is actually run by the dialects job. A new one added to `tests/` otherwise skips for want of a DSN, reports ok, and is never run against a real database by anything |
 | `tests/slo` | green — the §1 targets are asserted, not assumed. Reads p95 11.1ms/150ms, actions 13.8ms/500ms, 0.000% 5xx, 170k starts/min on PostgreSQL 17 |
 | `image` (CI only) | green — builds the Dockerfile and boots it against PostgreSQL with a read-only root, waiting on `/readyz`. Nothing built the image before this; the README calls it the supported artifact |
+| `e2e` (CI; `make e2e` locally) | green: the Playwright suite drives the embedded UI against a real server and a seeded PostgreSQL. Known product bugs are written as `knownBug()` tests that assert the intended behaviour and are expected to fail; one that starts passing fails the run, so remove the marker when the fix lands |
 | `golangci-lint` | **green, and runs clean with the caps off** — measure it as `golangci-lint run --max-issues-per-linter=0 --max-same-issues=0`, because the defaults collapse identical messages to three per linter and report a few dozen findings for a few hundred. That is not a footnote: enabling `gosec` looked like 21 findings under the defaults and was 61. |
 
 `make gate` runs everything **that can run on a developer machine**. Do not narrow it —

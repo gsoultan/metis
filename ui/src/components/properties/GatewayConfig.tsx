@@ -2,6 +2,7 @@ import { Alert, Select, Stack, Text } from '@mantine/core';
 
 import type { NodeConfigProps } from '../PropertyPanel';
 import { asText } from '../../types/bpmn';
+import { pathName } from '../../domain/processValidation';
 import { PropertySection } from './PropertySection';
 
 /**
@@ -11,11 +12,16 @@ import { PropertySection } from './PropertySection';
  * suggested. Without one, a value none of the conditions expect stops the
  * process dead, which is the commonest way a working process breaks later.
  */
-export function GatewayConfig({ data, onUpdate, selectedNode, edges = [] }: NodeConfigProps) {
+export function GatewayConfig({ data, onUpdate, selectedNode, edges = [], nodes = [] }: NodeConfigProps) {
   const outgoing = selectedNode ? edges.filter((edge) => edge.source === selectedNode.id) : [];
-  const options = outgoing.map((edge) => ({
+  const names = outgoing.map((edge) => pathName(edge, nodes));
+  const options = outgoing.map((edge, index) => ({
     value: edge.id,
-    label: typeof edge.label === 'string' && edge.label ? edge.label : `Path to ${edge.target}`,
+    // Two unconditioned paths to unnamed steps of one kind read the same;
+    // numbering them is still something to choose by, an id is not.
+    label: names.filter((name) => name === names[index]).length > 1
+      ? `${names[index]} (path ${index + 1})`
+      : names[index],
   }));
 
   return (

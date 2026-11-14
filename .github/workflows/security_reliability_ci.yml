@@ -328,6 +328,82 @@ jobs:
           mapfile -t packages < <(go list ./... | grep -v '/node_modules/')
           govulncheck "${packages[@]}"
 
+  e2e:
+    name: End-to-end (Playwright)
+    needs: ui
+    runs-on: ubuntu-latest
+
+    # The unit suites prove each piece; nothing proved that the pages a person
+    # actually uses still work against the server they ship with. This builds
+    # the binary with the UI the ui job built, starts it on an empty
+    # PostgreSQL, seeds the sample scripts/dev.sh --sample shows, and drives a
+    # browser through it (e2e/README.md). The same script runs locally as
+    # `make e2e`.
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: metis
+          POSTGRES_PASSWORD: metis
+          POSTGRES_DB: metis_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U metis"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Download UI dist
+        uses: actions/download-artifact@v8
+        with:
+          name: ui-dist
+          path: ui/dist
+
+      - name: Install the suite's dependencies
+        working-directory: e2e
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck the suite
+        working-directory: e2e
+        run: bun run typecheck
+
+      # Only Chromium: the suite is about what the pages do, not about browser
+      # differences, and each extra browser is another full run.
+      - name: Install the browser
+        working-directory: e2e
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run the suite
+        env:
+          DATABASE_URL: "postgres://metis:metis@127.0.0.1:5432/metis_e2e?sslmode=disable"
+        run: ./scripts/e2e.sh
+
+      # The report holds a trace of every failed test: the page at each step,
+      # its network calls and its console. The server's log is beside it.
+      - name: Keep the report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 14
+
   golangci-lint:
     name: golangci-lint
     needs: ui

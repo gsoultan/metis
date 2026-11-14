@@ -10,12 +10,9 @@ import {
   TextInput,
   ActionIcon,
   Tooltip,
-  Modal,
   Select,
   Menu,
   Table,
-  ScrollArea,
-  Accordion,
   Checkbox,
   Transition,
   Avatar,
@@ -40,7 +37,6 @@ import {
   MoreVertical,
   ExternalLink,
   Edit2,
-  Info,
   LayoutGrid,
   List,
   AlertTriangle,
@@ -48,8 +44,7 @@ import {
   ArrowDownLeft,
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
-import { TaskForm } from '../components/TaskForm';
-import { BusinessTimeline } from '../components/BusinessTimeline';
+import { CompleteTaskModal } from '../components/inbox/CompleteTaskModal';
 import { useTaskInbox } from '../hooks/useTaskInbox';
 import { useNavigate } from '@tanstack/react-router';
 import { TableLoadingState, EmptyState } from '../components/state';
@@ -71,39 +66,6 @@ import { ReassignDialog } from '../components/inbox/ReassignDialog';
 import { EditTaskDialog } from '../components/inbox/EditTaskDialog';
 import { ReasonDialog } from '../components/inbox/ReasonDialog';
 import { useAppStore } from '../store/useAppStore';
-
-function TaskContextTable({ variables }: { variables: Record<string, unknown> | undefined }) {
-  if (!variables) return null;
-  const entries = Object.entries(variables);
-  if (entries.length === 0) {
-    return <Text size="sm" c="dimmed" py="md">No process variables available.</Text>;
-  }
-
-  return (
-    <ScrollArea h={300} py="sm">
-      <Table striped withTableBorder withColumnBorders>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Variable Name</Table.Th>
-            <Table.Th>Value</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {entries.map(([key, val]) => (
-            <Table.Tr key={key}>
-              <Table.Td><Text fw={500} size="sm">{key}</Text></Table.Td>
-              <Table.Td>
-                <Text size="sm" style={{ wordBreak: 'break-all' }}>
-                  {typeof val === 'object' ? JSON.stringify(val) : String(val)}
-                </Text>
-              </Table.Td>
-            </Table.Tr>
-          ))}
-        </Table.Tbody>
-      </Table>
-    </ScrollArea>
-  );
-}
 
 interface TaskRowProps {
   task: Task;
@@ -1021,77 +983,11 @@ export function TaskInbox() {
         busy={assigning}
       />
 
-      <Modal
-        opened={!!selectedTask}
+      <CompleteTaskModal
+        task={selectedTask}
         onClose={() => setSelectedTask(null)}
-        title={
-          <Group gap="xs">
-            <ClipboardList size={18} color="var(--mantine-color-blue-6)" />
-            <Text fw={700}>Complete Task: {selectedTask?.name}</Text>
-          </Group>
-        }
-        size="lg"
-        radius="md"
-      >
-        {selectedTask && (
-          <Stack py="md">
-            {selectedTask.description && (
-              <Card withBorder padding="sm" radius="md" bg="var(--mantine-color-blue-0)">
-                <Group gap="xs" mb={4}>
-                  <Info size={16} color="var(--mantine-color-blue-6)" />
-                  <Text fw={600} size="sm" c="blue.8">Instructions</Text>
-                </Group>
-                <Text size="sm">{selectedTask.description}</Text>
-              </Card>
-            )}
-
-            <Accordion variant="separated" radius="md">
-              <Accordion.Item value="context">
-                <Accordion.Control icon={<Search size={16} />}>
-                  Process Context (Read-only Variables)
-                </Accordion.Control>
-                <Accordion.Panel>
-                  <TaskContextTable variables={selectedTask.variables} />
-                </Accordion.Panel>
-              </Accordion.Item>
-              <Accordion.Item value="timeline">
-                <Accordion.Control icon={<Clock size={16} />}>
-                  Activity Timeline
-                </Accordion.Control>
-                <Accordion.Panel>
-                  <BusinessTimeline instanceId={selectedTask.instance?.id ?? ''} />
-                </Accordion.Panel>
-              </Accordion.Item>
-            </Accordion>
-
-            {selectedTask.type === 'manualTask' ? (
-              <Stack py="md">
-                <Text>Please confirm that you have completed the physical action required for this task: <b>{selectedTask.name}</b>.</Text>
-                <Group justify="flex-end" mt="xl">
-                  <Button variant="default" onClick={() => setSelectedTask(null)}>Cancel</Button>
-                  <Button color="blue" onClick={() => onFormSubmit({})}>
-                    Confirm Completion
-                  </Button>
-                </Group>
-              </Stack>
-            ) : (
-              <TaskForm 
-                fields={(() => {
-                  try {
-                    return JSON.parse(selectedTask.formDefinition || '[]');
-                  } catch (error) {
-                    console.warn('Task form definition is not valid JSON; rendering an empty form', error);
-                    return [];
-                  }
-                })()} 
-                variables={selectedTask.variables || {}}
-                onSubmit={onFormSubmit}
-                loading={false}
-              />
-            )}
-          </Stack>
-        )}
-      </Modal>
+        onSubmit={onFormSubmit}
+      />
 
       <EditTaskDialog
         task={editingTask}
