@@ -260,6 +260,12 @@ var nodeSchemas = map[string]func() []entities.ConnectorProperty{
 func withNodeSchema(c entities.Connector) entities.Connector {
 	if schema, ok := nodeSchemas[c.Key]; ok {
 		c.NodeSchema = schema()
+		return c
+	}
+	// The connectors that send a message ask for it, its recipient and its
+	// subject; see connectors/step_fields.go.
+	if fields, ok := connectors.StepFieldSchemas()[c.Key]; ok {
+		c.NodeSchema = fields
 	}
 	return c
 }

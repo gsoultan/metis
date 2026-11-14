@@ -10,6 +10,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Message steps show what they send.** A step that uses Slack, Teams,
+  Discord, SMTP, Panmail, SendGrid or push now shows its fields in the step
+  panel: the message, and the recipient, subject or device token where the
+  connector needs one. Each field takes `{{variable}}` to put in a process
+  value, such as `Approve {{po_number}}`. Before, a modeller had to know the
+  hidden names (`text`, `content`, `to_email`, `token`) and type them into an
+  input mapping, which still works. A field filled in wins over a variable of
+  the same name, and changing a step's connector clears them.
 - **An Upgrade button on the Upgrades page.** On a package install, a
   platform administrator can upgrade to the newest release from the page:
   they type the release again to confirm, and the server, which cannot
