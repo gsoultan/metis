@@ -75,6 +75,18 @@ ui-test: ## Run the UI tests
 	# as logic on the server.
 	cd ui && bun test
 
+# --- End to end -----------------------------------------------------------
+
+# Not part of `gate`: it needs a PostgreSQL database it may fill, which a gate
+# that runs on any developer machine cannot assume. CI runs it as its own job.
+.PHONY: e2e
+e2e: ## Run the Playwright suite against a real server (DATABASE_URL = an empty *e2e* database; see e2e/README.md)
+	./scripts/e2e.sh
+
+.PHONY: e2e-serve
+e2e-serve: ## Start and seed the server the e2e suite runs against, and leave it running
+	./scripts/e2e.sh --serve
+
 # --- Go -------------------------------------------------------------------
 
 .PHONY: build
