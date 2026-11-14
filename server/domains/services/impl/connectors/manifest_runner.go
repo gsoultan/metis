@@ -61,6 +61,10 @@ func (e *ManifestError) Error() string {
 // BPMNErrorCode is what an error boundary event matches on.
 func (e *ManifestError) BPMNErrorCode() string { return e.Code }
 
+// RetryAdvice is the manifest's word on trying again: whether the rule that
+// named this failure called it retryable, and the wait the partner asked for.
+func (e *ManifestError) RetryAdvice() (bool, time.Duration) { return e.Retryable, e.RetryAfter }
+
 // RunManifest executes one connector call.
 //
 // config is what an administrator set for the tenant; input is what the node

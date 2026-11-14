@@ -101,18 +101,41 @@ func (s *jobService) recordFailure(ctx context.Context, job entities.Job, jobErr
 		return
 	}
 	job.Retries++
-	if job.Retries < job.MaxRetries {
+	retryable, partnerWait := retryAdviceOf(jobErr)
+	if retryable && job.Retries < job.MaxRetries {
 		job.Status = entities.JobPending
 		// Redacted: the job row is as durable as the incident, and a connector
 		// error carries the URL it called, query-string credentials included.
 		job.LastError = redaction.RedactText(jobErr.Error())
 		// Exponential with jitter — see backoff.go for why the linear schedule
-		// this replaces made an outage worse rather than better.
-		job.NextRunAt = time.Now().Add(retryDelay(job.Retries))
+		// this replaces made an outage worse rather than better — unless the
+		// partner asked for longer.
+		job.NextRunAt = time.Now().Add(max(retryDelay(job.Retries), partnerWait))
 		s.writeDetached(ctx, job)
 		return
 	}
 	s.failJob(ctx, job, jobErr)
+}
+
+// maxPartnerRetryWait bounds how long a partner's Retry-After may hold a job.
+//
+// The value is read from somebody else's reply. A partner that answers a day,
+// or a header the manifest misreads as seconds when it was a date, would
+// otherwise park a business commitment where nobody is looking for it.
+const maxPartnerRetryWait = time.Hour
+
+// retryAdviceOf reads what a failure says about trying again.
+//
+// A failure that says nothing is retried, as every failure always was. One that
+// calls itself final fails now, with its incident, instead of spending the
+// remaining attempts on an answer that will not change.
+func retryAdviceOf(err error) (bool, time.Duration) {
+	var advisor entities.RetryAdvisor
+	if !errors.As(err, &advisor) {
+		return true, 0
+	}
+	retryable, wait := advisor.RetryAdvice()
+	return retryable, min(max(wait, 0), maxPartnerRetryWait)
 }
 
 // failJob marks a job failed and raises its incident, together: a failed job

@@ -140,6 +140,7 @@ func TestServiceTask_TreatsAnErrorResponseAsAFailure(t *testing.T) {
 type serviceTaskHarness struct {
 	repo        repositories.Repository
 	engine      contracts.ExecutionEngine
+	connectors  contracts.ConnectorService
 	jobSvc      contracts.JobService
 	defSvc      contracts.DefinitionService
 	taskSvc     contracts.TaskService
@@ -226,6 +227,7 @@ func newServiceTaskHarness(t *testing.T) *serviceTaskHarness {
 		ctx:         ctx,
 		repo:        repo,
 		engine:      engine,
+		connectors:  connectorSvc,
 		jobSvc:      jobSvc,
 		defSvc:      serviceimpl.NewDefinitionService(repo),
 		taskSvc:     taskSvc,

@@ -286,6 +286,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **A connector's named failure takes the path drawn for it.** A connector
+  manifest that names a failure (`bpmn_error: CARD_DECLINED`) is now caught
+  by an error boundary event with that code. Before, only a boundary with no
+  code caught it: the job was retried and raised an incident instead.
+- **A failure the manifest calls final is not retried.** A matched error rule
+  without `retryable: true` now fails the job after the first attempt, with
+  its incident, instead of spending three attempts on the same answer. A
+  retryable rule's `retry_after` is honoured, up to one hour. Failures no rule
+  names are retried as before. Check manifests whose error rules name a
+  temporary failure (a 503, say) and add `retryable: true` to them.
 - **Built with Go 1.27.4.** CI and the container image move from Go 1.27.3
   to 1.27.4 (and go.mod requires it, so release builds use it too), which fixes GO-2026-6859: a race on a `MaxBytesReader` body's
   headers that can crash an HTTP/1 server. govulncheck finds it reachable
