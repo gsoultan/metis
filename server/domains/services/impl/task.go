@@ -320,6 +320,11 @@ func (s *taskService) completeAs(ctx context.Context, id uuid.UUID, actor taskAc
 		if err := s.admitVariables(txCtx, m, definitionKey, vars); err != nil {
 			return err
 		}
+		// And everything the form requires, so a step is not done without
+		// the answer it exists to collect.
+		if err := s.refuseMissingRequired(txCtx, m, vars); err != nil {
+			return err
+		}
 
 		// Who did it, recorded on the task itself.
 		//

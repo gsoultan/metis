@@ -38,7 +38,8 @@ import { taskFacts } from '../domain/taskFacts';
 import { urgencyOf } from '../domain/taskUrgency';
 import dayjs from 'dayjs';
 import { useTranslation } from '../i18n/context';
-import type { Task } from '../services/types';
+import type { ProcessVariables, Task } from '../services/types';
+import { CompleteTaskModal } from '../components/inbox/CompleteTaskModal';
 
 const getTaskIcon = (type: string) => {
   switch (type) {
@@ -68,7 +69,7 @@ function TaskCard({
   completing,
 }: {
   task: Task;
-  onComplete: (id: string) => void;
+  onComplete: (task: Task) => void;
   completing: boolean;
 }) {
   const reference = taskReference(task.variables as Record<string, unknown> | undefined, task.instance?.id);
@@ -114,7 +115,7 @@ function TaskCard({
             size="xs"
             variant="light"
             color="indigo"
-            onClick={() => onComplete(task.id)}
+            onClick={() => onComplete(task)}
             loading={completing}
             disabled={task.status === 'completed'}
             leftSection={<CheckCircle size={14} />}
@@ -131,6 +132,9 @@ export function TaskList() {
   const { t } = useTranslation();
   const { data, isLoading, error, refetch } = useTasks();
   const completeTask = useCompleteTask();
+  // Complete opens the task's form. Completing straight from the row sent no
+  // variables, so an approval finished without anybody saying yes or no.
+  const [completing, setCompleting] = React.useState<Task | null>(null);
 
 
   const tasks = data?.tasks || [];
@@ -197,7 +201,7 @@ export function TaskList() {
               <TaskCard
                 key={task.id}
                 task={task}
-                onComplete={(id) => completeTask.mutate({ id })}
+                onComplete={setCompleting}
                 completing={completeTask.isPending}
               />
             ))
@@ -370,7 +374,7 @@ export function TaskList() {
                           size="xs" 
                           variant="light"
                           color="indigo"
-                          onClick={() => completeTask.mutate({ id: task.id })}
+                          onClick={() => setCompleting(task)}
                           loading={completeTask.isPending}
                           disabled={task.status === 'completed'}
                           leftSection={<CheckCircle size={14} />}
@@ -392,6 +396,17 @@ export function TaskList() {
         </>
         )}
       </Card>
+      <CompleteTaskModal
+        task={completing}
+        onClose={() => setCompleting(null)}
+        onSubmit={(values) => {
+          if (!completing) return;
+          completeTask.mutate(
+            { id: completing.id, variables: values as ProcessVariables, taskName: completing.name },
+            { onSuccess: () => setCompleting(null) },
+          );
+        }}
+      />
     </Stack>
   );
 }

@@ -286,6 +286,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **Complete on All Tasks opens the task's form.** It used to complete the
+  task at once with no variables, so an approval could be finished without
+  anybody answering it. It now opens the same form the inbox does. The server
+  also refuses a completion that leaves out a field the form marks required
+  (absent, null or empty; `false` and `0` are answers), unless a condition can
+  hide that field, so an API or SDK caller can't skip it either. A client
+  that completed such a task with no variables now gets an invalid-argument
+  error naming the fields.
 - **Built with Go 1.27.4.** CI and the container image move from Go 1.27.3
   to 1.27.4 (and go.mod requires it, so release builds use it too), which fixes GO-2026-6859: a race on a `MaxBytesReader` body's
   headers that can crash an HTTP/1 server. govulncheck finds it reachable
