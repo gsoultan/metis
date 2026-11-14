@@ -2117,8 +2117,12 @@ field".
 catch, so an integration failing becomes a modelled path rather than an incident
 somebody has to read a stack trace to understand. Rules are checked before the
 success condition, so a failure that arrives with a 200 and a body saying so is
-still caught. `retry_after` is honoured — being asked to wait two minutes and
-waiting two minutes is the difference between backing off and being blocked.
+still caught. A rule without `retryable: true` is final: the job fails after
+that first attempt, with its incident, instead of spending its remaining
+attempts on the same answer. `retry_after` is honoured, up to one hour —
+being asked to wait two minutes and waiting two minutes is the difference
+between backing off and being blocked. A failure no rule names is retried on
+the engine's schedule, as any other.
 
 Manifests are consulted before the built-in connectors, so one can replace a
 built-in without a redeploy, where the operator allows it (below). Genuinely
