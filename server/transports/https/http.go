@@ -5,7 +5,6 @@ import (
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
 
-
 	"strings"
 
 	"github.com/gsoultan/metis/server/interceptors/tenant"

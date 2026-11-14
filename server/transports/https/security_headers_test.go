@@ -1,6 +1,7 @@
 package https
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -43,5 +44,12 @@ func TestThePathsOutsideTheAPISayWhereTheWebAppWent(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), "metis-server") {
 			t.Fatalf("%s answered %q, want it to name metis-server", p, rec.Body.String())
 		}
+	}
+}
+
+func TestTheNotFoundBodyIsValidJSON(t *testing.T) {
+	var body map[string]string
+	if err := json.Unmarshal([]byte(notAnAPIPathBody), &body); err != nil || body["err"] == "" {
+		t.Fatalf("%q is not the API's error shape: %v", notAnAPIPathBody, err)
 	}
 }

@@ -1,7 +1,6 @@
 package https
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/rs/zerolog/log"
@@ -33,6 +32,10 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// notAnAPIPathBody is notAnAPIPath's answer, in the API's error shape. A
+// constant, so nothing on this path can fail before the write.
+const notAnAPIPathBody = `{"err":"Not found. This is the Metis engine's API, under /api/v1; the web app is served by metis-server."}` + "\n"
+
 // notAnAPIPath answers every path the engine does not serve.
 //
 // The engine used to serve the web app at "/", so a browser pointed at it now
@@ -42,10 +45,7 @@ func notAnAPIPath(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNotFound)
-	body, _ := json.Marshal(map[string]string{
-		"err": "Not found. This is the Metis engine's API, under /api/v1; the web app is served by metis-server.",
-	})
-	if _, err := w.Write(append(body, '\n')); err != nil {
+	if _, err := w.Write([]byte(notAnAPIPathBody)); err != nil {
 		log.Debug().Err(err).Msg("Could not write the not-found response")
 	}
 }
