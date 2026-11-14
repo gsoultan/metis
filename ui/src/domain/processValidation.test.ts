@@ -2,6 +2,8 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   hasBlockingIssues,
+  pathName,
+  pathTitle,
   stepName,
   validateProcess,
   type CheckableEdge,
@@ -48,6 +50,51 @@ describe('naming a step in a message', () => {
 
   it('uses the id only when nothing else is known', () => {
     expect(stepName(node('mystery', 'notARealType'))).toBe('mystery');
+  });
+});
+
+/*
+ * The fallback picker on a fork listed its paths as "Path to 01a1d7c3-69c7-…":
+ * the generated id of the step each one leads to, which says nothing about
+ * which path is which.
+ */
+describe('naming a path', () => {
+  const nodes = [
+    node('01a1d7c3-0001', 'exclusiveGateway', { label: 'Amount?' }),
+    node('01a1d7c3-69c7', 'userTask', { label: 'Director approves' }),
+    node('01a1d7c3-7587', 'endEvent'),
+  ];
+
+  it('names it by the step it leads to, never by that step’s id', () => {
+    const name = pathName(edge('f1', '01a1d7c3-0001', '01a1d7c3-69c7'), nodes);
+    expect(name).toBe('To "Director approves"');
+    expect(name).not.toContain('01a1d7c3');
+  });
+
+  it('adds the condition that takes it', () => {
+    expect(pathName(edge('f1', '01a1d7c3-0001', '01a1d7c3-69c7', 'amount > 1000'), nodes)).toBe(
+      'To "Director approves", when amount > 1000',
+    );
+  });
+
+  it('reads the caption when the condition is not in the data', () => {
+    const captioned = { source: '01a1d7c3-0001', target: '01a1d7c3-69c7', label: 'amount > 1000' };
+    expect(pathName(captioned, nodes)).toBe('To "Director approves", when amount > 1000');
+  });
+
+  it('falls back to what kind of step an unnamed one is', () => {
+    expect(pathName(edge('f2', '01a1d7c3-0001', '01a1d7c3-7587'), nodes)).toBe('To "Finish"');
+  });
+
+  it('does not show an id when the step it led to is gone', () => {
+    expect(pathName(edge('f3', '01a1d7c3-0001', 'deleted-id'), nodes)).toBe('To a step that is no longer there');
+  });
+
+  it('titles a path being edited by both of its ends', () => {
+    expect(pathTitle(edge('f1', '01a1d7c3-0001', '01a1d7c3-69c7'), nodes)).toBe(
+      'From "Amount?" to "Director approves"',
+    );
+    expect(pathTitle(edge('f3', '01a1d7c3-0001', 'deleted-id'), nodes)).toBe('Path');
   });
 });
 

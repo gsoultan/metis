@@ -64,6 +64,43 @@ export function stepName(node: CheckableNode): string {
   return plain ?? node.id;
 }
 
+/** The parts of a canvas edge that naming a path reads. */
+export interface NameableEdge {
+  source: string;
+  target: string;
+  label?: unknown;
+  data?: { condition?: unknown };
+}
+
+/**
+ * What to call a path when the author has to pick one from a list.
+ *
+ * A path has no name of its own, so it is named by the step it leads to and,
+ * when it has one, the condition that takes it. The ids of both ends are
+ * generated, and a list of them gives the reader nothing to choose by.
+ */
+export function pathName(edge: NameableEdge, nodes: CheckableNode[]): string {
+  const target = nodes.find((node) => node.id === edge.target);
+  const to = target ? `"${stepName(target)}"` : 'a step that is no longer there';
+  const when = pathCondition(edge);
+  return when ? `To ${to}, when ${when}` : `To ${to}`;
+}
+
+/** What to call a path when it is the thing being edited: both of its ends. */
+export function pathTitle(edge: NameableEdge, nodes: CheckableNode[]): string {
+  const from = nodes.find((node) => node.id === edge.source);
+  const to = nodes.find((node) => node.id === edge.target);
+  if (!from || !to) return 'Path';
+  return `From "${stepName(from)}" to "${stepName(to)}"`;
+}
+
+/** The condition on a path, or its caption, which shows the same text. */
+function pathCondition(edge: NameableEdge): string {
+  const condition = typeof edge.data?.condition === 'string' ? edge.data.condition.trim() : '';
+  if (condition) return condition;
+  return typeof edge.label === 'string' ? edge.label.trim() : '';
+}
+
 function isGateway(type: string | undefined): boolean {
   return typeof type === 'string' && type.toLowerCase().includes('gateway');
 }
