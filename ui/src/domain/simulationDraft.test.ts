@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import type { CreateDefinitionPayload, CreateNodePayload } from '../services/types';
-import { definitionFingerprint, toDraftDefinition } from './simulationDraft';
+import { definitionFingerprint, layoutFingerprint, toDraftDefinition } from './simulationDraft';
 
 function node(overrides: Partial<CreateNodePayload>): CreateNodePayload {
   return {
@@ -88,5 +88,24 @@ describe('definitionFingerprint', () => {
     const a = payload([node({ properties: { decision_key: 'limits', http_url: 'https://x' } })]);
     const b = payload([node({ properties: { http_url: 'https://x', decision_key: 'limits' } })]);
     expect(definitionFingerprint(a)).toBe(definitionFingerprint(b));
+  });
+});
+
+describe('layoutFingerprint', () => {
+  it('notices a moved shape, because moving it is work the person would lose', () => {
+    const before = payload([node({})]);
+    const moved = payload([node({ x: 400 })]);
+    expect(layoutFingerprint(moved)).not.toBe(layoutFingerprint(before));
+  });
+
+  it('ignores the sizes the canvas measures after loading', () => {
+    const before = payload([node({})]);
+    const measured = payload([node({ width: 180, height: 64, is_expanded: true })]);
+    expect(layoutFingerprint(measured)).toBe(layoutFingerprint(before));
+  });
+
+  it('notices a change in what a step does', () => {
+    const before = payload([node({})]);
+    expect(layoutFingerprint(payload([node({ name: 'Approve it' })]))).not.toBe(layoutFingerprint(before));
   });
 });
