@@ -286,6 +286,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **Discord and Teams steps with no message fail instead of posting filler.**
+  They used to post "No content provided" or "No message text provided" and
+  report the message sent. Like Slack, they now fail the step and say which
+  field is missing. Both read the message from `text` or `content`.
+- **Teams messages reach Workflows webhooks.** The Teams connector now sends
+  an Adaptive Card, which the Workflows webhooks replacing Office 365
+  connectors require; a plain `text` body posted nothing there. Office 365
+  webhook URLs still work. A `title` in the step is shown in bold above the
+  text, and a 202 answer counts as sent.
 - **A connector's named failure takes the path drawn for it.** A connector
   manifest that names a failure (`bpmn_error: CARD_DECLINED`) is now caught
   by an error boundary event with that code. Before, only a boundary with no

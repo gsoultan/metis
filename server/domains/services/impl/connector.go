@@ -214,8 +214,7 @@ func NewConnectorService(
 	s.executors["discord-message"] = &DiscordMessageExecutor{}
 	// SendGrid Connector
 	s.executors["sendgrid-email"] = &SendGridEmailExecutor{}
-	// MS Teams Connector
-	s.executors["ms-teams-message"] = &MSTeamsMessageExecutor{}
+	s.executors[connectors.TeamsConnectorKey] = connectors.NewTeamsConnector()
 
 	// Seed the catalogue for an already-configured installation. A first run
 	// writes into the bootstrap database instead, so setup calls this again
@@ -598,13 +597,14 @@ func (s *connectorService) EnsureDefaultConnectors(ctx context.Context) error {
 		},
 		{
 			ID:          uuid.MustParse("018e1a1a-1a1a-7a1a-a1a1-1a1a1a1a1a1f"),
-			Key:         "ms-teams-message",
+			Key:         connectors.TeamsConnectorKey,
 			Name:        "MS Teams Connector",
 			Description: "Send a message to a Microsoft Teams channel via Webhook",
 			Icon:        "Users",
 			Type:        "social",
 			Schema: []entities.ConnectorProperty{
-				{Key: "webhook_url", Label: "Webhook URL", Type: "password", Required: true},
+				{Key: "webhook_url", Label: "Webhook URL", Type: "password", Required: true,
+					Description: "From a Teams Workflows flow, \"Post to a channel when a webhook request is received\""},
 			},
 		},
 		{
@@ -712,8 +712,14 @@ func (e *DiscordMessageExecutor) Execute(ctx context.Context, config map[string]
 	if content == "" {
 		content, _ = connectors.TextSetting(payload, "text")
 	}
+	// A message with nothing in it is the step's mistake, not a message. It
+	// used to be posted as "No content provided" and reported as sent, so the
+	// process carried on as if somebody had been told.
 	if content == "" {
-		content = "No content provided"
+		return nil, fmt.Errorf("discord-message: missing required payload key 'content' (or 'text')")
+	}
+	if webhookURL == "" {
+		return nil, fmt.Errorf("discord-message: missing required config key 'webhook_url'")
 	}
 
 	discordPayload := map[string]any{
@@ -802,42 +808,6 @@ func (e *SendGridEmailExecutor) Execute(ctx context.Context, config map[string]a
 			return nil, readErr
 		}
 		return nil, fmt.Errorf("SendGrid API error: %s - %s", resp.Status, string(respBody))
-	}
-
-	return map[string]any{"status": "sent"}, nil
-}
-
-type MSTeamsMessageExecutor struct{}
-
-func (e *MSTeamsMessageExecutor) Execute(ctx context.Context, config map[string]any, payload map[string]any) (map[string]any, error) {
-	webhookURL, _ := connectors.TextSetting(config, "webhook_url")
-	text, _ := connectors.TextSetting(payload, "text")
-	if text == "" {
-		text = "No message text provided"
-	}
-
-	teamsPayload := map[string]any{
-		"text": text,
-	}
-
-	body, err := json.Marshal(teamsPayload)
-	if err != nil {
-		return nil, fmt.Errorf("ms-teams-message: could not encode the request: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpclient.Shared().Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer closeResponse(resp.Body, "ms-teams-message")
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("MS Teams API error: %s", resp.Status)
 	}
 
 	return map[string]any{"status": "sent"}, nil
@@ -992,7 +962,7 @@ func BuiltInConnectorKeys() []string {
 		RabbitMQConnectorKey,
 		"discord-message",
 		"sendgrid-email",
-		"ms-teams-message",
+		connectors.TeamsConnectorKey,
 		sqlconnector.Key,
 		connectors.FCMConnectorKey,
 		connectors.PanmailConnectorKey,
