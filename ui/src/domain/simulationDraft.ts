@@ -57,8 +57,26 @@ export function definitionFingerprint(payload: CreateDefinitionPayload): string 
     const { x: _x, y: _y, width: _width, height: _height, is_expanded: _expanded, ...behaviour } = node;
     return behaviour;
   });
-  return JSON.stringify({ ...payload, nodes }, (_field: string, value: unknown) => {
-    if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
-    return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)));
+  return sortedJSON({ ...payload, nodes });
+}
+
+/**
+ * What the process does *and where its shapes sit*: what a person would lose
+ * if the tab closed. Sizes are left out, because the canvas measures them
+ * after loading and an untouched process would otherwise read as changed.
+ */
+export function layoutFingerprint(payload: CreateDefinitionPayload): string {
+  const nodes = payload.nodes.map((node) => {
+    const { width: _width, height: _height, is_expanded: _expanded, ...placed } = node;
+    return placed;
+  });
+  return sortedJSON({ ...payload, nodes });
+}
+
+/** JSON with every object's keys sorted, so property order does not matter. */
+function sortedJSON(value: unknown): string {
+  return JSON.stringify(value, (_field: string, inner: unknown) => {
+    if (inner === null || typeof inner !== 'object' || Array.isArray(inner)) return inner;
+    return Object.fromEntries(Object.entries(inner).sort(([a], [b]) => a.localeCompare(b)));
   });
 }

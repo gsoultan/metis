@@ -4,6 +4,7 @@ import {
   buildDraft,
   describeDraftAge,
   draftKey,
+  headerStatus,
   isWorthSaving,
   parseDraft,
   shouldOfferDraft,
@@ -114,5 +115,22 @@ describe('how old it is, in words', () => {
     expect(describeDraftAge(at('2026-09-06T06:00:00Z'), now)).toBe('from 6 hours ago');
     expect(describeDraftAge(at('2026-09-05T10:00:00Z'), now)).toBe('from yesterday');
     expect(describeDraftAge(at('2026-09-01T10:00:00Z'), now)).toBe('from 5 days ago');
+  });
+});
+
+describe('what the designer header says', () => {
+  const at = new Date('2026-11-14T02:00:00Z');
+
+  it('names the version of a deployed process with nothing unsaved', () => {
+    expect(headerStatus(null, 3)).toBe('Version 3 · no unsaved changes');
+  });
+
+  it('says a process was never deployed only when it was not', () => {
+    expect(headerStatus(null, null)).toBe('Not deployed yet');
+  });
+
+  it('says which version kept changes belong to', () => {
+    expect(headerStatus(at, 3)).toStartWith('Changes to version 3 kept in this browser at ');
+    expect(headerStatus(at, null)).toStartWith('Draft kept in this browser at ');
   });
 });

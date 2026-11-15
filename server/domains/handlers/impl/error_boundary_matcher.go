@@ -8,8 +8,8 @@ import (
 
 // ErrorBoundaryMatcherImpl implements the ErrorBoundaryMatcher contract using
 // standard BPMN matching rules: an empty ErrorCode on the boundary node
-// catches all errors; a non-empty ErrorCode matches only CatchableError with
-// an identical code.
+// catches all errors; a non-empty ErrorCode matches only a failure that names
+// an identical code (entities.BPMNCodedError).
 type ErrorBoundaryMatcherImpl struct{}
 
 // NewErrorBoundaryMatcher creates a new ErrorBoundaryMatcherImpl.
@@ -29,9 +29,9 @@ func (m *ErrorBoundaryMatcherImpl) Matches(err error, boundaryNode entities.Node
 	if code == "" || code == "*" {
 		return true
 	}
-	var catchable *entities.CatchableError
-	if errors.As(err, &catchable) {
-		return catchable.Code == code
+	var coded entities.BPMNCodedError
+	if errors.As(err, &coded) {
+		return coded.BPMNErrorCode() == code
 	}
 	return false
 }

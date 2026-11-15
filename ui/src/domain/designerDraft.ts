@@ -130,3 +130,15 @@ export function buildDraft(input: {
     savedAt: (input.savedAt ?? new Date()).toISOString(),
   };
 }
+
+/**
+ * Where the canvas stands. "Not deployed yet" used to show on every process
+ * with no unsaved changes, live ones included.
+ */
+export function headerStatus(lastSaved: Date | null, deployedVersion: number | null): string {
+  if (lastSaved) {
+    const base = deployedVersion ? `Changes to version ${deployedVersion}` : 'Draft';
+    return `${base} kept in this browser at ${lastSaved.toLocaleTimeString()} · Deploy to publish`;
+  }
+  return deployedVersion ? `Version ${deployedVersion} · no unsaved changes` : 'Not deployed yet';
+}
