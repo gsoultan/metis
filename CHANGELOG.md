@@ -291,6 +291,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   an injection in simple-protocol batches, which Metis did not use (database
   lookups already force the extended protocol). The AWS SDK and storm 1.12.1
   move with it; the generated store is regenerated and only its header changes.
+- **golang.org/x/crypto moves to 0.59.0**, with its SSH fixes (peer-controlled
+  strings quoted in errors, a lost connection fails `OpenChannel`, rejected
+  public-key queries count towards `MaxAuthTries`). The AWS SDK, panmail-sdk
+  0.1.2 and storm 1.12.2 move with it, and the generated store is regenerated
+  for storm 1.12.2. grpc stays on 1.83.2 and sigstore-go on 1.3.0:
+  sigstore-go 1.4.0 requires grpc 1.84.0, which does not carry the
+  GO-2026-6443 fix.
 
 ### Fixed
 
