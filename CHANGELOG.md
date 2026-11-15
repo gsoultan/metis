@@ -24,6 +24,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Message steps show what they send.** A step that uses Slack, Teams,
+  Discord, SMTP, Panmail, SendGrid or push now shows its fields in the step
+  panel: the message, and the recipient, subject or device token where the
+  connector needs one. Each field takes `{{variable}}` to put in a process
+  value, such as `Approve {{po_number}}`. Before, a modeller had to know the
+  hidden names (`text`, `content`, `to_email`, `token`) and type them into an
+  input mapping, which still works. A field filled in wins over a variable of
+  the same name, and changing a step's connector clears them.
 - **An Upgrade button on the Upgrades page.** On a package install, a
   platform administrator can upgrade to the newest release from the page:
   they type the release again to confirm, and the server, which cannot
@@ -300,6 +308,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **SMTP on port 465 works.** A connection on 465 now speaks TLS from the
+  first byte, as servers on that port expect; it used to wait for a greeting
+  until the step timed out. Messages also carry `Date` and `Message-ID`
+  headers, a subject that is not plain ASCII is encoded so it reads as
+  written, and a step can send `cc`, `bcc` and an `html` body beside the
+  text. Username and password are optional on new installations, for relays
+  that take mail without signing in.
+- **SendGrid says what is missing before it calls SendGrid.** A send with no
+  API key, sender, recipient, subject or content fails the step and names the
+  value, instead of failing at SendGrid and being retried.
+- **An HTTP connection with unreadable headers stops the call.** Headers that
+  are not a JSON object used to be dropped with a log line, so a mistyped
+  `Authorization` header sent the request unauthenticated. The step now fails
+  and says to fix the headers on the Connectors page.
+- **Discord and Teams steps with no message fail instead of posting filler.**
+  They used to post "No content provided" or "No message text provided" and
+  report the message sent. Like Slack, they now fail the step and say which
+  field is missing. Both read the message from `text` or `content`.
+- **Teams messages reach Workflows webhooks.** The Teams connector now sends
+  an Adaptive Card, which the Workflows webhooks replacing Office 365
+  connectors require; a plain `text` body posted nothing there. Office 365
+  webhook URLs still work. A `title` in the step is shown in bold above the
+  text, and a 202 answer counts as sent.
+- **A connector's named failure takes the path drawn for it.** A connector
+  manifest that names a failure (`bpmn_error: CARD_DECLINED`) is now caught
+  by an error boundary event with that code. Before, only a boundary with no
+  code caught it: the job was retried and raised an incident instead.
+- **A failure the manifest calls final is not retried.** A matched error rule
+  without `retryable: true` now fails the job after the first attempt, with
+  its incident, instead of spending three attempts on the same answer. A
+  retryable rule's `retry_after` is honoured, up to one hour. Failures no rule
+  names are retried as before. Check manifests whose error rules name a
+  temporary failure (a 503, say) and add `retryable: true` to them.
 - **Complete on All Tasks opens the task's form.** It used to complete the
   task at once with no variables, so an approval could be finished without
   anybody answering it. It now opens the same form the inbox does. The server
@@ -308,6 +349,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   hide that field, so an API or SDK caller can't skip it either. A client
   that completed such a task with no variables now gets an invalid-argument
   error naming the fields.
+- **Opening a process no longer makes an unsaved draft.** The designer saved
+  the canvas to the browser a few seconds after it opened, edited or not, so
+  the next visit said "You have unsaved changes … never deployed" about a
+  process nobody had changed, and the header said "Not deployed yet" on a live
+  one. A draft is now kept only when the canvas differs from the deployed
+  version (moved shapes count, measured sizes don't). A draft that matches the
+  deployed version is forgotten, including ones left by earlier builds. The
+  header names the version ("Version 3 · no unsaved changes", or "Changes to
+  version 3 kept in this browser").
 - **Built with Go 1.27.4.** CI and the container image move from Go 1.27.3
   to 1.27.4 (and go.mod requires it, so release builds use it too), which fixes GO-2026-6859: a race on a `MaxBytesReader` body's
   headers that can crash an HTTP/1 server. govulncheck finds it reachable

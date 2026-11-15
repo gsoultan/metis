@@ -24,6 +24,27 @@ const DefaultTimeout = 30 * time.Second
 // net/smtp.SendMail does — STARTTLS when offered, then auth — but gives up at
 // ctx's deadline, or after DefaultTimeout when it has none.
 func Send(ctx context.Context, addr string, auth smtp.Auth, from string, to []string, msg []byte) error {
+	return send(ctx, addr, nil, auth, from, to, msg)
+}
+
+// ImplicitTLSPort is the SMTP submission port that speaks TLS from the first
+// byte (RFC 8314), rather than upgrading a plain connection with STARTTLS.
+const ImplicitTLSPort = "465"
+
+// SendOverTLS is Send for a server that speaks TLS from the first byte, as one
+// on ImplicitTLSPort does. Send dials such a server in plain text and waits for
+// a greeting that never comes until its deadline.
+func SendOverTLS(ctx context.Context, addr string, auth smtp.Auth, from string, to []string, msg []byte) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return err
+	}
+	return send(ctx, addr, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}, auth, from, to, msg)
+}
+
+// send is both: with a TLS configuration the connection is wrapped in TLS
+// before the first SMTP line.
+func send(ctx context.Context, addr string, implicitTLS *tls.Config, auth smtp.Auth, from string, to []string, msg []byte) error {
 	deadline, ok := ctx.Deadline()
 	if !ok {
 		deadline = time.Now().Add(DefaultTimeout)
@@ -40,6 +61,9 @@ func Send(ctx context.Context, addr string, auth smtp.Auth, from string, to []st
 	// a silent server would otherwise hold the caller.
 	if err := conn.SetDeadline(deadline); err != nil {
 		return errors.Join(err, conn.Close())
+	}
+	if implicitTLS != nil {
+		conn = tls.Client(conn, implicitTLS)
 	}
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
