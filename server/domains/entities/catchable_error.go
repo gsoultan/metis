@@ -16,3 +16,6 @@ type CatchableError struct {
 func (e *CatchableError) Error() string {
 	return fmt.Sprintf("bpmn error [%s]: %s", e.Code, e.Message)
 }
+
+// BPMNErrorCode is what an error boundary event matches on.
+func (e *CatchableError) BPMNErrorCode() string { return e.Code }

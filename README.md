@@ -15,7 +15,7 @@ Metis BPM (formerly GoBPM) is a professional, production-ready BPMN orchestrator
   - **Inbound Message Correlation**: Correlate the messages on a RabbitMQ queue to a project's BPMN Message Events, with a dead-letter queue for what cannot be. **Off unless configured** with `METIS_RABBITMQ_CONSUMERS`.
   - **External Task Bridge**: Publish a topic's External Tasks to a RabbitMQ exchange, for workers that consume from a queue, each locked for as long as the bridge's `lock_seconds` gives its worker (five minutes unless set). A task the broker does not take, or does not confirm in time, is handed back at once. **Off unless configured** with `METIS_RABBITMQ_BRIDGES`.
   - Both reach the broker through a RabbitMQ connection on the project's Connectors page, and are set by whoever runs the servers, not through the API. See [`docs/integration.md`](docs/integration.md), *RabbitMQ: tasks out to a queue, messages in from one*.
-- **Connector Framework**: Plug-and-play architecture for third-party integrations (HTTP, Slack, Email, RabbitMQ, Firebase Cloud Messaging push).
+- **Connector Framework**: Plug-and-play architecture for third-party integrations (HTTP, Slack, Microsoft Teams, Discord, SMTP, SendGrid and Panmail email, RabbitMQ, SQL lookups, Firebase Cloud Messaging push). A step that sends a message shows its fields — the message, recipient and subject — and fills in `{{variable}}` from the process.
 - **Visual Designer**: Drag-and-drop BPMN modeler powered by React Flow, featuring:
   - **Edit Mode**: Load and modify existing process definitions.
   - **Property Panel**: Context-aware configuration for all BPMN nodes.

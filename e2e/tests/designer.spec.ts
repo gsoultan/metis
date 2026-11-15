@@ -72,7 +72,6 @@ test.describe('the process designer', () => {
     });
 
     test('the fall-back picker names each path by the step it leads to', async ({ page }) => {
-      knownBug('Fall-back paths are listed by their condition, not where they go (being fixed in PR 247)');
       const designer = new Designer(page);
       await designer.openFromProcesses('Expense approval');
 
