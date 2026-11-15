@@ -17,7 +17,7 @@ import { DECIDE_GROUP_KIND, buildDecideGroup } from '../domain/decideGroup';
 import { edgeWithData } from '../domain/edgeCaption';
 import { templateById } from '../domain/processTemplates';
 import { nextDeployStep, type DeployMode } from '../domain/versionRollout';
-import { definitionFingerprint } from '../domain/simulationDraft';
+import { definitionFingerprint, layoutFingerprint } from '../domain/simulationDraft';
 import {
   useCreateDefinition,
   useDefinitionVersions,
@@ -812,8 +812,29 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
       mapLoadedNodes(definition.nodes || []),
       mapLoadedEdges(definition.flows || []),
     );
-    return { version: definition.version ?? 0, fingerprint: definitionFingerprint(payload) };
+    return {
+      version: definition.version ?? 0,
+      fingerprint: definitionFingerprint(payload),
+      layout: layoutFingerprint(payload),
+    };
   }, [loadedData]);
+
+  /**
+   * Whether a canvas is the deployed version, shapes and all.
+   *
+   * Opening a process and clicking around wrote it to the browser as a draft,
+   * and the next visit said "You have unsaved changes … never deployed" about
+   * a process nobody had changed. People learn to press Discard on a prompt
+   * like that, and then press it on the day the work is real.
+   */
+  const matchesDeployed = useCallback(
+    (name: string, key: string, canvasNodes: unknown[], canvasEdges: unknown[]) =>
+      deployed !== null &&
+      layoutFingerprint(
+        buildDefinitionPayload(name, key, canvasNodes as typeof nodes, canvasEdges as typeof edges),
+      ) === deployed.layout,
+    [deployed],
+  );
 
   // Loads a fetched definition into locally editable designer state. Syncing
   // server data into an editor's working copy is a legitimate effect — the
@@ -868,12 +889,17 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
       return;
     }
     const draft = parseDraft(stored);
+    if (draft && matchesDeployed(draft.processName, draft.processKey, draft.nodes, draft.edges)) {
+      // Kept by an older build that saved on open: nothing in it is unsaved.
+      forgetDraft(key);
+      return;
+    }
     const deployedAt = (loadedData?.definition as unknown as { created_at?: string } | undefined)?.created_at;
     if (shouldOfferDraft(draft, deployedAt)) {
       /* eslint-disable-next-line react-hooks/set-state-in-effect */
       setOfferedDraft(draft);
     }
-  }, [definitionId, loadedData]);
+  }, [definitionId, loadedData, matchesDeployed]);
 
   // Autosave the working copy to this browser on a 3-second debounce.
   //
@@ -883,6 +909,14 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
   // while a closed tab threw the work away.
   const saveDraft = useCallback(() => {
     if (!isWorthSaving(nodes)) {
+      return false;
+    }
+    if (matchesDeployed(processName, processKey, nodes, edges)) {
+      // Nothing to keep: the canvas is what is deployed. Any earlier draft is
+      // forgotten too, because undoing back to the deployed version means the
+      // person no longer has unsaved work.
+      forgetDraft(draftKey(definitionId));
+      setLastSaved(null);
       return false;
     }
     const draft = buildDraft({ definitionId, processName, processKey, nodes, edges });
@@ -895,7 +929,7 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     }
     setLastSaved(new Date());
     return true;
-  }, [definitionId, edges, nodes, processKey, processName]);
+  }, [definitionId, edges, matchesDeployed, nodes, processKey, processName]);
 
   useEffect(() => {
     if (!isWorthSaving(nodes)) {
@@ -1007,4 +1041,13 @@ export function useProcessDesigner({ definitionId, instanceId, initialName, init
     closeSelection,
     selectById,
   };
+}
+
+/** Removes a stored draft. Storage that cannot be reached has none to remove. */
+function forgetDraft(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Nothing to do: a draft that cannot be read is never offered.
+  }
 }

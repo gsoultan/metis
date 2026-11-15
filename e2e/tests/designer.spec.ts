@@ -1,5 +1,5 @@
 import { Designer } from '../support/designer';
-import { expect, knownBug, test, uniqueName } from '../support/test';
+import { expect, test, uniqueName } from '../support/test';
 
 /**
  * The process designer, on the sample's expense approval.
@@ -28,7 +28,6 @@ test.describe('the process designer', () => {
   });
 
   test('opening a live process without changing it does not claim unsaved changes', async ({ page }) => {
-    knownBug('UI/UX audit #3: a live process opens as "Not deployed yet", and clicking a step keeps a draft');
     const designer = new Designer(page);
     await designer.openFromProcesses('Expense approval');
     await designer.select('Who approves?');

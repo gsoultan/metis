@@ -17,11 +17,15 @@ import type { ValidationIssue } from '../../domain/processValidation';
 import { IssuesButton } from './IssuesButton';
 import classes from './DesignerHeader.module.css';
 
+import { headerStatus } from '../../domain/designerDraft';
+
 interface DesignerHeaderProps {
   processName: string;
   onNameChange: (name: string) => void;
   processKey: string;
   lastSaved: Date | null;
+  /** The version this canvas was opened from, or null for a process never deployed. */
+  deployedVersion: number | null;
   simulating: boolean;
   onModeChange: (mode: 'design' | 'simulate') => void;
   issues: ValidationIssue[];
@@ -53,6 +57,7 @@ export function DesignerHeader({
   onNameChange,
   processKey,
   lastSaved,
+  deployedVersion,
   simulating,
   onModeChange,
   issues,
@@ -114,9 +119,7 @@ export function DesignerHeader({
               deploying is what publishes it.
             */}
             <Text size="xs" c="dimmed" truncate>
-              {lastSaved
-                ? `Draft kept in this browser at ${lastSaved.toLocaleTimeString()} · Deploy to publish`
-                : 'Not deployed yet'}
+              {headerStatus(lastSaved, deployedVersion)}
             </Text>
           </Group>
         </Box>
@@ -185,3 +188,4 @@ export function DesignerHeader({
     </Group>
   );
 }
+
