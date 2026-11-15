@@ -50,43 +50,6 @@ updates:
     commit-message:
       prefix: "chore(deps)"
 
-  - package-ecosystem: npm
-    directory: /ui
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    groups:
-      ui-minor-and-patch:
-        update-types: [minor, patch]
-    ignore:
-      # Pinned deliberately, and both would break if bumped alone:
-      #
-      #   typescript          — 7.x, the native compiler the build uses
-      #   typescript-for-eslint — an aliased 6.x, because typescript-eslint
-      #                           cannot load a 7.x compiler yet
-      #
-      # See ui/TYPESCRIPT.md. An automated bump of either is a broken lint or a
-      # broken build, so they move together, by hand.
-      - dependency-name: typescript
-      - dependency-name: typescript-for-eslint
-    commit-message:
-      prefix: "chore(deps)"
-
-  # The Playwright suite, a package of its own so its browser driver never
-  # reaches the UI's lockfile or bundle.
-  - package-ecosystem: npm
-    directory: /e2e
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 2
-    groups:
-      e2e-minor-and-patch:
-        update-types: [minor, patch]
-    commit-message:
-      prefix: "chore(deps)"
-
   - package-ecosystem: github-actions
     directory: /
     schedule:

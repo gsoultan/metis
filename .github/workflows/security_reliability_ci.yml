@@ -28,96 +28,12 @@ env:
   GO_VERSION: '1.27.4'
 
 jobs:
-  ui:
-    name: UI (typecheck, lint, build)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      # scripts/check-bundle-budget.mjs is invoked as `node ...`, and its budgets
-      # are tuned to within a kilobyte of the current measurement. When no node
-      # is on PATH, `bun run` answers that call with its own node shim, whose
-      # zlib compresses about 0.8% worse than node's — enough to fail the
-      # first-paint budget on a bundle whose bytes are identical. The hosted
-      # runner had node preinstalled and hid this; a self-hosted one need not,
-      # so the job asks for the runtime its budgets were measured with.
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-        working-directory: ui
-
-      # tsgo is the TypeScript 7 native compiler. typescript@5.9 is also
-      # installed purely so typescript-eslint can run — see ui/TYPESCRIPT.md.
-      - name: Typecheck
-        run: bun run typecheck
-        working-directory: ui
-
-      - name: Lint
-        run: bun run lint
-        working-directory: ui
-
-      - name: Test
-        run: bun test
-        working-directory: ui
-
-      # `bun run build` runs the bundle budget as its final step, so a change
-      # that pushes the first-paint payload past its ceiling fails here rather
-      # than being noticed months later.
-      - name: Build (includes bundle budget)
-        run: bun run build
-        working-directory: ui
-
-      # The Go side has had govulncheck since the beginning; the UI side had
-      # nothing, and a first run found 23 advisories — thirteen of them high.
-      # Every one was fixable within its existing range, which is the point:
-      # they were not unfixable, nobody had looked.
-      #
-      # Most were build-time (eslint, babel, vite) rather than shipped code.
-      # That lowers the severity and not the argument: a compromised build tool
-      # ships compromised assets, and the whole UI is assets.
-      #
-      # Two advisories are ignored, by id, because nothing we can load fixes them:
-      # GHSA-gcqx-w48m-w2h4, prototype pollution in deepmerge's mergeObject()
-      # (<=4.3.1, and 4.3.1 is the latest release). It reaches us through
-      # vite-plugin-pwa > workbox-build > @rollup/plugin-node-resolve, which
-      # merges its own options and never anything from outside. Remove the
-      # --ignore once deepmerge publishes a fix.
-      # GHSA-g3hv-75wg-m249, globparts amplification in minimatch (<11.0.1).
-      # It reaches us through eslint 9 and eslint-plugin-jsx-a11y, which
-      # default-import minimatch 3; 11 has no default export, and forcing it
-      # makes lint throw "minimatch is not a function". They only match our
-      # own config globs at lint time. Remove the --ignore once eslint moves
-      # off minimatch 3.
-      # Every other advisory still fails this step. The glob one
-      # (GHSA-3g3m-2fjr-6pw4, through workbox-build) is fixed by the glob
-      # override in ui/package.json, not ignored.
-      - name: Dependency audit
-        working-directory: ui
-        run: bun audit --ignore GHSA-gcqx-w48m-w2h4 --ignore GHSA-g3hv-75wg-m249
-
-      # The Go build embeds ui/dist (ui/embed.go). Publish it so the Go job
-      # compiles the same assets rather than rebuilding them.
-      - name: Upload dist
-        uses: actions/upload-artifact@v7
-        with:
-          name: ui-dist
-          path: ui/dist
-          retention-days: 1
-
   go-security-reliability:
     name: Go (build, vet, race, vuln)
-    needs: ui
     runs-on: ubuntu-latest
 
     env:
+      METIS_SERVER_DIR: ${{ github.workspace }}/.metis-server
       METIS_TEST_POSTGRES_DSN: "host=127.0.0.1 port=5432 user=postgres password=gobpm dbname=gobpm sslmode=disable"
       STORM_DSN: "postgres://postgres:gobpm@127.0.0.1:5432/gobpm?sslmode=disable"
       # The RabbitMQ connector's integration suite. It is gated on this URL and
@@ -197,6 +113,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # tests/roledrift and tests/secretdrift read the web app's source, in
+      # gsoultan/metis-server, so the roles it offers and the secrets it hides
+      # cannot drift from what the engine enforces (tests/webapp).
+      - name: Checkout the web app
+        uses: actions/checkout@v7
+        with:
+          repository: gsoultan/metis-server
+          path: .metis-server
+
       # Caching is left on, which is the right choice here and was the wrong
       # one on the self-hosted Mac this workflow used to run on. A hosted
       # runner is destroyed after the job and starts cold, so GOMODCACHE and
@@ -211,11 +136,6 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Download UI dist
-        uses: actions/download-artifact@v8
-        with:
-          name: ui-dist
-          path: ui/dist
 
       - name: Download Go modules
         run: go mod download
@@ -328,85 +248,8 @@ jobs:
           mapfile -t packages < <(go list ./... | grep -v '/node_modules/')
           govulncheck "${packages[@]}"
 
-  e2e:
-    name: End-to-end (Playwright)
-    needs: ui
-    runs-on: ubuntu-latest
-
-    # The unit suites prove each piece; nothing proved that the pages a person
-    # actually uses still work against the server they ship with. This builds
-    # the binary with the UI the ui job built, starts it on an empty
-    # PostgreSQL, seeds the sample scripts/dev.sh --sample shows, and drives a
-    # browser through it (e2e/README.md). The same script runs locally as
-    # `make e2e`.
-
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: metis
-          POSTGRES_PASSWORD: metis
-          POSTGRES_DB: metis_e2e
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U metis"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Download UI dist
-        uses: actions/download-artifact@v8
-        with:
-          name: ui-dist
-          path: ui/dist
-
-      - name: Install the suite's dependencies
-        working-directory: e2e
-        run: bun install --frozen-lockfile
-
-      - name: Typecheck the suite
-        working-directory: e2e
-        run: bun run typecheck
-
-      # Only Chromium: the suite is about what the pages do, not about browser
-      # differences, and each extra browser is another full run.
-      - name: Install the browser
-        working-directory: e2e
-        run: bunx playwright install --with-deps chromium
-
-      - name: Run the suite
-        env:
-          DATABASE_URL: "postgres://metis:metis@127.0.0.1:5432/metis_e2e?sslmode=disable"
-        run: ./scripts/e2e.sh
-
-      # The report holds a trace of every failed test: the page at each step,
-      # its network calls and its console. The server's log is beside it.
-      - name: Keep the report
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: e2e-report
-          path: |
-            e2e/playwright-report
-            e2e/test-results
-          retention-days: 14
-
   golangci-lint:
     name: golangci-lint
-    needs: ui
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -421,11 +264,6 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Download UI dist
-        uses: actions/download-artifact@v8
-        with:
-          name: ui-dist
-          path: ui/dist
 
       # Blocks every NEW violation while the pre-existing backlog (see the
       # .golangci.yml adoption note) is burned down by area. Do not weaken this
@@ -492,7 +330,9 @@ jobs:
       - name: Setup buf
         run: go install github.com/bufbuild/buf/cmd/buf@v1.70.0
 
-      # The .proto files are the contract for the Connect API the UI speaks.
+      # The .proto files are the contract for the Connect API the web app
+      # (gsoultan/metis-server, which generates its TypeScript client from
+      # them in its own CI) speaks.
       # They had silently diverged from the checked-in generated code: the
       # protos modelled relationships as nested messages while the generated Go
       # still had flat *_id strings, so anyone running `buf generate` — a normal
@@ -506,9 +346,9 @@ jobs:
 
       - name: Fail if the tree changed
         run: |
-          if ! git diff --quiet -- api/proto ui/src/gen; then
+          if ! git diff --quiet -- api/proto; then
             echo "::error::Generated code is out of date. Run 'buf generate' and commit the result."
-            git --no-pager diff --stat -- api/proto ui/src/gen
+            git --no-pager diff --stat -- api/proto
             exit 1
           fi
           echo "Generated code matches the protos."
@@ -598,13 +438,6 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Place the embedded UI
-        # ui/embed.go carries //go:embed all:dist, so the Go build needs the
-        # directory to exist. The load test measures API latency, not the
-        # bundle, so a placeholder is enough and building the real one would
-        # add minutes for nothing.
-        run: mkdir -p ui/dist && touch ui/dist/index.html
-
       - name: Read latency at volume
         run: |
           set -o pipefail
@@ -621,7 +454,7 @@ jobs:
 
     # The README calls the image the supported artifact, and until this job
     # existed nothing built it. A Dockerfile that no longer compiled — a renamed
-    # entrypoint, a UI stage that stopped producing ui/dist — would have been
+    # entrypoint, a build stage that stopped producing the binary — would have been
     # found by whoever deployed it, which is the wrong person to find it.
     #
     # Building is not enough on its own. The image is distroless: no shell, no
@@ -769,7 +602,6 @@ jobs:
 
   packages:
     name: Linux packages (build, install, boot)
-    needs: ui
     runs-on: ubuntu-latest
 
     # The deb, rpm, apk and Arch packages are built only on a tag, so a broken
@@ -806,13 +638,6 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      # The UI job's dist, so the before hooks (which build the UI) can be
-      # skipped here without embedding an empty directory.
-      - name: Download UI dist
-        uses: actions/download-artifact@v8
-        with:
-          name: ui-dist
-          path: ui/dist
 
       - name: Check the release config
         uses: goreleaser/goreleaser-action@v7

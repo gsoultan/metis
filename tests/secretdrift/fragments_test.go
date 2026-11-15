@@ -20,10 +20,12 @@ import (
 	"testing"
 
 	"github.com/gsoultan/metis/internal/pkg/configsecret"
+	"github.com/gsoultan/metis/tests/webapp"
 )
 
-// secretsFile is the browser's list, relative to the repository root.
-const secretsFile = "../../ui/src/domain/connectorSecrets.ts"
+// secretsFile is the browser's list, in the metis-server checkout (see
+// tests/webapp).
+var secretsFile = webapp.File("ui/src/domain/connectorSecrets.ts")
 
 var (
 	// block is the SENSITIVE_FRAGMENTS array literal, however it is wrapped.

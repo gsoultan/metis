@@ -9,12 +9,11 @@ import (
 	setupendpoints "github.com/gsoultan/metis/server/endpoints/setup"
 	"github.com/gsoultan/metis/server/transports/https/common"
 	"github.com/gsoultan/metis/server/transports/https/setup"
-	"github.com/gsoultan/metis/ui"
 )
 
-// NewSetupOnlyHandler serves the first-run wizard and nothing else: the UI
-// bundle, so the wizard's page loads, and the three setup routes. Every other
-// API route answers 503, because there is no database behind it yet.
+// NewSetupOnlyHandler serves the first-run wizard's three setup routes and
+// nothing else. Every other API route answers 503, because there is no
+// database behind it yet. The wizard's page itself is metis-server's.
 //
 // It is what a server with no database serves, so that the database can be
 // chosen in the wizard rather than in a file on the server. The routes it
@@ -36,13 +35,7 @@ func NewSetupOnlyHandler(eps setupendpoints.Endpoints) http.Handler {
 		}
 	})
 
-	static, err := newStaticHandler(ui.Dist())
-	if err != nil {
-		// As in NewHTTPHandler: the bundle is embedded at build time, so this
-		// is a corrupt build, and a blank wizard would hide it.
-		log.Fatal().Err(err).Msg("Could not prepare the embedded UI for serving")
-	}
-	m.Handle("/", static)
+	m.HandleFunc("/", notAnAPIPath)
 
 	return securityHeaders(limitSetupBody(m))
 }

@@ -14,12 +14,7 @@ plugins:
     out: api/proto
     opt:
       - paths=source_relative
-  # protoc-gen-es v2 emits schemas rather than message classes, and connect-es
-  # v2 consumes them directly — so there is no separate *_connect.ts plugin any
-  # more; service descriptors live alongside the messages.
-  - remote: buf.build/bufbuild/es:v2.13.0
-    out: ui/src/gen
-    opt:
-      - target=ts
+  # The web app's TypeScript client is generated from these same protos in
+  # gsoultan/metis-server (its buf.gen.yaml), where the web app lives.
 inputs:
   - directory: api/proto

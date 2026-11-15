@@ -1,8 +1,8 @@
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
 
-# Go package list, excluding vendored JS toolchain code that `bun install`
-# drops under ui/node_modules (e.g. flatted/golang).
+# Go package list. The web app moved to gsoultan/metis-server, so there is no
+# node_modules here any more; the filter stays for a checkout that still has one.
 GO_PKGS = $(shell go list ./... | grep -v '/node_modules/')
 
 # Extra flags for the test targets. Empty by default, so a developer re-running
@@ -33,59 +33,12 @@ help: ## Show available targets
 # --- Development ----------------------------------------------------------
 
 .PHONY: dev
-dev: ## Run backend + UI together with hot reload (Ctrl-C stops both)
+dev: ## Run the engine with hot reload (the web app is gsoultan/metis-server: `make dev-ui` there)
 	./scripts/dev.sh
-
-.PHONY: dev-backend
-dev-backend: ## Run only the Go backend
-	./scripts/dev.sh backend
-
-.PHONY: dev-ui
-dev-ui: ## Run only the Vite dev server
-	./scripts/dev.sh ui
 
 .PHONY: dev-reset
 dev-reset: ## Wipe the local database and config, then run everything
 	./scripts/dev.sh --reset
-
-# --- UI -------------------------------------------------------------------
-
-.PHONY: ui-deps
-ui-deps: ## Install UI dependencies
-	cd ui && bun install
-
-.PHONY: ui-build
-ui-build: ## Build the UI (required before any Go build — ui/embed.go embeds ui/dist)
-	cd ui && bun run build
-
-.PHONY: ui-typecheck
-ui-typecheck: ## Typecheck the UI
-	# Uses tsgo, the TypeScript 7 native compiler (~16x faster than tsc here).
-	# See ui/TYPESCRIPT.md for why typescript@5.9 is also installed.
-	cd ui && bun run typecheck
-
-.PHONY: ui-lint
-ui-lint: ## Lint the UI
-	cd ui && bun run lint
-
-.PHONY: ui-test
-ui-test: ## Run the UI tests
-	# This target existed and the gate did not call it, so the tests under it
-	# had not run in a long time. Logic in the browser is as easy to get wrong
-	# as logic on the server.
-	cd ui && bun test
-
-# --- End to end -----------------------------------------------------------
-
-# Not part of `gate`: it needs a PostgreSQL database it may fill, which a gate
-# that runs on any developer machine cannot assume. CI runs it as its own job.
-.PHONY: e2e
-e2e: ## Run the Playwright suite against a real server (DATABASE_URL = an empty *e2e* database; see e2e/README.md)
-	./scripts/e2e.sh
-
-.PHONY: e2e-serve
-e2e-serve: ## Start and seed the server the e2e suite runs against, and leave it running
-	./scripts/e2e.sh --serve
 
 # --- Go -------------------------------------------------------------------
 
@@ -176,7 +129,7 @@ vuln: ## Scan for known vulnerabilities
 # --- Gate -----------------------------------------------------------------
 
 .PHONY: gate
-gate: ui-build build vet test race strict-scope ui-typecheck ui-lint ui-test ## The full verification gate (AGENTS.md §4)
+gate: build vet test race strict-scope ## The full verification gate (AGENTS.md §4)
 	@echo "✅ gate green"
 
 .PHONY: docker

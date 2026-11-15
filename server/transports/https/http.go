@@ -5,8 +5,6 @@ import (
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
 
-	"github.com/rs/zerolog/log"
-
 	"strings"
 
 	"github.com/gsoultan/metis/server/interceptors/tenant"
@@ -52,7 +50,6 @@ import (
 	"github.com/gsoultan/metis/server/transports/https/users"
 	"github.com/gsoultan/metis/server/transports/https/webhookadmin"
 	"github.com/gsoultan/metis/server/transports/https/webhooks"
-	"github.com/gsoultan/metis/ui"
 
 	httptransport "github.com/go-kit/kit/transport/http"
 )
@@ -119,15 +116,9 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 	// the body must not be decoded and re-encoded on the way to the verifier.
 	webhooks.RegisterRoutes(m, svc)
 
-	// Serve UI. The static handler compresses the embedded assets once and
-	// serves them with cache headers a bare file server never set; see static.go.
-	static, err := newStaticHandler(ui.Dist())
-	if err != nil {
-		// The dist is embedded at build time, so this can only fail if the build
-		// shipped a corrupt bundle — fail loudly rather than serve a blank app.
-		log.Fatal().Err(err).Msg("Could not prepare the embedded UI for serving")
-	}
-	m.Handle("/", static)
+	// The engine serves no pages; the web app is metis-server. Anything outside
+	// the API is a 404 that says so.
+	m.HandleFunc("/", notAnAPIPath)
 
 	authenticatedHandler := authMiddleware.Wrap(m)
 	return securityHeaders(withCORS(authenticatedHandler))
@@ -139,9 +130,9 @@ const envCORSOrigins = "METIS_CORS_ORIGINS"
 
 // withCORS applies cross-origin headers.
 //
-// The default is no CORS at all. In production the Go server serves both the
-// UI bundle and the API from one origin, and the Vite dev server proxies /api
-// to the backend, so neither case is cross-origin. The previous unconditional
+// The default is no CORS at all. The web app is served by metis-server, which
+// forwards the browser's API calls here from its own origin, and the Vite dev
+// server proxies /api the same way, so neither case is cross-origin. The previous unconditional
 // `Access-Control-Allow-Origin: *` therefore bought nothing and let any site
 // on the internet call this API with a token it had obtained.
 //

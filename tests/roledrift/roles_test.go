@@ -19,10 +19,11 @@ import (
 	"testing"
 
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/tests/webapp"
 )
 
 // rolesFile is the single list the UI offers, relative to the repository root.
-const rolesFile = "../../ui/src/domain/roles.ts"
+var rolesFile = webapp.File("ui/src/domain/roles.ts")
 
 // offered matches the `value: 'x',` of each entry in ROLE_OPTIONS.
 var offered = regexp.MustCompile(`value:\s*'([^']+)'`)

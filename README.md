@@ -2,6 +2,11 @@
 
 Metis BPM (formerly GoBPM) is a professional, production-ready BPMN orchestrator built with **Go** and **React**. It provides a powerful engine for executing complex workflows, a visual designer for modeling processes, and robust management tools.
 
+> **This repository is the engine.** It serves the API and no pages. The web app
+> (designer, inbox, administration) and the server that serves it are
+> [`gsoultan/metis-server`](https://github.com/gsoultan/metis-server); programs use
+> [`gsoultan/metis-sdk`](https://github.com/gsoultan/metis-sdk).
+
 ## 🚀 Key Features
 
 - **BPMN 2.0 Engine**: Supports essential BPMN elements including:
@@ -62,23 +67,24 @@ The project is built following **Clean Code** principles and **SOLID** design, u
 │   ├── services/     # Workflow engine, handlers, and business services
 │   ├── transports/   # HTTP and gRPC transport layers
 │   └── interceptors/ # Centralized interceptors (Logging, Auth)
-└── ui/               # Frontend React Application
-    ├── src/pages/    # Designer, Task Inbox, and Admin views
-    ├── src/components/ # Shared UI components and BPMN Nodes
-    └── src/services/  # API client generated from Protobuf
+└── tests/            # Integration and scenario tests
 ```
+
+The web app lives in [`gsoultan/metis-server`](https://github.com/gsoultan/metis-server).
 
 ## 🚦 Getting Started
 
 ### Prerequisites
 
 - **Go**: 1.27.0 or higher
-- **Bun**: https://bun.sh
+- **Bun**: https://bun.sh, and a checkout of `gsoultan/metis-server` next to this one
+  (`../metis-server`), for the web app. The engine alone needs neither.
 - **PostgreSQL**: (Optional) For production-grade persistence
 
 ### Development
 
-One command runs the backend and the UI together:
+One command runs the engine and the web app (from `../metis-server`, or
+`METIS_SERVER_DIR`) together:
 
 ```bash
 ./scripts/dev.sh          # or: make dev
@@ -101,7 +107,7 @@ One command runs the backend and the UI together:
 
 ```bash
 ./scripts/dev.sh backend    # backend only
-./scripts/dev.sh ui         # UI only
+./scripts/dev.sh ui         # UI only (from ../metis-server)
 ./scripts/dev.sh --reset    # wipe the local database and set up admin / admin again
 ./scripts/dev.sh --sample   # set up and fill it with worked examples
 ./scripts/dev.sh --wizard   # leave a fresh database to the setup wizard instead
@@ -211,12 +217,13 @@ Most of the settings below can also be changed after sign-in under **Settings �
 
 ### Production build
 
-The image is the supported artifact. It builds the UI, compiles a static binary
-and ships it on a distroless base with no shell — one file plus certificates,
-running as a non-root user against a read-only root filesystem.
+The image is the supported artifact. It compiles a static binary and ships it
+on a distroless base with no shell — one file plus certificates, running as a
+non-root user against a read-only root filesystem. It serves the API; run
+metis-server's image in front of it for the web app.
 
 Every tagged release also publishes **Linux archives** — `amd64` and `arm64`,
-each a static binary with the UI already embedded — for anyone putting Metis on
+each a static binary — for anyone putting Metis on
 a host under systemd rather than in a scheduler. They are the same build as the
 image, stamped with the same version, and carry a bill of materials, build
 provenance and a `checksums.txt`. There is no macOS or Windows build: Metis
@@ -299,7 +306,6 @@ curl -s localhost:8080/healthz     # {"status":"ok","version":"v1.2.3"}
 Building without Docker, which is also what CI does:
 
 ```bash
-make ui-build              # required: ui/embed.go embeds ui/dist
 go build ./cmd/metis
 ENCRYPTION_KEY=... JWT_SECRET=... ./metis
 ```
@@ -426,13 +432,9 @@ make race    # race detector
 make vet     # go vet, module-wide
 ```
 
-End-to-end tests drive the real UI in Chromium, using Playwright, against a real server and a
-seeded PostgreSQL database. They cover sign-in, the designer, decisions, tasks, instances,
-administration, connectors, webhooks, settings and upgrades:
-```bash
-DATABASE_URL="postgres://metis:metis@localhost:5432/metis_e2e?sslmode=disable" make e2e
-```
-The database name must contain `e2e`, because the run seeds it. See [`e2e/README.md`](e2e/README.md).
+End-to-end tests drive the web app in Chromium against an engine built from this
+repository. They live with the web app, in
+[`gsoultan/metis-server`](https://github.com/gsoultan/metis-server) (`make e2e` there).
 
 ## 🔒 Security
 
