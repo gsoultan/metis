@@ -324,6 +324,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **Two refusals were in the wrong shape.** The 503 a server that is not set
+  up yet answers on `/api/`, and the 404 for a path outside the API, were
+  `{"err": …}`; every other refusal is `{"error": …}`, which is what
+  metis-sdk and the web app read. They are `{"error": …}` now, so a client sees
+  the message instead of raw JSON.
+
 - **SMTP on port 465 works.** A connection on 465 now speaks TLS from the
   first byte, as servers on that port expect; it used to wait for a greeting
   until the step timed out. Messages also carry `Date` and `Message-ID`

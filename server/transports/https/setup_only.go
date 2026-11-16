@@ -30,7 +30,7 @@ func NewSetupOnlyHandler(eps setupendpoints.Endpoints) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		if _, err := w.Write([]byte(`{"err":"Metis is not set up yet. Open /setup to choose its database."}` + "\n")); err != nil {
+		if _, err := w.Write([]byte(`{"error":"Metis is not set up yet. Open /setup to choose its database."}` + "\n")); err != nil {
 			log.Debug().Err(err).Msg("Could not write the not-set-up response")
 		}
 	})
