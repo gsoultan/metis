@@ -63,6 +63,41 @@ func (v *Visitor) VisitFlowNode(n *entities.Node) {
 			v.errors = append(v.errors, fmt.Sprintf("Flow node %s: %v", n.ID, err))
 		}
 	}
+	v.checkStartSchedule(n)
+}
+
+// checkStartSchedule refuses a schedule the engine could not keep, at deploy
+// rather than at the first time it was due.
+//
+// A schedule starts the whole process, so it belongs on the process's own
+// start step: on any other step, or on the start of a sub-process, nothing
+// would ever read it and the process would sit unstarted with no sign why.
+func (v *Visitor) checkStartSchedule(n *entities.Node) {
+	for _, child := range n.Nodes {
+		if entities.HasStartSchedule(child) {
+			v.errors = append(v.errors, fmt.Sprintf(
+				"Flow node %s has a schedule, but it is inside %s; only the process's own start step can start it on a schedule", child.ID, n.ID))
+		}
+	}
+	if !entities.HasStartSchedule(n) {
+		return
+	}
+	if n.Type != entities.StartEvent {
+		v.errors = append(v.errors, fmt.Sprintf(
+			"Flow node %s has a schedule, but only a start step can start a process on a schedule", n.ID))
+		return
+	}
+	if _, _, err := entities.StartScheduleOf(n); err != nil {
+		v.errors = append(v.errors, fmt.Sprintf("Flow node %s: %v", n.ID, err))
+		return
+	}
+	// One start step starts the process one way.
+	for _, other := range []string{"message_name", "signal_name"} {
+		if n.GetStringProperty(other) != "" {
+			v.errors = append(v.errors, fmt.Sprintf(
+				"Flow node %s has both a schedule and a %s; give each way of starting its own start step", n.ID, other))
+		}
+	}
 }
 
 func (v *Visitor) VisitSequenceFlow(sf *entities.SequenceFlow) {
