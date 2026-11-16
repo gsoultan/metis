@@ -85,17 +85,23 @@ type StartSchedule struct {
 	until    time.Time
 }
 
+// HasStartSchedule reports whether a step carries a schedule at all, readable
+// or not.
+func HasStartSchedule(n *Node) bool {
+	if n == nil || n.Properties == nil {
+		return false
+	}
+	raw, present := n.Properties[StartScheduleProperty]
+	return present && raw != nil && raw != ""
+}
+
 // StartScheduleOf reads a start step's schedule. ok is false when the step has
 // none; an error means it has one that cannot be run.
 func StartScheduleOf(n *Node) (schedule StartSchedule, ok bool, err error) {
-	if n == nil || n.Properties == nil {
+	if !HasStartSchedule(n) {
 		return StartSchedule{}, false, nil
 	}
-	raw, present := n.Properties[StartScheduleProperty]
-	if !present || raw == nil || raw == "" {
-		return StartSchedule{}, false, nil
-	}
-	schedule, err = ParseStartSchedule(raw)
+	schedule, err = ParseStartSchedule(n.Properties[StartScheduleProperty])
 	if err != nil {
 		return StartSchedule{}, true, err
 	}
@@ -256,7 +262,7 @@ func (s StartSchedule) nextInterval(after time.Time) time.Time {
 		return anchor
 	}
 	elapsed := after.Sub(anchor)
-	return anchor.Add((elapsed/step + 1) * step)
+	return anchor.Add(elapsed.Truncate(step) + step)
 }
 
 func (s StartSchedule) nextDaily(after time.Time) (time.Time, bool) {

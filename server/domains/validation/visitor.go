@@ -74,13 +74,12 @@ func (v *Visitor) VisitFlowNode(n *entities.Node) {
 // would ever read it and the process would sit unstarted with no sign why.
 func (v *Visitor) checkStartSchedule(n *entities.Node) {
 	for _, child := range n.Nodes {
-		if _, scheduled, _ := entities.StartScheduleOf(child); scheduled {
+		if entities.HasStartSchedule(child) {
 			v.errors = append(v.errors, fmt.Sprintf(
 				"Flow node %s has a schedule, but it is inside %s; only the process's own start step can start it on a schedule", child.ID, n.ID))
 		}
 	}
-	_, scheduled, err := entities.StartScheduleOf(n)
-	if !scheduled {
+	if !entities.HasStartSchedule(n) {
 		return
 	}
 	if n.Type != entities.StartEvent {
@@ -88,7 +87,7 @@ func (v *Visitor) checkStartSchedule(n *entities.Node) {
 			"Flow node %s has a schedule, but only a start step can start a process on a schedule", n.ID))
 		return
 	}
-	if err != nil {
+	if _, _, err := entities.StartScheduleOf(n); err != nil {
 		v.errors = append(v.errors, fmt.Sprintf("Flow node %s: %v", n.ID, err))
 		return
 	}
