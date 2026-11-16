@@ -24,6 +24,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **A start step's schedule is checked at deploy.** A start step can carry a
+  `start_schedule`: every N minutes, every day, every weekday, chosen days of
+  the week or a day of the month, at a time of day in a named time zone, with
+  optional first and last dates. Deploy refuses one that could not run (an
+  unknown rule or zone, a time that is not one, an interval under a minute),
+  one on a step that is not the process's own start step, and one beside a
+  message or signal name. This is the rule and the check only: the engine
+  does not start runs from a schedule yet, which is the next change.
+
 - **Message steps show what they send.** A step that uses Slack, Teams,
   Discord, SMTP, Panmail, SendGrid or push now shows its fields in the step
   panel: the message, and the recipient, subject or device token where the
