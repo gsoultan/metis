@@ -795,6 +795,21 @@ func _assertSimulationCaseShape(m m0.SimulationCase) {
 	}
 }
 
+// _assertStartScheduleShape fails to compile if m0.StartSchedule gains, loses, renames or
+// reorders a field. Regenerate: `storm generate`.
+func _assertStartScheduleShape(m m0.StartSchedule) {
+	type shape m0.StartSchedule
+	_ = shape{
+		m.Model,
+		m.Project,
+		m.ProcessKey,
+		m.CheckedUntil,
+		m.NextRunAt,
+		m.Failures,
+		m.LastError,
+	}
+}
+
 // _assertSubscriptionShape fails to compile if m0.Subscription gains, loses, renames or
 // reorders a field. Regenerate: `storm generate`.
 func _assertSubscriptionShape(m m0.Subscription) {

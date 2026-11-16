@@ -77,6 +77,9 @@ type Repository interface {
 	OutgoingWebhook() contracts.OutgoingWebhookRepository
 	OutgoingWebhookQueue() contracts.OutgoingWebhookQueue
 
+	// StartSchedule stores where each process's scheduled starts have got to.
+	StartSchedule() contracts.StartScheduleRepository
+
 	// ConnectorManifest stores connectors described by a document rather than
 	// by Go.
 	ConnectorManifest() contracts.ConnectorManifestRepository

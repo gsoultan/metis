@@ -37,6 +37,7 @@ type repository struct {
 	webhook               contracts.WebhookRepository
 	outgoingWebhook       contracts.OutgoingWebhookRepository
 	outgoingWebhookQueue  contracts.OutgoingWebhookQueue
+	startSchedule         contracts.StartScheduleRepository
 	connectorManifest     contracts.ConnectorManifestRepository
 	project               contracts.ProjectRepository
 	subscription          contracts.SubscriptionRepository
@@ -97,6 +98,7 @@ func NewRepository(conn *stormdb.Conn) Repository {
 		webhook:               pg.NewWebhookRepository(conn),
 		outgoingWebhook:       pg.NewOutgoingWebhookRepository(conn),
 		outgoingWebhookQueue:  pg.NewOutgoingWebhookQueue(conn),
+		startSchedule:         pg.NewStartScheduleRepository(conn),
 		connectorManifest:     pg.NewConnectorManifestRepository(conn),
 		project:               pg.NewProjectRepository(conn),
 		subscription:          pg.NewSubscriptionRepository(conn),
@@ -167,6 +169,9 @@ func (r *repository) OutgoingWebhook() contracts.OutgoingWebhookRepository {
 }
 func (r *repository) OutgoingWebhookQueue() contracts.OutgoingWebhookQueue {
 	return r.outgoingWebhookQueue
+}
+func (r *repository) StartSchedule() contracts.StartScheduleRepository {
+	return r.startSchedule
 }
 func (r *repository) ConnectorManifest() contracts.ConnectorManifestRepository {
 	return r.connectorManifest

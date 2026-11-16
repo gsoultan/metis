@@ -150,6 +150,7 @@ func (m *MockRepository) ServiceCall() contracts.ServiceCallRepository         {
 func (m *MockRepository) Webhook() contracts.WebhookRepository                 { return nil }
 func (m *MockRepository) OutgoingWebhook() contracts.OutgoingWebhookRepository { return nil }
 func (m *MockRepository) OutgoingWebhookQueue() contracts.OutgoingWebhookQueue { return nil }
+func (m *MockRepository) StartSchedule() contracts.StartScheduleRepository     { return nil }
 func (m *MockRepository) ConnectorManifest() contracts.ConnectorManifestRepository {
 	return nil
 }

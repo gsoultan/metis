@@ -26,6 +26,19 @@ func NewDefinitionRepository(c *db.Conn) contracts.DefinitionRepository {
 	return &definitionRepository{conn{conn: c}}
 }
 
+// lookAtSchedule asks for a process's scheduled starts to be worked out again.
+//
+// Called by every write here that changes a key's timeline or removes one of
+// its versions, with the executor that write used. Create is the exception: a
+// simulation stages its draft through it in a transaction it holds open and
+// then rolls back, and a look asked for there would hold the process's row
+// for as long. The deploy that calls Create asks instead. A scheduled start belongs
+// to the live version, so a change of version nobody told the schedule about
+// is a schedule that keeps starting the old one, or never starts the new.
+func (r *definitionRepository) lookAtSchedule(ctx context.Context, projectID uuid.UUID, key string) error {
+	return (&startScheduleRepository{r.conn}).Look(ctx, projectID, key)
+}
+
 // definitionGraphBatchSize bounds how many definition graphs are held at once.
 //
 // A definition carries its whole node and flow graph, so scanning every one of
@@ -171,7 +184,7 @@ func (r *definitionRepository) ScheduleRelease(ctx context.Context, projectID uu
 	if _, err := ins.Insert(ctx, ex); err != nil && !errors.Is(err, runtime.ErrConflict) {
 		return fmt.Errorf("could not schedule the live version of %s: %w", key, err)
 	}
-	return nil
+	return r.lookAtSchedule(ctx, projectID, key)
 }
 
 // ListReleasesForKey returns one key's whole timeline, newest first.
@@ -197,6 +210,14 @@ func (r *definitionRepository) DeleteScheduledRelease(ctx context.Context, proje
 	if err != nil {
 		return err
 	}
+	// Read for its key before it goes: the schedule of that process waits on
+	// this cutover and has to be told it is not coming.
+	cutover, found, err := processdefinitionrelease.New().
+		Where(processdefinitionrelease.ID.Eq(id), processdefinitionrelease.ProjectID.Eq(projectID)).
+		One(ctx, ex)
+	if err != nil {
+		return fmt.Errorf("could not read the scheduled release: %w", err)
+	}
 	removed, err := processdefinitionrelease.New().
 		Where(processdefinitionrelease.ID.Eq(id),
 			processdefinitionrelease.ProjectID.Eq(projectID),
@@ -205,10 +226,10 @@ func (r *definitionRepository) DeleteScheduledRelease(ctx context.Context, proje
 	if err != nil {
 		return fmt.Errorf("could not cancel the scheduled release: %w", err)
 	}
-	if removed == 0 {
+	if removed == 0 || !found {
 		return fmt.Errorf("%w: no such scheduled release (it may have already taken effect)", apierr.ErrNotFound)
 	}
-	return nil
+	return r.lookAtSchedule(ctx, projectID, cutover.ProcessKey)
 }
 
 // ListVersionsByKey returns every version deployed under one key, newest first.
@@ -451,7 +472,8 @@ func (r *definitionRepository) Create(ctx context.Context, m models.ProcessDefin
 }
 
 func (r *definitionRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	if _, err := r.Get(ctx, id); err != nil {
+	doomed, err := r.Get(ctx, id)
+	if err != nil {
 		return err
 	}
 	ex, err := r.conn.conn.Executor(ctx)
@@ -464,7 +486,7 @@ func (r *definitionRepository) Delete(ctx context.Context, id uuid.UUID) error {
 		}
 		return fmt.Errorf("could not delete the definition: %w", err)
 	}
-	return nil
+	return r.lookAtSchedule(ctx, uuid.UUID(doomed.ProjectID), doomed.Key)
 }
 
 func (r *definitionRepository) first(ctx context.Context, order []processdefinition.Sort, preds []processdefinition.Pred) (models.ProcessDefinitionModel, error) {

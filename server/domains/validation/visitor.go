@@ -87,6 +87,13 @@ func (v *Visitor) checkStartSchedule(n *entities.Node) {
 			"Flow node %s has a schedule, but only a start step can start a process on a schedule", n.ID))
 		return
 	}
+	// The same rule for a model that names a step's parent instead of
+	// nesting it: the worker reads only the start steps with no parent.
+	if n.ParentID != "" {
+		v.errors = append(v.errors, fmt.Sprintf(
+			"Flow node %s has a schedule, but it is inside %s; only the process's own start step can start it on a schedule", n.ID, n.ParentID))
+		return
+	}
 	if _, _, err := entities.StartScheduleOf(n); err != nil {
 		v.errors = append(v.errors, fmt.Sprintf("Flow node %s: %v", n.ID, err))
 		return

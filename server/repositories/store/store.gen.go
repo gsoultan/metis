@@ -53,6 +53,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/retentionperiod"
 	"github.com/gsoultan/metis/server/repositories/store/servicecall"
 	"github.com/gsoultan/metis/server/repositories/store/simulationcase"
+	"github.com/gsoultan/metis/server/repositories/store/startschedule"
 	"github.com/gsoultan/metis/server/repositories/store/subscription"
 	"github.com/gsoultan/metis/server/repositories/store/task"
 	"github.com/gsoultan/metis/server/repositories/store/tasklink"
@@ -87,50 +88,51 @@ var FlushOrder = map[string]int{
 	"schema_migrations":           11,
 	"shared_counters":             12,
 	"simulation_cases":            13,
-	"task_links":                  14,
-	"users":                       15,
-	"webhooks":                    16,
-	"workflow_groups":             17,
-	"workflow_users":              18,
-	"archived_instances":          19,
-	"audit_logs":                  20,
-	"batch_operations":            21,
-	"connector_instances":         22,
-	"decision_definitions":        23,
-	"decision_releases":           24,
-	"deployments":                 25,
-	"environments":                26,
-	"external_task_workers":       27,
-	"forms":                       28,
-	"groups":                      29,
-	"memberships":                 30,
-	"outgoing_webhooks":           31,
-	"participant_sources":         32,
-	"person_api_keys":             33,
-	"person_devices":              34,
-	"platform_role_assignments":   35,
-	"process_definition_releases": 36,
-	"process_definitions":         37,
-	"process_instances":           38,
-	"service_calls":               39,
-	"tasks":                       40,
-	"user_organizations":          41,
-	"user_projects":               42,
-	"variable_snapshots":          43,
-	"webhook_deliveries":          44,
-	"workflow_group_memberships":  45,
-	"batch_operation_items":       46,
-	"broadcast_events":            47,
-	"compensatable_activities":    48,
-	"deployment_resources":        49,
-	"deviation_requests":          50,
-	"event_subscriptions":         51,
-	"external_tasks":              52,
-	"instance_deviations":         53,
-	"jobs":                        54,
-	"notifications":               55,
-	"outgoing_webhook_deliveries": 56,
-	"incidents":                   57,
+	"start_schedules":             14,
+	"task_links":                  15,
+	"users":                       16,
+	"webhooks":                    17,
+	"workflow_groups":             18,
+	"workflow_users":              19,
+	"archived_instances":          20,
+	"audit_logs":                  21,
+	"batch_operations":            22,
+	"connector_instances":         23,
+	"decision_definitions":        24,
+	"decision_releases":           25,
+	"deployments":                 26,
+	"environments":                27,
+	"external_task_workers":       28,
+	"forms":                       29,
+	"groups":                      30,
+	"memberships":                 31,
+	"outgoing_webhooks":           32,
+	"participant_sources":         33,
+	"person_api_keys":             34,
+	"person_devices":              35,
+	"platform_role_assignments":   36,
+	"process_definition_releases": 37,
+	"process_definitions":         38,
+	"process_instances":           39,
+	"service_calls":               40,
+	"tasks":                       41,
+	"user_organizations":          42,
+	"user_projects":               43,
+	"variable_snapshots":          44,
+	"webhook_deliveries":          45,
+	"workflow_group_memberships":  46,
+	"batch_operation_items":       47,
+	"broadcast_events":            48,
+	"compensatable_activities":    49,
+	"deployment_resources":        50,
+	"deviation_requests":          51,
+	"event_subscriptions":         52,
+	"external_tasks":              53,
+	"instance_deviations":         54,
+	"jobs":                        55,
+	"notifications":               56,
+	"outgoing_webhook_deliveries": 57,
+	"incidents":                   58,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -10279,6 +10281,123 @@ func (p SimulationCaseWithProjectQuery) All(ctx context.Context, ex runtime.Exec
 			// A foreign key pointing at a row that is not there. The database
 			// forbids it, so reaching this means the constraint was dropped.
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "simulation_cases", "projects")
+		}
+		out[i].Project = targets[j]
+	}
+	return out, nil
+}
+
+// StartScheduleWithProjectRow is start_schedules with its Project loaded.
+type StartScheduleWithProjectRow struct {
+	startschedule.Row
+	Project project.Row
+}
+
+type StartScheduleWithProjectQuery struct {
+	q startschedule.Query
+}
+
+// StartScheduleWithProject starts the plan.
+func StartScheduleWithProject() StartScheduleWithProjectQuery {
+	return StartScheduleWithProjectQuery{q: startschedule.New()}
+}
+
+func (p StartScheduleWithProjectQuery) Where(ps ...startschedule.Pred) StartScheduleWithProjectQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p StartScheduleWithProjectQuery) WhereIf(cond bool, pr startschedule.Pred) StartScheduleWithProjectQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p StartScheduleWithProjectQuery) Any(ps ...startschedule.Pred) StartScheduleWithProjectQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p StartScheduleWithProjectQuery) Not(pr startschedule.Pred) StartScheduleWithProjectQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p StartScheduleWithProjectQuery) NotAny(ps ...startschedule.Pred) StartScheduleWithProjectQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p StartScheduleWithProjectQuery) Order(ts ...startschedule.Sort) StartScheduleWithProjectQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p StartScheduleWithProjectQuery) Limit(n int64) StartScheduleWithProjectQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p StartScheduleWithProjectQuery) Offset(n int64) StartScheduleWithProjectQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p StartScheduleWithProjectQuery) After(r StartScheduleWithProjectRow) StartScheduleWithProjectQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p StartScheduleWithProjectQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p StartScheduleWithProjectQuery) All(ctx context.Context, ex runtime.Executor) ([]StartScheduleWithProjectRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]StartScheduleWithProjectRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = StartScheduleWithProjectRow{Row: r}
+		key := r.ProjectID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := project.New().Unordered().
+		Where(project.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.ProjectID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "start_schedules", "projects")
 		}
 		out[i].Project = targets[j]
 	}
