@@ -1,7 +1,7 @@
 # Dependency updates, proposed rather than discovered.
 #
-# CI already scans: govulncheck for Go, `bun audit` for the UI, and trivy
-# against the built image. Those tell you a dependency is a problem *now*, which
+# CI already scans: govulncheck for Go and trivy against the built image (the
+# web app's dependencies are gsoultan/metis-server's, with its own dependabot). Those tell you a dependency is a problem *now*, which
 # is the wrong time to find out — usually during an incident, on a version that
 # is several majors behind whatever fixes it. This opens the pull request before
 # then.

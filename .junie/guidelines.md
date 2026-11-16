@@ -103,32 +103,8 @@
     - **Atomic Dispatching**: MUST ensure `DispatchEvent` is part of the same transaction as the action that triggered it to maintain audit log consistency.
     - **Simple Updates**: SHOULD wrap simple `Get` followed by `Update` operations in a transaction (potentially with `GetForUpdate`) to ensure consistency.
 
-#### 4. UI Guidelines (React/TS/Zustand)
-- **Routing**: MUST use `@tanstack/react-router` for all navigation. MUST use file-based routing in the `ui/src/routes` directory. MUST use `Link` components for internal navigation. MUST use `validateSearch` for type-safe search parameters.
-- **Lazy Loading**: MUST use `React.lazy` and `Suspense` for heavy components. Routing-level lazy loading is handled by TanStack Router.
-- **Optimized Rendering**:
-    - MUST derive state during rendering; AVOID storing derived data in state or using `useEffect` to sync it.
-    - MUST use `useTransition` for non-urgent updates (e.g., filtering lists).
-    - MUST parallelize independent operations using `Promise.all()`.
-    - MUST use explicit boolean checks for conditional rendering (`count > 0 && ...`).
-- **State Management**:
-    - Global: MUST use `Zustand`.
-    - Server: MUST use `@tanstack/react-query` (caching, retries, deduping).
-    - Local: `useState`/`useReducer`.
-- **React Design Patterns**:
-    - **Custom Hooks**: Primary pattern for reusing stateful logic (e.g., `useFetchData`).
-    - **Provider Pattern**: Use Context API for global data (themes, auth).
-    - **Container/Presentational**: Separate logic (fetching) from UI (rendering).
-    - **Compound Components**: Flexible API for related components (e.g., `<Select.Option>`).
-- **Data Fetching**: MUST use `useQuery`. MUST abort in-flight requests on unmount/param changes.
-- **Performance**:
-    - MUST virtualize long lists; MUST use stable `key` props.
-    - MUST offload CPU-bound tasks (JSON diffing, filtering) to Web Workers.
-    - MUST use dynamic `import()` to code-split the application.
-    - MUST use `build.rollupOptions.output.manualChunks` in `vite.config.ts` to improve chunking.
-    - MUST adjust chunk size limit for warnings via `build.chunkSizeWarningLimit` in `vite.config.ts`.
-- **Verification**: MUST ensure `bun run build` in the `ui` directory passes after any UI change. (`go run ./cmd/metis --build-ui` runs the same build, but only once `ui/dist` already exists — it cannot create it, because `cmd/metis` itself needs that embed to compile.)
-- **CI/CD Readiness**: NEVER submit changes that break the UI build or the main Go entry point's ability to build the UI.
+#### 4. UI Guidelines
+- The web app moved to [`gsoultan/metis-server`](https://github.com/gsoultan/metis-server), and its React/TypeScript rules with it: [`docs/guidelines.md`](https://github.com/gsoultan/metis-server/blob/main/docs/guidelines.md) there. Sections 1, 5 and 6 of this file apply to both repositories.
 
 #### 5. Low-Code & Non-Expert Friendliness
 - **Human-Friendly Activity Feed**: MUST replace technical logs with human-readable "Business Timeline" narratives (e.g., "The manager approved the request" instead of "Task_Approved").
