@@ -72,11 +72,11 @@ func NewIdentityHTTPAuthInterceptor(
 	people SecurityStrategy,
 	publicPaths []string,
 ) contracts.TransportInterceptor {
-	inner, _ := NewMandatoryHTTPAuthInterceptorWithPeople(nil, people, publicPaths).(*mandatoryHTTPAuthInterceptor)
 	set := make(map[string]struct{}, len(publicPaths))
 	for _, p := range publicPaths {
 		set[p] = struct{}{}
 	}
+	inner := &mandatoryHTTPAuthInterceptor{publicPathSet: set, people: people}
 	return &identityHTTPAuthInterceptor{identity: id, account: account, people: inner, publicPathSet: set}
 }
 
@@ -112,23 +112,68 @@ func (i *identityHTTPAuthInterceptor) Wrap(next http.Handler) http.Handler {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		userID, err := uuid.Parse(principal.UserID)
-		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		user, err := i.account(r.Context(), userID)
-		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
+		// Before anything is read for it: a key is refused here whoever it is.
 		if principal.ViaKey && SessionOnly(path) {
 			writeJSONError(w, http.StatusForbidden, "an integration key cannot manage accounts, keys, organizations or the installation; sign in as a person")
+			return
+		}
+		user, admitted := i.principalUser(r.Context(), principal)
+		if !admitted {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 		ctx := context.WithValue(r.Context(), auth.UserContextKey, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// principalUser is who the request acts as: the engine's account the
+// Principal names, read fresh, or for a key a principal of its own.
+func (i *identityHTTPAuthInterceptor) principalUser(ctx context.Context, principal identity.Principal) (entities.User, bool) {
+	id, err := uuid.Parse(principal.UserID)
+	if err != nil {
+		return entities.User{}, false
+	}
+	if principal.ViaKey {
+		return keyPrincipal(id, principal.Roles)
+	}
+	user, err := i.account(ctx, id)
+	if err != nil {
+		return entities.User{}, false
+	}
+	return user, true
+}
+
+// keyPrincipal is an integration key as the engine sees it: no account, a
+// member of the organizations its Principal names and nothing else, holding
+// there the roles it was given and no role globally. Administrator is never
+// one of them, whatever the Identity said: a key that leaked must not be a
+// way to administer an organization.
+func keyPrincipal(keyID uuid.UUID, roles map[string][]string) (entities.User, bool) {
+	user := entities.User{
+		ID:                  keyID,
+		Username:            "integration:" + keyID.String(),
+		IntegrationKey:      keyID,
+		RolesByOrganization: make(map[uuid.UUID][]string, len(roles)),
+	}
+	for org, held := range roles {
+		orgID, err := uuid.Parse(org)
+		if err != nil {
+			return entities.User{}, false
+		}
+		kept := make([]string, 0, len(held))
+		for _, role := range held {
+			if !strings.EqualFold(role, entities.RoleAdmin) {
+				kept = append(kept, role)
+			}
+		}
+		user.RolesByOrganization[orgID] = kept
+		user.Organizations = append(user.Organizations, &entities.Organization{ID: orgID})
+	}
+	if len(user.Organizations) == 0 {
+		return entities.User{}, false
+	}
+	return user, true
 }
 
 func writeJSONError(w http.ResponseWriter, status int, message string) {

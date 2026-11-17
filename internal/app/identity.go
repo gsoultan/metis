@@ -49,12 +49,10 @@ func (a *App) buildIdentity(ctx context.Context) error {
 	}
 	built, err := a.identityFactory(ctx, env)
 	if err != nil {
-		_ = db.Close()
-		return fmt.Errorf("the embedding program's sign-in could not start: %w", err)
+		return errors.Join(fmt.Errorf("the embedding program's sign-in could not start: %w", err), db.Close())
 	}
 	if built == nil {
-		_ = db.Close()
-		return errors.New("the embedding program's sign-in returned no Identity")
+		return errors.Join(errors.New("the embedding program's sign-in returned no Identity"), db.Close())
 	}
 	a.identity, a.identityDB = built, db
 	log.Info().Msg("Signing in is served by the program embedding the engine")
@@ -96,8 +94,9 @@ func (r identityAccounts) ByUsername(ctx context.Context, username string) (iden
 }
 
 func (r identityAccounts) ByID(ctx context.Context, userID string) (identity.Account, bool, error) {
-	id, err := uuid.Parse(userID)
-	if err != nil {
+	// An id that is not a uuid names no account; it is not a failure.
+	id, valid := accountID(userID)
+	if !valid {
 		return identity.Account{}, false, nil
 	}
 	m, err := r.users.Get(entities.WithSystemContext(ctx), id)
@@ -105,6 +104,11 @@ func (r identityAccounts) ByID(ctx context.Context, userID string) (identity.Acc
 		return notFoundOr(err)
 	}
 	return accountOf(adapters.UserEntityAdapter{Model: m}.ToEntity()), true, nil
+}
+
+func accountID(userID string) (uuid.UUID, bool) {
+	id, err := uuid.Parse(userID)
+	return id, err == nil
 }
 
 func notFoundOr(err error) (identity.Account, bool, error) {

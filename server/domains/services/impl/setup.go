@@ -184,7 +184,10 @@ func (s *setupService) Setup(ctx context.Context, req contracts.SetupRequest) er
 	}
 
 	// 3. Create Organization, Project, and Admin User in the target database
-	adminID, err := seedTargetDatabase(ctx, targetDB, req)
+	// Under an Identity on this same database, the password is the Identity's:
+	// the engine's column gets the marker no password matches.
+	heldElsewhere := target.fromEnvironment && s.credentials != nil
+	adminID, err := seedTargetDatabase(ctx, targetDB, req, heldElsewhere)
 	if err != nil {
 		return err
 	}
@@ -454,10 +457,13 @@ const defaultProjectName = "Default Project"
 // administrator holds the role a second approver's control rests on, and is
 // attributable as any later one is. It names no actor — nobody can be signed
 // in to an installation that has no account — and says set-up made it.
-func seedTargetDatabase(ctx context.Context, target *stormdb.Conn, req contracts.SetupRequest) (uuid.UUID, error) {
+//
+// heldElsewhere writes the unusable marker instead of a hash, for an
+// administrator whose password the embedding program's Identity holds.
+func seedTargetDatabase(ctx context.Context, target *stormdb.Conn, req contracts.SetupRequest, heldElsewhere bool) (uuid.UUID, error) {
 	orgID, adminID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	roles := []string{entities.RoleAdmin}
-	if err := seedInstallation(ctx, target, req, orgID, adminID, roles); err != nil {
+	if err := seedInstallation(ctx, target, req, orgID, adminID, roles, heldElsewhere); err != nil {
 		return uuid.Nil, err
 	}
 	traceUnattended(madeThroughSetup, accountCreated, orgID, adminID, req.AdminUsername, accountRoles{},
@@ -474,7 +480,7 @@ func seedTargetDatabase(ctx context.Context, target *stormdb.Conn, req contracts
 // The accounts are held for the transaction, which makes the check and the
 // seed one step: two first runs racing each other would otherwise both find
 // the database empty.
-func seedInstallation(ctx context.Context, target *stormdb.Conn, req contracts.SetupRequest, orgID, adminID uuid.UUID, roles []string) error {
+func seedInstallation(ctx context.Context, target *stormdb.Conn, req contracts.SetupRequest, orgID, adminID uuid.UUID, roles []string, heldElsewhere bool) error {
 	repo := repositories.NewRepository(target)
 	// The installation has no tenant yet to scope any of this by.
 	ctx = entities.WithSystemContext(ctx)
@@ -508,9 +514,11 @@ func seedInstallation(ctx context.Context, target *stormdb.Conn, req contracts.S
 			return fmt.Errorf("failed to create project: %w", err)
 		}
 
-		hash, err := bcrypt.GenerateFromPassword([]byte(req.AdminPassword), bcrypt.DefaultCost)
-		if err != nil {
-			return fmt.Errorf("failed to hash password: %w", err)
+		hash := []byte(unusablePasswordHash)
+		if !heldElsewhere {
+			if hash, err = bcrypt.GenerateFromPassword([]byte(req.AdminPassword), bcrypt.DefaultCost); err != nil {
+				return fmt.Errorf("failed to hash password: %w", err)
+			}
 		}
 
 		// With its memberships: the organization, holding no role of its own
