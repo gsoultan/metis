@@ -34,7 +34,7 @@ func stepInputs(node entities.Node, variables map[string]any) map[string]any {
 //
 // The designer's tables for these used to be written under names nothing on
 // the server read, so a step configured to rename a field did not. See
-// ui/src/domain/connectorStep.ts for how an older step is carried over.
+// metis-server ui/src/domain/connectorStep.ts for how an older step is carried over.
 func stepOutputs(node entities.Node, answer map[string]any) map[string]any {
 	outputs, ok := node.Properties[outputMappingProperty].(map[string]any)
 	if !ok || len(outputs) == 0 {

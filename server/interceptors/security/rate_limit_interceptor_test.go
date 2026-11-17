@@ -380,12 +380,12 @@ func TestTrustingNoProxyIgnoresTheHeaderEntirely(t *testing.T) {
 	}
 }
 
-// TestTheUIsFilesDoNotSpendTheAPIsAllowance pins that the limit is the API's.
+// TestTheProbesDoNotSpendTheAPIsAllowance pins that the limit is the API's.
 //
-// A first load of the UI fetches about 120 files. When they drew on the same
-// allowance as the API, a second fresh tab inside a minute was refused the
-// API and the UI's own index.
-func TestTheUIsFilesDoNotSpendTheAPIsAllowance(t *testing.T) {
+// Outside /api/ are the probes and the 404 for a browser that has not heard the
+// web app moved. A readiness probe refused with a 429 takes the replica out of
+// service because its clients were busy.
+func TestTheProbesDoNotSpendTheAPIsAllowance(t *testing.T) {
 	t.Parallel()
 
 	interceptor := NewRateLimitInterceptor(2, time.Minute)
@@ -401,16 +401,20 @@ func TestTheUIsFilesDoNotSpendTheAPIsAllowance(t *testing.T) {
 	}
 
 	for n := range 200 {
-		if code := serve(fmt.Sprintf("/assets/chunk-%d.js", n)); code != http.StatusOK {
-			t.Fatalf("UI file %d was answered %d; the UI's files must not be rate limited", n, code)
+		path := "/readyz"
+		if n%2 == 1 {
+			path = "/healthz"
+		}
+		if code := serve(path); code != http.StatusOK {
+			t.Fatalf("probe %d (%s) was answered %d; probes must not be rate limited", n, path, code)
 		}
 	}
 	for _, want := range []int{http.StatusOK, http.StatusOK, http.StatusTooManyRequests} {
 		if code := serve("/api/v1/tasks"); code != want {
-			t.Fatalf("after 200 UI files the API answered %d, want %d: the files spent its allowance", code, want)
+			t.Fatalf("after 200 probes the API answered %d, want %d: the probes spent its allowance", code, want)
 		}
 	}
-	if code := serve("/"); code != http.StatusOK {
-		t.Fatalf("the UI's index was answered %d once the API's allowance was spent", code)
+	if code := serve("/readyz"); code != http.StatusOK {
+		t.Fatalf("the readiness probe was answered %d once the API's allowance was spent", code)
 	}
 }

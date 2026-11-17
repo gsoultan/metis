@@ -17,12 +17,12 @@ const (
 // ServerConfig is the part of config.yaml that says where this server is.
 //
 // It is here, in a file only the operator can write, rather than among the
-// settings an administrator saves from the UI: a listen address saved wrong
-// from the UI would leave the UI unreachable, with no way back through it.
+// settings an administrator saves through the API: a listen address saved
+// wrong that way would leave the API unreachable, with no way back through it.
 // The setup wizard writes it because the wizard is the operator's — it opens
 // only with the setup token printed in the server's log.
 type ServerConfig struct {
-	// HTTPAddress is the listen address of the API and the UI, such as
+	// HTTPAddress is the listen address of the API, such as
 	// ":8080" (every interface) or "10.0.0.5:8080" (one).
 	HTTPAddress string `yaml:"http_address,omitempty" json:"http_address,omitzero"`
 	// PublicURL is the address people reach this server at, which links in

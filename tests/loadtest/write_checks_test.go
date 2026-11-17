@@ -82,7 +82,7 @@ func checkCompletions(t *testing.T, approvals []approval, completions []completi
 // task cannot be completed — which is right for the second of two submissions.
 // 400 is what the task service answers for a task that is already done, and 409
 // is what the inbox's offline queue also reads as a refusal
-// (ui/src/domain/outbox.ts): both tell a client not to send it again. A 5xx
+// (metis-server ui/src/domain/outbox.ts): both tell a client not to send it again. A 5xx
 // tells it to.
 func isRefusal(r apiResult) bool {
 	return r.err == nil && (r.status == http.StatusBadRequest || r.status == http.StatusConflict)

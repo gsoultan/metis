@@ -9,7 +9,7 @@
    The non-negotiables in §0 apply to every change.
 2. **The always-on loop** — Discover → Work → Verify → Persist (§1).
    `graphify-out/graph.json` exists: **query the graph before reading source.**
-3. **The Developer Profile Panel** (§2) — 14 profiles with `Owns · Vetoes · Proof`.
+3. **The Developer Profile Panel** (§2) — 11 profiles with `Owns · Vetoes · Proof` (`fe` and `ux` moved to metis-server).
    Adopt a **Driver**, re-read your diff as the **Challenger**, answer its vetoes in writing.
    §2.2 routes files → Driver + mandatory Challengers.
 4. **The verification gate** (§4) — the exact commands, and the current red baseline.

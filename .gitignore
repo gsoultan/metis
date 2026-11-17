@@ -37,11 +37,6 @@ Thumbs.db
 .idea/
 .vscode/
 
-# ─── Node.js / Frontend ───────────────────────────────────────────────────────
-# The web app moved to gsoultan/metis-server; ignore what an old checkout left.
-ui/
-e2e/
-
 # ─── Go tool cache ────────────────────────────────────────────────────────────
 vendor/
 
@@ -53,7 +48,7 @@ graphify-out/
 .env.development
 .gstack/
 
-# GoReleaser writes the release artifacts here. Anchored to the root, because
-# ui/dist is a different directory with its own rule above.
+# GoReleaser writes the release artifacts here. Anchored to the root, so a
+# dist/ directory anywhere else is not swept up with it.
 /dist/
 /.release/

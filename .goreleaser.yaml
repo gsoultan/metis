@@ -111,7 +111,8 @@ nfpms:
     homepage: https://github.com/gsoultan/metis
     description: |-
       Metis BPM, a BPMN 2.0 process orchestrator and DMN decision engine.
-      A static binary with the web UI embedded, run as a systemd service.
+      The engine and its API as a static binary, run as a systemd service.
+      The web app is a separate package: gsoultan/metis-server.
     license: MIT
     section: net
     priority: optional
