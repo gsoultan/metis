@@ -30,7 +30,7 @@ const (
 // decision it was waiting for was never made. The inbox checks a required
 // field before it submits; this is the same rule for every other caller.
 //
-// The rule is the inbox's (ui/src/hooks/useTaskForm.ts): a value is missing
+// The rule is the inbox's (metis-server ui/src/hooks/useTaskForm.ts): a value is missing
 // when it is absent, null or the empty string, and false and 0 are answers. A
 // field with a condition that can hide it is not asked for, because whether it
 // is shown depends on values only the form evaluates.

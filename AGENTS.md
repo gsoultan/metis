@@ -17,8 +17,9 @@ write code*; this file wins on *what must be proven before it ships*.
 
 ## 0. What this system is (read before touching anything)
 
-Metis BPM is a **BPMN 2.0 orchestrator with a DMN decision engine**, written in Go with a
-React designer. Two properties dominate every design decision:
+Metis BPM is a **BPMN 2.0 orchestrator with a DMN decision engine**, written in Go. Its
+web app, the designer among it, is gsoultan/metis-server. Two properties dominate every
+design decision:
 
 1. **It executes other people's money and obligations.** A process instance is a durable
    business commitment — an approval, a payment, a contract step. Losing a token, taking the
@@ -211,29 +212,11 @@ Each profile has **Owns** (what it is accountable for), **Vetoes** (what it can 
 - **Proof:** Every bug fix ships a test that **fails before and passes after**, with the root
   cause named in one sentence.
 
-#### `fe` — Frontend UI Engineer
-- **Owns:** React/TS correctness, routing, state, bundle size, build health.
-- **Vetoes:**
-  - `bun run build`, `tsc -b`, or `eslint .` failing or regressing.
-  - `any` added to a service/API boundary type.
-  - State derived into `useState` + `useEffect` where it could be derived during render.
-  - An unvirtualized list that can grow unbounded (task inbox, instance list, audit log).
-  - A component over ~300 lines carrying fetching, mapping and rendering at once.
-- **Proof:** Build + typecheck + lint output. Bundle delta for anything touching vendor chunks.
-
-#### `ux` — UI/UX & Low-Code Expert
-- **Owns:** The experience of a **non-technical business user** — the primary persona for the
-  inbox, designer and troubleshooter.
-- **Vetoes:**
-  - Technical vocabulary surfaced to end users (`Task_Approved`, node IDs, stack traces,
-    raw JSON) where a business narrative belongs.
-  - An error with no plain-English cause and no suggested fix.
-  - Advanced/expert settings shown by default instead of behind progressive disclosure.
-  - **Interactive UI with no accessible name** — every control needs a label; keyboard paths
-    must work. This is a procurement blocker for enterprise buyers, not a nicety.
-  - Hardcoded user-facing English where the product claims multi-region readiness.
-- **Proof:** A described click-path for a non-expert user. Keyboard + screen-reader check on
-  new interactive components.
+#### `fe` and `ux` — in gsoultan/metis-server
+The Frontend UI Engineer and the UI/UX & Low-Code Expert moved with the web app, to
+[metis-server's AGENTS.md](https://github.com/gsoultan/metis-server/blob/main/AGENTS.md).
+`ux`'s veto on an error with no plain-English cause and no suggested fix still applies
+to the messages the engine returns, because the web app shows them as they are.
 
 #### `patterns` — Design Pattern Expert
 - **Owns:** That the patterns named in `.junie/guidelines.md` are applied *intentionally*.
@@ -268,8 +251,7 @@ Each profile has **Owns** (what it is accountable for), **Vetoes** (what it can 
 | `server/interceptors/**`, auth, tenant, crypto, setup | `sec` | `arch`, `test` |
 | `server/repositories/**`, models, queries, migrations | `go` | `perf`, `sec` |
 | `endpoints/**`, `transports/**`, proto/API shape | `arch` | `sec`, `po` |
-| The web app: in gsoultan/metis-server, under its own AGENTS.md | `fe` | `ux`, `perf` |
-| Designer, Task Inbox, Troubleshooter, forms | `ux` | `fe`, `bpm` |
+| The web app: in gsoultan/metis-server, under its own AGENTS.md | — | — |
 | `tests/**`, CI workflows, tooling | `test` | `lead` |
 | README, `.junie/*`, this file | `pm` | `lead` |
 
@@ -309,7 +291,7 @@ Each profile has **Owns** (what it is accountable for), **Vetoes** (what it can 
 | `server/repositories/` | `contracts` / `models` / `gorms`, UoW, queries | `go` |
 | `server/transports/` | HTTP, gRPC, Connect | `arch` |
 | `tests/` | Integration & scenario tests | `test` |
-| *(gsoultan/metis-server)* | The web app (`ui/`), its Playwright suite (`e2e/`) and the server in front of the engine. Not in this repository | `fe` / `ux` |
+| *(gsoultan/metis-server)* | The web app (`ui/`), its Playwright suite (`e2e/`) and the server in front of the engine. Not in this repository | — |
 | `graphify-out/` | Knowledge graph — query this before reading source | all |
 
 ---

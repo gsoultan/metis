@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
 #
-# Start Metis BPM for local development: the Go backend and the Vite dev
-# server, together, with one Ctrl-C stopping both.
+# Start the Metis engine for local development, on a development database, with
+# one Ctrl-C stopping it.
 #
-# The web app lives in gsoultan/metis-server. The UI target runs it from a
-# checkout next to this one (../metis-server), or from METIS_SERVER_DIR.
+# The engine only. The web app is gsoultan/metis-server: `make dev` there starts
+# this script for the engine and the web app beside it.
 #
-#   ./scripts/dev.sh              backend + UI (default)
-#   ./scripts/dev.sh backend      backend only
-#   ./scripts/dev.sh ui           UI only
+#   ./scripts/dev.sh              the engine (`backend` is accepted too)
 #   ./scripts/dev.sh --reset      drop and recreate the local database first
 #   ./scripts/dev.sh --wizard     leave a fresh install to the setup wizard
 #                                 instead of creating admin / admin
@@ -24,9 +22,8 @@
 # itself refuses a password that short). --wizard skips that, for working on
 # the wizard. An installation that is already set up is left as it is.
 #
-# The UI runs on :5273 and proxies /api to the backend on :8273, so
-# development is same-origin — the app talks to the server exactly as it does
-# in production, and no CORS is involved.
+# The API is on :8273 and gRPC on :8274. metis-server's dev server proxies
+# /api to it, so development is same-origin and no CORS is involved.
 #
 # Metis runs on PostgreSQL and nothing else, so this needs one. If DATABASE_URL
 # is set it is used as-is; otherwise the script looks for PostgreSQL on
@@ -45,16 +42,13 @@ readonly ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 # None of these are the conventional defaults, and that is the point: a
-# developer has more than one project, and 5173, 8080 and 8081 are what every
-# other one is already using. Vite's 5173 collides with every Vite project;
-# 8080 and 8081 collide with roughly everything.
+# developer has more than one project, and 8080 and 8081 are what every other
+# one is already using.
 #
 # The server still *listens* on 8080 and 8081 in production — that is what the
 # container exposes and what the Kubernetes manifest names. This is only what
 # the development script asks for, and it asks for something nobody else wants.
 # Override any of them for a one-off run.
-readonly UI_PORT="${UI_PORT:-5273}"
-readonly SERVER_DIR="${METIS_SERVER_DIR:-$ROOT/../metis-server}"
 readonly API_PORT="${API_PORT:-8273}"
 
 # Ports this run actually bound, so shutdown only reports its own.
@@ -70,7 +64,7 @@ readonly DB_NAME="${DB_NAME:-metis_dev}"
 readonly DB_USER="${DB_USER:-metis}"
 readonly DB_PASSWORD="${DB_PASSWORD:-metis}"
 readonly DB_HOST="${DB_HOST:-127.0.0.1}"
-# Not 5432, for the same reason the UI is not on 5173: a developer machine that
+# Not 5432, for the same reason the API is not on 8080: a developer machine that
 # has done any PostgreSQL work already has something on 5432, and binding a
 # container there either fails or — worse — succeeds while the native server
 # keeps answering, so the script connects to a database it did not create and
@@ -103,7 +97,6 @@ require() {
 
 check_prerequisites() {
   require go   "Install Go 1.26.5+ from https://go.dev/dl/"
-  require bun  "Install Bun from https://bun.sh (or run: brew install oven-sh/bun/bun)"
 
   local want=1.26 have
   have="$(go env GOVERSION)"; have="${have#go}"
@@ -127,9 +120,9 @@ port_holder() {
 
 # check_ports reports every conflict, not just the first.
 #
-# Backend and UI ports are usually taken by the same stale run, and being told
-# about one, freeing it and being told about the next is a poor way to find
-# that out.
+# The API and gRPC ports are usually taken by the same stale run, and being
+# told about one, freeing it and being told about the next is a poor way to
+# find that out.
 check_ports() {
   local port held=()
   for port in "$@"; do
@@ -141,7 +134,7 @@ check_ports() {
   (( ${#held[@]} == 0 )) && return 0
 
   printf '%s\n' "${held[@]}" >&2
-  die "stop the process using it, or set API_PORT, GRPC_PORT or UI_PORT to something free"
+  die "stop the process using it, or set API_PORT or GRPC_PORT to something free"
 }
 
 # --- database --------------------------------------------------------------
@@ -566,33 +559,20 @@ start_first_run() {
   fi
 }
 
-start_ui() {
-  # Tells the Vite proxy where the backend actually is, so a non-default
-  # API_PORT still works end to end.
-  export METIS_BACKEND="http://localhost:${API_PORT}"
-  local ui_dir="$SERVER_DIR/ui"
-  [[ -f "$ui_dir/package.json" ]] \
-    || die "the web app is in gsoultan/metis-server: clone it to $SERVER_DIR, or set METIS_SERVER_DIR (or run ./scripts/dev.sh backend)"
-  [[ -d "$ui_dir/node_modules" ]] || { info "Installing UI dependencies"; (cd "$ui_dir" && bun install); }
-  info "UI       → http://localhost:${UI_PORT} (from $SERVER_DIR)"
-  # `bun --cwd` is not accepted by all bun versions, so cd in a subshell and
-  # exec so the process group leader is vite itself.
-  run_prefixed "ui" "$C_BLUE" bash -c 'cd "$2" && exec bun run dev -- --port "$1" --strictPort' _ "$UI_PORT" "$ui_dir"
-}
-
 # --- main ------------------------------------------------------------------
 
 main() {
-  local target="all" reset=0 sample=0 wizard=0 arg
+  local reset=0 sample=0 wizard=0 arg
   for arg in "$@"; do
     case "$arg" in
-      backend|api) target="backend" ;;
-      ui|front|frontend) target="ui" ;;
-      all) target="all" ;;
+      # all is what metis-server's script used to pass; the engine is all
+      # there is here now.
+      backend|api|all) ;;
+      ui|front|frontend) die "the web app is gsoultan/metis-server: run \`make dev\` there (it starts this script for the engine)" ;;
       --reset) reset=1 ;;
       --sample|--samples|--seed) sample=1 ;;
       --wizard) wizard=1 ;;
-      -h|--help) sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+      -h|--help) sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
       *) die "unknown argument: $arg (try --help)" ;;
     esac
   done
@@ -606,53 +586,33 @@ main() {
   # nothing has been started yet, so a conflict here should say so and stop
   # rather than print a shutdown. --reset used to run first, so a port conflict
   # left you with the database deleted and no server to show for it.
-  case "$target" in
-    backend) check_ports "$API_PORT" "$GRPC_PORT" ;;
-    ui)      check_ports "$UI_PORT" ;;
-    all)     check_ports "$API_PORT" "$GRPC_PORT" "$UI_PORT" ;;
-  esac
+  check_ports "$API_PORT" "$GRPC_PORT"
 
-  # The UI target proxies to a backend it does not start, so it needs no
-  # database — and starting one for it would be a container appearing because
-  # somebody asked for a front end.
-  if [[ "$target" != "ui" ]]; then
-    if (( reset )); then
-      reset_database
-    fi
-    # After the reset, so a --reset run points at the database it just recreated.
-    ensure_database
-    export_db_settings
-  elif (( reset )); then
-    warn "--reset does nothing for the UI alone"
+  if (( reset )); then
+    reset_database
   fi
+  # After the reset, so a --reset run points at the database it just recreated.
+  ensure_database
+  export_db_settings
 
   trap shutdown INT TERM HUP EXIT
 
-  case "$target" in
-    backend) STARTED_PORTS=("$API_PORT" "$GRPC_PORT")
-             start_backend
-             start_first_run
-             ;;
-    ui)      STARTED_PORTS=("$UI_PORT");               start_ui ;;
-    all)     STARTED_PORTS=("$API_PORT" "$GRPC_PORT" "$UI_PORT")
-             start_backend
-             start_first_run
-             start_ui
-             printf '\n'
-             if (( sample || ! wizard )); then
-               ok "Open ${C_BOLD}http://localhost:${UI_PORT}${C_RESET} — sign in as admin / admin"
-               (( sample )) || printf '%s     Empty? Ctrl-C, then: ./scripts/dev.sh --sample%s\n' "$C_DIM" "$C_RESET"
-             else
-               ok "Open ${C_BOLD}http://localhost:${UI_PORT}${C_RESET} — first run shows the setup wizard"
-               printf '%s     Its setup token: %s%s\n' "$C_DIM" "$METIS_SETUP_TOKEN" "$C_RESET"
-               # Said here rather than only in --help: an empty installation is
-               # a poor first impression, every list reads "nothing here yet",
-               # and the flag that fixes it is easy to miss.
-               printf '%s     Empty? Ctrl-C, then: ./scripts/dev.sh --reset --sample%s\n' "$C_DIM" "$C_RESET"
-             fi
-             printf '%s     Ctrl-C stops both.%s\n\n' "$C_DIM" "$C_RESET"
-             ;;
-  esac
+  STARTED_PORTS=("$API_PORT" "$GRPC_PORT")
+  start_backend
+  start_first_run
+  printf '\n'
+  if (( sample || ! wizard )); then
+    ok "API on ${C_BOLD}http://localhost:${API_PORT}${C_RESET} — sign in as admin / admin"
+    (( sample )) || printf '%s     Empty? Ctrl-C, then: ./scripts/dev.sh --sample%s\n' "$C_DIM" "$C_RESET"
+  else
+    ok "API on ${C_BOLD}http://localhost:${API_PORT}${C_RESET} — first run is left to the setup wizard"
+    printf '%s     Its setup token: %s%s\n' "$C_DIM" "$METIS_SETUP_TOKEN" "$C_RESET"
+    # Said here rather than only in --help: an empty installation is a poor
+    # first impression, every list reads "nothing here yet", and the flag that
+    # fixes it is easy to miss.
+    printf '%s     Empty? Ctrl-C, then: ./scripts/dev.sh --reset --sample%s\n' "$C_DIM" "$C_RESET"
+  fi
+  printf '%s     The web app: make dev in gsoultan/metis-server. Ctrl-C stops the engine.%s\n\n' "$C_DIM" "$C_RESET"
 
   wait
 }

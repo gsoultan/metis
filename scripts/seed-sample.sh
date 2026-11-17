@@ -120,9 +120,8 @@ use_dev_password() {
 
 wait_for_server() {
   local waited=0
-  # /readyz, not /health. The embedded UI is a catch-all, so an unknown path
-# answers 200 with the index page — a wait on one of those succeeds the moment
-# the listener binds, before the database is reachable.
+  # /readyz, not /health: /readyz answers only once the database is reachable,
+  # so a wait on it does not succeed the moment the listener binds.
 until curl -sS -m 2 -o /dev/null "http://localhost:${API_PORT}/readyz" 2>/dev/null; do
     (( waited += 1 ))
     if (( waited > 60 )); then

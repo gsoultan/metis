@@ -3,7 +3,7 @@
 //
 // They did not. The server masks a key by the fragments in
 // internal/pkg/configsecret; the browser decides whether to draw a password box
-// from its own copy in ui/src/domain/connectorSecrets.ts. The browser's copy had
+// from its own copy in metis-server ui/src/domain/connectorSecrets.ts. The browser's copy had
 // fallen four fragments behind — passwd, credential, private, signature — so a
 // field the server treated as a secret was typed into a plain text box, in view
 // of anybody behind the person typing it.

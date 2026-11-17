@@ -117,7 +117,7 @@ func inlineForm(definition string) any {
 }
 
 // addFieldIDs adds the id of each field of a form, read as the inbox reads one
-// (ui/src/domain/formDefinition.ts): a list of fields, or an object holding the
+// (metis-server ui/src/domain/formDefinition.ts): a list of fields, or an object holding the
 // list under "fields". A field with no id names no variable.
 func addFieldIDs(declared map[string]struct{}, form any) {
 	for _, field := range fieldsOf(form) {
