@@ -247,6 +247,10 @@ type facadeSettings struct {
 	// upgrades is the Upgrades page. Nil refuses every call: see
 	// WithUpgrades.
 	upgrades contracts.UpgradeService
+
+	// releaseKeys are the keys releases are signed and trusted by. Nil reads
+	// them from the environment: see WithReleaseKeys.
+	releaseKeys serviceimpl.ReleaseKeys
 }
 
 // FacadeOption changes what the services are built with.
@@ -286,6 +290,15 @@ func WithTaskLinkLifetime(lifetime time.Duration) FacadeOption {
 // refused with the reason.
 func WithUpgrades(upgrades contracts.UpgradeService) FacadeOption {
 	return func(settings *facadeSettings) { settings.upgrades = upgrades }
+}
+
+// WithReleaseKeys is where the key this installation signs its releases with,
+// and the keys whose releases it imports, are kept. Built without it, they are
+// read from METIS_RELEASE_SIGNING_KEY and METIS_RELEASE_TRUSTED_KEYS. A server
+// that keeps them itself is answerable for who may change which keys are
+// trusted.
+func WithReleaseKeys(keys serviceimpl.ReleaseKeys) FacadeOption {
+	return func(settings *facadeSettings) { settings.releaseKeys = keys }
 }
 
 // WithSecondFactor is whether every staff password sign-in asks for a code
@@ -441,7 +454,7 @@ func NewServiceFacade(
 		SimulationService:     simulationSvc,
 		SimulationCaseService: serviceimpl.NewSimulationCaseService(repo),
 		ReleaseService: serviceimpl.NewReleaseService(repo, defSvc, decisionSvc, connectorSvc,
-			serviceimpl.ReleaseParts{Simulation: simulationSvc, Protected: environmentSvc.RuntimeProtected}),
+			serviceimpl.ReleaseParts{Simulation: simulationSvc, Protected: environmentSvc.RuntimeProtected, Keys: settings.releaseKeys}),
 		DeviationService: serviceimpl.NewDeviationService(deviationLedger,
 			instanceDeviator,
 			serviceimpl.NewDeviationRequestService(repo, engine,

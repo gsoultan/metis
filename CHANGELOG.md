@@ -10,6 +10,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Changed
 
+- **A release is checked where it is cut.** Cutting a release now runs its
+  decisions' own tests and its processes' saved simulation cases in the
+  runtime it is cut from, and refuses the cut, listing what failed, if any
+  fail. What passed is recorded in the release as `checked` (when, how many
+  decision tests and simulation cases), inside the hash and so inside what a
+  release file's signature covers. A production that takes releases straight
+  from development, with no staging between, can rely on that. Go live still
+  runs the same checks again where the release goes live. Releases cut before
+  this carry no `checked` and import as before.
+
+- **The server Metis runs in can keep the release keys itself.** The key a
+  release file is signed with and the keys whose files are imported come from
+  a `ReleaseKeys` the server supplies (`services.WithReleaseKeys`). Without
+  one, they are read from `METIS_RELEASE_SIGNING_KEY` and
+  `METIS_RELEASE_TRUSTED_KEYS` as before.
+
 - **`POST /api/v1/login` answers with a challenge, not a session, when a code
   is needed.** The reply carries `second_factor` (`"code"` or `"enrol"`),
   `challenge` and `challenge_expires_at`, and the session comes from `POST

@@ -25,13 +25,22 @@ Each step runs in one runtime: the one whose port the request arrives on.
 
 | Step | Where | What it does |
 |---|---|---|
-| **Cut** | development | Records the *live* versions of the processes you name as a release. It adds the decisions they consult and the processes they call. Nothing that runs changes. |
+| **Cut** | development | Records the *live* versions of the processes you name as a release. It adds the decisions they consult and the processes they call, then runs their checks there (see below). Nothing that runs changes. |
 | **Import** | production | Reads the release from the environment it was cut in, checks it, and stores its models as new versions, **not live**. |
 | **Approve** | production, if protected | Someone other than who cut it and who imported it agrees it may go live. |
 | **Go live** | production | Checks the release, then makes every model live in one transaction: decisions first, then processes. |
 | **Roll back** | production | Makes the release that was live before the live one live again. |
 
 Running instances are never moved. They finish on the version they started on.
+
+## What cut checks
+
+Before a release is recorded, every decision it carries runs its own tests and
+every process its saved simulation cases, in the runtime it is cut from. Any
+failure refuses the cut and lists what failed. What passed is recorded in the
+release as `checked`, inside its hash, so an installation that trusts the
+release's signature also knows it was checked where it was made. That is what a
+production with no staging before it relies on.
 
 ## What import checks
 
@@ -110,8 +119,10 @@ When production is an installation of its own, a release travels as a file.
 Go live, approval and rollback are then the same as between environments.
 The checks at go live run production's own saved simulation cases.
 
-Both settings are read from the environment only, never from the Settings
-page: an administrator who could change them could make production trust a
+By default both settings are read from the environment, never from the
+Settings page. A server that runs Metis can keep them itself instead
+(`services.WithReleaseKeys`); it is then answerable for who may change which
+keys are trusted, because: an administrator who could change them could make production trust a
 release nobody tested.
 
 ## API
