@@ -132,7 +132,8 @@ Whoever can model a process is not whoever runs the engine.
 
 ### 4. The browser
 
-The session token is kept in `localStorage` (`ui/src/store/useAuthStore.ts`), so
+The session token is kept in `localStorage` (`ui/src/store/useAuthStore.ts` in
+[`gsoultan/metis-server`](https://github.com/gsoultan/metis-server)), so
 script injection anywhere in the UI is account takeover. Wanted: any authored or
 stored text that reaches the page as markup — BPMN diagrams and their
 documentation, form definitions, decision tables, notification and incident
@@ -160,7 +161,8 @@ disappears.
 
 The release workflow (`.github/workflows/release.yml`): tag-only, keyless
 signing, provenance and an SBOM for the image and the archives. Dependencies:
-Go (`govulncheck` runs in CI) and the UI's (`ui/bun.lock`).
+Go (`govulncheck` runs in CI) and the web app's (`ui/bun.lock`, in
+gsoultan/metis-server).
 
 ## Known and open
 

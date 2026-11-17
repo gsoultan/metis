@@ -18,7 +18,7 @@
 ## Standing rules
 
 - **Coding standards are in [`.junie/guidelines.md`](.junie/guidelines.md)** — normative for
-  style, layering, folder structure, Go/React idioms and SQL. Read it before writing code.
+  style, layering, folder structure, Go idioms and SQL. Read it before writing code.
   `AGENTS.md` governs *what must be proven*; `.junie/guidelines.md` governs *how to write it*.
 - **Roadmap priority is fixed**: `P0 Security & Reliability` → `P1 Scalability & Performance`
   → `P2 UX Delight`. See [`.junie/roadmap.md`](.junie/roadmap.md).

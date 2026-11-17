@@ -51,7 +51,7 @@ The project is built following **Clean Code** principles and **SOLID** design, u
 ## 🛠️ Technology Stack
 
 - **Backend**: Go (1.27.0+), Go Kit, GORM, Connect RPC (gRPC-compatible).
-- **Frontend**: React (19+), Vite, Mantine UI, React Flow, Zustand, TanStack Query, TanStack Router.
+- **Web app**: in [`gsoultan/metis-server`](https://github.com/gsoultan/metis-server) (React, Vite, Mantine UI, React Flow).
 - **Integrations**: Goja (JS Runtime), Protobuf, AES-GCM Encryption.
 
 ## 📂 Project Structure

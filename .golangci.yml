@@ -52,8 +52,8 @@ linters:
     # engine is a silently hung process instance.
     - errcheck
     # SAST, which roadmap.md §5.6 asks for and CI did not have: govulncheck
-    # covers Go dependencies, bun audit the UI's, gitleaks secrets and trivy the
-    # image, and nothing read the source itself.
+    # covers Go dependencies, gitleaks secrets and trivy the image, and nothing
+    # read the source itself.
     #
     # Enabled with 21 pre-existing findings, which CI does not block on: it runs
     # --new-from-merge-base, so a finding introduced by a change fails and the
@@ -96,7 +96,6 @@ linters:
   exclusions:
     generated: lax
     paths:
-      - ui/node_modules
       - api/proto        # generated protobuf
     rules:
       # Tests may ignore errors on setup helpers where a failure would surface
@@ -147,5 +146,4 @@ formatters:
     - goimports
   exclusions:
     paths:
-      - ui/node_modules
       - api/proto

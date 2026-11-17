@@ -4,7 +4,7 @@ This file is the **always-on** contract for any agent (or human) working in this
 It is loaded on **every task**, before any file is opened.
 
 - **Coding standards** live in [`.junie/guidelines.md`](.junie/guidelines.md) — that file is
-  normative for style, layering, folder rules, Go/React idioms and SQL. This file does **not**
+  normative for style, layering, folder rules, Go idioms and SQL. This file does **not**
   restate it; it defines *who reviews what* and *what proof is required*.
 - **Roadmap** lives in [`.junie/roadmap.md`](.junie/roadmap.md). Priority order is fixed:
   `P0 Security & Reliability` → `P1 Scalability & Performance` → `P2 UX Delight`.
