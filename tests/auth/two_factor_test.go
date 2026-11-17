@@ -79,17 +79,28 @@ func (h *apiHarness) passwordStep(username, want string) string {
 // the session and the recovery codes.
 func (h *apiHarness) enrol(username string) (string, string, []string) {
 	h.t.Helper()
+	secret, token, codes, _ := h.enrolWithCode(username)
+	return secret, token, codes
+}
+
+// enrolWithCode is enrol, and also the code that confirmed the app. A test
+// that replays it must use this one rather than make the code again: a
+// thirty-second step can end between the two, and the code made again would
+// then be the next step's, which is fresh.
+func (h *apiHarness) enrolWithCode(username string) (string, string, []string, string) {
+	h.t.Helper()
 	challenge := h.passwordStep(username, "enrol")
 	status, enrolment, raw := h.post("/api/v1/login/enrol", "", map[string]string{"challenge": challenge})
 	if status != http.StatusOK || enrolment.Secret == "" || !strings.HasPrefix(enrolment.URI, "otpauth://totp/") {
 		h.t.Fatalf("begin enrolment: status %d (%s)", status, raw)
 	}
+	confirmed := codeAt(h.t, enrolment.Secret, 0)
 	status, done, raw := h.post("/api/v1/login/enrol/confirm", "",
-		map[string]string{"challenge": challenge, "code": codeAt(h.t, enrolment.Secret, 0)})
+		map[string]string{"challenge": challenge, "code": confirmed})
 	if status != http.StatusOK || done.Token == "" {
 		h.t.Fatalf("confirm enrolment: status %d (%s)", status, raw)
 	}
-	return enrolment.Secret, done.Token, done.RecoveryCodes
+	return enrolment.Secret, done.Token, done.RecoveryCodes, confirmed
 }
 
 // codeAt is the app's code steps away from now.
@@ -164,10 +175,9 @@ func TestACodeIsTakenOnce(t *testing.T) {
 	h := newTwoFactorHarness(t)
 	org := h.organization("Acme")
 	h.localAccount("hopper", "hopper@acme.example", org)
-	secret, _, _ := h.enrol("hopper")
+	secret, _, _, used := h.enrolWithCode("hopper")
 
 	challenge := h.passwordStep("hopper", "code")
-	used := codeAt(t, secret, 0)
 	if status, _, raw := h.post("/api/v1/login/code", "", map[string]string{"challenge": challenge, "code": used}); status != http.StatusUnauthorized {
 		t.Fatalf("the code that confirmed the app, again: status %d (%s), want 401", status, raw)
 	}
