@@ -21,6 +21,7 @@ const (
 	reasonReleaseTrust   = "Decides whose releases this installation imports. An administrator could otherwise trust a release nobody tested."
 	reasonUpgradeSource  = "Decides whether this installation asks GitHub for new releases, and which ones it is offered. Calling out of the installation is the operator's decision."
 	reasonArchiveStore   = "Where archived instances' records are kept, opened at start-up with the payload directory. A wrong value saved from the UI would leave records nobody can read."
+	reasonSecondFactor   = "Decides whether staff must give a code from an authenticator app after their password. An administrator could otherwise switch off the second factor for everyone."
 )
 
 // environmentOnly is every setting the server reads that the Settings page
@@ -58,10 +59,12 @@ var environmentOnly = []Fixed{
 	{Name: "METIS_ARCHIVE_S3_ENDPOINT", Class: ClassBootstrap, Reason: reasonArchiveStore},
 	{Name: "METIS_ARCHIVE_S3_PATH_STYLE", Class: ClassBootstrap, Reason: reasonArchiveStore},
 	{Name: "METIS_ALLOW_WEAK_SECRETS", Class: ClassBootstrap, Reason: reasonBreakGlass},
+	{Name: "METIS_DEV_MODE", Class: ClassBootstrap, Reason: reasonBreakGlass},
 	{Name: "METIS_REFUSE_SCHEMA_DRIFT", Class: ClassBootstrap, Reason: "Decides whether the server starts at all, before the saved settings are read."},
 	{Name: "METIS_NEW_PASSWORD", Class: ClassBootstrap, Reason: reasonBreakGlass, Secret: true},
 
 	{Name: "METIS_PLATFORM_ADMINS", Class: ClassGuardrail, Reason: reasonWhoIsAdmin},
+	{Name: "METIS_TWO_FACTOR", Class: ClassGuardrail, Reason: reasonSecondFactor},
 	{Name: "METIS_PROTECTED_RUNTIME", Class: ClassGuardrail, Reason: reasonProtected},
 	{Name: "METIS_RELEASE_TRUSTED_KEYS", Class: ClassGuardrail, Reason: reasonReleaseTrust},
 	{Name: "METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS", Class: ClassGuardrail, Reason: reasonWhoIsAdmin},

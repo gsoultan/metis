@@ -538,6 +538,17 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// administers everywhere they belong.
 	userEndpoints.ResetUserPassword = adminOnly("ResetUserPassword")(userEndpoints.ResetUserPassword)
 	userEndpoints.Login = public("Login")(userEndpoints.Login)
+	// The steps after a password are public for the reason the password is:
+	// nobody is signed in yet. Each acts only on the account its challenge
+	// names, and a challenge is good for its own step alone.
+	userEndpoints.SignInWithCode = public("SignInWithCode")(userEndpoints.SignInWithCode)
+	userEndpoints.BeginEnrolment = public("BeginSecondFactorEnrolment")(userEndpoints.BeginEnrolment)
+	userEndpoints.ConfirmEnrolment = public("ConfirmSecondFactorEnrolment")(userEndpoints.ConfirmEnrolment)
+	userEndpoints.SecondFactorStatus = protected("GetSecondFactorStatus")(userEndpoints.SecondFactorStatus)
+	userEndpoints.RegenerateRecoveryCodes = protected("RegenerateRecoveryCodes")(userEndpoints.RegenerateRecoveryCodes)
+	// Removing somebody's authenticator app takes their second factor, so it
+	// asks what resetting their password asks.
+	userEndpoints.ResetSecondFactor = adminOnly("ResetSecondFactor")(userEndpoints.ResetSecondFactor)
 
 	// People sign in on their own route, with their own tokens. The sign-in is
 	// public for the reason the platform's is; everything else People reach is

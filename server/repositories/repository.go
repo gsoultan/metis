@@ -43,6 +43,7 @@ type repository struct {
 	subscription          contracts.SubscriptionRepository
 	task                  contracts.TaskRepository
 	user                  contracts.UserRepository
+	userSecondFactor      contracts.UserSecondFactorRepository
 	group                 contracts.GroupRepository
 	peopleDirectory       contracts.PeopleDirectoryRepository
 	taskLink              contracts.TaskLinkRepository
@@ -104,6 +105,7 @@ func NewRepository(conn *stormdb.Conn) Repository {
 		subscription:          pg.NewSubscriptionRepository(conn),
 		task:                  pg.NewTaskRepository(conn),
 		user:                  pg.NewUserRepository(conn),
+		userSecondFactor:      pg.NewUserSecondFactorRepository(conn),
 		group:                 pg.NewGroupRepository(conn),
 		peopleDirectory:       pg.NewPeopleDirectoryRepository(conn),
 		taskLink:              pg.NewTaskLinkRepository(conn),
@@ -180,7 +182,12 @@ func (r *repository) Project() contracts.ProjectRepository           { return r.
 func (r *repository) Subscription() contracts.SubscriptionRepository { return r.subscription }
 func (r *repository) Task() contracts.TaskRepository                 { return r.task }
 func (r *repository) User() contracts.UserRepository                 { return r.user }
-func (r *repository) Group() contracts.GroupRepository               { return r.group }
+
+// UserSecondFactor keeps staff accounts' authenticator apps.
+func (r *repository) UserSecondFactor() contracts.UserSecondFactorRepository {
+	return r.userSecondFactor
+}
+func (r *repository) Group() contracts.GroupRepository { return r.group }
 func (r *repository) PeopleDirectory() contracts.PeopleDirectoryRepository {
 	return r.peopleDirectory
 }

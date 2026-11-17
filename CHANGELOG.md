@@ -10,6 +10,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Changed
 
+- **`POST /api/v1/login` answers with a challenge, not a session, when a code
+  is needed.** The reply carries `second_factor` (`"code"` or `"enrol"`),
+  `challenge` and `challenge_expires_at`, and the session comes from `POST
+  /api/v1/login/code` or `/api/v1/login/enrol/confirm`. Sessions issued from a
+  password alone are refused while two-factor sign-in is required, so everybody
+  signs in again after upgrading. Scripts that sign in with a password move to
+  an API key.
+
 - **Metis is the engine only; the web app moved to
   [metis-server](https://github.com/gsoultan/metis-server).** This server
   serves the API and no pages: `/` and any other path outside the API answer a
@@ -23,6 +31,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   'none'`, since it serves nothing that loads.
 
 ### Added
+
+- **Staff sign-in asks for a second factor.** After the password, a staff
+  account gives a six-digit code from an authenticator app, or one of ten
+  one-use recovery codes. An account without an app sets one up at its next
+  sign-in, the setup wizard's first administrator included. Each code is taken
+  once, wrong codes are slowed per account, and the app's secret is sealed
+  with `ENCRYPTION_KEY`. An administrator can remove somebody else's app, never
+  their own, and `--reset-two-factor <username>` does it on the server. It is
+  required by default; `METIS_TWO_FACTOR=optional` is honoured only beside
+  `METIS_DEV_MODE=true`, which `scripts/dev.sh` sets. Migration 57 adds
+  `user_second_factors`. See [upgrading](docs/upgrading.md#two-factor-sign-in-is-required-migration-57).
 
 - **A start step's schedule is checked at deploy.** A start step can carry a
   `start_schedule`: every N minutes, every day, every weekday, chosen days of

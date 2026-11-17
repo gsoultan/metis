@@ -39,17 +39,38 @@ type userService struct {
 	// same decision, over the same operator's list, as the gate on what every
 	// organization runs.
 	platform *platformadmins.Gate
+	// secondFactor is whether every password sign-in asks for a code from an
+	// authenticator app, or only an account's that set one up.
+	secondFactor SecondFactorPolicy
+	// codes slows repeated wrong codes for one account, as throttle slows
+	// wrong passwords. Kept apart, so a burst of wrong passwords from
+	// somebody else does not lock the owner out of typing their code.
+	codes *loginthrottle.Throttle
 }
 
-func NewUserService(repo repositories.Repository, jwtSecret string) contracts.UserService {
-	return &userService{
+// UserServiceOption changes what the user service is built with.
+type UserServiceOption func(*userService)
+
+// WithSecondFactorPolicy sets whether every password sign-in asks for a code.
+// Built without it, the policy is SecondFactorOptional.
+func WithSecondFactorPolicy(policy SecondFactorPolicy) UserServiceOption {
+	return func(s *userService) { s.secondFactor = policy }
+}
+
+func NewUserService(repo repositories.Repository, jwtSecret string, options ...UserServiceOption) contracts.UserService {
+	s := &userService{
 		repo:       repo,
 		jwtSecret:  []byte(jwtSecret),
 		principals: newPrincipalCache(),
 		placements: newPlacementCache(),
 		throttle:   loginthrottle.New(),
 		platform:   platformadmins.New(organizationCount{repo: repo}),
+		codes:      loginthrottle.New(),
 	}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 func (s *userService) GetUser(ctx context.Context, id uuid.UUID) (entities.User, error) {
@@ -151,7 +172,23 @@ func (s *userService) CreateUser(ctx context.Context, u entities.User, password 
 // bcrypt of "" at the default cost; the value is irrelevant, only the work is.
 var dummyHash = []byte("$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy")
 
+// Login is a password sign-in that ends in a session, for the callers that
+// have no way to ask for a code: it is refused, with ErrSecondFactorRequired,
+// for an account that a code is asked of. The HTTP sign-in is SignIn.
 func (s *userService) Login(ctx context.Context, username, password string) (entities.User, string, error) {
+	signIn, err := s.SignIn(ctx, username, password)
+	if err != nil {
+		return entities.User{}, "", err
+	}
+	if signIn.Next != entities.SignInDone {
+		return entities.User{}, "", ErrSecondFactorRequired
+	}
+	return signIn.User, signIn.Token, nil
+}
+
+// checkPassword returns the account a username and password are, or the
+// same refusal whichever of them was wrong.
+func (s *userService) checkPassword(ctx context.Context, username, password string) (entities.User, error) {
 	// A failed login must not reveal whether the account exists.
 	//
 	// This previously returned the repository's error verbatim, so a missing
@@ -166,7 +203,7 @@ func (s *userService) Login(ctx context.Context, username, password string) (ent
 	// same whether the account exists or not — the same reason the dummy hash
 	// below exists.
 	if retry, wait := s.throttle.RetryAfter(username, time.Now()); wait {
-		return entities.User{}, "", fmt.Errorf("%w: too many failed attempts, try again in %s",
+		return entities.User{}, fmt.Errorf("%w: too many failed attempts, try again in %s",
 			auth.ErrAuthenticationFailed, retry.Round(time.Second))
 	}
 
@@ -184,32 +221,36 @@ func (s *userService) Login(ctx context.Context, username, password string) (ent
 		// attacker probe usernames for free and only pay once they found a
 		// real one, which is the enumeration this path already guards against.
 		s.throttle.Failed(username, time.Now())
-		return entities.User{}, "", fmt.Errorf("%w: invalid credentials", auth.ErrAuthenticationFailed)
+		return entities.User{}, fmt.Errorf("%w: invalid credentials", auth.ErrAuthenticationFailed)
 	}
 	u := adapters.UserEntityAdapter{Model: mu}.ToEntity()
 
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
 		s.throttle.Failed(username, time.Now())
-		return entities.User{}, "", fmt.Errorf("%w: invalid credentials", auth.ErrAuthenticationFailed)
+		return entities.User{}, fmt.Errorf("%w: invalid credentials", auth.ErrAuthenticationFailed)
 	}
 	// The correct password ends the sequence, whatever came before it.
 	s.throttle.Succeeded(username)
+	return u, nil
+}
 
-	// Generate JWT token
+// mintSession signs a session for an account, saying how its owner proved
+// who they were.
+func (s *userService) mintSession(u entities.User, methods ...string) (string, error) {
+	now := time.Now()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub":      u.ID.String(),
-		"username": u.Username,
-		"roles":    u.Roles,
-		"exp":      time.Now().Add(time.Hour * 24).Unix(), // 24 hours
-		"iat":      time.Now().Unix(),
+		"sub":        u.ID.String(),
+		"username":   u.Username,
+		"roles":      u.Roles,
+		claimMethods: methods,
+		"exp":        now.Add(time.Hour * 24).Unix(), // 24 hours
+		"iat":        now.Unix(),
 	})
-
 	tokenString, err := token.SignedString(s.jwtSecret)
 	if err != nil {
-		return entities.User{}, "", fmt.Errorf("failed to sign token: %w", err)
+		return "", fmt.Errorf("failed to sign token: %w", err)
 	}
-
-	return u, tokenString, nil
+	return tokenString, nil
 }
 
 func (s *userService) ValidateToken(ctx context.Context, tokenString string) (entities.User, error) {
@@ -241,6 +282,11 @@ func (s *userService) ValidateToken(ctx context.Context, tokenString string) (en
 		}
 		if err := rejectIfIssuedBeforeCredentialsChanged(principal.tokensValidFrom, claims); err != nil {
 			return entities.User{}, err
+		}
+		// Checked after the account is read, so a refusal here is for a real
+		// account's real session that lacks the code, never a probe.
+		if s.secondFactor == SecondFactorRequired && !provedWithCode(claims) {
+			return entities.User{}, errSessionWithoutCode
 		}
 		return principal.user, nil
 	}

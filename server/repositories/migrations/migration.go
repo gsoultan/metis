@@ -92,5 +92,6 @@ func Steps() []Migration {
 		{Version: releaseApprovalVersion, Name: "release approval", Run: addReleaseApproval},
 		{Version: personDevicesVersion, Name: "person devices", Run: addPersonDevices},
 		{Version: startSchedulesVersion, Name: "start schedules", Run: addStartSchedules},
+		{Version: userSecondFactorsVersion, Name: "user second factors", Run: addUserSecondFactors},
 	}
 }

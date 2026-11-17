@@ -60,6 +60,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/user"
 	"github.com/gsoultan/metis/server/repositories/store/userorganization"
 	"github.com/gsoultan/metis/server/repositories/store/userproject"
+	"github.com/gsoultan/metis/server/repositories/store/usersecondfactor"
 	"github.com/gsoultan/metis/server/repositories/store/variablesnapshot"
 	"github.com/gsoultan/metis/server/repositories/store/webhook"
 	"github.com/gsoultan/metis/server/repositories/store/webhookdelivery"
@@ -118,21 +119,22 @@ var FlushOrder = map[string]int{
 	"tasks":                       41,
 	"user_organizations":          42,
 	"user_projects":               43,
-	"variable_snapshots":          44,
-	"webhook_deliveries":          45,
-	"workflow_group_memberships":  46,
-	"batch_operation_items":       47,
-	"broadcast_events":            48,
-	"compensatable_activities":    49,
-	"deployment_resources":        50,
-	"deviation_requests":          51,
-	"event_subscriptions":         52,
-	"external_tasks":              53,
-	"instance_deviations":         54,
-	"jobs":                        55,
-	"notifications":               56,
-	"outgoing_webhook_deliveries": 57,
-	"incidents":                   58,
+	"user_second_factors":         44,
+	"variable_snapshots":          45,
+	"webhook_deliveries":          46,
+	"workflow_group_memberships":  47,
+	"batch_operation_items":       48,
+	"broadcast_events":            49,
+	"compensatable_activities":    50,
+	"deployment_resources":        51,
+	"deviation_requests":          52,
+	"event_subscriptions":         53,
+	"external_tasks":              54,
+	"instance_deviations":         55,
+	"jobs":                        56,
+	"notifications":               57,
+	"outgoing_webhook_deliveries": 58,
+	"incidents":                   59,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -11679,6 +11681,123 @@ func (p UserProjectWithUserQuery) All(ctx context.Context, ex runtime.Executor) 
 			// A foreign key pointing at a row that is not there. The database
 			// forbids it, so reaching this means the constraint was dropped.
 			return nil, fmt.Errorf("storm: %s references a missing %s row", "user_projects", "users")
+		}
+		out[i].User = targets[j]
+	}
+	return out, nil
+}
+
+// UserSecondFactorWithUserRow is user_second_factors with its User loaded.
+type UserSecondFactorWithUserRow struct {
+	usersecondfactor.Row
+	User user.Row
+}
+
+type UserSecondFactorWithUserQuery struct {
+	q usersecondfactor.Query
+}
+
+// UserSecondFactorWithUser starts the plan.
+func UserSecondFactorWithUser() UserSecondFactorWithUserQuery {
+	return UserSecondFactorWithUserQuery{q: usersecondfactor.New()}
+}
+
+func (p UserSecondFactorWithUserQuery) Where(ps ...usersecondfactor.Pred) UserSecondFactorWithUserQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p UserSecondFactorWithUserQuery) WhereIf(cond bool, pr usersecondfactor.Pred) UserSecondFactorWithUserQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p UserSecondFactorWithUserQuery) Any(ps ...usersecondfactor.Pred) UserSecondFactorWithUserQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p UserSecondFactorWithUserQuery) Not(pr usersecondfactor.Pred) UserSecondFactorWithUserQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p UserSecondFactorWithUserQuery) NotAny(ps ...usersecondfactor.Pred) UserSecondFactorWithUserQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p UserSecondFactorWithUserQuery) Order(ts ...usersecondfactor.Sort) UserSecondFactorWithUserQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p UserSecondFactorWithUserQuery) Limit(n int64) UserSecondFactorWithUserQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p UserSecondFactorWithUserQuery) Offset(n int64) UserSecondFactorWithUserQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p UserSecondFactorWithUserQuery) After(r UserSecondFactorWithUserRow) UserSecondFactorWithUserQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p UserSecondFactorWithUserQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p UserSecondFactorWithUserQuery) All(ctx context.Context, ex runtime.Executor) ([]UserSecondFactorWithUserRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]UserSecondFactorWithUserRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = UserSecondFactorWithUserRow{Row: r}
+		key := r.UserID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := user.New().Unordered().
+		Where(user.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.UserID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "user_second_factors", "users")
 		}
 		out[i].User = targets[j]
 	}

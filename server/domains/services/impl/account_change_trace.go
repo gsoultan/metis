@@ -25,13 +25,26 @@ const (
 	// accountResetByAdministrator is said of a password an administrator
 	// set from the account form (ResetPassword). It changes no role either.
 	accountResetByAdministrator = "An account's password was set by an administrator."
+	// accountSecondFactorEnrolled is said when an account's owner sets up an
+	// authenticator app at sign-in.
+	accountSecondFactorEnrolled = "An account set up an authenticator app for two-factor sign-in."
+	// accountSecondFactorReset is said when an administrator removes an
+	// account's authenticator app, so its owner sets up a new one.
+	accountSecondFactorReset = "An account's authenticator app was removed."
+	// accountRecoveryCodesReplaced is said when an account's owner replaces
+	// their recovery codes.
+	accountRecoveryCodesReplaced = "An account's recovery codes were replaced."
+	// accountRecoveryCodeUsed is said when a recovery code signs somebody in:
+	// a lost phone, or somebody else holding the codes.
+	accountRecoveryCodeUsed = "An account signed in with a recovery code."
 )
 
 // What made a change that nobody signed in made, for the line's made_through
 // field. A change somebody signed in made carries none: the actor says it.
 const (
-	madeThroughSetup         = "set-up"
-	madeThroughResetPassword = "--reset-password, run on the server"
+	madeThroughSetup          = "set-up"
+	madeThroughResetPassword  = "--reset-password, run on the server"
+	madeThroughResetTwoFactor = "--reset-two-factor, run on the server"
 )
 
 // accountRoles is the roles an account holds: on the account, which it holds

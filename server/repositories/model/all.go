@@ -79,6 +79,8 @@ func All() []any {
 		&PersonAPIKey{},
 		// Phones and browsers People registered for push.
 		&PersonDevice{},
+		// Staff accounts' authenticator apps, for the second factor.
+		&UserSecondFactor{},
 		// How far each process's scheduled starts have got.
 		&StartSchedule{},
 		// What administrators set on the Settings page, and who set it.
