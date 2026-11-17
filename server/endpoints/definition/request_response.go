@@ -115,6 +115,20 @@ type CancelScheduledDefinitionResponse struct {
 
 func (r CancelScheduledDefinitionResponse) Failed() error { return r.Err }
 
+// StartScheduleRequest names one process, to read its scheduled starts or to
+// pause or resume them.
+type StartScheduleRequest struct {
+	ProjectID string `json:"project_id"`
+	Key       string `json:"key"`
+}
+
+type StartScheduleResponse struct {
+	Schedule entities.StartScheduleStatus `json:"schedule"`
+	Err      error                        `json:"err,omitzero"`
+}
+
+func (r StartScheduleResponse) Failed() error { return r.Err }
+
 // ListDefinitionVersionsRequest asks for one process key's version history.
 type ListDefinitionVersionsRequest struct {
 	ProjectID string `json:"project_id"`

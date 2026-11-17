@@ -45,6 +45,7 @@ func (r *startScheduleRepository) Look(ctx context.Context, projectID uuid.UUID,
 	ins.SetCheckedUntil(now)
 	ins.SetNextRunAt(now)
 	ins.SetLastErrorNull()
+	ins.SetPausedAtNull()
 	ins.OnConflictProcessKeyProjectID().DoNothing()
 	_, err = ins.Insert(ctx, ex)
 	if err == nil {
@@ -171,6 +172,59 @@ func (r *startScheduleRepository) Get(ctx context.Context, projectID uuid.UUID, 
 	return startScheduleFrom(row), nil
 }
 
+func (r *startScheduleRepository) Hold(ctx context.Context, projectID uuid.UUID, processKey string) (entities.StartScheduleState, error) {
+	if err := r.requireProjectInTenant(ctx, projectID); err != nil {
+		return entities.StartScheduleState{}, fmt.Errorf("%w: no schedule for %s", apierr.ErrNotFound, processKey)
+	}
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return entities.StartScheduleState{}, err
+	}
+	row, found, err := startschedule.New().
+		Where(startschedule.ProjectID.Eq(projectID), startschedule.ProcessKey.Eq(processKey)).
+		ForUpdate().
+		One(ctx, ex)
+	if err != nil {
+		return entities.StartScheduleState{}, fmt.Errorf("could not hold the schedule of %s: %w", processKey, err)
+	}
+	if !found {
+		return entities.StartScheduleState{}, fmt.Errorf("%w: no schedule for %s", apierr.ErrNotFound, processKey)
+	}
+	return startScheduleFrom(row), nil
+}
+
+func (r *startScheduleRepository) Pause(ctx context.Context, id uuid.UUID, now time.Time) error {
+	var paused startschedule.Mut
+	paused.SetPausedAt(now.UTC())
+	paused.SetUpdatedAt(nowUTC())
+	return r.writeHeld(ctx, id, paused, "pause")
+}
+
+func (r *startScheduleRepository) Resume(ctx context.Context, id uuid.UUID, checkedUntil time.Time, now time.Time) error {
+	var resumed startschedule.Mut
+	resumed.SetPausedAtNull()
+	resumed.SetCheckedUntil(checkedUntil.UTC())
+	resumed.SetNextRunAt(now.UTC())
+	resumed.SetUpdatedAt(nowUTC())
+	return r.writeHeld(ctx, id, resumed, "resume")
+}
+
+// writeHeld writes to the one row the caller holds.
+func (r *startScheduleRepository) writeHeld(ctx context.Context, id uuid.UUID, change startschedule.Mut, doing string) error {
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return err
+	}
+	written, err := startschedule.New().Where(startschedule.ID.Eq(id)).UpdateAll(ctx, ex, change)
+	if err != nil {
+		return fmt.Errorf("could not %s the schedule: %w", doing, err)
+	}
+	if written == 0 {
+		return fmt.Errorf("%w: no such schedule", apierr.ErrNotFound)
+	}
+	return nil
+}
+
 func startScheduleFrom(row startschedule.Row) entities.StartScheduleState {
 	state := entities.StartScheduleState{
 		ID:           row.ID,
@@ -185,6 +239,10 @@ func startScheduleFrom(row startschedule.Row) entities.StartScheduleState {
 	}
 	if row.LastError.Valid {
 		state.LastError = row.LastError.V
+	}
+	if row.PausedAt.Valid {
+		at := row.PausedAt.V
+		state.PausedAt = &at
 	}
 	return state
 }

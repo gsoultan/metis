@@ -47,6 +47,16 @@ type DefinitionService interface {
 	// already has is history and cannot be cancelled.
 	CancelScheduledVersion(ctx context.Context, projectID uuid.UUID, releaseID uuid.UUID) error
 
+	// GetStartSchedule says whether a process starts on a schedule, whether
+	// that is paused, and when its next run is due.
+	GetStartSchedule(ctx context.Context, projectID uuid.UUID, key string) (entities.StartScheduleStatus, error)
+
+	// SetStartSchedulePaused pauses a process's scheduled starts or resumes
+	// them. The pause belongs to the process, not to a version, so it holds
+	// across deploys and cutovers. Times that pass while paused are passed
+	// over: resuming starts nothing for them.
+	SetStartSchedulePaused(ctx context.Context, projectID uuid.UUID, key string, paused bool) (entities.StartScheduleStatus, error)
+
 	// ListDefinitionVersions returns every version deployed under one key with
 	// its live flag and instance counts, newest first.
 	ListDefinitionVersions(ctx context.Context, projectID uuid.UUID, key string) ([]entities.DefinitionVersionStatus, error)

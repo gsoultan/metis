@@ -79,6 +79,8 @@ var actionNouns = []struct{ noun, area string }{
 	// A retention period is a process's: how long its finished instances
 	// are kept.
 	{"RetentionPeriod", areaProcesses},
+	// A start schedule is a process's: when it starts by itself.
+	{"StartSchedule", areaProcesses},
 	{"Signal", areaInstances},
 	{"AdHocTask", areaInstances},
 	{"Organization", areaOrganizations},
