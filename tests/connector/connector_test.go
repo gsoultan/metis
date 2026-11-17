@@ -161,6 +161,9 @@ func (m *MockRepository) User() contracts.UserRepository                 { retur
 func (m *MockRepository) UserSecondFactor() contracts.UserSecondFactorRepository {
 	return nil
 }
+func (m *MockRepository) IntegrationAPIKey() contracts.IntegrationAPIKeyRepository {
+	return nil
+}
 func (m *MockRepository) Group() contracts.GroupRepository { return nil }
 func (m *MockRepository) PeopleDirectory() contracts.PeopleDirectoryRepository {
 	return nil

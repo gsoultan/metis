@@ -69,6 +69,9 @@ type ServiceFacade interface {
 	serviceContracts.OutgoingWebhookDeliverer
 	serviceContracts.AdHocActivator
 	serviceContracts.UserService
+	// IntegrationKeyService is the keys an organization gives other systems
+	// to call the API with.
+	serviceContracts.IntegrationKeyService
 	serviceContracts.GroupService
 	serviceContracts.SetupService
 	serviceContracts.NotificationService

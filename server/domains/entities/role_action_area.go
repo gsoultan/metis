@@ -81,6 +81,8 @@ var actionNouns = []struct{ noun, area string }{
 	{"RetentionPeriod", areaProcesses},
 	{"Signal", areaInstances},
 	{"AdHocTask", areaInstances},
+	// The keys an organization gives other systems to call the API with.
+	{"IntegrationKey", areaOrganizations},
 	{"Organization", areaOrganizations},
 	{"Project", areaProjects},
 	{"Membership", areaGroups},

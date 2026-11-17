@@ -549,6 +549,12 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// Removing somebody's authenticator app takes their second factor, so it
 	// asks what resetting their password asks.
 	userEndpoints.ResetSecondFactor = adminOnly("ResetSecondFactor")(userEndpoints.ResetSecondFactor)
+	// An organization's integration API keys are its administrators' to
+	// make, see and revoke. The service also refuses a key itself, and an
+	// administrator of another organization.
+	userEndpoints.CreateIntegrationKey = adminOnly("CreateIntegrationKey")(userEndpoints.CreateIntegrationKey)
+	userEndpoints.ListIntegrationKeys = adminOnly("ListIntegrationKeys")(userEndpoints.ListIntegrationKeys)
+	userEndpoints.RevokeIntegrationKey = adminOnly("RevokeIntegrationKey")(userEndpoints.RevokeIntegrationKey)
 
 	// People sign in on their own route, with their own tokens. The sign-in is
 	// public for the reason the platform's is; everything else People reach is

@@ -57,6 +57,27 @@ func RegisterHandlers(m *http.ServeMux, eps user.Endpoints, options []httptransp
 		common.EncodeResponse,
 		options...,
 	))
+	// The organization's integration API keys. Which organization is the
+	// one the request is for (X-Organization-ID), as for every other
+	// organization-scoped list.
+	m.Handle("POST /api/v1/integration-keys", httptransport.NewServer(
+		eps.CreateIntegrationKey,
+		decodeCreateIntegrationKeyRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("GET /api/v1/integration-keys", httptransport.NewServer(
+		eps.ListIntegrationKeys,
+		decodeListIntegrationKeysRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("DELETE /api/v1/integration-keys/{id}", httptransport.NewServer(
+		eps.RevokeIntegrationKey,
+		decodeRevokeIntegrationKeyRequest,
+		common.EncodeResponse,
+		options...,
+	))
 	// Not PUT /users/{id}: this changes the caller's own password and nobody
 	// else's, so there is no id to name. It sits under the auth chain, so the
 	// session is what says who "me" is.
@@ -279,4 +300,24 @@ func decodeResetSecondFactorRequest(_ context.Context, r *http.Request) (any, er
 		return nil, apierr.Invalidf("the account id %q is not an id", r.PathValue("id"))
 	}
 	return user.ResetSecondFactorRequest{ID: id}, nil
+}
+
+func decodeCreateIntegrationKeyRequest(_ context.Context, r *http.Request) (any, error) {
+	var req user.CreateIntegrationKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, apierr.Invalidf("the key could not be read: %v", err)
+	}
+	return req, nil
+}
+
+func decodeListIntegrationKeysRequest(_ context.Context, _ *http.Request) (any, error) {
+	return user.ListIntegrationKeysRequest{}, nil
+}
+
+func decodeRevokeIntegrationKeyRequest(_ context.Context, r *http.Request) (any, error) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		return nil, apierr.Invalidf("the key id %q is not an id", r.PathValue("id"))
+	}
+	return user.RevokeIntegrationKeyRequest{ID: id}, nil
 }

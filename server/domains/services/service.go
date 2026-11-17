@@ -45,6 +45,7 @@ type service struct {
 	contracts.OutgoingWebhookDeliverer
 	contracts.AdHocActivator
 	contracts.UserService
+	contracts.IntegrationKeyService
 	contracts.GroupService
 	contracts.SetupService
 	contracts.NotificationService
@@ -95,6 +96,7 @@ type ServiceParams struct {
 	OutgoingDeliveries     contracts.OutgoingWebhookDeliverer
 	AdHocActivator         contracts.AdHocActivator
 	UserService            contracts.UserService
+	IntegrationKeyService  contracts.IntegrationKeyService
 	GroupService           contracts.GroupService
 	SetupService           contracts.SetupService
 	NotificationService    contracts.NotificationService
@@ -203,6 +205,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		OutgoingWebhookDeliverer:   p.OutgoingDeliveries,
 		AdHocActivator:             p.AdHocActivator,
 		UserService:                p.UserService,
+		IntegrationKeyService:      p.IntegrationKeyService,
 		GroupService:               p.GroupService,
 		SetupService:               p.SetupService,
 		NotificationService:        p.NotificationService,
@@ -435,6 +438,7 @@ func NewServiceFacade(
 			serviceimpl.ResolveOutgoingWebhookSettings()),
 		AdHocActivator:        adHocActivator,
 		UserService:           userSvc,
+		IntegrationKeyService: serviceimpl.NewIntegrationKeyService(repo.IntegrationAPIKey()),
 		GroupService:          groupSvc,
 		SetupService:          setupSvc,
 		NotificationService:   notificationSvc,

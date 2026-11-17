@@ -373,7 +373,11 @@ If the only administrator has lost both, run on the server:
 ./metis --reset-two-factor admin
 ```
 
-Programs that call the API authenticate with an API key, not a password.
+Programs that call the API authenticate with an integration API key, not a
+password. An organization's administrators make, list and revoke its keys
+(`/api/v1/integration-keys`); a key acts in that organization alone, with the
+roles it was given and never an administrator's, and is never asked for a
+code. See [docs/integration.md](docs/integration.md).
 
 Signed-in users change their own password from **Profile → Change Password**,
 which asks for the current one — a session alone is not enough, so a stolen

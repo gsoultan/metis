@@ -61,6 +61,10 @@ func (i *httpAuthInterceptor) Wrap(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		if refusedToIntegrationKey(u, r.URL.Path) {
+			refuseIntegrationKey(w)
+			return
+		}
 
 		ctx := context.WithValue(r.Context(), auth.UserContextKey, u)
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -178,6 +182,10 @@ func (i *mandatoryHTTPAuthInterceptor) Wrap(next http.Handler) http.Handler {
 		u, err := i.strategy.Authenticate(r.Context(), token)
 		if err != nil {
 			refuse(w, err)
+			return
+		}
+		if refusedToIntegrationKey(u, r.URL.Path) {
+			refuseIntegrationKey(w)
 			return
 		}
 

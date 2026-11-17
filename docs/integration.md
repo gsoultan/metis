@@ -50,7 +50,23 @@ stack), an account without an app gets `{"token", "user"}` from the password
 alone.
 
 **A program does not sign in with a password.** It cannot answer the second
-step, so it authenticates with an API key instead.
+step, so it authenticates with its organization's integration API key
+instead, sent as `Authorization: Bearer mik_…` on every request. A key is
+never asked for a code and is never a session.
+
+An administrator of the organization makes one with `POST
+/api/v1/integration-keys` and `{"name", "roles", "expires_at"}`
+(`expires_at` is optional), in the organization the request is for. The reply
+carries the key under `"key"`, shown this once; only its SHA-256 is kept.
+`GET /api/v1/integration-keys` lists the organization's keys (name, prefix,
+roles, who made it, when it was last used, revoked), and `DELETE
+/api/v1/integration-keys/{id}` revokes one at once.
+
+A key belongs to the organization, not to the administrator who made it, and
+acts there alone, with its roles: any of `USER`, `OPERATOR`, `DESIGNER`,
+`RELEASER` and `QUERY_AUTHOR`, never `ADMIN`. It is refused on accounts,
+groups, organizations, settings, upgrades and the keys themselves, whatever
+its roles.
 
 A signed-in account reads its own state at `GET /api/v1/users/me/two-factor`
 and replaces its recovery codes with `POST

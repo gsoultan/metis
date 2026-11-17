@@ -54,6 +54,12 @@ type Endpoints struct {
 	// ResetSecondFactor removes the authenticator app of an account the
 	// caller administers.
 	ResetSecondFactor endpoint.Endpoint
+
+	// CreateIntegrationKey, ListIntegrationKeys and RevokeIntegrationKey are
+	// the keys the organization the request is for gives other systems.
+	CreateIntegrationKey endpoint.Endpoint
+	ListIntegrationKeys  endpoint.Endpoint
+	RevokeIntegrationKey endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -84,6 +90,10 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		RegenerateRecoveryCodes: MakeRegenerateRecoveryCodesEndpoint(s),
 
 		ResetSecondFactor: MakeResetSecondFactorEndpoint(s),
+
+		CreateIntegrationKey: MakeCreateIntegrationKeyEndpoint(s),
+		ListIntegrationKeys:  MakeListIntegrationKeysEndpoint(s),
+		RevokeIntegrationKey: MakeRevokeIntegrationKeyEndpoint(s),
 	}
 }
 

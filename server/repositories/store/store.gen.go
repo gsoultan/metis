@@ -31,6 +31,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/incident"
 	"github.com/gsoultan/metis/server/repositories/store/installationsetting"
 	"github.com/gsoultan/metis/server/repositories/store/instancedeviation"
+	"github.com/gsoultan/metis/server/repositories/store/integrationapikey"
 	"github.com/gsoultan/metis/server/repositories/store/job"
 	"github.com/gsoultan/metis/server/repositories/store/membership"
 	"github.com/gsoultan/metis/server/repositories/store/notification"
@@ -106,35 +107,36 @@ var FlushOrder = map[string]int{
 	"external_task_workers":       28,
 	"forms":                       29,
 	"groups":                      30,
-	"memberships":                 31,
-	"outgoing_webhooks":           32,
-	"participant_sources":         33,
-	"person_api_keys":             34,
-	"person_devices":              35,
-	"platform_role_assignments":   36,
-	"process_definition_releases": 37,
-	"process_definitions":         38,
-	"process_instances":           39,
-	"service_calls":               40,
-	"tasks":                       41,
-	"user_organizations":          42,
-	"user_projects":               43,
-	"user_second_factors":         44,
-	"variable_snapshots":          45,
-	"webhook_deliveries":          46,
-	"workflow_group_memberships":  47,
-	"batch_operation_items":       48,
-	"broadcast_events":            49,
-	"compensatable_activities":    50,
-	"deployment_resources":        51,
-	"deviation_requests":          52,
-	"event_subscriptions":         53,
-	"external_tasks":              54,
-	"instance_deviations":         55,
-	"jobs":                        56,
-	"notifications":               57,
-	"outgoing_webhook_deliveries": 58,
-	"incidents":                   59,
+	"integration_api_keys":        31,
+	"memberships":                 32,
+	"outgoing_webhooks":           33,
+	"participant_sources":         34,
+	"person_api_keys":             35,
+	"person_devices":              36,
+	"platform_role_assignments":   37,
+	"process_definition_releases": 38,
+	"process_definitions":         39,
+	"process_instances":           40,
+	"service_calls":               41,
+	"tasks":                       42,
+	"user_organizations":          43,
+	"user_projects":               44,
+	"user_second_factors":         45,
+	"variable_snapshots":          46,
+	"webhook_deliveries":          47,
+	"workflow_group_memberships":  48,
+	"batch_operation_items":       49,
+	"broadcast_events":            50,
+	"compensatable_activities":    51,
+	"deployment_resources":        52,
+	"deviation_requests":          53,
+	"event_subscriptions":         54,
+	"external_tasks":              55,
+	"instance_deviations":         56,
+	"jobs":                        57,
+	"notifications":               58,
+	"outgoing_webhook_deliveries": 59,
+	"incidents":                   60,
 }
 
 // NewUnit stages writes across this context and flushes them in foreign-key
@@ -5650,6 +5652,123 @@ func (p InstanceDeviationWithTaskQuery) All(ctx context.Context, ex runtime.Exec
 			continue // no foreign key: the row it names may be gone
 		}
 		out[i].Task = &targets[j]
+	}
+	return out, nil
+}
+
+// IntegrationAPIKeyWithOrganizationRow is integration_api_keys with its Organization loaded.
+type IntegrationAPIKeyWithOrganizationRow struct {
+	integrationapikey.Row
+	Organization organization.Row
+}
+
+type IntegrationAPIKeyWithOrganizationQuery struct {
+	q integrationapikey.Query
+}
+
+// IntegrationAPIKeyWithOrganization starts the plan.
+func IntegrationAPIKeyWithOrganization() IntegrationAPIKeyWithOrganizationQuery {
+	return IntegrationAPIKeyWithOrganizationQuery{q: integrationapikey.New()}
+}
+
+func (p IntegrationAPIKeyWithOrganizationQuery) Where(ps ...integrationapikey.Pred) IntegrationAPIKeyWithOrganizationQuery {
+	p.q = p.q.Where(ps...)
+	return p
+}
+
+func (p IntegrationAPIKeyWithOrganizationQuery) WhereIf(cond bool, pr integrationapikey.Pred) IntegrationAPIKeyWithOrganizationQuery {
+	p.q = p.q.WhereIf(cond, pr)
+	return p
+}
+
+func (p IntegrationAPIKeyWithOrganizationQuery) Any(ps ...integrationapikey.Pred) IntegrationAPIKeyWithOrganizationQuery {
+	p.q = p.q.Any(ps...)
+	return p
+}
+
+func (p IntegrationAPIKeyWithOrganizationQuery) Not(pr integrationapikey.Pred) IntegrationAPIKeyWithOrganizationQuery {
+	p.q = p.q.Not(pr)
+	return p
+}
+
+func (p IntegrationAPIKeyWithOrganizationQuery) NotAny(ps ...integrationapikey.Pred) IntegrationAPIKeyWithOrganizationQuery {
+	p.q = p.q.NotAny(ps...)
+	return p
+}
+
+func (p IntegrationAPIKeyWithOrganizationQuery) Order(ts ...integrationapikey.Sort) IntegrationAPIKeyWithOrganizationQuery {
+	p.q = p.q.Order(ts...)
+	return p
+}
+
+func (p IntegrationAPIKeyWithOrganizationQuery) Limit(n int64) IntegrationAPIKeyWithOrganizationQuery {
+	p.q = p.q.Limit(n)
+	return p
+}
+
+func (p IntegrationAPIKeyWithOrganizationQuery) Offset(n int64) IntegrationAPIKeyWithOrganizationQuery {
+	p.q = p.q.Offset(n)
+	return p
+}
+
+// After pages the PARENTS past one already seen — keyset pagination over
+// the plan. It takes the plan's row type, so the cursor is a row you
+// actually received rather than one you had to unwrap.
+func (p IntegrationAPIKeyWithOrganizationQuery) After(r IntegrationAPIKeyWithOrganizationRow) IntegrationAPIKeyWithOrganizationQuery {
+	p.q = p.q.After(r.Row)
+	return p
+}
+
+// Err reports a parent query that outgrew its buffers or was given a
+// mixed ordering to page. Terminals return it too; this is for checking
+// a composed plan before running it.
+func (p IntegrationAPIKeyWithOrganizationQuery) Err() error { return p.q.Err() }
+
+// All runs the plan in exactly TWO round trips. Distinct parent keys are
+// de-duplicated before the second, so a thousand rows pointing at three
+// orgs fetch three orgs.
+func (p IntegrationAPIKeyWithOrganizationQuery) All(ctx context.Context, ex runtime.Executor) ([]IntegrationAPIKeyWithOrganizationRow, error) {
+	parents, err := p.q.All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	out := make([]IntegrationAPIKeyWithOrganizationRow, len(parents))
+	seen := make(map[[16]byte]bool, len(parents))
+	ids := make([][16]byte, 0, len(parents))
+	for i, r := range parents {
+		out[i] = IntegrationAPIKeyWithOrganizationRow{Row: r}
+		key := r.OrganizationID
+		if !seen[key] {
+			seen[key] = true
+			ids = append(ids, key)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	targets, err := organization.New().Unordered().
+		Where(organization.ID.In(ids...)).
+		Limit(int64(len(ids))).
+		All(ctx, ex, nil)
+	if err != nil {
+		return nil, err
+	}
+	by := make(map[[16]byte]int, len(targets))
+	for i := range targets {
+		by[targets[i].ID] = i
+	}
+	for i := range out {
+		key := out[i].Row.OrganizationID
+		j, ok := by[key]
+		if !ok {
+			// A foreign key pointing at a row that is not there. The database
+			// forbids it, so reaching this means the constraint was dropped.
+			return nil, fmt.Errorf("storm: %s references a missing %s row", "integration_api_keys", "organizations")
+		}
+		out[i].Organization = targets[j]
 	}
 	return out, nil
 }

@@ -89,6 +89,8 @@ type Repository interface {
 	User() contracts.UserRepository
 	// UserSecondFactor keeps staff accounts' authenticator apps.
 	UserSecondFactor() contracts.UserSecondFactorRepository
+	// IntegrationAPIKey keeps the keys organizations give other systems.
+	IntegrationAPIKey() contracts.IntegrationAPIKeyRepository
 	Group() contracts.GroupRepository
 	// PeopleDirectory reads the People directory as task work needs it: the
 	// groups a pool task is matched against when a person acts, and who a

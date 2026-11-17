@@ -81,6 +81,8 @@ func All() []any {
 		&PersonDevice{},
 		// Staff accounts' authenticator apps, for the second factor.
 		&UserSecondFactor{},
+		// Keys other systems call the API with, for an organization.
+		&IntegrationAPIKey{},
 		// How far each process's scheduled starts have got.
 		&StartSchedule{},
 		// What administrators set on the Settings page, and who set it.

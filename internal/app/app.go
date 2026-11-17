@@ -905,6 +905,9 @@ func BuildAPIHandler(
 	if validator != nil {
 		strategy = f.NewLocalAndOIDCStrategy(validator)
 	}
+	// Other systems call the API with their organization's integration API
+	// key; it is never asked for a code, and never a session.
+	strategy = f.WithIntegrationKeys(svc, strategy)
 
 	publicPaths := []string{
 		"/api/v1/login",

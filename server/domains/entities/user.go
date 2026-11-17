@@ -54,4 +54,17 @@ type User struct {
 	// a local account, which signs in with a password held here; set, the
 	// password lives at the provider and nothing here can change it.
 	IdentityProvider string `json:"identity_provider,omitzero"`
+
+	// IntegrationKey is the organization's integration API key the request
+	// was made with, when it was made with one; uuid.Nil for an account. A
+	// key acts as a principal of its own, in its organization alone and with
+	// the roles it was given, and is not an account: nothing that changes an
+	// account, or makes or revokes keys, takes it.
+	IntegrationKey uuid.UUID `json:"-"`
+}
+
+// ViaIntegrationKey reports whether the principal is an organization's
+// integration API key rather than an account.
+func (u User) ViaIntegrationKey() bool {
+	return u.IntegrationKey != uuid.Nil
 }

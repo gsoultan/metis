@@ -32,6 +32,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Integration API keys for other systems.** An organization's
+  administrators make keys at `POST /api/v1/integration-keys`, list them and
+  revoke them. A key starts `mik_`, is shown once and kept only as a hash,
+  acts in its organization alone with the roles it was given (never `ADMIN`),
+  and is never asked for a code. It is refused on accounts, groups,
+  organizations, settings, upgrades and the keys themselves. Migration 58 adds
+  the `integration_api_keys` table.
 - **Staff sign-in asks for a second factor.** After the password, a staff
   account gives a six-digit code from an authenticator app, or one of ten
   one-use recovery codes. An account without an app sets one up at its next

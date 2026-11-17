@@ -132,6 +132,12 @@ func (f *InterceptorFactory) NewLocalAndOIDCStrategy(validator *auth.TokenValida
 	return authinterceptor.NewTokenKindStrategy(f.NewJWTStrategy(), f.NewOIDCStrategy(validator))
 }
 
+// WithIntegrationKeys has strategy also take organizations' integration API
+// keys, told from its own tokens by their shape.
+func (f *InterceptorFactory) WithIntegrationKeys(keys servicecontracts.IntegrationKeyService, strategy authinterceptor.SecurityStrategy) authinterceptor.SecurityStrategy {
+	return authinterceptor.NewIntegrationKeyStrategy(keys.AuthenticateIntegrationKey, strategy)
+}
+
 // NewTenantResolver derives the active tenant from the authenticated principal.
 func (f *InterceptorFactory) NewTenantResolver() contracts.EndpointInterceptor {
 	return tenant.NewEndpointTenantResolver()

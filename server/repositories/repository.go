@@ -44,6 +44,7 @@ type repository struct {
 	task                  contracts.TaskRepository
 	user                  contracts.UserRepository
 	userSecondFactor      contracts.UserSecondFactorRepository
+	integrationAPIKey     contracts.IntegrationAPIKeyRepository
 	group                 contracts.GroupRepository
 	peopleDirectory       contracts.PeopleDirectoryRepository
 	taskLink              contracts.TaskLinkRepository
@@ -106,6 +107,7 @@ func NewRepository(conn *stormdb.Conn) Repository {
 		task:                  pg.NewTaskRepository(conn),
 		user:                  pg.NewUserRepository(conn),
 		userSecondFactor:      pg.NewUserSecondFactorRepository(conn),
+		integrationAPIKey:     pg.NewIntegrationAPIKeyRepository(conn),
 		group:                 pg.NewGroupRepository(conn),
 		peopleDirectory:       pg.NewPeopleDirectoryRepository(conn),
 		taskLink:              pg.NewTaskLinkRepository(conn),
@@ -186,6 +188,11 @@ func (r *repository) User() contracts.UserRepository                 { return r.
 // UserSecondFactor keeps staff accounts' authenticator apps.
 func (r *repository) UserSecondFactor() contracts.UserSecondFactorRepository {
 	return r.userSecondFactor
+}
+
+// IntegrationAPIKey keeps the keys organizations give other systems.
+func (r *repository) IntegrationAPIKey() contracts.IntegrationAPIKeyRepository {
+	return r.integrationAPIKey
 }
 func (r *repository) Group() contracts.GroupRepository { return r.group }
 func (r *repository) PeopleDirectory() contracts.PeopleDirectoryRepository {

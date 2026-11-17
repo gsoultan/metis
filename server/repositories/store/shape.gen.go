@@ -406,6 +406,24 @@ func _assertInstanceDeviationShape(m m0.InstanceDeviation) {
 	}
 }
 
+// _assertIntegrationAPIKeyShape fails to compile if m0.IntegrationAPIKey gains, loses, renames or
+// reorders a field. Regenerate: `storm generate`.
+func _assertIntegrationAPIKeyShape(m m0.IntegrationAPIKey) {
+	type shape m0.IntegrationAPIKey
+	_ = shape{
+		m.Model,
+		m.Organization,
+		m.Name,
+		m.Prefix,
+		m.TokenHash,
+		m.Roles,
+		m.CreatedBy,
+		m.ExpiresAt,
+		m.LastUsedAt,
+		m.RevokedAt,
+	}
+}
+
 // _assertJobShape fails to compile if m0.Job gains, loses, renames or
 // reorders a field. Regenerate: `storm generate`.
 func _assertJobShape(m m0.Job) {
