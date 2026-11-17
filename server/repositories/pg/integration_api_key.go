@@ -15,6 +15,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/store/integrationapikey"
 	"github.com/gsoultan/storm"
 	"github.com/gsoultan/storm/runtime"
+	"github.com/rs/zerolog/log"
 )
 
 type integrationAPIKeyRepository struct {
@@ -141,7 +142,10 @@ func integrationAPIKeyFrom(row integrationapikey.Row) entities.IntegrationAPIKey
 	}
 	// A row whose roles cannot be read acts with none: refusing is the safe
 	// way to be wrong about what a key may do.
-	_ = json.Unmarshal(row.Roles, &key.Roles)
+	if err := json.Unmarshal(row.Roles, &key.Roles); err != nil {
+		log.Warn().Err(err).Str("key_id", uuid.UUID(row.ID).String()).Msg("an integration API key's roles could not be read; it acts with none")
+		key.Roles = []string{}
+	}
 	if at, ok := row.ExpiresAt.Get(); ok {
 		key.ExpiresAt = &at
 	}

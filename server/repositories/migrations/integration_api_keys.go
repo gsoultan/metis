@@ -11,12 +11,12 @@ import (
 // call the API with on behalf of an organization.
 const integrationAPIKeysVersion = 58
 
-// integrationAPIKeysDDL is the table as the model declares it in this release.
+// integrationKeysTableDDL is the table as the model declares it in this release.
 //
 // The foreign key takes a lock on organizations, which most requests read. It
 // is bounded, so a long transaction holding organizations fails the upgrade
 // with a clear error instead of queueing requests behind the migration.
-const integrationAPIKeysDDL = `
+const integrationKeysTableDDL = `
 DO $$ BEGIN
 SET LOCAL lock_timeout = '2s';
 IF to_regclass('integration_api_keys') IS NULL THEN
@@ -44,7 +44,7 @@ END $$;
 
 // addIntegrationAPIKeys creates the table on a database that does not have it.
 func addIntegrationAPIKeys(ctx context.Context, ex runtime.Executor) error {
-	if _, err := ex.Exec(ctx, integrationAPIKeysDDL, nil); err != nil {
+	if _, err := ex.Exec(ctx, integrationKeysTableDDL, nil); err != nil {
 		return fmt.Errorf("create integration_api_keys: %w", err)
 	}
 	return nil
