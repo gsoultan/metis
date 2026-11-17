@@ -118,16 +118,23 @@ use_dev_password() {
   [[ "$changed" == "1" ]] || die "set up, but found no account called \"$ADMIN_USER\" to give the development password"
 }
 
+# How long to wait for the server, in seconds. scripts/dev.sh starts it with
+# `go run`, so the first run on a machine compiles every dependency before it
+# listens: minutes, not seconds. Waiting 60s left a fresh database at the setup
+# wizard, and admin / admin did not sign in, on exactly that first run.
+readonly SERVER_WAIT="${SEED_SERVER_WAIT:-600}"
+
 wait_for_server() {
   local waited=0
   # /readyz, not /health. The embedded UI is a catch-all, so an unknown path
-# answers 200 with the index page — a wait on one of those succeeds the moment
-# the listener binds, before the database is reachable.
-until curl -sS -m 2 -o /dev/null "http://localhost:${API_PORT}/readyz" 2>/dev/null; do
+  # answers 200 with the index page — a wait on one of those succeeds the moment
+  # the listener binds, before the database is reachable.
+  until curl -sS -m 2 -o /dev/null "http://localhost:${API_PORT}/readyz" 2>/dev/null; do
     (( waited += 1 ))
-    if (( waited > 60 )); then
-      die "the server on :${API_PORT} did not answer within 60s"
+    if (( waited > SERVER_WAIT )); then
+      die "the server on :${API_PORT} did not answer within ${SERVER_WAIT}s (SEED_SERVER_WAIT sets how long to wait)"
     fi
+    (( waited % 30 == 0 )) && info "waiting for the server on :${API_PORT} (${waited}s; the first run compiles it)"
     sleep 1
   done
 }

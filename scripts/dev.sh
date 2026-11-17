@@ -533,6 +533,12 @@ start_backend() {
     run_prefixed "api" "$C_GREEN" air
   else
     printf '%s       install air for backend hot reload: go install github.com/air-verse/air@latest%s\n' "$C_DIM" "$C_RESET"
+    # Compiled here, before anything waits on it. The first `go run` on a
+    # machine builds every dependency, which takes minutes, and the setup step
+    # started alongside it gave up first: the database stayed at the setup
+    # wizard and admin / admin did not sign in. After this, `go run` only links.
+    info "Compiling the backend (minutes on the first run, seconds after)"
+    go build -o /dev/null ./cmd/metis || die "the backend does not compile"
     run_prefixed "api" "$C_GREEN" go run ./cmd/metis
   fi
 }

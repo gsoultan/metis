@@ -336,6 +336,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **`scripts/dev.sh` signs you in as `admin` / `admin` on the first run on a
+  machine too.** That run compiled the server while the setup step waited for
+  it, and the setup step gave up after a minute, so the database was left at
+  the setup wizard and `admin` / `admin` did not sign in. The script now
+  compiles the server before starting it, saying so, and the setup step waits
+  up to ten minutes (`SEED_SERVER_WAIT`) for a server that `air` is building.
+
 - **Two refusals were in the wrong shape.** The 503 a server that is not set
   up yet answers on `/api/`, and the 404 for a path outside the API, were
   `{"err": …}`; every other refusal is `{"error": …}`, which is what
