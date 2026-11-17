@@ -49,7 +49,7 @@ func TestThePathsOutsideTheAPISayWhereTheWebAppWent(t *testing.T) {
 
 func TestTheNotFoundBodyIsValidJSON(t *testing.T) {
 	var body map[string]string
-	if err := json.Unmarshal([]byte(notAnAPIPathBody), &body); err != nil || body["err"] == "" {
+	if err := json.Unmarshal([]byte(notAnAPIPathBody), &body); err != nil || body["error"] == "" {
 		t.Fatalf("%q is not the API's error shape: %v", notAnAPIPathBody, err)
 	}
 }

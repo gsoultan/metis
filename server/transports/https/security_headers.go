@@ -34,7 +34,7 @@ func securityHeaders(next http.Handler) http.Handler {
 
 // notAnAPIPathBody is notAnAPIPath's answer, in the API's error shape. A
 // constant, so nothing on this path can fail before the write.
-const notAnAPIPathBody = `{"err":"Not found. This is the Metis engine's API, under /api/v1; the web app is served by metis-server."}` + "\n"
+const notAnAPIPathBody = `{"error":"Not found. This is the Metis engine's API, under /api/v1; the web app is served by metis-server."}` + "\n"
 
 // notAnAPIPath answers every path the engine does not serve.
 //
