@@ -58,7 +58,7 @@ func TestStartScheduleRoutesReachTheirEndpointsWithTheProcessNamed(t *testing.T)
 		t.Run(tc.name, func(t *testing.T) {
 			reached, got = "", definition.StartScheduleRequest{}
 			rec := httptest.NewRecorder()
-			mux.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.target, strings.NewReader(tc.body)))
+			mux.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), tc.method, tc.target, strings.NewReader(tc.body)))
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 			}
