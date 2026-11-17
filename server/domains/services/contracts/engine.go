@@ -7,6 +7,7 @@ package contracts
 import (
 	"context"
 	"errors"
+	"time"
 
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
@@ -112,6 +113,14 @@ type ScriptExecutor interface {
 	ExecuteScript(ctx context.Context, script string, scriptFormat string, variables map[string]any) (map[string]any, error)
 }
 
+// ScheduledStarter starts the runs that start events' schedules owe.
+type ScheduledStarter interface {
+	// StartDueSchedules starts every run owed as of now, once each however
+	// many replicas ask, and reports how many it started. One process failing
+	// does not stop the others; their failures come back joined.
+	StartDueSchedules(ctx context.Context, now time.Time) (int, error)
+}
+
 // ExecutionEngine is the composition root that combines all engine sub-interfaces.
 // Prefer declaring the narrower sub-interface (EngineRunner, EngineReader, etc.)
 // in each dependency to follow the Interface Segregation Principle.
@@ -121,4 +130,5 @@ type ExecutionEngine interface {
 	EngineReader
 	EngineEventBus
 	ScriptExecutor
+	ScheduledStarter
 }

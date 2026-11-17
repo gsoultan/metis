@@ -159,6 +159,8 @@ func (s *jobService) StartWorkers(ctx context.Context) {
 		Dur("lease", s.settings.Lease).
 		Msg("Job worker started")
 
+	s.startScheduleWorker(ctx)
+
 	ticker := time.NewTicker(s.settings.PollInterval)
 	go func() {
 		defer ticker.Stop()

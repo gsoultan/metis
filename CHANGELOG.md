@@ -30,8 +30,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   optional first and last dates. Deploy refuses one that could not run (an
   unknown rule or zone, a time that is not one, an interval under a minute),
   one on a step that is not the process's own start step, and one beside a
-  message or signal name. This is the rule and the check only: the engine
-  does not start runs from a schedule yet, which is the next change.
+  message or signal name.
+- **A start step's schedule starts runs.** At each scheduled time the engine
+  starts one run of the process's live version, beginning at the scheduled
+  start step. Only the live version's schedule counts: promoting, rolling back
+  or an arranged cutover moves the schedule with the version, and a version
+  starts nothing for the time before it was live. A scheduled time starts one
+  run however many replicas are running. After a time nothing was running, a
+  process catches up with one run, not one per missed time. A run starts
+  within `METIS_JOB_POLL_INTERVAL` of its time. A scheduled start that fails
+  is logged, kept on the process's row in the new `start_schedules` table
+  (`failures`, `last_error`) and tried again after a minute, doubling up to an
+  hour, with the run still owed. A scheduled run starts with no variables, and
+  there is no pause and no API for the next run time yet. Migration 56 adds
+  the table.
 
 - **Message steps show what they send.** A step that uses Slack, Teams,
   Discord, SMTP, Panmail, SendGrid or push now shows its fields in the step

@@ -50,6 +50,12 @@ func TestAScheduleTheEngineCannotKeepIsRefusedAtDeploy(t *testing.T) {
 				{ID: "inner-start", Type: entities.StartEvent, Properties: scheduleOf("day")},
 			}}},
 			"Flow node inner-start has a schedule, but it is inside sub"},
+		{"a schedule on a start that names a sub-process as its parent",
+			[]*entities.Node{
+				{ID: "sub", Type: entities.SubProcess},
+				{ID: "inner-start", Type: entities.StartEvent, ParentID: "sub", Properties: scheduleOf("day")},
+			},
+			"Flow node inner-start has a schedule, but it is inside sub"},
 		{"a schedule and a message on one start",
 			[]*entities.Node{{ID: "start", Type: entities.StartEvent, Properties: both}},
 			"both a schedule and a message_name"},

@@ -79,6 +79,8 @@ func All() []any {
 		&PersonAPIKey{},
 		// Phones and browsers People registered for push.
 		&PersonDevice{},
+		// How far each process's scheduled starts have got.
+		&StartSchedule{},
 		// What administrators set on the Settings page, and who set it.
 		&InstallationSetting{},
 		// Acts asked for on many instances at once, and what came of each.

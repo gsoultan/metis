@@ -110,7 +110,10 @@ func (s *definitionService) DeployDefinition(ctx context.Context, def *entities.
 				return err
 			}
 			if !promote {
-				return nil
+				// A key with no timeline runs its newest version, so a
+				// staged deploy can still change what is live, and with it
+				// which schedule counts. Promoting asks through the timeline.
+				return s.repo.StartSchedule().Look(txCtx, projectID, def.Key)
 			}
 			// In the same transaction as the insert: a deploy that saved the
 			// model but not the promotion would report success and leave the
