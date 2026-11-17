@@ -18,7 +18,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   release file's signature covers. A production that takes releases straight
   from development, with no staging between, can rely on that. Go live still
   runs the same checks again where the release goes live. Releases cut before
-  this carry no `checked` and import as before.
+  this carry no `checked` and import as before. The release API's responses
+  show `checked` too.
 
 - **The server Metis runs in can keep the release keys itself.** The key a
   release file is signed with and the keys whose files are imported come from

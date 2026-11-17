@@ -40,7 +40,8 @@ every process its saved simulation cases, in the runtime it is cut from. Any
 failure refuses the cut and lists what failed. What passed is recorded in the
 release as `checked`, inside its hash, so an installation that trusts the
 release's signature also knows it was checked where it was made. That is what a
-production with no staging before it relies on.
+production with no staging before it relies on. The release API shows it as
+`checked`: `at`, `decision_tests` and `simulation_cases`.
 
 ## What import checks
 
