@@ -9,7 +9,7 @@ import (
 
 // startSchedulePauseVersion adds start_schedules.paused_at, which says a
 // process's scheduled starts are paused and since when.
-const startSchedulePauseVersion = 57
+const startSchedulePauseVersion = 58
 
 // addStartSchedulePause adds the column to a database that does not have it.
 // Nullable with no default, so it is a catalog change and rewrites nothing.

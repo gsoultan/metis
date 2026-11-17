@@ -245,7 +245,7 @@ jobs:
           # Read into an array rather than splitting an unquoted expansion: a
           # package path with a space in it would otherwise become two
           # arguments, and govulncheck would scan neither.
-          mapfile -t packages < <(go list ./... | grep -v '/node_modules/')
+          mapfile -t packages < <(go list ./...)
           govulncheck "${packages[@]}"
 
   golangci-lint:

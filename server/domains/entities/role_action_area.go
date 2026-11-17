@@ -88,6 +88,8 @@ var actionNouns = []struct{ noun, area string }{
 	{"Membership", areaGroups},
 	{"Group", areaGroups},
 	{"User", areaAccounts},
+	// An account's authenticator app, for two-factor sign-in.
+	{"SecondFactor", areaAccounts},
 }
 
 func actionArea(method string) string {

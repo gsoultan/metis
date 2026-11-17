@@ -154,9 +154,9 @@ spec:
             # - name: METIS_FEATURE_STRICT_TENANT_SCOPE
             #   value: "true"
 
-            # Unset means no CORS headers, which is correct: the Go server
-            # serves the UI, so the browser is already same-origin. Set this
-            # only for a separately hosted front end.
+            # Unset means no CORS headers, which is correct: metis-server serves
+            # the web app and forwards its API calls, so the browser is already
+            # same-origin. Set this only for a front end on another origin.
             # - name: METIS_CORS_ORIGINS
             #   value: "https://metis.example.com"
 

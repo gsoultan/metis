@@ -279,6 +279,7 @@ func (a *App) Run() error {
 
 	// 0. Flag Parsing
 	resetPassword := flag.String("reset-password", "", "Set a new password for the named user, then exit")
+	resetTwoFactor := flag.String("reset-two-factor", "", "Remove the named user's authenticator app, so their next sign-in sets up a new one, then exit")
 	reseal := flag.Bool("reseal", false, "Seal every value again under the current ENCRYPTION_KEY, then exit")
 	resealCheck := flag.Bool("reseal-check", false, "Report what is still sealed under ENCRYPTION_KEY_PREVIOUS, then exit; fails while anything is")
 	flag.Parse()
@@ -301,7 +302,7 @@ func (a *App) Run() error {
 	//     chosen one, then carry on as if config.yaml had been there from the
 	//     start. Not for a maintenance command, which has nothing to do
 	//     without a database and is told so by resolveDSN.
-	if awaitsWizard() && !*reseal && !*resealCheck && *resetPassword == "" {
+	if awaitsWizard() && !*reseal && !*resealCheck && *resetPassword == "" && *resetTwoFactor == "" {
 		if err := serveWizardOnly(ctx); err != nil {
 			return err
 		}
@@ -393,6 +394,13 @@ func (a *App) Run() error {
 
 	if *resetPassword != "" {
 		return a.handleResetPassword(ctx, *resetPassword)
+	}
+	if *resetTwoFactor != "" {
+		if err := a.svc.RemoveSecondFactor(ctx, *resetTwoFactor); err != nil {
+			return err
+		}
+		fmt.Printf("Authenticator app removed for %q; their next sign-in sets up a new one.\n", *resetTwoFactor)
+		return nil
 	}
 
 	// 3b. Only now start anything that acts on its own. Everything above this
@@ -900,6 +908,9 @@ func BuildAPIHandler(
 
 	publicPaths := []string{
 		"/api/v1/login",
+		"/api/v1/login/code",
+		"/api/v1/login/enrol",
+		"/api/v1/login/enrol/confirm",
 		"/api/v1/setup/status",
 		"/api/v1/setup",
 		"/api/v1/setup/test-connection",

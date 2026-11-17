@@ -34,6 +34,11 @@ type controlSettings struct {
 	// approvalWindowProblem is what was wrong with the approval window as
 	// written, or nothing.
 	approvalWindowProblem string
+	// secondFactor is whether every staff password sign-in asks for a code,
+	// and secondFactorProblem what the log says when that is not what was
+	// written, or when it is optional.
+	secondFactor        serviceimpl.SecondFactorPolicy
+	secondFactorProblem string
 }
 
 // readControlSettings reads the settings. It is the one place the list of
@@ -42,12 +47,16 @@ func readControlSettings() controlSettings {
 	var settings controlSettings
 	_, settings.approvalWindowProblem = serviceimpl.DeviationApprovalTTL()
 	settings.soleOrganizations, settings.soleProblems = serviceimpl.SoleAdministratorOrganizations()
+	settings.secondFactor, settings.secondFactorProblem = serviceimpl.ReadSecondFactorPolicy()
 	return settings
 }
 
 // serviceOptions is what the services are built with of these settings.
 func (c controlSettings) serviceOptions() []services.FacadeOption {
-	return []services.FacadeOption{services.WithSoleAdministratorOrganizations(c.soleOrganizations)}
+	return []services.FacadeOption{
+		services.WithSoleAdministratorOrganizations(c.soleOrganizations),
+		services.WithSecondFactor(c.secondFactor),
+	}
 }
 
 // announce says, once at boot, what the settings come to when one of them is
@@ -72,6 +81,9 @@ func (c controlSettings) serviceOptions() []services.FacadeOption {
 // no organization is ignored — and that is said as well, because whoever
 // wrote it believes otherwise.
 func (c controlSettings) announce() {
+	if c.secondFactorProblem != "" {
+		log.Warn().Str("setting", serviceimpl.EnvTwoFactor).Msg(c.secondFactorProblem)
+	}
 	if c.approvalWindowProblem != "" {
 		log.Warn().Str("setting", serviceimpl.EnvDeviationApprovalTTL).Msg(c.approvalWindowProblem)
 	}

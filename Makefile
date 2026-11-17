@@ -1,9 +1,8 @@
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
 
-# Go package list. The web app moved to gsoultan/metis-server, so there is no
-# node_modules here any more; the filter stays for a checkout that still has one.
-GO_PKGS = $(shell go list ./... | grep -v '/node_modules/')
+# Go package list.
+GO_PKGS = $(shell go list ./...)
 
 # Extra flags for the test targets. Empty by default, so a developer re-running
 # the gate keeps Go's test cache and the fast second run that comes with it.
@@ -33,7 +32,7 @@ help: ## Show available targets
 # --- Development ----------------------------------------------------------
 
 .PHONY: dev
-dev: ## Run the engine with hot reload (the web app is gsoultan/metis-server: `make dev-ui` there)
+dev: ## Run the engine with hot reload on a development database (with the web app: `make dev` in gsoultan/metis-server)
 	./scripts/dev.sh
 
 .PHONY: dev-reset

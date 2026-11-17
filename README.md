@@ -1,6 +1,6 @@
 # Metis BPM
 
-Metis BPM (formerly GoBPM) is a professional, production-ready BPMN orchestrator built with **Go** and **React**. It provides a powerful engine for executing complex workflows, a visual designer for modeling processes, and robust management tools.
+Metis BPM (formerly GoBPM) is a professional, production-ready BPMN orchestrator and DMN decision engine built with **Go**. It provides a powerful engine for executing complex workflows and the API to manage them; the visual designer and the rest of the web app are [`gsoultan/metis-server`](https://github.com/gsoultan/metis-server).
 
 > **This repository is the engine.** It serves the API and no pages. The web app
 > (designer, inbox, administration) and the server that serves it are
@@ -77,42 +77,39 @@ The web app lives in [`gsoultan/metis-server`](https://github.com/gsoultan/metis
 ### Prerequisites
 
 - **Go**: 1.27.0 or higher
-- **Bun**: https://bun.sh, and a checkout of `gsoultan/metis-server` next to this one
-  (`../metis-server`), for the web app. The engine alone needs neither.
 - **PostgreSQL**: (Optional) For production-grade persistence
 
 ### Development
 
-One command runs the engine and the web app (from `../metis-server`, or
-`METIS_SERVER_DIR`) together:
+One command runs the engine on a development database:
 
 ```bash
 ./scripts/dev.sh          # or: make dev
 ```
 
-- UI on **http://localhost:5273**, API on **:8273**, gRPC on **:8274**
-- Deliberately not 5173/8080/8081: those are what every other project on a
+- API on **:8273**, gRPC on **:8274**
+- Deliberately not 8080/8081: those are what every other project on a
   developer's machine is already using. Production listens on 8080, and on a
   gRPC port only when `METIS_GRPC_ADDRESS` names one — the development script
-  does. Override with `UI_PORT`, `API_PORT` or `GRPC_PORT`
-- The Vite dev server proxies `/api` to the backend, so development is
-  same-origin — the app talks to the server exactly as it does in production
+  does. Override with `API_PORT` or `GRPC_PORT`
 - Development secrets are generated once into `.env.development` (gitignored)
 - A fresh database is set up for you: sign in as **`admin` / `admin`**.
   The server refuses passwords under eight characters, so the script sets the
   installation up with a long random one and then writes the hash of `admin`
   into the development database itself. Nothing in the server is changed by
   it, and no other installation accepts `admin`
-- `Ctrl-C` stops both
+- `Ctrl-C` stops it
 
 ```bash
-./scripts/dev.sh backend    # backend only
-./scripts/dev.sh ui         # UI only (from ../metis-server)
 ./scripts/dev.sh --reset    # wipe the local database and set up admin / admin again
 ./scripts/dev.sh --sample   # set up and fill it with worked examples
 ./scripts/dev.sh --wizard   # leave a fresh database to the setup wizard instead
-UI_PORT=3000 API_PORT=9000 GRPC_PORT=9001 ./scripts/dev.sh   # different ports
+API_PORT=9000 GRPC_PORT=9001 ./scripts/dev.sh   # different ports
 ```
+
+For the web app as well, run `make dev` in a checkout of
+[`gsoultan/metis-server`](https://github.com/gsoultan/metis-server) next to this
+one: it starts this script for the engine and the web app beside it.
 
 Install [air](https://github.com/air-verse/air) for backend hot reload; the
 script uses it automatically when present:
@@ -158,11 +155,13 @@ Most of the settings below can also be changed after sign-in under **Settings �
 | `METIS_UPGRADE_CHANNEL` | `stable` (the default) offers final releases; `prerelease` offers release candidates too. Environment-only. |
 | `METIS_TASK_LINK_LIFETIME` | How long a task link is good for, as a duration from `1h` to `2160h`. Default `168h` (7 days). A link also stops working once used, or once its task is completed, withdrawn or given to somebody else, or its person is removed or deactivated. |
 | `METIS_SETUP_TOKEN` | The setup token the first-run wizard asks for, instead of the one a fresh server generates and prints in its log. Set it to automate installs, or when several replicas share one address and would each print a different token. Refused if weak, which closes the wizard rather than leaving it open. Useless once an administrator exists. |
+| `METIS_TWO_FACTOR` | `required` (the default): every staff password sign-in asks for a code from an authenticator app, and an account without one sets it up at its next sign-in. `optional` asks only accounts that set one up, and is honoured **only beside `METIS_DEV_MODE=true`**; anything else keeps it required and says so at boot. Environment-only. Accounts signing in through OIDC rely on the provider's own second factor. |
+| `METIS_DEV_MODE` | `true` marks a development stack, which is what lets `METIS_TWO_FACTOR=optional` count. `scripts/dev.sh` sets both. Never set it on a server people use. |
 | `METIS_ALLOW_WEAK_SECRETS` | Start anyway with a secret that would be refused, while a weak `ENCRYPTION_KEY` is rotated to a strong one; warns on every boot. |
 | `DATABASE_URL` | PostgreSQL DSN. When neither it nor `config.yaml` names a database, the server serves only the setup wizard, which chooses one; there is no local-file fallback, because one that appears silently is one somebody starts using and then loses. |
 | `METIS_HTTP_ADDRESS` | HTTP listen address (default `:8080`, which is every interface; `127.0.0.1:8080` limits it to this machine). The setup wizard can also write it to `config.yaml`; the environment wins over the file. |
 | `METIS_GRPC_ADDRESS` | gRPC listen address. **Unset means no gRPC listener**, which is the default: it applies none of the HTTP chain — no authentication, rate or body limit — so only the calls that need no sign-in answer on it. The same services are served over HTTP through Connect. |
-| `METIS_CORS_ORIGINS` | Comma-separated allowed origins, or `*`. Unset means no CORS, which is correct when the Go server serves the UI. |
+| `METIS_CORS_ORIGINS` | Comma-separated allowed origins, or `*`. Unset means no CORS, which is correct behind metis-server: it serves the web app and forwards its API calls from the same origin. |
 | `METIS_HTTP_ALLOW_PRIVATE_NETWORKS` | Allow service tasks to call loopback/RFC1918 addresses. Blocked by default to prevent SSRF via user-authored definitions. |
 | `METIS_HTTP_ALLOWED_HOSTS` | Explicit outbound egress allowlist. |
 | `METIS_PROTECTED_RUNTIME` | `true` marks this installation's own runtime as **protected**, for an installation that runs nothing but production: a designer may not deploy, delete, promote or schedule a process or a decision there; a `RELEASER` or an administrator may. An environment on a shared installation is protected from its own settings instead (**Settings → Environments → Protect this environment**). Unset or `false`: unprotected, as before. Any other value refuses those changes until it is fixed. Environment-only, so an administrator cannot unlock their own production from the Settings page. |
@@ -355,8 +354,23 @@ SAMPLE_ADMIN_PASS='...' ./scripts/seed-sample.sh
 
 There is no default account. The administrator username and password are the
 ones typed into the setup wizard on first run. `admin/admin` is only what
-`scripts/dev.sh` gives a development database; the wizard and the API refuse a
-password that short.
+`scripts/dev.sh` gives a development database, which also sets
+`METIS_TWO_FACTOR=optional` and `METIS_DEV_MODE=true` so it signs in without
+an authenticator app; the wizard and the API refuse a password that short.
+
+Every staff sign-in with a password asks for a second factor: a six-digit
+code from an authenticator app (Google Authenticator, 1Password, Authy and
+the like). An account without one sets it up at its next sign-in — the first
+administrator from the setup wizard included — and is given ten recovery
+codes, each good once, for the day the phone is lost. An administrator can
+remove somebody's app so they set up a new one; nobody can remove their own.
+If the only administrator has lost both, run on the server:
+
+```bash
+./metis --reset-two-factor admin
+```
+
+Programs that call the API authenticate with an API key, not a password.
 
 Signed-in users change their own password from **Profile → Change Password**,
 which asks for the current one — a session alone is not enough, so a stolen
@@ -420,7 +434,7 @@ runs the whole journey against a live server.
 
 ## 🧪 Testing
 
-Run the full verification gate (build, vet, tests, race, UI typecheck/lint/build):
+Run the full verification gate (build, vet, tests, race, strict tenant scope):
 ```bash
 make gate
 ```
