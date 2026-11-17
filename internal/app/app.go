@@ -11,13 +11,11 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"os"
-	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -268,21 +266,28 @@ func New() *App {
 	}
 }
 
-func (a *App) Run() error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+// Version is the build this binary reports, set at link time.
+func Version() string { return version }
 
+// RunContext runs the engine with args (the command line without the program
+// name) until ctx is done, so a program that embeds the engine decides both
+// what it is told and when it stops.
+func (a *App) RunContext(ctx context.Context, args []string) error {
 	// `metis upgrade` is a command of its own, run as root beside the service.
-	if len(os.Args) > 1 && os.Args[1] == "upgrade" {
-		return a.runUpgradeCommand(ctx, os.Args[2:], os.Stdout)
+	if len(args) > 0 && args[0] == "upgrade" {
+		return a.runUpgradeCommand(ctx, args[1:], os.Stdout)
 	}
 
-	// 0. Flag Parsing
-	resetPassword := flag.String("reset-password", "", "Set a new password for the named user, then exit")
-	resetTwoFactor := flag.String("reset-two-factor", "", "Remove the named user's authenticator app, so their next sign-in sets up a new one, then exit")
-	reseal := flag.Bool("reseal", false, "Seal every value again under the current ENCRYPTION_KEY, then exit")
-	resealCheck := flag.Bool("reseal-check", false, "Report what is still sealed under ENCRYPTION_KEY_PREVIOUS, then exit; fails while anything is")
-	flag.Parse()
+	// 0. Flag Parsing. A set of its own rather than the process's, so that an
+	//    embedding program's flags are not mixed into the engine's.
+	flags := flag.NewFlagSet("metis", flag.ContinueOnError)
+	resetPassword := flags.String("reset-password", "", "Set a new password for the named user, then exit")
+	resetTwoFactor := flags.String("reset-two-factor", "", "Remove the named user's authenticator app, so their next sign-in sets up a new one, then exit")
+	reseal := flags.Bool("reseal", false, "Seal every value again under the current ENCRYPTION_KEY, then exit")
+	resealCheck := flags.Bool("reseal-check", false, "Report what is still sealed under ENCRYPTION_KEY_PREVIOUS, then exit; fails while anything is")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
 
 	// 0. Initialize Logger
 	logger.Init()
