@@ -87,6 +87,8 @@ type Repository interface {
 	Subscription() contracts.SubscriptionRepository
 	Task() contracts.TaskRepository
 	User() contracts.UserRepository
+	// UserSecondFactor keeps staff accounts' authenticator apps.
+	UserSecondFactor() contracts.UserSecondFactorRepository
 	Group() contracts.GroupRepository
 	// PeopleDirectory reads the People directory as task work needs it: the
 	// groups a pool task is matched against when a person acts, and who a

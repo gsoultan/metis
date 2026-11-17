@@ -912,6 +912,20 @@ func _assertUserProjectShape(m m0.UserProject) {
 	}
 }
 
+// _assertUserSecondFactorShape fails to compile if m0.UserSecondFactor gains, loses, renames or
+// reorders a field. Regenerate: `storm generate`.
+func _assertUserSecondFactorShape(m m0.UserSecondFactor) {
+	type shape m0.UserSecondFactor
+	_ = shape{
+		m.Model,
+		m.User,
+		m.Secret,
+		m.ConfirmedAt,
+		m.LastStep,
+		m.RecoveryCodes,
+	}
+}
+
 // _assertVariableSnapshotShape fails to compile if m0.VariableSnapshot gains, loses, renames or
 // reorders a field. Regenerate: `storm generate`.
 func _assertVariableSnapshotShape(m m0.VariableSnapshot) {

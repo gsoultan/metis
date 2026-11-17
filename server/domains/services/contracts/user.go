@@ -28,6 +28,13 @@ type UserService interface {
 	// SessionSignOut is an account's owner ending their own sessions.
 	SessionSignOut
 
+	// SecondFactorSignIn is a password sign-in, with the code from an
+	// authenticator app that follows it.
+	SecondFactorSignIn
+
+	// SecondFactorAccount is an account's authenticator app once signed in.
+	SecondFactorAccount
+
 	GetUser(ctx context.Context, id uuid.UUID) (entities.User, error)
 	GetUserByUsername(ctx context.Context, username string) (entities.User, error)
 	ListUsers(ctx context.Context, organizationID uuid.UUID) ([]entities.User, error)

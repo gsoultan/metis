@@ -158,7 +158,10 @@ func (m *MockRepository) Project() contracts.ProjectRepository           { retur
 func (m *MockRepository) Subscription() contracts.SubscriptionRepository { return nil }
 func (m *MockRepository) Task() contracts.TaskRepository                 { return nil }
 func (m *MockRepository) User() contracts.UserRepository                 { return nil }
-func (m *MockRepository) Group() contracts.GroupRepository               { return nil }
+func (m *MockRepository) UserSecondFactor() contracts.UserSecondFactorRepository {
+	return nil
+}
+func (m *MockRepository) Group() contracts.GroupRepository { return nil }
 func (m *MockRepository) PeopleDirectory() contracts.PeopleDirectoryRepository {
 	return nil
 }

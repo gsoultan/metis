@@ -7,6 +7,7 @@ import (
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/endpoints/principal"
@@ -37,6 +38,22 @@ type Endpoints struct {
 
 	// SignOut ends every session of the caller's own account.
 	SignOut endpoint.Endpoint
+
+	// SignInWithCode, BeginEnrolment and ConfirmEnrolment are the steps a
+	// password sign-in can need before it is a session. Public: what they
+	// act on is named by the challenge the password sign-in answered with.
+	SignInWithCode   endpoint.Endpoint
+	BeginEnrolment   endpoint.Endpoint
+	ConfirmEnrolment endpoint.Endpoint
+
+	// SecondFactorStatus and RegenerateRecoveryCodes are the caller's own
+	// authenticator app.
+	SecondFactorStatus      endpoint.Endpoint
+	RegenerateRecoveryCodes endpoint.Endpoint
+
+	// ResetSecondFactor removes the authenticator app of an account the
+	// caller administers.
+	ResetSecondFactor endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -58,6 +75,15 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		ResetUserPassword: MakeResetPasswordEndpoint(s),
 
 		SignOut: MakeSignOutEndpoint(s),
+
+		SignInWithCode:   MakeSignInWithCodeEndpoint(s),
+		BeginEnrolment:   MakeBeginEnrolmentEndpoint(s),
+		ConfirmEnrolment: MakeConfirmEnrolmentEndpoint(s),
+
+		SecondFactorStatus:      MakeSecondFactorStatusEndpoint(s),
+		RegenerateRecoveryCodes: MakeRegenerateRecoveryCodesEndpoint(s),
+
+		ResetSecondFactor: MakeResetSecondFactorEndpoint(s),
 	}
 }
 
@@ -89,19 +115,34 @@ func MakeLoginEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if !ok {
 			return nil, fmt.Errorf("user: expected a LoginRequest, got %T", request)
 		}
-		u, token, err := s.Login(ctx, req.Username, req.Password)
+		signIn, err := s.SignIn(ctx, req.Username, req.Password)
 		if err != nil {
 			return LoginResponse{Err: err}, nil
 		}
+		return loginResponseOf(signIn), nil
+	}
+}
+
+// loginResponseOf is a sign-in as the client reads it: a session, or the
+// challenge for the step still needed. A challenge carries no account: the
+// client already knows who it typed, and a challenge is not a session.
+func loginResponseOf(signIn entities.SignIn) LoginResponse {
+	if signIn.Next != entities.SignInDone {
 		return LoginResponse{
-			User: map[string]any{
-				"id":       u.ID.String(),
-				"name":     u.FullName,
-				"username": u.Username,
-				"role":     u.Roles,
-			},
-			Token: token,
-		}, nil
+			SecondFactor:       string(signIn.Next),
+			Challenge:          signIn.Challenge,
+			ChallengeExpiresAt: signIn.ChallengeExpiresAt,
+		}
+	}
+	u := signIn.User
+	return LoginResponse{
+		User: map[string]any{
+			"id":       u.ID.String(),
+			"name":     u.FullName,
+			"username": u.Username,
+			"role":     u.Roles,
+		},
+		Token: signIn.Token,
 	}
 }
 

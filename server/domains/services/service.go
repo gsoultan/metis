@@ -237,6 +237,9 @@ type facadeSettings struct {
 	// devices and push unavailable: see WithPersonDevices.
 	personDevices repocontracts.PersonDeviceRepository
 
+	// secondFactor is whether every staff password sign-in asks for a code.
+	secondFactor serviceimpl.SecondFactorPolicy
+
 	// taskLinkLifetime is how long a task link is good for. Zero is
 	// serviceimpl.DefaultTaskLinkLifetime: see WithTaskLinkLifetime.
 	taskLinkLifetime time.Duration
@@ -285,6 +288,14 @@ func WithUpgrades(upgrades contracts.UpgradeService) FacadeOption {
 	return func(settings *facadeSettings) { settings.upgrades = upgrades }
 }
 
+// WithSecondFactor is whether every staff password sign-in asks for a code
+// from an authenticator app. Built without it, only accounts that set one up
+// are asked: the server passes what serviceimpl.ReadSecondFactorPolicy reads,
+// which is required unless a development stack says otherwise.
+func WithSecondFactor(policy serviceimpl.SecondFactorPolicy) FacadeOption {
+	return func(settings *facadeSettings) { settings.secondFactor = policy }
+}
+
 // NewServiceFacade creates and wires all sub-service implementations.
 func NewServiceFacade(
 	repo repositories.Repository,
@@ -331,7 +342,11 @@ func NewServiceFacade(
 	taskSvc := serviceimpl.NewTaskService(repo, engine, auditWriter)
 	externalTaskSvc := serviceimpl.NewExternalTaskService(repo, engine)
 	decisionSvc := serviceimpl.NewDecisionService(repo, tableEval)
-	userSvc := serviceimpl.NewUserService(repo, jwtSecret)
+	var settings facadeSettings
+	for _, option := range options {
+		option(&settings)
+	}
+	userSvc := serviceimpl.NewUserService(repo, jwtSecret, serviceimpl.WithSecondFactorPolicy(settings.secondFactor))
 	groupSvc := serviceimpl.NewGroupService(repo, serviceimpl.PrincipalForgetter(userSvc))
 	orgSvc := serviceimpl.NewOrganizationService(repo, serviceimpl.PrincipalForgetter(userSvc))
 	messagingSvc := serviceimpl.NewMessagingService(engine, externalTaskSvc)
@@ -390,11 +405,6 @@ func NewServiceFacade(
 
 	deviationLedger := serviceimpl.NewDeviationLedger(repo)
 	instanceDeviator := serviceimpl.NewInstanceDeviationService(repo, engine)
-	var settings facadeSettings
-	for _, option := range options {
-		option(&settings)
-	}
-
 	return NewService(ServiceParams{
 		OrganizationService:    orgSvc,
 		ProjectService:         projectSvc,

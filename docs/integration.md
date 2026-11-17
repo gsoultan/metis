@@ -17,14 +17,48 @@ compose:
 
 ## Authentication
 
-Every call except `/api/v1/login` and the setup endpoints carries a bearer
-token.
+Every call except `/api/v1/login`, the steps after it and the setup
+endpoints carries a bearer token.
+
+A staff password sign-in takes two steps. The password answers with a
+challenge, not a session:
 
 ```bash
-TOKEN=$(curl -s -X POST $GOBPM/api/v1/login \
+curl -s -X POST $GOBPM/api/v1/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"…"}' | jq -r .token)
+  -d '{"username":"admin","password":"…"}'
+# {"second_factor":"code","challenge":"eyJ…","challenge_expires_at":"…"}
 ```
+
+`second_factor` names the step still needed, and the challenge is good for
+that step alone, for five minutes. It is not a session: every other route
+refuses it.
+
+- **`"code"`**: `POST /api/v1/login/code` with `{"challenge", "code"}`, where
+  the code is the six digits the account's authenticator app shows, or one of
+  its recovery codes. It answers `{"token", "user"}`.
+- **`"enrol"`**: the account has no authenticator app yet. `POST
+  /api/v1/login/enrol` with `{"challenge"}` answers `{"secret",
+  "otpauth_uri"}` for the app (the URI is what a QR code carries); `POST
+  /api/v1/login/enrol/confirm` with `{"challenge", "code"}` and the app's
+  first code answers `{"token", "user", "recovery_codes"}`. The ten recovery
+  codes are shown this once.
+
+Each code is taken once, and wrong ones are slowed per account as wrong
+passwords are. Where `METIS_TWO_FACTOR=optional` is honoured (a development
+stack), an account without an app gets `{"token", "user"}` from the password
+alone.
+
+**A program does not sign in with a password.** It cannot answer the second
+step, so it authenticates with an API key instead.
+
+A signed-in account reads its own state at `GET /api/v1/users/me/two-factor`
+and replaces its recovery codes with `POST
+/api/v1/users/me/two-factor/recovery-codes` and a current code from the app.
+An administrator removes somebody else's app with `DELETE
+/api/v1/users/{id}/two-factor`: their sessions end and their next sign-in
+sets up a new one. Nobody removes their own; `--reset-two-factor <username>`,
+run on the server, is the way back for an installation's only administrator.
 
 `POST /api/v1/logout` with the token ends every session the account has, on
 every device; the token, and any other issued to it before then, is refused

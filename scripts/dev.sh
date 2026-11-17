@@ -443,6 +443,12 @@ load_dev_env() {
     METIS_SETUP_TOKEN="$(random_secret)"
   fi
   export METIS_SETUP_TOKEN
+  # Staff sign-in asks for a code from an authenticator app unless the server
+  # is told this is a development stack. Exported here, not only written to
+  # .env.development, because an existing file is never regenerated. The
+  # engine honours METIS_TWO_FACTOR=optional only beside METIS_DEV_MODE=true.
+  export METIS_DEV_MODE="${METIS_DEV_MODE:-true}"
+  export METIS_TWO_FACTOR="${METIS_TWO_FACTOR:-optional}"
 }
 
 # --- processes -------------------------------------------------------------

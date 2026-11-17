@@ -250,6 +250,40 @@ table does not keep history.
 **Rolling back** to a release without the table leaves it in place and
 unread.
 
+## Two-factor sign-in is required (migration 57)
+
+Migration 57 creates `user_second_factors`, empty: each staff account's
+authenticator app, its secret sealed with `ENCRYPTION_KEY`, and the hashes of
+its unused recovery codes.
+
+**What changes at the first start:** every staff password sign-in asks for a
+code from an authenticator app. Sessions issued before the upgrade were
+signed in with a password alone and are refused, so **everybody signs in
+again**, and each account sets up its app at that sign-in: scan the QR code,
+type the first code, keep the ten recovery codes somewhere safe. Accounts
+that sign in through OIDC are not asked; their provider's own second factor
+applies.
+
+**Before upgrading**, check two things:
+
+- **Scripts and integrations that sign in with a password stop working.** The
+  password now answers with a challenge rather than a token. Move them to an
+  API key.
+- **Somebody who will not be able to set up an app** — no phone, or a shared
+  account — needs one before the upgrade, or an administrator ready to help.
+
+`METIS_TWO_FACTOR=optional` keeps password-only sign-in for accounts without
+an app, and is honoured only beside `METIS_DEV_MODE=true`: it is for
+development stacks, not for postponing this on a server people use.
+
+**Locked out:** an administrator removes the account's app (the account's page,
+or `DELETE /api/v1/users/{id}/two-factor`) and its owner sets up a new one at
+their next sign-in. For the only administrator, `./metis --reset-two-factor
+<username>` on the server does the same.
+
+**Rolling back** to a release without the table leaves it in place and
+unread; sign-in goes back to the password alone.
+
 ## A group's roles grant what they say
 
 A group's `roles` were stored and shown in the group editor, which said that

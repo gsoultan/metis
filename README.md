@@ -158,6 +158,8 @@ Most of the settings below can also be changed after sign-in under **Settings �
 | `METIS_UPGRADE_CHANNEL` | `stable` (the default) offers final releases; `prerelease` offers release candidates too. Environment-only. |
 | `METIS_TASK_LINK_LIFETIME` | How long a task link is good for, as a duration from `1h` to `2160h`. Default `168h` (7 days). A link also stops working once used, or once its task is completed, withdrawn or given to somebody else, or its person is removed or deactivated. |
 | `METIS_SETUP_TOKEN` | The setup token the first-run wizard asks for, instead of the one a fresh server generates and prints in its log. Set it to automate installs, or when several replicas share one address and would each print a different token. Refused if weak, which closes the wizard rather than leaving it open. Useless once an administrator exists. |
+| `METIS_TWO_FACTOR` | `required` (the default): every staff password sign-in asks for a code from an authenticator app, and an account without one sets it up at its next sign-in. `optional` asks only accounts that set one up, and is honoured **only beside `METIS_DEV_MODE=true`**; anything else keeps it required and says so at boot. Environment-only. Accounts signing in through OIDC rely on the provider's own second factor. |
+| `METIS_DEV_MODE` | `true` marks a development stack, which is what lets `METIS_TWO_FACTOR=optional` count. `scripts/dev.sh` sets both. Never set it on a server people use. |
 | `METIS_ALLOW_WEAK_SECRETS` | Start anyway with a secret that would be refused, while a weak `ENCRYPTION_KEY` is rotated to a strong one; warns on every boot. |
 | `DATABASE_URL` | PostgreSQL DSN. When neither it nor `config.yaml` names a database, the server serves only the setup wizard, which chooses one; there is no local-file fallback, because one that appears silently is one somebody starts using and then loses. |
 | `METIS_HTTP_ADDRESS` | HTTP listen address (default `:8080`, which is every interface; `127.0.0.1:8080` limits it to this machine). The setup wizard can also write it to `config.yaml`; the environment wins over the file. |
@@ -355,8 +357,23 @@ SAMPLE_ADMIN_PASS='...' ./scripts/seed-sample.sh
 
 There is no default account. The administrator username and password are the
 ones typed into the setup wizard on first run. `admin/admin` is only what
-`scripts/dev.sh` gives a development database; the wizard and the API refuse a
-password that short.
+`scripts/dev.sh` gives a development database, which also sets
+`METIS_TWO_FACTOR=optional` and `METIS_DEV_MODE=true` so it signs in without
+an authenticator app; the wizard and the API refuse a password that short.
+
+Every staff sign-in with a password asks for a second factor: a six-digit
+code from an authenticator app (Google Authenticator, 1Password, Authy and
+the like). An account without one sets it up at its next sign-in — the first
+administrator from the setup wizard included — and is given ten recovery
+codes, each good once, for the day the phone is lost. An administrator can
+remove somebody's app so they set up a new one; nobody can remove their own.
+If the only administrator has lost both, run on the server:
+
+```bash
+./metis --reset-two-factor admin
+```
+
+Programs that call the API authenticate with an API key, not a password.
 
 Signed-in users change their own password from **Profile → Change Password**,
 which asks for the current one — a session alone is not enough, so a stolen

@@ -19,6 +19,44 @@ func RegisterHandlers(m *http.ServeMux, eps user.Endpoints, options []httptransp
 		common.EncodeResponse,
 		options...,
 	))
+	// The steps a password sign-in can need before it is a session: a code
+	// from the authenticator app, or setting one up first.
+	m.Handle("POST /api/v1/login/code", httptransport.NewServer(
+		eps.SignInWithCode,
+		decodeSecondFactorCodeRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("POST /api/v1/login/enrol", httptransport.NewServer(
+		eps.BeginEnrolment,
+		decodeBeginEnrolmentRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("POST /api/v1/login/enrol/confirm", httptransport.NewServer(
+		eps.ConfirmEnrolment,
+		decodeSecondFactorCodeRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("GET /api/v1/users/me/two-factor", httptransport.NewServer(
+		eps.SecondFactorStatus,
+		decodeSecondFactorStatusRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("POST /api/v1/users/me/two-factor/recovery-codes", httptransport.NewServer(
+		eps.RegenerateRecoveryCodes,
+		decodeRegenerateRecoveryCodesRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("DELETE /api/v1/users/{id}/two-factor", httptransport.NewServer(
+		eps.ResetSecondFactor,
+		decodeResetSecondFactorRequest,
+		common.EncodeResponse,
+		options...,
+	))
 	// Not PUT /users/{id}: this changes the caller's own password and nobody
 	// else's, so there is no id to name. It sits under the auth chain, so the
 	// session is what says who "me" is.
@@ -205,4 +243,40 @@ func decodeChangePasswordRequest(_ context.Context, r *http.Request) (any, error
 
 func decodeSignOutRequest(_ context.Context, _ *http.Request) (any, error) {
 	return user.SignOutRequest{}, nil
+}
+
+func decodeSecondFactorCodeRequest(_ context.Context, r *http.Request) (any, error) {
+	var req user.SecondFactorCodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, apierr.Invalidf("the code is not valid JSON")
+	}
+	return req, nil
+}
+
+func decodeBeginEnrolmentRequest(_ context.Context, r *http.Request) (any, error) {
+	var req user.BeginEnrolmentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, apierr.Invalidf("the request is not valid JSON")
+	}
+	return req, nil
+}
+
+func decodeSecondFactorStatusRequest(_ context.Context, _ *http.Request) (any, error) {
+	return user.SecondFactorStatusRequest{}, nil
+}
+
+func decodeRegenerateRecoveryCodesRequest(_ context.Context, r *http.Request) (any, error) {
+	var req user.RegenerateRecoveryCodesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, apierr.Invalidf("the code is not valid JSON")
+	}
+	return req, nil
+}
+
+func decodeResetSecondFactorRequest(_ context.Context, r *http.Request) (any, error) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		return nil, apierr.Invalidf("the account id %q is not an id", r.PathValue("id"))
+	}
+	return user.ResetSecondFactorRequest{ID: id}, nil
 }

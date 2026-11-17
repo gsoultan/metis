@@ -1,6 +1,8 @@
 package user
 
 import (
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 )
@@ -32,10 +34,16 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+// LoginResponse is a session — Token and User — or, when the account is
+// asked for a second factor, SecondFactor naming the step ("code" or
+// "enrol") and Challenge, a short-lived token good for that step alone.
 type LoginResponse struct {
-	User  any    `json:"user,omitempty"`
-	Token string `json:"token"`
-	Err   error  `json:"err,omitempty"`
+	User               any       `json:"user,omitempty"`
+	Token              string    `json:"token,omitempty"`
+	SecondFactor       string    `json:"second_factor,omitempty"`
+	Challenge          string    `json:"challenge,omitempty"`
+	ChallengeExpiresAt time.Time `json:"challenge_expires_at,omitzero"`
+	Err                error     `json:"err,omitempty"`
 }
 
 func (r LoginResponse) Failed() error { return r.Err }
@@ -148,3 +156,66 @@ type ResetPasswordResponse struct {
 }
 
 func (r ResetPasswordResponse) Failed() error { return r.Err }
+
+// SecondFactorCodeRequest is the step after a password: the challenge it
+// answered with, and a code.
+type SecondFactorCodeRequest struct {
+	Challenge string `json:"challenge"`
+	Code      string `json:"code"`
+}
+
+// BeginEnrolmentRequest asks for the secret to set an authenticator app up
+// from.
+type BeginEnrolmentRequest struct {
+	Challenge string `json:"challenge"`
+}
+
+type BeginEnrolmentResponse struct {
+	entities.SecondFactorEnrolment
+	Err error `json:"err,omitempty"`
+}
+
+func (r BeginEnrolmentResponse) Failed() error { return r.Err }
+
+// ConfirmEnrolmentResponse is the session and the recovery codes, which are
+// shown this once.
+type ConfirmEnrolmentResponse struct {
+	LoginResponse
+	RecoveryCodes []string `json:"recovery_codes,omitempty"`
+}
+
+func (r ConfirmEnrolmentResponse) Failed() error { return r.Err }
+
+// SecondFactorStatusRequest carries nothing: whose is the session's.
+type SecondFactorStatusRequest struct{}
+
+type SecondFactorStatusResponse struct {
+	entities.SecondFactorStatus
+	Err error `json:"err,omitempty"`
+}
+
+func (r SecondFactorStatusResponse) Failed() error { return r.Err }
+
+// RegenerateRecoveryCodesRequest is a current code from the authenticator
+// app; a recovery code is not taken here.
+type RegenerateRecoveryCodesRequest struct {
+	Code string `json:"code"`
+}
+
+type RegenerateRecoveryCodesResponse struct {
+	RecoveryCodes []string `json:"recovery_codes"`
+	Err           error    `json:"err,omitempty"`
+}
+
+func (r RegenerateRecoveryCodesResponse) Failed() error { return r.Err }
+
+// ResetSecondFactorRequest names the account whose authenticator app goes.
+type ResetSecondFactorRequest struct {
+	ID uuid.UUID `json:"-"`
+}
+
+type ResetSecondFactorResponse struct {
+	Err error `json:"err,omitempty"`
+}
+
+func (r ResetSecondFactorResponse) Failed() error { return r.Err }
