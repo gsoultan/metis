@@ -27,8 +27,12 @@ type Engine struct {
 }
 
 // New returns an engine that has not started.
-func New() *Engine {
-	return &Engine{app: app.New()}
+func New(options ...Option) *Engine {
+	e := &Engine{app: app.New()}
+	for _, option := range options {
+		option(e)
+	}
+	return e
 }
 
 // Run starts the engine and blocks until ctx is done or it fails. args is the

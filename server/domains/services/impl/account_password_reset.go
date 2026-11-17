@@ -57,11 +57,7 @@ func (s *userService) ResetPassword(ctx context.Context, userID uuid.UUID, newPa
 		}
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("could not hash the new password: %w", err)
-	}
-	if err := s.repo.User().SetPasswordHash(ctx, userID, string(hash)); err != nil {
+	if err := s.storePassword(ctx, userID, newPassword); err != nil {
 		return err
 	}
 	s.principals.forget(userID)
@@ -80,4 +76,18 @@ func checkNewPassword(password string) error {
 		return apierr.Invalidf("password must be at most %d bytes", maxPasswordBytes)
 	}
 	return nil
+}
+
+// storePassword replaces an account's password: in the engine's own column, or
+// through the embedding program's Identity when it holds the credentials.
+// Either way the account's sessions end.
+func (s *userService) storePassword(ctx context.Context, userID uuid.UUID, newPassword string) error {
+	if s.credentials != nil {
+		return s.credentials.SetPassword(ctx, userID, newPassword)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("could not hash the new password: %w", err)
+	}
+	return s.repo.User().SetPasswordHash(ctx, userID, string(hash))
 }

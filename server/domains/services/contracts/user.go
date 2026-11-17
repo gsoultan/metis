@@ -58,4 +58,8 @@ type UserService interface {
 
 	Login(ctx context.Context, username, password string) (entities.User, string, error) // Returns user and JWT token
 	ValidateToken(ctx context.Context, token string) (entities.User, error)
+	// AccountForPrincipal reads the account a request is, as the embedding
+	// program's Identity proved it: with the roles its groups grant, as a
+	// validated token's account is read.
+	AccountForPrincipal(ctx context.Context, userID uuid.UUID) (entities.User, error)
 }

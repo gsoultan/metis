@@ -15,6 +15,9 @@ import (
 // SecondFactorStatus says whether an account signs in with an authenticator
 // app, and how many recovery codes it has left.
 func (s *userService) SecondFactorStatus(ctx context.Context, userID uuid.UUID) (entities.SecondFactorStatus, error) {
+	if s.credentials != nil {
+		return entities.SecondFactorStatus{}, ErrSignInIsElsewhere
+	}
 	status := entities.SecondFactorStatus{Required: s.secondFactor == SecondFactorRequired}
 	factor, found, err := s.repo.UserSecondFactor().Get(ctx, userID)
 	if err != nil || !found || !factor.Confirmed() {
@@ -30,6 +33,9 @@ func (s *userService) SecondFactorStatus(ctx context.Context, userID uuid.UUID) 
 // from its authenticator app — not a recovery code: somebody holding a stolen
 // session and one stolen recovery code must not be able to mint more.
 func (s *userService) RegenerateRecoveryCodes(ctx context.Context, userID uuid.UUID, code string) ([]string, error) {
+	if s.credentials != nil {
+		return nil, ErrSignInIsElsewhere
+	}
 	u, err := s.ownAccount(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -78,6 +84,15 @@ func (s *userService) ResetSecondFactor(ctx context.Context, userID uuid.UUID) e
 			return err
 		}
 	}
+	if s.credentials != nil {
+		if err := s.credentials.RemoveSecondFactor(ctx, userID); err != nil {
+			return err
+		}
+		s.principals.forget(userID)
+		held := rolesOf(stored)
+		traceAccountChange(ctx, accountSecondFactorReset, userID, stored.Username, held, held)
+		return nil
+	}
 	removed, err := s.repo.UserSecondFactor().Delete(ctx, userID)
 	if err != nil {
 		return err
@@ -110,6 +125,15 @@ func (s *userService) RemoveSecondFactor(ctx context.Context, username string) e
 		return fmt.Errorf("no such user %q", username)
 	}
 	userID := uuid.UUID(account.ID)
+	if s.credentials != nil {
+		if err := s.credentials.RemoveSecondFactor(ctx, userID); err != nil {
+			return err
+		}
+		s.principals.forget(userID)
+		held := rolesOf(account)
+		traceUnattended(madeThroughResetTwoFactor, accountSecondFactorReset, uuid.Nil, userID, account.Username, held, held)
+		return nil
+	}
 	removed, err := s.repo.UserSecondFactor().Delete(ctx, userID)
 	if err != nil {
 		return err

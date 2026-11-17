@@ -49,10 +49,21 @@ type setupService struct {
 	// server is running only the wizard and waits to move onto it. Nil
 	// otherwise.
 	configured func()
+	// credentials, when set, holds passwords for the embedding program (see
+	// credentials.go). The first administrator's goes there too.
+	credentials Credentials
 }
 
 // SetupOption adjusts the wizard as it is built.
 type SetupOption func(*setupService)
+
+// WithSetupCredentials gives the first administrator's password to the
+// embedding program's Identity as well, when setup seeds the database the
+// server already runs on. One seeded elsewhere is the database the server
+// starts on next, and the Identity takes the password from it as it starts.
+func WithSetupCredentials(credentials Credentials) SetupOption {
+	return func(s *setupService) { s.credentials = credentials }
+}
 
 // WizardOnly is for a server that started with no database and serves
 // nothing but the wizard: configured is called once setup has saved the
@@ -173,13 +184,20 @@ func (s *setupService) Setup(ctx context.Context, req contracts.SetupRequest) er
 	}
 
 	// 3. Create Organization, Project, and Admin User in the target database
-	if err := seedTargetDatabase(ctx, targetDB, req); err != nil {
+	adminID, err := seedTargetDatabase(ctx, targetDB, req)
+	if err != nil {
 		return err
 	}
 
 	// The server already runs on this database with these secrets: there is
 	// no file to write and nothing to restart for.
 	if target.fromEnvironment {
+		if s.credentials != nil {
+			if err := s.credentials.SetPassword(ctx, adminID, req.AdminPassword); err != nil {
+				return fmt.Errorf("the administrator %q was created, but its password could not be stored; "+
+					"set one with --reset-password: %w", req.AdminUsername, err)
+			}
+		}
 		s.markSetUp()
 		return nil
 	}
@@ -436,15 +454,15 @@ const defaultProjectName = "Default Project"
 // administrator holds the role a second approver's control rests on, and is
 // attributable as any later one is. It names no actor — nobody can be signed
 // in to an installation that has no account — and says set-up made it.
-func seedTargetDatabase(ctx context.Context, target *stormdb.Conn, req contracts.SetupRequest) error {
+func seedTargetDatabase(ctx context.Context, target *stormdb.Conn, req contracts.SetupRequest) (uuid.UUID, error) {
 	orgID, adminID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	roles := []string{entities.RoleAdmin}
 	if err := seedInstallation(ctx, target, req, orgID, adminID, roles); err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	traceUnattended(madeThroughSetup, accountCreated, orgID, adminID, req.AdminUsername, accountRoles{},
 		accountRoles{global: roles}.in([]uuid.UUID{orgID}))
-	return nil
+	return adminID, nil
 }
 
 // seedInstallation is seedTargetDatabase's transaction.

@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -46,6 +47,9 @@ type userService struct {
 	// wrong passwords. Kept apart, so a burst of wrong passwords from
 	// somebody else does not lock the owner out of typing their code.
 	codes *loginthrottle.Throttle
+	// credentials, when set, holds every account's password and second
+	// factor instead of the engine's own columns. See credentials.go.
+	credentials Credentials
 }
 
 // UserServiceOption changes what the user service is built with.
@@ -140,9 +144,11 @@ func (s *userService) CreateUser(ctx context.Context, u entities.User, password 
 		return err
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("failed to hash password: %w", err)
+	hash := []byte(unusablePasswordHash)
+	if s.credentials == nil {
+		if hash, err = bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost); err != nil {
+			return fmt.Errorf("failed to hash password: %w", err)
+		}
 	}
 
 	if u.ID == uuid.Nil {
@@ -154,6 +160,17 @@ func (s *userService) CreateUser(ctx context.Context, u entities.User, password 
 
 	if err := s.repo.User().Create(ctx, adapters.UserModelAdapter{User: u}.ToModel(), string(hash)); err != nil {
 		return err
+	}
+	if s.credentials != nil {
+		// The account and its password are one request: one that cannot be
+		// given its password is not left behind unable to sign in.
+		if err := s.credentials.SetPassword(ctx, u.ID, password); err != nil {
+			if derr := s.repo.User().Delete(ctx, u.ID); derr != nil {
+				return errors.Join(fmt.Errorf("could not set the new account's password: %w", err),
+					fmt.Errorf("and could not remove the account again: %w", derr))
+			}
+			return fmt.Errorf("could not set the new account's password, so it was not created: %w", err)
+		}
 	}
 	memberOf := make([]uuid.UUID, 0, len(u.Organizations))
 	for _, organization := range u.Organizations {
@@ -387,6 +404,9 @@ const MinPasswordLength = 8
 // the name from the caller would let any signed-in user change anybody's
 // password by naming them.
 func (s *userService) ChangePassword(ctx context.Context, userID uuid.UUID, currentPassword, newPassword string) error {
+	if s.credentials != nil {
+		return ErrSignInIsElsewhere
+	}
 	if len(strings.TrimSpace(newPassword)) < MinPasswordLength {
 		return apierr.Invalidf("password must be at least %d characters", MinPasswordLength)
 	}
@@ -452,11 +472,7 @@ func (s *userService) SetPassword(ctx context.Context, username, newPassword str
 			"a password set here would be a second way in that the provider does not control", username, *issuer)
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("could not hash the new password: %w", err)
-	}
-	if err := s.repo.User().SetPasswordHash(ctx, uuid.UUID(user.ID), string(hash)); err != nil {
+	if err := s.storePassword(ctx, uuid.UUID(user.ID), newPassword); err != nil {
 		return err
 	}
 	s.principals.forget(uuid.UUID(user.ID))
