@@ -49,6 +49,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **A production can require that a release went live in staging first.**
+  Staging gives a signed live note for a release that went live there
+  (`GET /api/v1/projects/{id}/releases/{name}/live-note`), and production
+  attaches it to the staged release (`POST` on the same path). The note is
+  refused unless it is for exactly that release and signed by a trusted key,
+  and is checked again at go live. The server says which releases need one
+  (`services.WithReleasePolicy`); without a policy none do. Migration 59 adds
+  `releases.live_note`.
+- **A program that embeds the engine can keep the release keys and say which
+  releases need a live note**: `engine.WithReleaseKeys` and
+  `engine.WithReleasePolicy`.
 - **Staff sign-in asks for a second factor.** After the password, a staff
   account gives a six-digit code from an authenticator app, or one of ten
   one-use recovery codes. An account without an app sets one up at its next

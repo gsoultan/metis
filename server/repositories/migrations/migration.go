@@ -94,5 +94,6 @@ func Steps() []Migration {
 		{Version: startSchedulesVersion, Name: "start schedules", Run: addStartSchedules},
 		{Version: userSecondFactorsVersion, Name: "user second factors", Run: addUserSecondFactors},
 		{Version: startSchedulePauseVersion, Name: "start schedule pause", Run: addStartSchedulePause},
+		{Version: releaseLiveNoteVersion, Name: "release live note", Run: addReleaseLiveNote},
 	}
 }

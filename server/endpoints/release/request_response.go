@@ -38,6 +38,23 @@ type ExportResponse struct {
 
 func (r ExportResponse) Failed() error { return r.Err }
 
+// AttachLiveNoteRequest carries another environment's signed note that a
+// release went live there.
+type AttachLiveNoteRequest struct {
+	ProjectID string          `json:"-"`
+	Name      string          `json:"-"`
+	Note      json.RawMessage `json:"note"`
+}
+
+// LiveNoteResponse is this environment's signed note that a release went live
+// here.
+type LiveNoteResponse struct {
+	Note json.RawMessage `json:"note,omitzero"`
+	Err  error           `json:"err,omitzero"`
+}
+
+func (r LiveNoteResponse) Failed() error { return r.Err }
+
 // NamedRequest names one release of a project.
 type NamedRequest struct {
 	ProjectID string `json:"-"`
@@ -87,6 +104,9 @@ type View struct {
 	// Checked is what the release passed where it was cut. A release cut
 	// before releases were checked has none.
 	Checked *entities.ReleaseChecks `json:"checked,omitzero"`
+	// LiveNote is another environment's signed note that the release went
+	// live there, when one was attached here.
+	LiveNote *entities.ReleaseLiveNote `json:"live_note,omitzero"`
 }
 
 // ViewOf is the API's view of a release.
@@ -97,7 +117,7 @@ func ViewOf(r entities.Release) View {
 		Items: r.Items, Connections: r.Bundle.Connections,
 		CutAt: r.Bundle.CutAt, CutBy: r.CutBy, ActedBy: r.ActedBy, ImportedBy: r.ImportedBy, ApprovedBy: r.ApprovedBy,
 		LiveAt: r.LiveAt, Previous: r.Previous, CreatedAt: r.CreatedAt,
-		Checked: r.Bundle.Checked,
+		Checked: r.Bundle.Checked, LiveNote: r.LiveNote,
 	}
 	if r.Project != nil {
 		v.ProjectID = r.Project.ID.String()

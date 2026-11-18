@@ -45,6 +45,16 @@ type ReleaseService interface {
 	// one trusts, staged, as ImportReleaseFrom does.
 	ImportReleaseFile(ctx context.Context, projectID uuid.UUID, file []byte) (entities.Release, error)
 
+	// ReleaseLiveNote is this environment's signed note that a release went
+	// live here, for the next environment to attach before it goes live
+	// there.
+	ReleaseLiveNote(ctx context.Context, projectID uuid.UUID, name string) ([]byte, error)
+
+	// AttachReleaseLiveNote keeps another environment's signed note that a
+	// staged release went live there. The note must be for exactly this
+	// release and signed by a key this installation trusts.
+	AttachReleaseLiveNote(ctx context.Context, projectID uuid.UUID, name string, note []byte) (entities.Release, error)
+
 	// ApproveRelease records that someone other than who cut and who imported
 	// a staged release agrees it may go live. A protected runtime requires it.
 	ApproveRelease(ctx context.Context, projectID uuid.UUID, name string) (entities.Release, error)

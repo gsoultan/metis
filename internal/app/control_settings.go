@@ -172,13 +172,15 @@ func (c controlSettings) warnOfOrganizationsThatDoNotExist(ctx context.Context, 
 // newServices puts the services together with what this server read of its
 // settings when it started.
 func (a *App) newServices(dispatcher observercontracts.EventDispatcher, jwtSecret string) services.ServiceFacade {
+	options := append(a.control.serviceOptions(), services.WithPeopleSignIn(a.peopleSignInService()),
+		services.WithPersonDevices(a.personDevices()),
+		services.WithTaskLinkLifetime(a.taskLinkLifetime),
+		services.WithUpgrades(a.upgradeService()),
+		a.credentialsOption())
+	options = append(options, a.releaseOptions()...)
 	return services.NewServiceFacade(a.repo, dispatcher, a.sse, jwtSecret,
 		a.participantService(), a.participantSyncService(serviceimpl.NewNoOpLocker()), a.platformUserService(),
-		append(a.control.serviceOptions(), services.WithPeopleSignIn(a.peopleSignInService()),
-			services.WithPersonDevices(a.personDevices()),
-			services.WithTaskLinkLifetime(a.taskLinkLifetime),
-			services.WithUpgrades(a.upgradeService()),
-			a.credentialsOption())...)
+		options...)
 }
 
 // credentialsOption hands passwords and second factors to the embedding

@@ -36,6 +36,12 @@ func RegisterHandlers(m *http.ServeMux, eps release.Endpoints, options []httptra
 	m.Handle("GET /api/v1/projects/{id}/releases/{name}/export", httptransport.NewServer(
 		eps.ExportRelease, decodeNamed, common.EncodeResponse, options...,
 	))
+	m.Handle("GET /api/v1/projects/{id}/releases/{name}/live-note", httptransport.NewServer(
+		eps.ReleaseLiveNote, decodeNamed, common.EncodeResponse, options...,
+	))
+	m.Handle("POST /api/v1/projects/{id}/releases/{name}/live-note", httptransport.NewServer(
+		eps.AttachReleaseLiveNote, decodeAttachLiveNote, common.EncodeResponse, options...,
+	))
 	m.Handle("POST /api/v1/projects/{id}/releases/rollback", httptransport.NewServer(
 		eps.RollBackRelease, decodeProject, common.EncodeResponse, options...,
 	))
@@ -86,6 +92,19 @@ func decodeImportFile(_ context.Context, r *http.Request) (any, error) {
 		return nil, err
 	}
 	req.ProjectID = r.PathValue("id")
+	return req, nil
+}
+
+// maxLiveNoteRequestBytes bounds an attached live note, with room for the
+// envelope around it.
+const maxLiveNoteRequestBytes = 8 << 10
+
+func decodeAttachLiveNote(_ context.Context, r *http.Request) (any, error) {
+	var req release.AttachLiveNoteRequest
+	if err := decodeBounded(r, &req, maxLiveNoteRequestBytes); err != nil {
+		return nil, err
+	}
+	req.ProjectID, req.Name = r.PathValue("id"), r.PathValue("name")
 	return req, nil
 }
 

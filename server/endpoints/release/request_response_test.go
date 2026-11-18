@@ -30,3 +30,20 @@ func TestTheViewShowsWhatAReleasePassedWhereItWasCut(t *testing.T) {
 		t.Fatalf("a release cut before releases were checked shows checks: %s", body)
 	}
 }
+
+func TestTheViewShowsAnotherEnvironmentsLiveNote(t *testing.T) {
+	at := time.Date(2026, 11, 18, 9, 0, 0, 0, time.UTC)
+	body, err := json.Marshal(ViewOf(entities.Release{LiveNote: &entities.ReleaseLiveNote{
+		Format: entities.ReleaseLiveNoteFormat, Release: "r1", Hash: "abc", LiveAt: at, Key: "k", Signature: "s",
+	}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"live_note":{"format":"metis.release-live/v1","release":"r1","hash":"abc","live_at":"2026-11-18T09:00:00Z","key":"k","signature":"s"}`) {
+		t.Fatalf("the view does not show the live note: %s", body)
+	}
+	body, _ = json.Marshal(ViewOf(entities.Release{}))
+	if strings.Contains(string(body), `"live_note"`) {
+		t.Fatalf("a release with no note shows one: %s", body)
+	}
+}

@@ -133,6 +133,12 @@ type App struct {
 	identityFactory identity.Factory
 	identity        identity.Identity
 	identityDB      *sql.DB
+
+	// releaseKeys and releasePolicy are the embedding program's, when it gave
+	// them (engine.WithReleaseKeys, engine.WithReleasePolicy). Nil otherwise.
+	// See releases.go.
+	releaseKeys   serviceimpl.ReleaseKeys
+	releasePolicy serviceimpl.ReleasePolicy
 }
 
 const (

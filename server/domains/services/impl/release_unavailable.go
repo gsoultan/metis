@@ -56,3 +56,11 @@ func (unavailableReleases) ListReleases(context.Context, uuid.UUID) ([]entities.
 func (unavailableReleases) GetRelease(context.Context, uuid.UUID, string) (entities.Release, error) {
 	return entities.Release{}, errNoReleases
 }
+
+func (unavailableReleases) ReleaseLiveNote(context.Context, uuid.UUID, string) ([]byte, error) {
+	return nil, errNoReleases
+}
+
+func (unavailableReleases) AttachReleaseLiveNote(context.Context, uuid.UUID, string, []byte) (entities.Release, error) {
+	return entities.Release{}, errNoReleases
+}

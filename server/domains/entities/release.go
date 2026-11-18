@@ -111,6 +111,42 @@ type Release struct {
 	LiveAt     *time.Time
 	// Previous is the release that was live before this one went live here.
 	Previous string
+	// LiveNote is another environment's signed note that this release went
+	// live there, attached here before it goes live. Nil when there is none.
+	LiveNote *ReleaseLiveNote
+}
+
+// ReleaseLiveNoteFormat names the shape of a release's live note.
+const ReleaseLiveNoteFormat = "metis.release-live/v1"
+
+// ReleaseLiveNote is one environment's signed word that a release went live
+// there: staging's, carried to production, which can require it before the
+// same release goes live there too.
+//
+// The signature is over ReleaseLiveNoteStatement, by the key named. The
+// release is named by its hash, so the note is for exactly that content.
+type ReleaseLiveNote struct {
+	Format    string    `json:"format"`
+	Release   string    `json:"release"`
+	Hash      string    `json:"hash"`
+	LiveAt    time.Time `json:"live_at"`
+	Key       string    `json:"key"`
+	Signature string    `json:"signature"`
+}
+
+// ReleaseLiveNoteStatement is the bytes a live note's signature covers:
+// everything in it but the key and the signature, as JSON in a fixed order.
+func ReleaseLiveNoteStatement(n ReleaseLiveNote) ([]byte, error) {
+	statement, err := json.Marshal(struct {
+		Format  string    `json:"format"`
+		Release string    `json:"release"`
+		Hash    string    `json:"hash"`
+		LiveAt  time.Time `json:"live_at"`
+	}{n.Format, n.Release, n.Hash, n.LiveAt.UTC()})
+	if err != nil {
+		return nil, fmt.Errorf("could not write the release's live note: %w", err)
+	}
+	return statement, nil
 }
 
 // HashReleaseBundle is the SHA-256 of a bundle's JSON, which two runtimes

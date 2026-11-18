@@ -45,6 +45,10 @@ type Release struct {
 	// Previous is the name of the release that was live before this one went
 	// live here, which a rollback makes live again.
 	Previous string
+	// LiveNote is another environment's signed note that this release went
+	// live there, attached to it here before it goes live. JSON null when
+	// there is none.
+	LiveNote storm.JSON
 }
 
 func (r *Release) Schema(t *storm.Table) {
