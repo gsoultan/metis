@@ -39,4 +39,17 @@ type StartScheduleRepository interface {
 	Fail(ctx context.Context, id uuid.UUID, now time.Time, cause string, retryAt time.Time) error
 	// Get reads one process's state, or ErrNotFound.
 	Get(ctx context.Context, projectID uuid.UUID, processKey string) (entities.StartScheduleState, error)
+	// Hold reads one process's state and locks its row for the caller's
+	// transaction, waiting for a look in progress to finish. ErrNotFound when
+	// the process has no row or is not the caller's to see.
+	Hold(ctx context.Context, projectID uuid.UUID, processKey string) (entities.StartScheduleState, error)
+	// Pause marks a held row paused as of now. The watermark and the next
+	// look stay as they are: a paused process is still looked at, and starts
+	// nothing.
+	Pause(ctx context.Context, id uuid.UUID, now time.Time) error
+	// Resume clears the pause on a held row, moves the watermark to
+	// checkedUntil and asks for a look now. The caller passes a watermark no
+	// earlier than now, so no run is started for a time that passed while
+	// the schedule was paused.
+	Resume(ctx context.Context, id uuid.UUID, checkedUntil time.Time, now time.Time) error
 }

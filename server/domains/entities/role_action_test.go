@@ -19,6 +19,7 @@ func TestAGatedMethodReadsAsWords(t *testing.T) {
 		{"CreateDefinition", "Create definition", "processes"},
 		{"CancelScheduledDefinition", "Cancel scheduled definition", "processes"},
 		{"ListScriptTasks", "List script tasks", "processes"},
+		{"PauseStartSchedule", "Pause start schedule", "processes"},
 		{"SimulateBatch", "Simulate batch", "processes"},
 		{"UpdateDecision", "Update decision", "decisions"},
 		{"CreateConnectorInstance", "Create connector instance", "connectors"},

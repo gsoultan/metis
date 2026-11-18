@@ -11,6 +11,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
 
@@ -97,7 +98,7 @@ func (e *Engine) lookAtSchedule(ctx context.Context, id uuid.UUID, now time.Time
 		if err != nil {
 			return fmt.Errorf("find the live version: %w", err)
 		}
-		liveSince, nextCutover, err := e.liveWindow(txCtx, state, live, now)
+		liveSince, nextCutover, err := liveWindow(txCtx, e.repo.Definition(), state.ProjectID, state.ProcessKey, live, now)
 		if err != nil {
 			return err
 		}
@@ -109,29 +110,25 @@ func (e *Engine) lookAtSchedule(ctx context.Context, id uuid.UUID, now time.Time
 		}
 
 		def := adapters.DefinitionEntityAdapter{Model: live}.ToEntity()
+		starts, err := scheduledStarts(def)
+		if err != nil {
+			return err
+		}
 		next := nextCutover
-		for _, node := range def.Nodes {
-			if node.Type != entities.StartEvent || node.ParentID != "" {
-				continue
-			}
-			schedule, scheduled, err := entities.StartScheduleOf(node)
-			if err != nil {
-				return fmt.Errorf("read the schedule of %q: %w", node.ID, err)
-			}
-			if !scheduled {
-				continue
-			}
+		for _, start := range starts {
 			// One run however many times were missed: a process that was
-			// down over a weekend of hourly starts catches up once.
-			if owed, ok := schedule.Next(from); ok && !owed.After(now) {
+			// down over a weekend of hourly starts catches up once. A paused
+			// one starts nothing, and the watermark moving on below is what
+			// passes the time over for good.
+			if owed, ok := start.schedule.Next(from); ok && !owed.After(now) && state.PausedAt == nil {
 				cmd := NewStartProcessCommand(e, state.ProjectID, def.Key, def.Version, nil, uuid.Nil, "")
-				cmd.startNodeID = node.ID
+				cmd.startNodeID = start.nodeID
 				if err := cmd.Execute(txCtx); err != nil {
-					return fmt.Errorf("start at %q for %s: %w", node.ID, owed.UTC().Format(time.RFC3339), err)
+					return fmt.Errorf("start at %q for %s: %w", start.nodeID, owed.UTC().Format(time.RFC3339), err)
 				}
 				started++
 			}
-			if coming, ok := schedule.Next(until); ok && (next == nil || coming.Before(*next)) {
+			if coming, ok := start.schedule.Next(until); ok && (next == nil || coming.Before(*next)) {
 				next = &coming
 			}
 		}
@@ -143,12 +140,38 @@ func (e *Engine) lookAtSchedule(ctx context.Context, id uuid.UUID, now time.Time
 	return started, nil
 }
 
+// scheduledStart is one start step that starts its process on a schedule.
+type scheduledStart struct {
+	nodeID   string
+	schedule entities.StartSchedule
+}
+
+// scheduledStarts lists the start steps of a version that start it on a
+// schedule. Only the process's own: a start step inside a subprocess begins
+// that subprocess, not a run.
+func scheduledStarts(def *entities.ProcessDefinition) ([]scheduledStart, error) {
+	var starts []scheduledStart
+	for _, node := range def.Nodes {
+		if node.Type != entities.StartEvent || node.ParentID != "" {
+			continue
+		}
+		schedule, scheduled, err := entities.StartScheduleOf(node)
+		if err != nil {
+			return nil, fmt.Errorf("read the schedule of %q: %w", node.ID, err)
+		}
+		if scheduled {
+			starts = append(starts, scheduledStart{nodeID: node.ID, schedule: schedule})
+		}
+	}
+	return starts, nil
+}
+
 // liveWindow says since when the live version has been live, and when the
 // next arranged cutover replaces it, nil when none is arranged.
 //
 // A key with no timeline runs its newest version, live since it was deployed.
-func (e *Engine) liveWindow(ctx context.Context, state entities.StartScheduleState, live models.ProcessDefinitionModel, now time.Time) (time.Time, *time.Time, error) {
-	timeline, err := e.repo.Definition().ListReleasesForKey(ctx, state.ProjectID, state.ProcessKey)
+func liveWindow(ctx context.Context, defs repocontracts.DefinitionRepository, projectID uuid.UUID, key string, live models.ProcessDefinitionModel, now time.Time) (time.Time, *time.Time, error) {
+	timeline, err := defs.ListReleasesForKey(ctx, projectID, key)
 	if err != nil {
 		return time.Time{}, nil, fmt.Errorf("read the release timeline: %w", err)
 	}
