@@ -177,5 +177,15 @@ func (a *App) newServices(dispatcher observercontracts.EventDispatcher, jwtSecre
 		append(a.control.serviceOptions(), services.WithPeopleSignIn(a.peopleSignInService()),
 			services.WithPersonDevices(a.personDevices()),
 			services.WithTaskLinkLifetime(a.taskLinkLifetime),
-			services.WithUpgrades(a.upgradeService()))...)
+			services.WithUpgrades(a.upgradeService()),
+			a.credentialsOption())...)
+}
+
+// credentialsOption hands passwords and second factors to the embedding
+// program's Identity, when there is one.
+func (a *App) credentialsOption() services.FacadeOption {
+	if a.identity == nil {
+		return services.WithCredentials(nil)
+	}
+	return services.WithCredentials(identityCredentials{id: a.identity})
 }
