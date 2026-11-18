@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,19 +12,18 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"os"
-	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/internal/pkg/features"
+	"github.com/gsoultan/metis/internal/pkg/identity"
 	"github.com/gsoultan/metis/internal/pkg/peopletoken"
 	"github.com/gsoultan/metis/internal/pkg/secrets"
 	"github.com/gsoultan/metis/internal/pkg/sharedcount"
@@ -49,6 +49,7 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 	"github.com/gsoultan/metis/server/endpoints"
 	"github.com/gsoultan/metis/server/interceptors"
+	authinterceptor "github.com/gsoultan/metis/server/interceptors/auth"
 	"github.com/gsoultan/metis/server/interceptors/contracts"
 	"github.com/gsoultan/metis/server/interceptors/security"
 	"github.com/gsoultan/metis/server/interceptors/tenant"
@@ -125,6 +126,13 @@ type App struct {
 	// started: what a setting that applies at restart runs with until the
 	// next one. Written once, before anything reads it.
 	bootSettings map[string]string
+
+	// identityFactory builds the embedding program's Identity, when it took
+	// signing in over (engine.WithIdentity); identity is what it built, and
+	// identityDB the pool it was given. All nil otherwise. See identity.go.
+	identityFactory identity.Factory
+	identity        identity.Identity
+	identityDB      *sql.DB
 }
 
 const (
@@ -268,21 +276,28 @@ func New() *App {
 	}
 }
 
-func (a *App) Run() error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+// Version is the build this binary reports, set at link time.
+func Version() string { return version }
 
+// RunContext runs the engine with args (the command line without the program
+// name) until ctx is done, so a program that embeds the engine decides both
+// what it is told and when it stops.
+func (a *App) RunContext(ctx context.Context, args []string) error {
 	// `metis upgrade` is a command of its own, run as root beside the service.
-	if len(os.Args) > 1 && os.Args[1] == "upgrade" {
-		return a.runUpgradeCommand(ctx, os.Args[2:], os.Stdout)
+	if len(args) > 0 && args[0] == "upgrade" {
+		return a.runUpgradeCommand(ctx, args[1:], os.Stdout)
 	}
 
-	// 0. Flag Parsing
-	resetPassword := flag.String("reset-password", "", "Set a new password for the named user, then exit")
-	resetTwoFactor := flag.String("reset-two-factor", "", "Remove the named user's authenticator app, so their next sign-in sets up a new one, then exit")
-	reseal := flag.Bool("reseal", false, "Seal every value again under the current ENCRYPTION_KEY, then exit")
-	resealCheck := flag.Bool("reseal-check", false, "Report what is still sealed under ENCRYPTION_KEY_PREVIOUS, then exit; fails while anything is")
-	flag.Parse()
+	// 0. Flag Parsing. A set of its own rather than the process's, so that an
+	//    embedding program's flags are not mixed into the engine's.
+	flags := flag.NewFlagSet("metis", flag.ContinueOnError)
+	resetPassword := flags.String("reset-password", "", "Set a new password for the named user, then exit")
+	resetTwoFactor := flags.String("reset-two-factor", "", "Remove the named user's authenticator app, so their next sign-in sets up a new one, then exit")
+	reseal := flags.Bool("reseal", false, "Seal every value again under the current ENCRYPTION_KEY, then exit")
+	resealCheck := flags.Bool("reseal-check", false, "Report what is still sealed under ENCRYPTION_KEY_PREVIOUS, then exit; fails while anything is")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
 
 	// 0. Initialize Logger
 	logger.Init()
@@ -373,6 +388,7 @@ func (a *App) Run() error {
 	if err := a.setupService(ctx); err != nil {
 		return err
 	}
+	defer a.closeIdentity()
 	// 3a. An organization named as having one administrator that is no
 	//     organization here could not be told before there was a database.
 	a.control.warnOfOrganizationsThatDoNotExist(entities.WithSystemContext(ctx), a.repo.User())
@@ -686,6 +702,10 @@ func (a *App) setupService(ctx context.Context) error {
 	if a.publicURL, a.taskLinkLifetime, err = resolveTaskLinks(); err != nil {
 		return err
 	}
+	// Before the services, which hand passwords to it.
+	if err := a.buildIdentity(ctx); err != nil {
+		return err
+	}
 	a.svc = a.newServices(dispatcher, jwtSecret)
 
 	dispatcher.Register(impl.NewNotificationObserver(a.notificationDelivery(ctx)))
@@ -898,6 +918,22 @@ func BuildAPIHandler(
 	// in-process store, which is correct for one replica and nothing else.
 	conn *stormdb.Conn,
 ) (http.Handler, *metrics.Collector) {
+	return BuildAPIHandlerWithIdentity(svc, endpts, sse, validator, readiness, conn, nil)
+}
+
+// BuildAPIHandlerWithIdentity is BuildAPIHandler for an engine whose embedding
+// program took signing in over: requests are admitted as the Principal id
+// proves, and a person's own credential routes are not served. A nil id is
+// BuildAPIHandler.
+func BuildAPIHandlerWithIdentity(
+	svc services.ServiceFacade,
+	endpts endpoints.Endpoints,
+	sse *impl.SSEObserver,
+	validator *auth.TokenValidator,
+	readiness map[string]health.Checker,
+	conn *stormdb.Conn,
+	id identity.Identity,
+) (http.Handler, *metrics.Collector) {
 	httpHandler := https.NewHTTPHandler(svc, endpts, sse)
 
 	f := interceptors.NewInterceptorFactory(svc, svc)
@@ -915,10 +951,17 @@ func BuildAPIHandler(
 		"/api/v1/setup",
 		"/api/v1/setup/test-connection",
 	}
+	authenticate := f.NewMandatoryHTTPAuthWithPeople(strategy, svc, publicPaths)
+	if id != nil {
+		// Setup stays the engine's: it creates the first account, before
+		// anybody can be signed in.
+		authenticate = authinterceptor.NewIdentityHTTPAuthInterceptor(id, svc.AccountForPrincipal,
+			authinterceptor.NewPeopleStrategy(svc.AuthenticatePerson), setupPaths(publicPaths))
+	}
 	limits := resolveHTTPLimits()
 	guarded := sharedRateLimit(f.NewRateLimit(limits.requestsPerMinute, time.Minute)).Wrap(
 		f.NewRequestSize(defaultHTTPMaxBodyBytes).Wrap(
-			f.NewMandatoryHTTPAuthWithPeople(strategy, svc, publicPaths).Wrap(
+			authenticate.Wrap(
 				// Carries X-Organization-ID into the context. It only lets a
 				// caller *choose* among the organizations they belong to;
 				// the endpoint tenant resolver validates it against their
@@ -983,7 +1026,7 @@ func BuildAPIHandler(
 
 func (a *App) runServers(ctx context.Context) error {
 	endpts := endpoints.MakeEndpoints(a.svc)
-	httpHandler, metricsCollector := BuildAPIHandler(a.svc, endpts, a.sse, a.validator, a.readinessCheckers(), a.storm)
+	httpHandler, metricsCollector := BuildAPIHandlerWithIdentity(a.svc, endpts, a.sse, a.validator, a.readinessCheckers(), a.storm, a.identity)
 
 	grpcServer := grpcs.NewGRPCServer(endpts)
 
@@ -1394,3 +1437,15 @@ const (
 	notificationDeliveryWorkers = 4
 	notificationDeliveryQueue   = 1024
 )
+
+// setupPaths keeps the setup routes of publicPaths: under an Identity, the
+// sign-in routes are not the engine's to serve.
+func setupPaths(publicPaths []string) []string {
+	var kept []string
+	for _, p := range publicPaths {
+		if strings.HasPrefix(p, "/api/v1/setup") {
+			kept = append(kept, p)
+		}
+	}
+	return kept
+}

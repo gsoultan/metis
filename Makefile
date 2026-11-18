@@ -69,7 +69,9 @@ test-db: ## Run the tests that need a real database (Postgres/MySQL); see AGENTS
 .PHONY: race
 race: ## Run the full Go test suite under the race detector
 	$(call warn_if_no_dsn)
-	go test -race -timeout 20m $(GO_TEST_P) $(GO_TEST_FLAGS) $(GO_PKGS)
+	@# 30m, not the 20m of `test`: the race detector more than doubles the run,
+	@# and tests/bpmn alone takes about 20 minutes under it on a CI runner.
+	go test -race -timeout 30m $(GO_TEST_P) $(GO_TEST_FLAGS) $(GO_PKGS)
 
 # Say so when the database-backed tests are about to skip.
 #

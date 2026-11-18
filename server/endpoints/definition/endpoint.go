@@ -31,6 +31,9 @@ type Endpoints struct {
 	ScheduleDefinition        endpoint.Endpoint
 	CancelScheduledDefinition endpoint.Endpoint
 	MigrateInstances          endpoint.Endpoint
+	GetStartSchedule          endpoint.Endpoint
+	PauseStartSchedule        endpoint.Endpoint
+	ResumeStartSchedule       endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -49,6 +52,9 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		ScheduleDefinition:        MakeScheduleDefinitionEndpoint(s),
 		CancelScheduledDefinition: MakeCancelScheduledDefinitionEndpoint(s),
 		MigrateInstances:          MakeMigrateInstancesEndpoint(s),
+		GetStartSchedule:          MakeGetStartScheduleEndpoint(s),
+		PauseStartSchedule:        MakeSetStartSchedulePausedEndpoint(s, true),
+		ResumeStartSchedule:       MakeSetStartSchedulePausedEndpoint(s, false),
 	}
 }
 
@@ -442,4 +448,46 @@ func MakeMigrateInstancesEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			PassedOverInAll: len(result.PassedOver),
 		}, nil
 	}
+}
+
+// MakeGetStartScheduleEndpoint says whether a process starts on a schedule,
+// whether that is paused, and when its next run is due.
+func MakeGetStartScheduleEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		projectID, key, err := startScheduleTarget(request)
+		if err != nil {
+			return StartScheduleResponse{Err: err}, nil
+		}
+		status, err := s.GetStartSchedule(ctx, projectID, key)
+		return StartScheduleResponse{Schedule: status, Err: err}, nil
+	}
+}
+
+// MakeSetStartSchedulePausedEndpoint pauses a process's scheduled starts, or
+// resumes them, and answers with where that leaves the schedule.
+func MakeSetStartSchedulePausedEndpoint(s services.ServiceFacade, paused bool) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		projectID, key, err := startScheduleTarget(request)
+		if err != nil {
+			return StartScheduleResponse{Err: err}, nil
+		}
+		status, err := s.SetStartSchedulePaused(ctx, projectID, key, paused)
+		return StartScheduleResponse{Schedule: status, Err: err}, nil
+	}
+}
+
+// startScheduleTarget reads which process a start-schedule request names.
+func startScheduleTarget(request any) (uuid.UUID, string, error) {
+	req, ok := request.(StartScheduleRequest)
+	if !ok {
+		return uuid.Nil, "", fmt.Errorf("definition: expected a StartScheduleRequest, got %T", request)
+	}
+	projectID, err := uuid.Parse(req.ProjectID)
+	if err != nil {
+		return uuid.Nil, "", apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)
+	}
+	if req.Key == "" {
+		return uuid.Nil, "", apierr.Invalidf("a process key is required")
+	}
+	return projectID, req.Key, nil
 }

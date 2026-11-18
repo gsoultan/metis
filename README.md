@@ -59,6 +59,7 @@ The project is built following **Clean Code** principles and **SOLID** design, u
 ```text
 ├── api/              # Protocol Buffer definitions and generated code
 ├── cmd/metis/        # Main entry point (Server)
+├── engine/           # The engine as a Go library, for programs that embed it
 ├── internal/pkg/     # Shared internal packages (Crypto, Logger)
 ├── server/           # Backend Implementation
 │   ├── domains/      # Core entities and business logic
@@ -431,6 +432,21 @@ own repository, [gsoultan/metis-sdk](https://github.com/gsoultan/metis-sdk),
 so it versions independently of the server. Start with
 [`docs/integration.md`](docs/integration.md); the SDK's `examples/quickstart`
 runs the whole journey against a live server.
+
+### Embedding the engine
+
+The `engine` package runs the whole engine inside another Go program, the way
+[metis-server](https://github.com/gsoultan/metis-server) does to add the web app
+around it. It reads the same environment and `config.yaml` as the `metis`
+command, and `cmd/metis` is the smallest program that uses it:
+
+```go
+ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+defer stop()
+if err := engine.New().Run(ctx, os.Args[1:]); err != nil {
+	log.Fatal(err)
+}
+```
 
 ## 🧪 Testing
 

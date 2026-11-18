@@ -77,9 +77,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   within `METIS_JOB_POLL_INTERVAL` of its time. A scheduled start that fails
   is logged, kept on the process's row in the new `start_schedules` table
   (`failures`, `last_error`) and tried again after a minute, doubling up to an
-  hour, with the run still owed. A scheduled run starts with no variables, and
-  there is no pause and no API for the next run time yet. Migration 56 adds
-  the table.
+  hour, with the run still owed. A scheduled run starts with no variables.
+  Migration 56 adds the table.
+- **A process's scheduled starts can be read and paused.**
+  `GET /api/v1/definitions/start-schedule?project_id=&key=` says whether the
+  process starts on a schedule, whether that is paused, when the next run is
+  due, and the last failure if a scheduled start is failing. The next run is
+  the first scheduled time that falls while its own version is live, so it
+  follows an arranged cutover. `POST /api/v1/definitions/start-schedule/pause`
+  and `/resume` take `{project_id, key}` and answer with the same status; they
+  need the role that may promote a version. A pause belongs to the process,
+  so it holds across deploys, promotions and cutovers. While paused, scheduled
+  times pass and start nothing, and resuming starts nothing for them: the
+  first run after a resume is the next scheduled time. Pausing a process that
+  has no schedule is refused. Migration 58 adds `start_schedules.paused_at`.
 
 - **Message steps show what they send.** A step that uses Slack, Teams,
   Discord, SMTP, Panmail, SendGrid or push now shows its fields in the step

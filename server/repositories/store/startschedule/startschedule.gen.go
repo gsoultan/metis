@@ -31,9 +31,10 @@ type Row struct {
 	NextRunAt    runtime.Null[time.Time]
 	Failures     int64
 	LastError    runtime.Null[string]
+	PausedAt     runtime.Null[time.Time]
 }
 
-const nCols = 9
+const nCols = 10
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -119,6 +120,8 @@ func (q *Query) cursor(col uint32, r Row) {
 		ok = runtime.Stash(q.nums[:], &q.nn, int64(r.Failures))
 	case 8:
 		ok = runtime.Stash(q.strs[:], &q.ns, r.LastError.V)
+	case 9:
+		ok = runtime.Stash(q.tims[:], &q.ntm, r.PausedAt.V)
 	}
 	q.over = q.over || !ok
 }
@@ -275,6 +278,7 @@ var (
 	NextRunAt    = NullTimeCol{6}
 	Failures     = Int64Col{7}
 	LastError    = NullTextCol{8}
+	PausedAt     = NullTimeCol{9}
 )
 
 // UUIDCol addresses a uuid column.
@@ -553,7 +557,7 @@ func (q *Query) leaf(p Pred) {
 		switch p.col {
 		case 0, 3:
 			ok = runtime.Stash(q.raws[:], &q.nr, p.raw)
-		case 1, 2, 5, 6:
+		case 1, 2, 5, 6, 9:
 			ok = runtime.Stash(q.tims[:], &q.ntm, p.tim)
 		case 4, 8:
 			ok = runtime.Stash(q.strs[:], &q.ns, p.str)
@@ -642,8 +646,16 @@ func (q Query) LastErrorContains(v string) Query    { return q.Where(LastError.C
 func (q Query) LastErrorIsNull() Query              { return q.Where(LastError.IsNull()) }
 func (q Query) LastErrorIsNotNull() Query           { return q.Where(LastError.IsNotNull()) }
 func (q Query) LastErrorIsNullOrEmpty() Query       { return q.Where(LastError.IsNullOrEmpty()) }
+func (q Query) PausedAtEq(v time.Time) Query        { return q.Where(PausedAt.Eq(v)) }
+func (q Query) PausedAtNotEq(v time.Time) Query     { return q.Where(PausedAt.NotEq(v)) }
+func (q Query) PausedAtGt(v time.Time) Query        { return q.Where(PausedAt.Gt(v)) }
+func (q Query) PausedAtGte(v time.Time) Query       { return q.Where(PausedAt.Gte(v)) }
+func (q Query) PausedAtLt(v time.Time) Query        { return q.Where(PausedAt.Lt(v)) }
+func (q Query) PausedAtLte(v time.Time) Query       { return q.Where(PausedAt.Lte(v)) }
+func (q Query) PausedAtIsNull() Query               { return q.Where(PausedAt.IsNull()) }
+func (q Query) PausedAtIsNotNull() Query            { return q.Where(PausedAt.IsNotNull()) }
 
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "process_key", "checked_until", "next_run_at", "failures", "last_error" FROM "start_schedules"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "process_key", "checked_until", "next_run_at", "failures", "last_error", "paused_at" FROM "start_schedules"`
 const countPrefix = `SELECT count(*) FROM "start_schedules"`
 const existsPrefix = `SELECT 1 FROM "start_schedules"`
 const existsSuffix = ` LIMIT 1`
@@ -687,6 +699,7 @@ var orderTable = [nCols][4]string{
 	{"\"next_run_at\"", "\"next_run_at\" DESC", "\"next_run_at\" ASC NULLS FIRST", "\"next_run_at\" DESC NULLS LAST"},
 	{"\"failures\"", "\"failures\" DESC", "\"failures\" ASC NULLS FIRST", "\"failures\" DESC NULLS LAST"},
 	{"\"last_error\"", "\"last_error\" DESC", "\"last_error\" ASC NULLS FIRST", "\"last_error\" DESC NULLS LAST"},
+	{"\"paused_at\"", "\"paused_at\" DESC", "\"paused_at\" ASC NULLS FIRST", "\"paused_at\" DESC NULLS LAST"},
 }
 
 // identTable is each column's bare quoted name, for the left side of a
@@ -701,6 +714,7 @@ var identTable = [nCols]string{
 	"\"next_run_at\"",
 	"\"failures\"",
 	"\"last_error\"",
+	"\"paused_at\"",
 }
 
 var lowering = runtime.Lowering{
@@ -723,7 +737,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [9][34]runtime.Frag{
+var fragTable = [10][34]runtime.Frag{
 	{ // id
 		runtime.OpEq:    {A: "\"id\" = $"},
 		runtime.OpNotEq: {A: "\"id\" <> $"},
@@ -815,6 +829,16 @@ var fragTable = [9][34]runtime.Frag{
 		runtime.OpIsNotNull:     {A: "\"last_error\" IS NOT NULL"},
 		runtime.OpNullOrEmpty:   {A: "COALESCE(\"last_error\", '') = ''"},
 	},
+	{ // paused_at
+		runtime.OpEq:        {A: "\"paused_at\" = $"},
+		runtime.OpNotEq:     {A: "\"paused_at\" <> $"},
+		runtime.OpGt:        {A: "\"paused_at\" > $"},
+		runtime.OpGte:       {A: "\"paused_at\" >= $"},
+		runtime.OpLt:        {A: "\"paused_at\" < $"},
+		runtime.OpLte:       {A: "\"paused_at\" <= $"},
+		runtime.OpIsNull:    {A: "\"paused_at\" IS NULL"},
+		runtime.OpIsNotNull: {A: "\"paused_at\" IS NOT NULL"},
+	},
 }
 
 func fragOf(op, col uint32) runtime.Frag {
@@ -896,7 +920,7 @@ func (q Query) existsStmt(toks []runtime.Tok) *runtime.Stmt { return existsStmtF
 const (
 	distinctOpen = "SELECT DISTINCT ON ("
 	distinctSep  = ", "
-	distinctTail = ") \"id\", \"created_at\", \"updated_at\", \"project_id\", \"process_key\", \"checked_until\", \"next_run_at\", \"failures\", \"last_error\" FROM \"start_schedules\""
+	distinctTail = ") \"id\", \"created_at\", \"updated_at\", \"project_id\", \"process_key\", \"checked_until\", \"next_run_at\", \"failures\", \"last_error\", \"paused_at\" FROM \"start_schedules\""
 )
 
 // distinctCaches are AllDistinctOn's, without and with an offset. The
@@ -1083,6 +1107,10 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 	}
 	r.Failures = runtime.Int8(rv[7])
 	r.LastError = runtime.NullText(rv[8], sl)
+	if b := rv[9]; b != nil && len(b) != 8 {
+		return runtime.ShapeErr("paused_at", "timestamptz", 8, b)
+	}
+	r.PausedAt = runtime.Nullable(rv[9], runtime.Timestamptz)
 	return nil
 }
 
@@ -1146,7 +1174,7 @@ func (q Query) bindPreds(b *binder) []any {
 		switch t.Col() {
 		case 0, 3:
 			v = runtime.Bind(v, b.raws[:], q.raws[:], &nr)
-		case 1, 2, 5, 6:
+		case 1, 2, 5, 6, 9:
 			v = runtime.Bind(v, b.tims[:], q.tims[:], &ntm)
 		case 4, 8:
 			v = runtime.Bind(v, b.strs[:], q.strs[:], &ns)
@@ -1359,7 +1387,7 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "start_schedules" ("id", "created_at", "updated_at", "project_id", "process_key", "checked_until", "next_run_at", "failures", "last_error") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING "id", "created_at", "updated_at", "project_id", "process_key", "checked_until", "next_run_at", "failures", "last_error"`
+const insertSQL = `INSERT INTO "start_schedules" ("id", "created_at", "updated_at", "project_id", "process_key", "checked_until", "next_run_at", "failures", "last_error", "paused_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING "id", "created_at", "updated_at", "project_id", "process_key", "checked_until", "next_run_at", "failures", "last_error", "paused_at"`
 
 const updatePrefix = `UPDATE "start_schedules" SET `
 const deletePrefix = `DELETE FROM "start_schedules"`
@@ -1374,9 +1402,10 @@ const (
 	dNextRunAt    uint64 = 1 << 4
 	dFailures     uint64 = 1 << 5
 	dLastError    uint64 = 1 << 6
+	dPausedAt     uint64 = 1 << 7
 )
 
-const nUpdatable = 7
+const nUpdatable = 8
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
@@ -1387,6 +1416,7 @@ var setFrags = [nUpdatable]runtime.Frag{
 	{A: "\"next_run_at\" = $", B: ""},   // next_run_at
 	{A: "\"failures\" = $", B: ""},      // failures
 	{A: "\"last_error\" = $", B: ""},    // last_error
+	{A: "\"paused_at\" = $", B: ""},     // paused_at
 }
 
 // exprFrags is the SERVER-side assignment each column may take instead
@@ -1399,7 +1429,8 @@ var exprFrags = [nUpdatable]runtime.Frag{
 	{A: "\"checked_until\" = now()", B: ""}, // checked_until = the database's clock
 	{A: "\"next_run_at\" = now()", B: ""},   // next_run_at = the database's clock
 	{A: "\"failures\" = \"failures\" + 1", B: ""}, // failures = its own value plus one
-	{}, // last_error has no server-side form
+	{},                                  // last_error has no server-side form
+	{A: "\"paused_at\" = now()", B: ""}, // paused_at = the database's clock
 }
 
 // addFrags adds a bound amount to a counter's own value. A column set
@@ -1415,6 +1446,7 @@ var addFrags = [nUpdatable]runtime.Frag{
 	{}, // next_run_at cannot be added to
 	{A: "\"failures\" = \"failures\" + $", B: ""}, // failures = its own value plus an amount
 	{}, // last_error cannot be added to
+	{}, // paused_at cannot be added to
 }
 
 // pkFrags addresses one row.
@@ -1435,9 +1467,10 @@ const (
 	iNextRunAt    uint64 = 1 << 6
 	iFailures     uint64 = 1 << 7
 	iLastError    uint64 = 1 << 8
+	iPausedAt     uint64 = 1 << 9
 )
 
-const nInsertable = 9
+const nInsertable = 10
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -1450,6 +1483,7 @@ var insCols = [nInsertable]string{
 	"\"next_run_at\"",
 	"\"failures\"",
 	"\"last_error\"",
+	"\"paused_at\"",
 }
 
 // insParts and insPlaceholder come from the back end at build time; the
@@ -1458,7 +1492,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"start_schedules\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"process_key\", \"checked_until\", \"next_run_at\", \"failures\", \"last_error\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"process_key\", \"checked_until\", \"next_run_at\", \"failures\", \"last_error\", \"paused_at\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -1477,7 +1511,7 @@ var updOpCache = runtime.NewMaskCache()
 // part of it. Without it m.Row() would hold what the row held BEFORE
 // the statement, so a caller reading back the counter it just
 // incremented would get the old number and never know.
-const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"process_key\", \"checked_until\", \"next_run_at\", \"failures\", \"last_error\""
+const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"process_key\", \"checked_until\", \"next_run_at\", \"failures\", \"last_error\", \"paused_at\""
 
 // Masks reports how many distinct UPDATE shapes have compiled.
 func Masks() int { return updCache.Masks() }
@@ -1623,6 +1657,26 @@ func (m *Mut) SetLastErrorNull() {
 	m.expr &^= dLastError
 }
 
+func (m *Mut) SetPausedAt(v time.Time) {
+	m.row.PausedAt = runtime.Null[time.Time]{V: v, Valid: true}
+	m.dirty |= dPausedAt
+	m.expr &^= dPausedAt
+}
+
+// SetPausedAtNow assigns the database's clock, not this process's.
+func (m *Mut) SetPausedAtNow() {
+	m.expr |= dPausedAt
+	m.dirty &^= dPausedAt
+}
+
+// SetPausedAtNull writes SQL NULL. It is a separate method because a
+// zero value and an absent value are different facts.
+func (m *Mut) SetPausedAtNull() {
+	m.row.PausedAt = runtime.Null[time.Time]{}
+	m.dirty |= dPausedAt
+	m.expr &^= dPausedAt
+}
+
 // Ins stages a new row, with a setter for every insertable column. A column
 // left unset is absent from the statement, so the database default applies;
 // a zero value that was set is written.
@@ -1672,6 +1726,8 @@ func (n *Ins) insertArgs(args []any) []any {
 			args = append(args, n.row.Failures)
 		case 8:
 			args = append(args, n.row.LastError.Arg())
+		case 9:
+			args = append(args, n.row.PausedAt.Arg())
 		}
 	}
 	return args
@@ -1746,6 +1802,18 @@ func (n *Ins) SetLastErrorNull() {
 	n.set |= iLastError
 }
 
+func (n *Ins) SetPausedAt(v time.Time) {
+	n.row.PausedAt = runtime.Null[time.Time]{V: v, Valid: true}
+	n.set |= iPausedAt
+}
+
+// SetPausedAtNull writes SQL NULL explicitly, which is not the same as
+// leaving the column unset and taking its default.
+func (n *Ins) SetPausedAtNull() {
+	n.row.PausedAt = runtime.Null[time.Time]{}
+	n.set |= iPausedAt
+}
+
 // The conflict encoding: 0 none, 1 DO NOTHING on any unique index,
 // 2+2*i target i DO UPDATE, 3+2*i target i DO NOTHING.
 const conflictAny = 1
@@ -1782,7 +1850,7 @@ var conflictSpecs = []string{
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 7)
+	set := make([]string, 0, 8)
 	for j, bit := range assignBits[i] {
 		if mask&(1<<bit) != 0 {
 			set = append(set, assignNames[i][j])
@@ -1795,13 +1863,13 @@ func assignable(i uint8, mask uint64) []string {
 // of each column it may overwrite. An empty row is a target whose key
 // covers every updatable column.
 var assignBits = [2][]uint8{
-	{2, 3, 4, 5, 6, 7, 8},
-	{2, 5, 6, 7, 8},
+	{2, 3, 4, 5, 6, 7, 8, 9},
+	{2, 5, 6, 7, 8, 9},
 }
 
 var assignNames = [2][]string{
-	{"updated_at", "project_id", "process_key", "checked_until", "next_run_at", "failures", "last_error"},
-	{"updated_at", "checked_until", "next_run_at", "failures", "last_error"},
+	{"updated_at", "project_id", "process_key", "checked_until", "next_run_at", "failures", "last_error", "paused_at"},
+	{"updated_at", "checked_until", "next_run_at", "failures", "last_error", "paused_at"},
 }
 
 // OnConflictID upserts on the unique index over (id).
@@ -1867,6 +1935,7 @@ var assignFor = map[string]string{
 	"next_run_at":   "\"next_run_at\" = EXCLUDED.\"next_run_at\"",
 	"failures":      "\"failures\" = EXCLUDED.\"failures\"",
 	"last_error":    "\"last_error\" = EXCLUDED.\"last_error\"",
+	"paused_at":     "\"paused_at\" = EXCLUDED.\"paused_at\"",
 }
 
 func assignExcluded(c string) string { return assignFor[c] }
@@ -1954,7 +2023,7 @@ func Inserts() int { return insCache.Masks() }
 // the row back so database defaults land in r.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	if Hooks.BeforeCreate != nil {
-		n := Ins{row: *r, set: 0x1ff}
+		n := Ins{row: *r, set: 0x3ff}
 		if err := hooks.Apply(ctx, ex, Hooks.BeforeCreate, &n); err != nil {
 			return err
 		}
@@ -1967,7 +2036,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 }
 
 func insertRow(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 9)
+	args := make([]any, 0, 10)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -1977,6 +2046,7 @@ func insertRow(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.NextRunAt.Arg())
 	args = append(args, r.Failures)
 	args = append(args, r.LastError.Arg())
+	args = append(args, r.PausedAt.Arg())
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
 		return err
@@ -2012,13 +2082,14 @@ var copyCols = []string{
 	"next_run_at",
 	"failures",
 	"last_error",
+	"paused_at",
 }
 
 // rowSource walks a []Row for CopyFrom without copying any of it.
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [9]any
+	buf  [10]any
 }
 
 func (s *rowSource) Next() bool {
@@ -2039,6 +2110,7 @@ func (s *rowSource) Values() []any {
 	s.buf[6] = r.NextRunAt.Ptr()
 	s.buf[7] = &r.Failures
 	s.buf[8] = r.LastError.Ptr()
+	s.buf[9] = r.PausedAt.Ptr()
 	return s.buf[:]
 }
 
@@ -2059,7 +2131,7 @@ func InsertAll(ctx context.Context, ex runtime.Executor, rows []Row) (int64, err
 func InsertOp(r Row) runtime.BatchOp {
 	const mask = 1<<nInsertable - 1 // every insertable column
 	st := stmtForInsertNoReturn(mask, 0, 0)
-	args := make([]any, 0, 9)
+	args := make([]any, 0, 10)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2069,6 +2141,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.NextRunAt.Arg())
 	args = append(args, r.Failures)
 	args = append(args, r.LastError.Arg())
+	args = append(args, r.PausedAt.Arg())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
 
@@ -2322,6 +2395,8 @@ func (m Mut) updateArgs(args []any) []any {
 			args = append(args, m.row.Failures)
 		case 6:
 			args = append(args, m.row.LastError.Arg())
+		case 7:
+			args = append(args, m.row.PausedAt.Arg())
 		}
 	}
 	return args

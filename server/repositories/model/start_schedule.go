@@ -37,6 +37,11 @@ type StartSchedule struct {
 	// LastError is the latest reason. Both are cleared by a start that works.
 	Failures  int
 	LastError *string
+
+	// PausedAt is when somebody paused the schedule, nil while it runs. A
+	// paused process is still looked at on time, so its watermark keeps
+	// moving and the times that pass are passed over, not saved up.
+	PausedAt *time.Time
 }
 
 func (s *StartSchedule) Schema(t *storm.Table) {

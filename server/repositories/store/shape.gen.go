@@ -807,6 +807,7 @@ func _assertStartScheduleShape(m m0.StartSchedule) {
 		m.NextRunAt,
 		m.Failures,
 		m.LastError,
+		m.PausedAt,
 	}
 }
 

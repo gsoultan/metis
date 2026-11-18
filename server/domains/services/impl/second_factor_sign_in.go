@@ -33,6 +33,9 @@ var errSessionWithoutCode = errors.New("invalid token: two-factor sign-in is req
 // that has to come first: a code, from an account with an authenticator app,
 // or setting one up, from an account without one where every account is asked.
 func (s *userService) SignIn(ctx context.Context, username, password string) (entities.SignIn, error) {
+	if s.credentials != nil {
+		return entities.SignIn{}, ErrSignInIsElsewhere
+	}
 	u, err := s.checkPassword(ctx, username, password)
 	if err != nil {
 		return entities.SignIn{}, err
@@ -62,6 +65,9 @@ func (s *userService) SignIn(ctx context.Context, username, password string) (en
 // SignInWithCode finishes a sign-in with a code from the authenticator app, or
 // one of the account's recovery codes, each usable once.
 func (s *userService) SignInWithCode(ctx context.Context, challenge, code string) (entities.SignIn, error) {
+	if s.credentials != nil {
+		return entities.SignIn{}, ErrSignInIsElsewhere
+	}
 	account, err := s.challengedAccount(ctx, challenge, entities.SignInCode)
 	if err != nil {
 		return entities.SignIn{}, err
@@ -83,6 +89,9 @@ func (s *userService) SignInWithCode(ctx context.Context, challenge, code string
 // shows it once. Beginning again replaces a secret not yet confirmed: a QR
 // code scanned on the wrong phone is not a dead end.
 func (s *userService) BeginEnrolment(ctx context.Context, challenge string) (entities.SecondFactorEnrolment, error) {
+	if s.credentials != nil {
+		return entities.SecondFactorEnrolment{}, ErrSignInIsElsewhere
+	}
 	account, err := s.challengedAccount(ctx, challenge, entities.SignInEnrol)
 	if err != nil {
 		return entities.SecondFactorEnrolment{}, err
@@ -107,6 +116,9 @@ func (s *userService) BeginEnrolment(ctx context.Context, challenge string) (ent
 // Every session the account had before ends: they were signed in without the
 // code, and somebody who had the password alone could have been holding one.
 func (s *userService) ConfirmEnrolment(ctx context.Context, challenge, code string) (entities.SignIn, []string, error) {
+	if s.credentials != nil {
+		return entities.SignIn{}, nil, ErrSignInIsElsewhere
+	}
 	account, err := s.challengedAccount(ctx, challenge, entities.SignInEnrol)
 	if err != nil {
 		return entities.SignIn{}, nil, err

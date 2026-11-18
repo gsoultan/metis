@@ -103,6 +103,27 @@ func RegisterHandlers(m *http.ServeMux, eps definition.Endpoints, options []http
 		options...,
 	))
 
+	// When a process starts by itself, and pausing that. Keyed by process
+	// like the version history above, and all-literal for the same reason.
+	m.Handle("GET /api/v1/definitions/start-schedule", httptransport.NewServer(
+		eps.GetStartSchedule,
+		decodeGetStartScheduleRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("POST /api/v1/definitions/start-schedule/pause", httptransport.NewServer(
+		eps.PauseStartSchedule,
+		decodeSetStartSchedulePausedRequest,
+		common.EncodeResponse,
+		options...,
+	))
+	m.Handle("POST /api/v1/definitions/start-schedule/resume", httptransport.NewServer(
+		eps.ResumeStartSchedule,
+		decodeSetStartSchedulePausedRequest,
+		common.EncodeResponse,
+		options...,
+	))
+
 	// Moving work already in flight onto another version. All-literal segments
 	// for the same reason as the two above: a wildcard here could match
 	// /definitions/{id}/... and ServeMux refuses ambiguous patterns at
@@ -201,6 +222,21 @@ func decodeScheduleDefinitionRequest(_ context.Context, r *http.Request) (any, e
 
 func decodeCancelScheduledDefinitionRequest(_ context.Context, r *http.Request) (any, error) {
 	var req definition.CancelScheduledDefinitionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, err
+	}
+	return req, nil
+}
+
+func decodeGetStartScheduleRequest(_ context.Context, r *http.Request) (any, error) {
+	return definition.StartScheduleRequest{
+		ProjectID: r.URL.Query().Get("project_id"),
+		Key:       r.URL.Query().Get("key"),
+	}, nil
+}
+
+func decodeSetStartSchedulePausedRequest(_ context.Context, r *http.Request) (any, error) {
+	var req definition.StartScheduleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return nil, err
 	}

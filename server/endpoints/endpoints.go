@@ -343,6 +343,12 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// take the designer role — the same bar as promoting now.
 	definitionEndpoints.ScheduleDefinition = modelChange("ScheduleDefinition")(definitionEndpoints.ScheduleDefinition)
 	definitionEndpoints.CancelScheduledDefinition = modelChange("CancelScheduledDefinition")(definitionEndpoints.CancelScheduledDefinition)
+	// Reading a schedule is reading the process. Pausing and resuming decide
+	// whether the live model starts runs by itself, so they take the same bar
+	// as choosing which model is live.
+	definitionEndpoints.GetStartSchedule = protected("GetStartSchedule")(definitionEndpoints.GetStartSchedule)
+	definitionEndpoints.PauseStartSchedule = modelChange("PauseStartSchedule")(definitionEndpoints.PauseStartSchedule)
+	definitionEndpoints.ResumeStartSchedule = modelChange("ResumeStartSchedule")(definitionEndpoints.ResumeStartSchedule)
 	// Administrative rather than designer: this rewrites instances that have
 	// already been started — somebody's purchase order, somebody's leave
 	// request — where every other action on this page only decides what future

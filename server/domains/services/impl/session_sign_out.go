@@ -18,6 +18,9 @@ import (
 // sign-in from the next second on works. Every device is signed out: refusing
 // one token alone would need a list of refused tokens read on every request.
 func (s *userService) SignOut(ctx context.Context) error {
+	if s.credentials != nil {
+		return ErrSignInIsElsewhere
+	}
 	caller := signedIn(ctx)
 	if caller == nil {
 		return pkgauth.ErrUnauthorized

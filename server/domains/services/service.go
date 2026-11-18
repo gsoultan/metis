@@ -239,6 +239,9 @@ type facadeSettings struct {
 
 	// secondFactor is whether every staff password sign-in asks for a code.
 	secondFactor serviceimpl.SecondFactorPolicy
+	// credentials holds passwords and second factors for an embedding
+	// program that took signing in over. Nil: the engine's own columns.
+	credentials serviceimpl.Credentials
 
 	// taskLinkLifetime is how long a task link is good for. Zero is
 	// serviceimpl.DefaultTaskLinkLifetime: see WithTaskLinkLifetime.
@@ -301,6 +304,12 @@ func WithReleaseKeys(keys serviceimpl.ReleaseKeys) FacadeOption {
 	return func(settings *facadeSettings) { settings.releaseKeys = keys }
 }
 
+// WithCredentials hands every account's password and second factor to the
+// Identity of a program embedding the engine (engine.WithIdentity).
+func WithCredentials(credentials serviceimpl.Credentials) FacadeOption {
+	return func(settings *facadeSettings) { settings.credentials = credentials }
+}
+
 // WithSecondFactor is whether every staff password sign-in asks for a code
 // from an authenticator app. Built without it, only accounts that set one up
 // are asked: the server passes what serviceimpl.ReadSecondFactorPolicy reads,
@@ -359,13 +368,19 @@ func NewServiceFacade(
 	for _, option := range options {
 		option(&settings)
 	}
-	userSvc := serviceimpl.NewUserService(repo, jwtSecret, serviceimpl.WithSecondFactorPolicy(settings.secondFactor))
+	userOptions := []serviceimpl.UserServiceOption{serviceimpl.WithSecondFactorPolicy(settings.secondFactor)}
+	var setupOptions []serviceimpl.SetupOption
+	if settings.credentials != nil {
+		userOptions = append(userOptions, serviceimpl.WithCredentials(settings.credentials))
+		setupOptions = append(setupOptions, serviceimpl.WithSetupCredentials(settings.credentials))
+	}
+	userSvc := serviceimpl.NewUserService(repo, jwtSecret, userOptions...)
 	groupSvc := serviceimpl.NewGroupService(repo, serviceimpl.PrincipalForgetter(userSvc))
 	orgSvc := serviceimpl.NewOrganizationService(repo, serviceimpl.PrincipalForgetter(userSvc))
 	messagingSvc := serviceimpl.NewMessagingService(engine, externalTaskSvc)
 	webhookSvc := serviceimpl.NewWebhookService(repo, engine)
 	adHocActivator := serviceimpl.NewAdHocActivator(engine, repo)
-	setupSvc := serviceimpl.NewSetupService(repo.User(), envvar.Get(serviceimpl.EnvSetupToken))
+	setupSvc := serviceimpl.NewSetupService(repo.User(), envvar.Get(serviceimpl.EnvSetupToken), setupOptions...)
 	notificationSvc := serviceimpl.NewNotificationService(repo.Notification())
 
 	// Resolve circular collaborators via functional options so the wiring is
