@@ -1,6 +1,7 @@
 package release_test
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
@@ -76,5 +77,61 @@ func TestAReleaseFileMovesAReleaseBetweenInstallations(t *testing.T) {
 	res, err := prod.Evaluate(prodCtx, prodProject, "limit", 0, map[string]any{})
 	if err != nil || res.Values["limit"] != "low" {
 		t.Fatalf("production's decision answers %v (%v), want the release's", res.Values, err)
+	}
+}
+
+// fixedKeys are release keys a server keeps itself rather than in the
+// environment.
+type fixedKeys struct {
+	signing ed25519.PrivateKey
+	trusted []string
+}
+
+func (k fixedKeys) SigningKey(context.Context) (ed25519.PrivateKey, error) { return k.signing, nil }
+func (k fixedKeys) TrustedKeys(context.Context) ([]string, error)          { return k.trusted, nil }
+
+// A server that keeps its release keys itself signs and trusts with those,
+// and what the environment says does not count.
+func TestReleaseKeysTheServerKeepsAreUsedInsteadOfTheEnvironment(t *testing.T) {
+	devSeed, devPublic := releaseKey(t, 3)
+	rawSeed, _ := base64.StdEncoding.DecodeString(devSeed)
+	_, envPublic := releaseKey(t, 5)
+	envSeed, _ := releaseKey(t, 5)
+	t.Setenv(serviceimpl.EnvReleaseSigningKey, envSeed)
+	t.Setenv(serviceimpl.EnvReleaseTrustedKeys, envPublic)
+
+	devRepo := repositories.NewRepository(testutils.SetupTestDB(t))
+	dev := services.NewServiceFacade(devRepo, impl.NewEventDispatcher(), impl.NewSSEObserver(), "release-keys-dev", nil, nil, nil,
+		services.WithReleaseKeys(fixedKeys{signing: ed25519.NewKeyFromSeed(rawSeed)}))
+	devCtx, _, devProject := testutils.ScopedProject(t, devRepo)
+	w := world{svc: dev, dev: devCtx, projectID: devProject}
+	w.deployDecision(t, devCtx, "low")
+	w.deployProcess(t, devCtx, "Claims", nil)
+	if _, err := dev.CutRelease(devCtx, contracts.CutRelease{ProjectID: devProject, Name: "r1", Processes: []string{"claims"}}); err != nil {
+		t.Fatalf("cut: %v", err)
+	}
+	file, err := dev.ExportRelease(devCtx, devProject, "r1")
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if !strings.Contains(string(file), devPublic) {
+		t.Fatal("the file is not signed with the key the server keeps")
+	}
+
+	prodRepo := repositories.NewRepository(testutils.SetupTestDB(t))
+	untrusting := services.NewServiceFacade(prodRepo, impl.NewEventDispatcher(), impl.NewSSEObserver(), "release-keys-prod", nil, nil, nil,
+		services.WithReleaseKeys(fixedKeys{trusted: []string{envPublic}}))
+	prodCtx, _, prodProject := testutils.ScopedProject(t, prodRepo)
+	if _, err := untrusting.ImportReleaseFile(prodCtx, prodProject, file); !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), "does not trust") {
+		t.Fatalf("a file from a key the server does not trust got %v, want a refusal", err)
+	}
+	trusting := services.NewServiceFacade(prodRepo, impl.NewEventDispatcher(), impl.NewSSEObserver(), "release-keys-prod", nil, nil, nil,
+		services.WithReleaseKeys(fixedKeys{trusted: []string{devPublic}}))
+	staged, err := trusting.ImportReleaseFile(prodCtx, prodProject, file)
+	if err != nil {
+		t.Fatalf("import with the key the server trusts: %v", err)
+	}
+	if staged.Bundle.Checked == nil {
+		t.Fatal("the imported release does not carry what it passed where it was cut")
 	}
 }

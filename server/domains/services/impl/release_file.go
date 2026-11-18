@@ -45,10 +45,39 @@ type releaseFile struct {
 	Release   entities.ReleaseBundle `json:"release"`
 }
 
+// ReleaseKeys are the keys releases are signed and trusted by.
+//
+// The server an installation runs in decides where they are kept. EnvReleaseKeys,
+// the default, reads them from the environment; a server that manages trust in
+// its own pages supplies its own, and is then responsible for who may change
+// which keys are trusted.
+type ReleaseKeys interface {
+	// SigningKey is the key this installation signs the releases it exports
+	// with.
+	SigningKey(ctx context.Context) (ed25519.PrivateKey, error)
+	// TrustedKeys are the base64 Ed25519 public keys of the installations
+	// whose releases this one imports.
+	TrustedKeys(ctx context.Context) ([]string, error)
+}
+
+// EnvReleaseKeys reads the release keys from METIS_RELEASE_SIGNING_KEY and
+// METIS_RELEASE_TRUSTED_KEYS.
+type EnvReleaseKeys struct{}
+
+// SigningKey reads METIS_RELEASE_SIGNING_KEY.
+func (EnvReleaseKeys) SigningKey(context.Context) (ed25519.PrivateKey, error) {
+	return releaseSigningKey()
+}
+
+// TrustedKeys reads METIS_RELEASE_TRUSTED_KEYS.
+func (EnvReleaseKeys) TrustedKeys(context.Context) ([]string, error) {
+	return releaseTrustedKeys()
+}
+
 // ExportRelease is a release cut here as a signed file another installation
 // can import.
 func (s *releaseService) ExportRelease(ctx context.Context, projectID uuid.UUID, name string) ([]byte, error) {
-	private, err := releaseSigningKey()
+	private, err := s.keys.SigningKey(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +123,7 @@ func (s *releaseService) ImportReleaseFile(ctx context.Context, projectID uuid.U
 	if file.Format != ReleaseFileFormat {
 		return entities.Release{}, apierr.Invalidf("this release file is %q, which this server does not read", file.Format)
 	}
-	if err := verifyReleaseFile(file); err != nil {
+	if err := s.verifyReleaseFile(ctx, file); err != nil {
 		return entities.Release{}, err
 	}
 	return s.importBundle(ctx, projectID, file.Release, file.Hash)
@@ -103,7 +132,7 @@ func (s *releaseService) ImportReleaseFile(ctx context.Context, projectID uuid.U
 // verifyReleaseFile refuses a file whose content is not what its hash says,
 // whose key this installation does not trust, or whose signature that key
 // did not make.
-func verifyReleaseFile(file releaseFile) error {
+func (s *releaseService) verifyReleaseFile(ctx context.Context, file releaseFile) error {
 	hash, err := entities.HashReleaseBundle(file.Release)
 	if err != nil {
 		return err
@@ -111,12 +140,12 @@ func verifyReleaseFile(file releaseFile) error {
 	if hash != file.Hash {
 		return apierr.Invalidf("this release file's content is not what it was signed as; it has been changed")
 	}
-	trusted, err := releaseTrustedKeys()
+	trusted, err := s.keys.TrustedKeys(ctx)
 	if err != nil {
 		return err
 	}
 	if len(trusted) == 0 {
-		return apierr.Invalidf("this installation trusts no release keys; set %s to the public key of the installation the release comes from", EnvReleaseTrustedKeys)
+		return apierr.Invalidf("this installation trusts no release keys yet; trust the key of the installation the release comes from (%s, unless the server keeps them itself)", EnvReleaseTrustedKeys)
 	}
 	if !slices.Contains(trusted, file.Key) {
 		return apierr.Invalidf("this release file is signed by a key this installation does not trust (%s)", file.Key)

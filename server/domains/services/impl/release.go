@@ -35,6 +35,7 @@ type releaseService struct {
 	connectors  contracts.ConnectorService
 	simulation  contracts.SimulationService
 	protected   func(context.Context) (bool, error)
+	keys        ReleaseKeys
 }
 
 // ReleaseParts are what the release service checks a release with before it
@@ -43,6 +44,10 @@ type releaseService struct {
 type ReleaseParts struct {
 	Simulation contracts.SimulationService
 	Protected  func(context.Context) (bool, error)
+	// Keys are the key this installation signs the releases it exports with
+	// and the keys whose releases it imports. Nil reads them from
+	// METIS_RELEASE_SIGNING_KEY and METIS_RELEASE_TRUSTED_KEYS.
+	Keys ReleaseKeys
 }
 
 // NewReleaseService returns the service that cuts, imports and makes live
@@ -59,8 +64,12 @@ func NewReleaseService(
 		// Without the answer, the stricter one.
 		protected = func(context.Context) (bool, error) { return true, nil }
 	}
+	keys := parts.Keys
+	if keys == nil {
+		keys = EnvReleaseKeys{}
+	}
 	return &releaseService{repo: repo, definitions: definitions, decisions: decisions, connectors: connectors,
-		simulation: parts.Simulation, protected: protected}
+		simulation: parts.Simulation, protected: protected, keys: keys}
 }
 
 // CutRelease records the live versions of the named models as a release.
@@ -135,6 +144,12 @@ func (s *releaseService) CutRelease(ctx context.Context, req contracts.CutReleas
 	if bundle.Decisions == nil {
 		bundle.Decisions = []entities.DecisionDefinition{}
 	}
+
+	checked, err := s.checkAtSource(ctx, name, req.ProjectID, items)
+	if err != nil {
+		return entities.Release{}, err
+	}
+	bundle.Checked = &checked
 
 	hash, err := entities.HashReleaseBundle(bundle)
 	if err != nil {
@@ -460,7 +475,7 @@ func (s *releaseService) checkGates(ctx context.Context, rel entities.Release) e
 			}
 		}
 		for _, item := range items {
-			found, err := s.gateItem(txCtx, rel.Project.ID, item)
+			found, _, err := s.gateItem(txCtx, rel.Project.ID, item)
 			if err != nil {
 				return err
 			}
@@ -471,6 +486,44 @@ func (s *releaseService) checkGates(ctx context.Context, rel entities.Release) e
 	if err != nil && !errors.Is(err, errGatesChecked) {
 		return err
 	}
+	return releaseGateRefusal(fmt.Sprintf("release %s does not go live", rel.Name), misses)
+}
+
+// checkAtSource runs the checks a release is held to before it is cut, here,
+// against the versions it is cut from: they are live here, so nothing needs
+// to be put into force first. What a case's run writes is rolled back.
+//
+// A release that fails here would fail the same checks wherever it went, and
+// an installation without a staging environment has only this to rely on.
+func (s *releaseService) checkAtSource(ctx context.Context, name string, projectID uuid.UUID, items []entities.ReleaseItem) (entities.ReleaseChecks, error) {
+	checks := entities.ReleaseChecks{At: time.Now().UTC()}
+	var misses []string
+	err := s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
+		for _, item := range items {
+			found, ran, err := s.gateItem(txCtx, projectID, item)
+			if err != nil {
+				return err
+			}
+			misses = append(misses, found...)
+			if item.Kind == entities.ReleaseItemDecision {
+				checks.DecisionTests += ran
+			} else {
+				checks.SimulationCases += ran
+			}
+		}
+		return errGatesChecked
+	})
+	if err != nil && !errors.Is(err, errGatesChecked) {
+		return entities.ReleaseChecks{}, err
+	}
+	if err := releaseGateRefusal(fmt.Sprintf("release %s is not cut", name), misses); err != nil {
+		return entities.ReleaseChecks{}, err
+	}
+	return checks, nil
+}
+
+// releaseGateRefusal is the error a list of failed checks makes, nil for none.
+func releaseGateRefusal(what string, misses []string) error {
 	if len(misses) == 0 {
 		return nil
 	}
@@ -478,36 +531,35 @@ func (s *releaseService) checkGates(ctx context.Context, rel entities.Release) e
 	if len(shown) > maxGateMisses {
 		shown = shown[:maxGateMisses]
 	}
-	return apierr.Invalidf("release %s does not go live: %d check(s) failed: %s",
-		rel.Name, len(misses), strings.Join(shown, "; "))
+	return apierr.Invalidf("%s: %d check(s) failed: %s", what, len(misses), strings.Join(shown, "; "))
 }
 
 // gateItem runs one model's own checks: a decision's tests, a process's
-// saved simulation cases.
-func (s *releaseService) gateItem(ctx context.Context, projectID uuid.UUID, item entities.ReleaseItem) ([]string, error) {
+// saved simulation cases. It answers what failed and how many checks ran.
+func (s *releaseService) gateItem(ctx context.Context, projectID uuid.UUID, item entities.ReleaseItem) ([]string, int, error) {
 	var misses []string
 	if item.Kind == entities.ReleaseItemDecision {
 		live, err := s.repo.Decision().GetLiveByKey(ctx, projectID, item.Key)
 		if err != nil {
-			return nil, fmt.Errorf("decision %s: %w", item.Key, err)
+			return nil, 0, fmt.Errorf("decision %s: %w", item.Key, err)
 		}
 		results, err := s.decisions.RunDecisionTests(ctx, uuid.UUID(live.ID))
 		if err != nil {
-			return nil, fmt.Errorf("decision %s: %w", item.Key, err)
+			return nil, 0, fmt.Errorf("decision %s: %w", item.Key, err)
 		}
 		for _, r := range results {
 			if !r.Passed {
 				misses = append(misses, fmt.Sprintf("decision %s, test %s: %s", item.Key, r.Name, strings.Join(r.Mismatches, ", ")))
 			}
 		}
-		return misses, nil
+		return misses, len(results), nil
 	}
 	if s.simulation == nil {
-		return nil, nil
+		return nil, 0, nil
 	}
 	cases, err := s.repo.SimulationCase().ListByProcess(ctx, projectID, item.Key)
 	if err != nil {
-		return nil, fmt.Errorf("process %s: %w", item.Key, err)
+		return nil, 0, fmt.Errorf("process %s: %w", item.Key, err)
 	}
 	for _, c := range cases {
 		var run entities.SimulationRun
@@ -529,7 +581,7 @@ func (s *releaseService) gateItem(ctx context.Context, projectID uuid.UUID, item
 			misses = append(misses, fmt.Sprintf("process %s, case %s: %s", item.Key, c.Name, miss))
 		}
 	}
-	return misses, nil
+	return misses, len(cases), nil
 }
 
 // RollBack makes the release that was live before the live one live again.

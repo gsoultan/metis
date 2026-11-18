@@ -29,9 +29,9 @@ func (w world) cutAndImport(t *testing.T, dev, prod context.Context) {
 	}
 }
 
-// A decision table that fails its own tests does not go live, and nothing of
-// the release does.
-func TestAReleaseWhoseDecisionFailsItsTestsDoesNotGoLive(t *testing.T) {
+// A decision table that fails its own tests is not cut into a release where
+// it was designed, so it never reaches another environment.
+func TestAReleaseWhoseDecisionFailsItsTestsIsNotCut(t *testing.T) {
 	w := newWorld(t)
 	if _, err := w.svc.CreateDecision(w.dev, entities.DecisionDefinition{
 		Project: &entities.Project{ID: w.projectID}, Key: "limit", Name: "Limit", HitPolicy: "FIRST",
@@ -42,22 +42,52 @@ func TestAReleaseWhoseDecisionFailsItsTestsDoesNotGoLive(t *testing.T) {
 		t.Fatalf("deploy the decision: %v", err)
 	}
 	w.deployProcess(t, w.dev, "Claims", nil)
-	w.cutAndImport(t, w.dev, w.prod)
 
-	_, err := w.svc.GoLive(w.prod, w.projectID, "r1")
-	if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), "big claims") {
-		t.Fatalf("go live with a failing decision test got %v, want a refusal naming the test", err)
+	_, err := w.svc.CutRelease(w.dev, contracts.CutRelease{ProjectID: w.projectID, Name: "r1", Processes: []string{"claims"}})
+	if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), "big claims") || !strings.Contains(err.Error(), "not cut") {
+		t.Fatalf("cut with a failing decision test got %v, want a refusal naming the test", err)
 	}
-	if name, _ := w.liveProcessName(t, w.prod); name != "" {
-		t.Fatalf("production runs %q after the refused go-live", name)
-	}
-	if _, err := w.svc.Evaluate(w.prod, w.projectID, "limit", 0, nil); err == nil {
-		t.Fatal("the refused release's decision is in production")
+	if _, err := w.svc.GetRelease(w.dev, w.projectID, "r1"); err == nil {
+		t.Fatal("the refused release was recorded")
 	}
 }
 
-// A process that does not end a saved simulation case as it expects does not
-// go live; one that does, does.
+// A release records what it passed where it was cut, inside what is signed.
+func TestAReleaseRecordsTheChecksItPassedWhereItWasCut(t *testing.T) {
+	w := newWorld(t)
+	if _, err := w.svc.CreateDecision(w.dev, entities.DecisionDefinition{
+		Project: &entities.Project{ID: w.projectID}, Key: "limit", Name: "Limit", HitPolicy: "FIRST",
+		Outputs: []entities.DecisionOutput{{ID: "o", Label: "Limit", Name: "limit", Type: "string"}},
+		Rules:   []entities.DecisionRule{{ID: "r", Outputs: []any{"low"}}},
+		Tests:   []entities.DecisionTest{{ID: "t", Name: "small claims", Expected: map[string]any{"limit": "low"}}},
+	}); err != nil {
+		t.Fatalf("deploy the decision: %v", err)
+	}
+	w.deployProcess(t, w.dev, "Claims", nil)
+	if _, err := w.svc.SaveSimulationCase(w.dev, entities.SimulationCase{
+		Project: &entities.Project{ID: w.projectID}, ProcessKey: "claims", Name: "ends",
+		Scenario: entities.SimulationScenario{Variables: map[string]any{}},
+		Expect:   entities.SimulationExpectation{Outcome: entities.SimulationOutcomeCompleted, EndsAt: "end"},
+	}); err != nil {
+		t.Fatalf("save the case: %v", err)
+	}
+	cut, err := w.svc.CutRelease(w.dev, contracts.CutRelease{ProjectID: w.projectID, Name: "r1", Processes: []string{"claims"}})
+	if err != nil {
+		t.Fatalf("cut: %v", err)
+	}
+	got := cut.Bundle.Checked
+	if got == nil || got.DecisionTests != 1 || got.SimulationCases != 1 || got.At.IsZero() {
+		t.Fatalf("the release records %+v, want one decision test and one simulation case", got)
+	}
+	if hash, _ := entities.HashReleaseBundle(cut.Bundle); hash != cut.Hash {
+		t.Fatal("what the release passed is not inside its hash")
+	}
+}
+
+// A process that does not end a saved simulation case as it expects is not
+// cut, and does not go live; one that does, does. The cases are kept with
+// the project, so a case changed after the cut is held against the release
+// again where it goes live.
 func TestAReleaseIsHeldToItsProcessesSavedSimulationCases(t *testing.T) {
 	w := newWorld(t)
 	w.deployDecision(t, w.dev, "low")
@@ -70,7 +100,20 @@ func TestAReleaseIsHeldToItsProcessesSavedSimulationCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("save the case: %v", err)
 	}
+	_, err = w.svc.CutRelease(w.dev, contracts.CutRelease{ProjectID: w.projectID, Name: "r1", Processes: []string{"claims"}})
+	if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), "ends elsewhere") {
+		t.Fatalf("cut against a failing case got %v, want a refusal naming the case", err)
+	}
+
+	passing := saved
+	passing.Expect.EndsAt = "end"
+	if _, err := w.svc.SaveSimulationCase(w.dev, passing); err != nil {
+		t.Fatalf("correct the case: %v", err)
+	}
 	w.cutAndImport(t, w.dev, w.prod)
+	if _, err := w.svc.SaveSimulationCase(w.dev, saved); err != nil {
+		t.Fatalf("break the case again: %v", err)
+	}
 
 	_, err = w.svc.GoLive(w.prod, w.projectID, "r1")
 	if !errors.Is(err, apierr.ErrInvalidArgument) || !strings.Contains(err.Error(), "ends elsewhere") {

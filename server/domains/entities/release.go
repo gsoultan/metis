@@ -61,6 +61,19 @@ type ReleaseBundle struct {
 	// Connections are the connection names the processes call through. Each
 	// must exist in a runtime before the release can be imported there.
 	Connections []string `json:"connections"`
+	// Checked is what the release passed where it was cut, before it was
+	// cut: its decisions' own tests and its processes' saved simulation
+	// cases. It is inside the hash, so an installation that trusts the
+	// signature also knows the release was checked at the source. A release
+	// cut before releases were checked has none.
+	Checked *ReleaseChecks `json:"checked,omitempty"`
+}
+
+// ReleaseChecks is what a release passed where it was cut.
+type ReleaseChecks struct {
+	At              time.Time `json:"at"`
+	DecisionTests   int       `json:"decision_tests"`
+	SimulationCases int       `json:"simulation_cases"`
 }
 
 // ReleaseItem is one model of a release, as it is in one runtime.

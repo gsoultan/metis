@@ -84,6 +84,9 @@ type View struct {
 	LiveAt      *time.Time             `json:"live_at,omitzero"`
 	Previous    string                 `json:"previous,omitzero"`
 	CreatedAt   time.Time              `json:"created_at"`
+	// Checked is what the release passed where it was cut. A release cut
+	// before releases were checked has none.
+	Checked *entities.ReleaseChecks `json:"checked,omitzero"`
 }
 
 // ViewOf is the API's view of a release.
@@ -94,6 +97,7 @@ func ViewOf(r entities.Release) View {
 		Items: r.Items, Connections: r.Bundle.Connections,
 		CutAt: r.Bundle.CutAt, CutBy: r.CutBy, ActedBy: r.ActedBy, ImportedBy: r.ImportedBy, ApprovedBy: r.ApprovedBy,
 		LiveAt: r.LiveAt, Previous: r.Previous, CreatedAt: r.CreatedAt,
+		Checked: r.Bundle.Checked,
 	}
 	if r.Project != nil {
 		v.ProjectID = r.Project.ID.String()
