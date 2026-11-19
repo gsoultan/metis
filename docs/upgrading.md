@@ -239,6 +239,17 @@ Migration 54 adds `releases.imported_by` and `releases.approved_by`. A
 release imported before it has neither, and in a protected environment is
 approved by a second person before it goes live, as a new one is.
 
+## Release live note (migration 59)
+
+Migration 59 adds `releases.live_note`, JSON null on every release already
+there. It holds another environment's signed note that a release went live
+there, attached before it goes live here. Nothing requires one unless the
+server running Metis says so; see
+[Releases](releases.md#when-production-has-a-staging-before-it).
+
+**Rolling back** to a release without the column leaves it in place and
+unread.
+
 ## Push devices (migration 55)
 
 Migration 55 creates `person_devices`, empty: the phones and browsers People

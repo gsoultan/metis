@@ -63,6 +63,11 @@ func (r *releaseRepository) Create(ctx context.Context, rel entities.Release) (e
 	if rel.LiveAt != nil {
 		ins.SetLiveAt(*rel.LiveAt)
 	}
+	note, err := encodeLiveNote(rel)
+	if err != nil {
+		return entities.Release{}, err
+	}
+	ins.SetLiveNote(note)
 	row, err := ins.Insert(ctx, ex)
 	if err != nil {
 		return entities.Release{}, fmt.Errorf("could not save the release: %w", err)
@@ -129,7 +134,7 @@ func (r *releaseRepository) List(ctx context.Context, projectID uuid.UUID, limit
 	return out, nil
 }
 
-// Update rewrites a release's state, items and who last acted on it. The
+// Update rewrites a release's state, items, live note and who last acted on it. The
 // bundle and its hash are what the release is, and are never rewritten.
 func (r *releaseRepository) Update(ctx context.Context, rel entities.Release) error {
 	if rel.Project == nil {
@@ -162,6 +167,11 @@ func (r *releaseRepository) Update(ctx context.Context, rel entities.Release) er
 	if rel.LiveAt != nil {
 		mut.SetLiveAt(*rel.LiveAt)
 	}
+	note, err := encodeLiveNote(rel)
+	if err != nil {
+		return err
+	}
+	mut.SetLiveNote(note)
 	mut.SetUpdatedAtNow()
 	if err := mut.Update(ctx, ex); err != nil {
 		return fmt.Errorf("could not save the release: %w", err)
@@ -204,7 +214,22 @@ func promotionReleaseFrom(row release.Row) (entities.Release, error) {
 	if err := json.Unmarshal(row.Items, &rel.Items); err != nil {
 		return entities.Release{}, fmt.Errorf("release %s has versions that cannot be read: %w", row.Name, err)
 	}
+	if len(row.LiveNote) > 0 {
+		if err := json.Unmarshal(row.LiveNote, &rel.LiveNote); err != nil {
+			return entities.Release{}, fmt.Errorf("release %s has a live note that cannot be read: %w", row.Name, err)
+		}
+	}
 	return rel, nil
+}
+
+// encodeLiveNote is a release's live note as the column holds it: JSON null
+// when there is none.
+func encodeLiveNote(rel entities.Release) ([]byte, error) {
+	note, err := json.Marshal(rel.LiveNote)
+	if err != nil {
+		return nil, fmt.Errorf("could not encode the release's live note: %w", err)
+	}
+	return note, nil
 }
 
 func liveAtOf(v runtime.Null[time.Time]) *time.Time {

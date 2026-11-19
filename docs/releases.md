@@ -122,9 +122,31 @@ The checks at go live run production's own saved simulation cases.
 
 By default both settings are read from the environment, never from the
 Settings page. A server that runs Metis can keep them itself instead
-(`services.WithReleaseKeys`); it is then answerable for who may change which
+(`services.WithReleaseKeys`, or `engine.WithReleaseKeys` for a program that embeds the engine); it is then answerable for who may change which
 keys are trusted, because: an administrator who could change them could make production trust a
 release nobody tested.
+
+## When production has a staging before it
+
+A production that takes releases from a staging can require that a release
+went live in staging before it goes live there. Staging gives a **live note**
+for a release that has gone live there: the release's name and hash, when it
+went live, signed with staging's release key. Production keeps it with the
+staged release:
+
+1. On staging, after the release went live, read its note
+   (`GET /releases/{name}/live-note`).
+2. On production, attach it to the staged release
+   (`POST /releases/{name}/live-note`). It is refused unless it is for exactly
+   this release (the same hash), and signed by a key production trusts.
+3. Go live. Production checks the note again, so a note from a key no longer
+   trusted does not count.
+
+Whether a note is required is the server's to say, because it is the server
+that knows how its environments are connected: `services.WithReleasePolicy`
+(`engine.WithReleasePolicy` for a program that embeds the engine). Without a
+policy, no note is required, and a production that takes releases straight
+from development relies on the checks the release passed where it was cut.
 
 ## API
 
@@ -141,6 +163,8 @@ a protected runtime.
 | `POST` | `/releases/import` | `{"from_environment": "<environment id, or empty for the main runtime>", "name": "2026.11.1"}` |
 | `GET` | `/releases/{name}/export` | Answers `{"file": {...}}`. |
 | `POST` | `/releases/import-file` | `{"file": {...}}`, at most 16 MiB |
+| `GET` | `/releases/{name}/live-note` | Answers `{"note": {...}}`, signed, for a release that has gone live here. |
+| `POST` | `/releases/{name}/live-note` | `{"note": {...}}`: another environment's note, attached to a staged release. |
 | `POST` | `/releases/{name}/approve` | |
 | `POST` | `/releases/{name}/go-live` | |
 | `POST` | `/releases/rollback` | |

@@ -17,15 +17,17 @@ import (
 
 // Endpoints are the release operations.
 type Endpoints struct {
-	ListReleases      endpoint.Endpoint
-	GetRelease        endpoint.Endpoint
-	CutRelease        endpoint.Endpoint
-	ImportRelease     endpoint.Endpoint
-	ApproveRelease    endpoint.Endpoint
-	ExportRelease     endpoint.Endpoint
-	ImportReleaseFile endpoint.Endpoint
-	GoLiveRelease     endpoint.Endpoint
-	RollBackRelease   endpoint.Endpoint
+	ListReleases          endpoint.Endpoint
+	GetRelease            endpoint.Endpoint
+	CutRelease            endpoint.Endpoint
+	ImportRelease         endpoint.Endpoint
+	ApproveRelease        endpoint.Endpoint
+	ExportRelease         endpoint.Endpoint
+	ImportReleaseFile     endpoint.Endpoint
+	ReleaseLiveNote       endpoint.Endpoint
+	AttachReleaseLiveNote endpoint.Endpoint
+	GoLiveRelease         endpoint.Endpoint
+	RollBackRelease       endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -107,6 +109,32 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 				return ReleaseResponse{Err: err}, nil
 			}
 			return respond(s.ImportReleaseFile(ctx, projectID, req.File))
+		},
+		ReleaseLiveNote: func(ctx context.Context, request any) (any, error) {
+			req, ok := request.(NamedRequest)
+			if !ok {
+				return nil, fmt.Errorf("release: expected a NamedRequest, got %T", request)
+			}
+			projectID, err := parseID("project", req.ProjectID)
+			if err != nil {
+				return LiveNoteResponse{Err: err}, nil
+			}
+			note, err := s.ReleaseLiveNote(ctx, projectID, req.Name)
+			if err != nil {
+				return LiveNoteResponse{Err: err}, nil
+			}
+			return LiveNoteResponse{Note: note}, nil
+		},
+		AttachReleaseLiveNote: func(ctx context.Context, request any) (any, error) {
+			req, ok := request.(AttachLiveNoteRequest)
+			if !ok {
+				return nil, fmt.Errorf("release: expected an AttachLiveNoteRequest, got %T", request)
+			}
+			projectID, err := parseID("project", req.ProjectID)
+			if err != nil {
+				return ReleaseResponse{Err: err}, nil
+			}
+			return respond(s.AttachReleaseLiveNote(ctx, projectID, req.Name, req.Note))
 		},
 		ApproveRelease: named(func(ctx context.Context, projectID uuid.UUID, name string) (entities.Release, error) {
 			return s.ApproveRelease(ctx, projectID, name)

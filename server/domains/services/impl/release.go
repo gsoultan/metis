@@ -36,6 +36,7 @@ type releaseService struct {
 	simulation  contracts.SimulationService
 	protected   func(context.Context) (bool, error)
 	keys        ReleaseKeys
+	policy      ReleasePolicy
 }
 
 // ReleaseParts are what the release service checks a release with before it
@@ -48,6 +49,9 @@ type ReleaseParts struct {
 	// and the keys whose releases it imports. Nil reads them from
 	// METIS_RELEASE_SIGNING_KEY and METIS_RELEASE_TRUSTED_KEYS.
 	Keys ReleaseKeys
+	// Policy says which releases need another environment's live note before
+	// they go live here. Nil requires none.
+	Policy ReleasePolicy
 }
 
 // NewReleaseService returns the service that cuts, imports and makes live
@@ -69,7 +73,7 @@ func NewReleaseService(
 		keys = EnvReleaseKeys{}
 	}
 	return &releaseService{repo: repo, definitions: definitions, decisions: decisions, connectors: connectors,
-		simulation: parts.Simulation, protected: protected, keys: keys}
+		simulation: parts.Simulation, protected: protected, keys: keys, policy: parts.Policy}
 }
 
 // CutRelease records the live versions of the named models as a release.
@@ -412,6 +416,9 @@ func (s *releaseService) GoLive(ctx context.Context, projectID uuid.UUID, name s
 	if protected && rel.ApprovedBy == "" {
 		return entities.Release{}, apierr.Invalidf(
 			"this environment is protected, so release %s goes live once someone other than who cut or imported it has approved it", rel.Name)
+	}
+	if err := s.requireLiveNote(ctx, rel); err != nil {
+		return entities.Release{}, err
 	}
 	if err := s.checkGates(ctx, rel); err != nil {
 		return entities.Release{}, err

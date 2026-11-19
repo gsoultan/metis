@@ -689,6 +689,7 @@ func _assertReleaseShape(m m0.Release) {
 		m.ApprovedBy,
 		m.LiveAt,
 		m.Previous,
+		m.LiveNote,
 	}
 }
 

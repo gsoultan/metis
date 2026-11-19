@@ -254,6 +254,9 @@ type facadeSettings struct {
 	// releaseKeys are the keys releases are signed and trusted by. Nil reads
 	// them from the environment: see WithReleaseKeys.
 	releaseKeys serviceimpl.ReleaseKeys
+	// releasePolicy says which releases need another environment's live note
+	// before they go live here. Nil requires none: see WithReleasePolicy.
+	releasePolicy serviceimpl.ReleasePolicy
 }
 
 // FacadeOption changes what the services are built with.
@@ -302,6 +305,14 @@ func WithUpgrades(upgrades contracts.UpgradeService) FacadeOption {
 // trusted.
 func WithReleaseKeys(keys serviceimpl.ReleaseKeys) FacadeOption {
 	return func(settings *facadeSettings) { settings.releaseKeys = keys }
+}
+
+// WithReleasePolicy is which releases go live here only with another
+// environment's signed note that they went live there. Built without it, none
+// need one. The server that knows how its environments are connected supplies
+// it: a production with a staging before it requires staging's note.
+func WithReleasePolicy(policy serviceimpl.ReleasePolicy) FacadeOption {
+	return func(settings *facadeSettings) { settings.releasePolicy = policy }
 }
 
 // WithCredentials hands every account's password and second factor to the
@@ -469,7 +480,7 @@ func NewServiceFacade(
 		SimulationService:     simulationSvc,
 		SimulationCaseService: serviceimpl.NewSimulationCaseService(repo),
 		ReleaseService: serviceimpl.NewReleaseService(repo, defSvc, decisionSvc, connectorSvc,
-			serviceimpl.ReleaseParts{Simulation: simulationSvc, Protected: environmentSvc.RuntimeProtected, Keys: settings.releaseKeys}),
+			serviceimpl.ReleaseParts{Simulation: simulationSvc, Protected: environmentSvc.RuntimeProtected, Keys: settings.releaseKeys, Policy: settings.releasePolicy}),
 		DeviationService: serviceimpl.NewDeviationService(deviationLedger,
 			instanceDeviator,
 			serviceimpl.NewDeviationRequestService(repo, engine,

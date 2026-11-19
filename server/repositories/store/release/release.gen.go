@@ -38,9 +38,10 @@ type Row struct {
 	ApprovedBy string
 	LiveAt     runtime.Null[time.Time]
 	Previous   string
+	LiveNote   runtime.JSON
 }
 
-const nCols = 16
+const nCols = 17
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -297,6 +298,7 @@ var (
 	ApprovedBy = TextCol{13}
 	LiveAt     = NullTimeCol{14}
 	Previous   = TextCol{15}
+	LiveNote   = JSONCol{16}
 )
 
 // UUIDCol addresses a uuid column.
@@ -532,7 +534,7 @@ func (q *Query) leaf(p Pred) {
 		switch p.col {
 		case 0, 3:
 			ok = runtime.Stash(q.anyRaw[:], &q.nar, p.anyRaw)
-		case 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15:
+		case 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16:
 			ok = runtime.Stash(q.anyStr[:], &q.nas, p.anyStr)
 		}
 	default:
@@ -543,7 +545,7 @@ func (q *Query) leaf(p Pred) {
 			ok = runtime.Stash(q.tims[:], &q.ntm, p.tim)
 		case 4, 5, 6, 7, 10, 11, 12, 13, 15:
 			ok = runtime.Stash(q.strs[:], &q.ns, p.str)
-		case 8, 9:
+		case 8, 9, 16:
 			ok = runtime.Stash(q.jsns[:], &q.njs, p.jsn)
 		}
 	}
@@ -555,174 +557,180 @@ func (q *Query) leaf(p Pred) {
 }
 
 // Chained predicate sugar. Identical to Where(Col.Op(v)).
-func (q Query) IDEq(v [16]byte) Query                  { return q.Where(ID.Eq(v)) }
-func (q Query) IDNotEq(v [16]byte) Query               { return q.Where(ID.NotEq(v)) }
-func (q Query) IDIn(v ...[16]byte) Query               { return q.Where(ID.In(v...)) }
-func (q Query) IDNotIn(v ...[16]byte) Query            { return q.Where(ID.NotIn(v...)) }
-func (q Query) CreatedAtEq(v time.Time) Query          { return q.Where(CreatedAt.Eq(v)) }
-func (q Query) CreatedAtNotEq(v time.Time) Query       { return q.Where(CreatedAt.NotEq(v)) }
-func (q Query) CreatedAtGt(v time.Time) Query          { return q.Where(CreatedAt.Gt(v)) }
-func (q Query) CreatedAtGte(v time.Time) Query         { return q.Where(CreatedAt.Gte(v)) }
-func (q Query) CreatedAtLt(v time.Time) Query          { return q.Where(CreatedAt.Lt(v)) }
-func (q Query) CreatedAtLte(v time.Time) Query         { return q.Where(CreatedAt.Lte(v)) }
-func (q Query) UpdatedAtEq(v time.Time) Query          { return q.Where(UpdatedAt.Eq(v)) }
-func (q Query) UpdatedAtNotEq(v time.Time) Query       { return q.Where(UpdatedAt.NotEq(v)) }
-func (q Query) UpdatedAtGt(v time.Time) Query          { return q.Where(UpdatedAt.Gt(v)) }
-func (q Query) UpdatedAtGte(v time.Time) Query         { return q.Where(UpdatedAt.Gte(v)) }
-func (q Query) UpdatedAtLt(v time.Time) Query          { return q.Where(UpdatedAt.Lt(v)) }
-func (q Query) UpdatedAtLte(v time.Time) Query         { return q.Where(UpdatedAt.Lte(v)) }
-func (q Query) ProjectIDEq(v [16]byte) Query           { return q.Where(ProjectID.Eq(v)) }
-func (q Query) ProjectIDNotEq(v [16]byte) Query        { return q.Where(ProjectID.NotEq(v)) }
-func (q Query) ProjectIDIn(v ...[16]byte) Query        { return q.Where(ProjectID.In(v...)) }
-func (q Query) ProjectIDNotIn(v ...[16]byte) Query     { return q.Where(ProjectID.NotIn(v...)) }
-func (q Query) NameEq(v string) Query                  { return q.Where(Name.Eq(v)) }
-func (q Query) NameNotEq(v string) Query               { return q.Where(Name.NotEq(v)) }
-func (q Query) NameGt(v string) Query                  { return q.Where(Name.Gt(v)) }
-func (q Query) NameGte(v string) Query                 { return q.Where(Name.Gte(v)) }
-func (q Query) NameLt(v string) Query                  { return q.Where(Name.Lt(v)) }
-func (q Query) NameLte(v string) Query                 { return q.Where(Name.Lte(v)) }
-func (q Query) NameEqLower(v string) Query             { return q.Where(Name.EqLower(v)) }
-func (q Query) NameLike(v string) Query                { return q.Where(Name.Like(v)) }
-func (q Query) NameILike(v string) Query               { return q.Where(Name.ILike(v)) }
-func (q Query) NameIn(v ...string) Query               { return q.Where(Name.In(v...)) }
-func (q Query) NameNotIn(v ...string) Query            { return q.Where(Name.NotIn(v...)) }
-func (q Query) NameHasPrefix(v string) Query           { return q.Where(Name.HasPrefix(v)) }
-func (q Query) NameHasSuffix(v string) Query           { return q.Where(Name.HasSuffix(v)) }
-func (q Query) NameContains(v string) Query            { return q.Where(Name.Contains(v)) }
-func (q Query) HashEq(v string) Query                  { return q.Where(Hash.Eq(v)) }
-func (q Query) HashNotEq(v string) Query               { return q.Where(Hash.NotEq(v)) }
-func (q Query) HashGt(v string) Query                  { return q.Where(Hash.Gt(v)) }
-func (q Query) HashGte(v string) Query                 { return q.Where(Hash.Gte(v)) }
-func (q Query) HashLt(v string) Query                  { return q.Where(Hash.Lt(v)) }
-func (q Query) HashLte(v string) Query                 { return q.Where(Hash.Lte(v)) }
-func (q Query) HashEqLower(v string) Query             { return q.Where(Hash.EqLower(v)) }
-func (q Query) HashLike(v string) Query                { return q.Where(Hash.Like(v)) }
-func (q Query) HashILike(v string) Query               { return q.Where(Hash.ILike(v)) }
-func (q Query) HashIn(v ...string) Query               { return q.Where(Hash.In(v...)) }
-func (q Query) HashNotIn(v ...string) Query            { return q.Where(Hash.NotIn(v...)) }
-func (q Query) HashHasPrefix(v string) Query           { return q.Where(Hash.HasPrefix(v)) }
-func (q Query) HashHasSuffix(v string) Query           { return q.Where(Hash.HasSuffix(v)) }
-func (q Query) HashContains(v string) Query            { return q.Where(Hash.Contains(v)) }
-func (q Query) OriginEq(v string) Query                { return q.Where(Origin.Eq(v)) }
-func (q Query) OriginNotEq(v string) Query             { return q.Where(Origin.NotEq(v)) }
-func (q Query) OriginGt(v string) Query                { return q.Where(Origin.Gt(v)) }
-func (q Query) OriginGte(v string) Query               { return q.Where(Origin.Gte(v)) }
-func (q Query) OriginLt(v string) Query                { return q.Where(Origin.Lt(v)) }
-func (q Query) OriginLte(v string) Query               { return q.Where(Origin.Lte(v)) }
-func (q Query) OriginEqLower(v string) Query           { return q.Where(Origin.EqLower(v)) }
-func (q Query) OriginLike(v string) Query              { return q.Where(Origin.Like(v)) }
-func (q Query) OriginILike(v string) Query             { return q.Where(Origin.ILike(v)) }
-func (q Query) OriginIn(v ...string) Query             { return q.Where(Origin.In(v...)) }
-func (q Query) OriginNotIn(v ...string) Query          { return q.Where(Origin.NotIn(v...)) }
-func (q Query) OriginHasPrefix(v string) Query         { return q.Where(Origin.HasPrefix(v)) }
-func (q Query) OriginHasSuffix(v string) Query         { return q.Where(Origin.HasSuffix(v)) }
-func (q Query) OriginContains(v string) Query          { return q.Where(Origin.Contains(v)) }
-func (q Query) StateEq(v string) Query                 { return q.Where(State.Eq(v)) }
-func (q Query) StateNotEq(v string) Query              { return q.Where(State.NotEq(v)) }
-func (q Query) StateGt(v string) Query                 { return q.Where(State.Gt(v)) }
-func (q Query) StateGte(v string) Query                { return q.Where(State.Gte(v)) }
-func (q Query) StateLt(v string) Query                 { return q.Where(State.Lt(v)) }
-func (q Query) StateLte(v string) Query                { return q.Where(State.Lte(v)) }
-func (q Query) StateEqLower(v string) Query            { return q.Where(State.EqLower(v)) }
-func (q Query) StateLike(v string) Query               { return q.Where(State.Like(v)) }
-func (q Query) StateILike(v string) Query              { return q.Where(State.ILike(v)) }
-func (q Query) StateIn(v ...string) Query              { return q.Where(State.In(v...)) }
-func (q Query) StateNotIn(v ...string) Query           { return q.Where(State.NotIn(v...)) }
-func (q Query) StateHasPrefix(v string) Query          { return q.Where(State.HasPrefix(v)) }
-func (q Query) StateHasSuffix(v string) Query          { return q.Where(State.HasSuffix(v)) }
-func (q Query) StateContains(v string) Query           { return q.Where(State.Contains(v)) }
-func (q Query) BundleContains(v runtime.JSON) Query    { return q.Where(Bundle.Contains(v)) }
-func (q Query) BundleContainedBy(v runtime.JSON) Query { return q.Where(Bundle.ContainedBy(v)) }
-func (q Query) BundleHasAnyKey(v ...string) Query      { return q.Where(Bundle.HasAnyKey(v...)) }
-func (q Query) BundleHasAllKeys(v ...string) Query     { return q.Where(Bundle.HasAllKeys(v...)) }
-func (q Query) BundleTextLikeAny(v ...string) Query    { return q.Where(Bundle.TextLikeAny(v...)) }
-func (q Query) BundleIsEmpty() Query                   { return q.Where(Bundle.IsEmpty()) }
-func (q Query) ItemsContains(v runtime.JSON) Query     { return q.Where(Items.Contains(v)) }
-func (q Query) ItemsContainedBy(v runtime.JSON) Query  { return q.Where(Items.ContainedBy(v)) }
-func (q Query) ItemsHasAnyKey(v ...string) Query       { return q.Where(Items.HasAnyKey(v...)) }
-func (q Query) ItemsHasAllKeys(v ...string) Query      { return q.Where(Items.HasAllKeys(v...)) }
-func (q Query) ItemsTextLikeAny(v ...string) Query     { return q.Where(Items.TextLikeAny(v...)) }
-func (q Query) ItemsIsEmpty() Query                    { return q.Where(Items.IsEmpty()) }
-func (q Query) CutByEq(v string) Query                 { return q.Where(CutBy.Eq(v)) }
-func (q Query) CutByNotEq(v string) Query              { return q.Where(CutBy.NotEq(v)) }
-func (q Query) CutByGt(v string) Query                 { return q.Where(CutBy.Gt(v)) }
-func (q Query) CutByGte(v string) Query                { return q.Where(CutBy.Gte(v)) }
-func (q Query) CutByLt(v string) Query                 { return q.Where(CutBy.Lt(v)) }
-func (q Query) CutByLte(v string) Query                { return q.Where(CutBy.Lte(v)) }
-func (q Query) CutByEqLower(v string) Query            { return q.Where(CutBy.EqLower(v)) }
-func (q Query) CutByLike(v string) Query               { return q.Where(CutBy.Like(v)) }
-func (q Query) CutByILike(v string) Query              { return q.Where(CutBy.ILike(v)) }
-func (q Query) CutByIn(v ...string) Query              { return q.Where(CutBy.In(v...)) }
-func (q Query) CutByNotIn(v ...string) Query           { return q.Where(CutBy.NotIn(v...)) }
-func (q Query) CutByHasPrefix(v string) Query          { return q.Where(CutBy.HasPrefix(v)) }
-func (q Query) CutByHasSuffix(v string) Query          { return q.Where(CutBy.HasSuffix(v)) }
-func (q Query) CutByContains(v string) Query           { return q.Where(CutBy.Contains(v)) }
-func (q Query) ActedByEq(v string) Query               { return q.Where(ActedBy.Eq(v)) }
-func (q Query) ActedByNotEq(v string) Query            { return q.Where(ActedBy.NotEq(v)) }
-func (q Query) ActedByGt(v string) Query               { return q.Where(ActedBy.Gt(v)) }
-func (q Query) ActedByGte(v string) Query              { return q.Where(ActedBy.Gte(v)) }
-func (q Query) ActedByLt(v string) Query               { return q.Where(ActedBy.Lt(v)) }
-func (q Query) ActedByLte(v string) Query              { return q.Where(ActedBy.Lte(v)) }
-func (q Query) ActedByEqLower(v string) Query          { return q.Where(ActedBy.EqLower(v)) }
-func (q Query) ActedByLike(v string) Query             { return q.Where(ActedBy.Like(v)) }
-func (q Query) ActedByILike(v string) Query            { return q.Where(ActedBy.ILike(v)) }
-func (q Query) ActedByIn(v ...string) Query            { return q.Where(ActedBy.In(v...)) }
-func (q Query) ActedByNotIn(v ...string) Query         { return q.Where(ActedBy.NotIn(v...)) }
-func (q Query) ActedByHasPrefix(v string) Query        { return q.Where(ActedBy.HasPrefix(v)) }
-func (q Query) ActedByHasSuffix(v string) Query        { return q.Where(ActedBy.HasSuffix(v)) }
-func (q Query) ActedByContains(v string) Query         { return q.Where(ActedBy.Contains(v)) }
-func (q Query) ImportedByEq(v string) Query            { return q.Where(ImportedBy.Eq(v)) }
-func (q Query) ImportedByNotEq(v string) Query         { return q.Where(ImportedBy.NotEq(v)) }
-func (q Query) ImportedByGt(v string) Query            { return q.Where(ImportedBy.Gt(v)) }
-func (q Query) ImportedByGte(v string) Query           { return q.Where(ImportedBy.Gte(v)) }
-func (q Query) ImportedByLt(v string) Query            { return q.Where(ImportedBy.Lt(v)) }
-func (q Query) ImportedByLte(v string) Query           { return q.Where(ImportedBy.Lte(v)) }
-func (q Query) ImportedByEqLower(v string) Query       { return q.Where(ImportedBy.EqLower(v)) }
-func (q Query) ImportedByLike(v string) Query          { return q.Where(ImportedBy.Like(v)) }
-func (q Query) ImportedByILike(v string) Query         { return q.Where(ImportedBy.ILike(v)) }
-func (q Query) ImportedByIn(v ...string) Query         { return q.Where(ImportedBy.In(v...)) }
-func (q Query) ImportedByNotIn(v ...string) Query      { return q.Where(ImportedBy.NotIn(v...)) }
-func (q Query) ImportedByHasPrefix(v string) Query     { return q.Where(ImportedBy.HasPrefix(v)) }
-func (q Query) ImportedByHasSuffix(v string) Query     { return q.Where(ImportedBy.HasSuffix(v)) }
-func (q Query) ImportedByContains(v string) Query      { return q.Where(ImportedBy.Contains(v)) }
-func (q Query) ApprovedByEq(v string) Query            { return q.Where(ApprovedBy.Eq(v)) }
-func (q Query) ApprovedByNotEq(v string) Query         { return q.Where(ApprovedBy.NotEq(v)) }
-func (q Query) ApprovedByGt(v string) Query            { return q.Where(ApprovedBy.Gt(v)) }
-func (q Query) ApprovedByGte(v string) Query           { return q.Where(ApprovedBy.Gte(v)) }
-func (q Query) ApprovedByLt(v string) Query            { return q.Where(ApprovedBy.Lt(v)) }
-func (q Query) ApprovedByLte(v string) Query           { return q.Where(ApprovedBy.Lte(v)) }
-func (q Query) ApprovedByEqLower(v string) Query       { return q.Where(ApprovedBy.EqLower(v)) }
-func (q Query) ApprovedByLike(v string) Query          { return q.Where(ApprovedBy.Like(v)) }
-func (q Query) ApprovedByILike(v string) Query         { return q.Where(ApprovedBy.ILike(v)) }
-func (q Query) ApprovedByIn(v ...string) Query         { return q.Where(ApprovedBy.In(v...)) }
-func (q Query) ApprovedByNotIn(v ...string) Query      { return q.Where(ApprovedBy.NotIn(v...)) }
-func (q Query) ApprovedByHasPrefix(v string) Query     { return q.Where(ApprovedBy.HasPrefix(v)) }
-func (q Query) ApprovedByHasSuffix(v string) Query     { return q.Where(ApprovedBy.HasSuffix(v)) }
-func (q Query) ApprovedByContains(v string) Query      { return q.Where(ApprovedBy.Contains(v)) }
-func (q Query) LiveAtEq(v time.Time) Query             { return q.Where(LiveAt.Eq(v)) }
-func (q Query) LiveAtNotEq(v time.Time) Query          { return q.Where(LiveAt.NotEq(v)) }
-func (q Query) LiveAtGt(v time.Time) Query             { return q.Where(LiveAt.Gt(v)) }
-func (q Query) LiveAtGte(v time.Time) Query            { return q.Where(LiveAt.Gte(v)) }
-func (q Query) LiveAtLt(v time.Time) Query             { return q.Where(LiveAt.Lt(v)) }
-func (q Query) LiveAtLte(v time.Time) Query            { return q.Where(LiveAt.Lte(v)) }
-func (q Query) LiveAtIsNull() Query                    { return q.Where(LiveAt.IsNull()) }
-func (q Query) LiveAtIsNotNull() Query                 { return q.Where(LiveAt.IsNotNull()) }
-func (q Query) PreviousEq(v string) Query              { return q.Where(Previous.Eq(v)) }
-func (q Query) PreviousNotEq(v string) Query           { return q.Where(Previous.NotEq(v)) }
-func (q Query) PreviousGt(v string) Query              { return q.Where(Previous.Gt(v)) }
-func (q Query) PreviousGte(v string) Query             { return q.Where(Previous.Gte(v)) }
-func (q Query) PreviousLt(v string) Query              { return q.Where(Previous.Lt(v)) }
-func (q Query) PreviousLte(v string) Query             { return q.Where(Previous.Lte(v)) }
-func (q Query) PreviousEqLower(v string) Query         { return q.Where(Previous.EqLower(v)) }
-func (q Query) PreviousLike(v string) Query            { return q.Where(Previous.Like(v)) }
-func (q Query) PreviousILike(v string) Query           { return q.Where(Previous.ILike(v)) }
-func (q Query) PreviousIn(v ...string) Query           { return q.Where(Previous.In(v...)) }
-func (q Query) PreviousNotIn(v ...string) Query        { return q.Where(Previous.NotIn(v...)) }
-func (q Query) PreviousHasPrefix(v string) Query       { return q.Where(Previous.HasPrefix(v)) }
-func (q Query) PreviousHasSuffix(v string) Query       { return q.Where(Previous.HasSuffix(v)) }
-func (q Query) PreviousContains(v string) Query        { return q.Where(Previous.Contains(v)) }
+func (q Query) IDEq(v [16]byte) Query                    { return q.Where(ID.Eq(v)) }
+func (q Query) IDNotEq(v [16]byte) Query                 { return q.Where(ID.NotEq(v)) }
+func (q Query) IDIn(v ...[16]byte) Query                 { return q.Where(ID.In(v...)) }
+func (q Query) IDNotIn(v ...[16]byte) Query              { return q.Where(ID.NotIn(v...)) }
+func (q Query) CreatedAtEq(v time.Time) Query            { return q.Where(CreatedAt.Eq(v)) }
+func (q Query) CreatedAtNotEq(v time.Time) Query         { return q.Where(CreatedAt.NotEq(v)) }
+func (q Query) CreatedAtGt(v time.Time) Query            { return q.Where(CreatedAt.Gt(v)) }
+func (q Query) CreatedAtGte(v time.Time) Query           { return q.Where(CreatedAt.Gte(v)) }
+func (q Query) CreatedAtLt(v time.Time) Query            { return q.Where(CreatedAt.Lt(v)) }
+func (q Query) CreatedAtLte(v time.Time) Query           { return q.Where(CreatedAt.Lte(v)) }
+func (q Query) UpdatedAtEq(v time.Time) Query            { return q.Where(UpdatedAt.Eq(v)) }
+func (q Query) UpdatedAtNotEq(v time.Time) Query         { return q.Where(UpdatedAt.NotEq(v)) }
+func (q Query) UpdatedAtGt(v time.Time) Query            { return q.Where(UpdatedAt.Gt(v)) }
+func (q Query) UpdatedAtGte(v time.Time) Query           { return q.Where(UpdatedAt.Gte(v)) }
+func (q Query) UpdatedAtLt(v time.Time) Query            { return q.Where(UpdatedAt.Lt(v)) }
+func (q Query) UpdatedAtLte(v time.Time) Query           { return q.Where(UpdatedAt.Lte(v)) }
+func (q Query) ProjectIDEq(v [16]byte) Query             { return q.Where(ProjectID.Eq(v)) }
+func (q Query) ProjectIDNotEq(v [16]byte) Query          { return q.Where(ProjectID.NotEq(v)) }
+func (q Query) ProjectIDIn(v ...[16]byte) Query          { return q.Where(ProjectID.In(v...)) }
+func (q Query) ProjectIDNotIn(v ...[16]byte) Query       { return q.Where(ProjectID.NotIn(v...)) }
+func (q Query) NameEq(v string) Query                    { return q.Where(Name.Eq(v)) }
+func (q Query) NameNotEq(v string) Query                 { return q.Where(Name.NotEq(v)) }
+func (q Query) NameGt(v string) Query                    { return q.Where(Name.Gt(v)) }
+func (q Query) NameGte(v string) Query                   { return q.Where(Name.Gte(v)) }
+func (q Query) NameLt(v string) Query                    { return q.Where(Name.Lt(v)) }
+func (q Query) NameLte(v string) Query                   { return q.Where(Name.Lte(v)) }
+func (q Query) NameEqLower(v string) Query               { return q.Where(Name.EqLower(v)) }
+func (q Query) NameLike(v string) Query                  { return q.Where(Name.Like(v)) }
+func (q Query) NameILike(v string) Query                 { return q.Where(Name.ILike(v)) }
+func (q Query) NameIn(v ...string) Query                 { return q.Where(Name.In(v...)) }
+func (q Query) NameNotIn(v ...string) Query              { return q.Where(Name.NotIn(v...)) }
+func (q Query) NameHasPrefix(v string) Query             { return q.Where(Name.HasPrefix(v)) }
+func (q Query) NameHasSuffix(v string) Query             { return q.Where(Name.HasSuffix(v)) }
+func (q Query) NameContains(v string) Query              { return q.Where(Name.Contains(v)) }
+func (q Query) HashEq(v string) Query                    { return q.Where(Hash.Eq(v)) }
+func (q Query) HashNotEq(v string) Query                 { return q.Where(Hash.NotEq(v)) }
+func (q Query) HashGt(v string) Query                    { return q.Where(Hash.Gt(v)) }
+func (q Query) HashGte(v string) Query                   { return q.Where(Hash.Gte(v)) }
+func (q Query) HashLt(v string) Query                    { return q.Where(Hash.Lt(v)) }
+func (q Query) HashLte(v string) Query                   { return q.Where(Hash.Lte(v)) }
+func (q Query) HashEqLower(v string) Query               { return q.Where(Hash.EqLower(v)) }
+func (q Query) HashLike(v string) Query                  { return q.Where(Hash.Like(v)) }
+func (q Query) HashILike(v string) Query                 { return q.Where(Hash.ILike(v)) }
+func (q Query) HashIn(v ...string) Query                 { return q.Where(Hash.In(v...)) }
+func (q Query) HashNotIn(v ...string) Query              { return q.Where(Hash.NotIn(v...)) }
+func (q Query) HashHasPrefix(v string) Query             { return q.Where(Hash.HasPrefix(v)) }
+func (q Query) HashHasSuffix(v string) Query             { return q.Where(Hash.HasSuffix(v)) }
+func (q Query) HashContains(v string) Query              { return q.Where(Hash.Contains(v)) }
+func (q Query) OriginEq(v string) Query                  { return q.Where(Origin.Eq(v)) }
+func (q Query) OriginNotEq(v string) Query               { return q.Where(Origin.NotEq(v)) }
+func (q Query) OriginGt(v string) Query                  { return q.Where(Origin.Gt(v)) }
+func (q Query) OriginGte(v string) Query                 { return q.Where(Origin.Gte(v)) }
+func (q Query) OriginLt(v string) Query                  { return q.Where(Origin.Lt(v)) }
+func (q Query) OriginLte(v string) Query                 { return q.Where(Origin.Lte(v)) }
+func (q Query) OriginEqLower(v string) Query             { return q.Where(Origin.EqLower(v)) }
+func (q Query) OriginLike(v string) Query                { return q.Where(Origin.Like(v)) }
+func (q Query) OriginILike(v string) Query               { return q.Where(Origin.ILike(v)) }
+func (q Query) OriginIn(v ...string) Query               { return q.Where(Origin.In(v...)) }
+func (q Query) OriginNotIn(v ...string) Query            { return q.Where(Origin.NotIn(v...)) }
+func (q Query) OriginHasPrefix(v string) Query           { return q.Where(Origin.HasPrefix(v)) }
+func (q Query) OriginHasSuffix(v string) Query           { return q.Where(Origin.HasSuffix(v)) }
+func (q Query) OriginContains(v string) Query            { return q.Where(Origin.Contains(v)) }
+func (q Query) StateEq(v string) Query                   { return q.Where(State.Eq(v)) }
+func (q Query) StateNotEq(v string) Query                { return q.Where(State.NotEq(v)) }
+func (q Query) StateGt(v string) Query                   { return q.Where(State.Gt(v)) }
+func (q Query) StateGte(v string) Query                  { return q.Where(State.Gte(v)) }
+func (q Query) StateLt(v string) Query                   { return q.Where(State.Lt(v)) }
+func (q Query) StateLte(v string) Query                  { return q.Where(State.Lte(v)) }
+func (q Query) StateEqLower(v string) Query              { return q.Where(State.EqLower(v)) }
+func (q Query) StateLike(v string) Query                 { return q.Where(State.Like(v)) }
+func (q Query) StateILike(v string) Query                { return q.Where(State.ILike(v)) }
+func (q Query) StateIn(v ...string) Query                { return q.Where(State.In(v...)) }
+func (q Query) StateNotIn(v ...string) Query             { return q.Where(State.NotIn(v...)) }
+func (q Query) StateHasPrefix(v string) Query            { return q.Where(State.HasPrefix(v)) }
+func (q Query) StateHasSuffix(v string) Query            { return q.Where(State.HasSuffix(v)) }
+func (q Query) StateContains(v string) Query             { return q.Where(State.Contains(v)) }
+func (q Query) BundleContains(v runtime.JSON) Query      { return q.Where(Bundle.Contains(v)) }
+func (q Query) BundleContainedBy(v runtime.JSON) Query   { return q.Where(Bundle.ContainedBy(v)) }
+func (q Query) BundleHasAnyKey(v ...string) Query        { return q.Where(Bundle.HasAnyKey(v...)) }
+func (q Query) BundleHasAllKeys(v ...string) Query       { return q.Where(Bundle.HasAllKeys(v...)) }
+func (q Query) BundleTextLikeAny(v ...string) Query      { return q.Where(Bundle.TextLikeAny(v...)) }
+func (q Query) BundleIsEmpty() Query                     { return q.Where(Bundle.IsEmpty()) }
+func (q Query) ItemsContains(v runtime.JSON) Query       { return q.Where(Items.Contains(v)) }
+func (q Query) ItemsContainedBy(v runtime.JSON) Query    { return q.Where(Items.ContainedBy(v)) }
+func (q Query) ItemsHasAnyKey(v ...string) Query         { return q.Where(Items.HasAnyKey(v...)) }
+func (q Query) ItemsHasAllKeys(v ...string) Query        { return q.Where(Items.HasAllKeys(v...)) }
+func (q Query) ItemsTextLikeAny(v ...string) Query       { return q.Where(Items.TextLikeAny(v...)) }
+func (q Query) ItemsIsEmpty() Query                      { return q.Where(Items.IsEmpty()) }
+func (q Query) CutByEq(v string) Query                   { return q.Where(CutBy.Eq(v)) }
+func (q Query) CutByNotEq(v string) Query                { return q.Where(CutBy.NotEq(v)) }
+func (q Query) CutByGt(v string) Query                   { return q.Where(CutBy.Gt(v)) }
+func (q Query) CutByGte(v string) Query                  { return q.Where(CutBy.Gte(v)) }
+func (q Query) CutByLt(v string) Query                   { return q.Where(CutBy.Lt(v)) }
+func (q Query) CutByLte(v string) Query                  { return q.Where(CutBy.Lte(v)) }
+func (q Query) CutByEqLower(v string) Query              { return q.Where(CutBy.EqLower(v)) }
+func (q Query) CutByLike(v string) Query                 { return q.Where(CutBy.Like(v)) }
+func (q Query) CutByILike(v string) Query                { return q.Where(CutBy.ILike(v)) }
+func (q Query) CutByIn(v ...string) Query                { return q.Where(CutBy.In(v...)) }
+func (q Query) CutByNotIn(v ...string) Query             { return q.Where(CutBy.NotIn(v...)) }
+func (q Query) CutByHasPrefix(v string) Query            { return q.Where(CutBy.HasPrefix(v)) }
+func (q Query) CutByHasSuffix(v string) Query            { return q.Where(CutBy.HasSuffix(v)) }
+func (q Query) CutByContains(v string) Query             { return q.Where(CutBy.Contains(v)) }
+func (q Query) ActedByEq(v string) Query                 { return q.Where(ActedBy.Eq(v)) }
+func (q Query) ActedByNotEq(v string) Query              { return q.Where(ActedBy.NotEq(v)) }
+func (q Query) ActedByGt(v string) Query                 { return q.Where(ActedBy.Gt(v)) }
+func (q Query) ActedByGte(v string) Query                { return q.Where(ActedBy.Gte(v)) }
+func (q Query) ActedByLt(v string) Query                 { return q.Where(ActedBy.Lt(v)) }
+func (q Query) ActedByLte(v string) Query                { return q.Where(ActedBy.Lte(v)) }
+func (q Query) ActedByEqLower(v string) Query            { return q.Where(ActedBy.EqLower(v)) }
+func (q Query) ActedByLike(v string) Query               { return q.Where(ActedBy.Like(v)) }
+func (q Query) ActedByILike(v string) Query              { return q.Where(ActedBy.ILike(v)) }
+func (q Query) ActedByIn(v ...string) Query              { return q.Where(ActedBy.In(v...)) }
+func (q Query) ActedByNotIn(v ...string) Query           { return q.Where(ActedBy.NotIn(v...)) }
+func (q Query) ActedByHasPrefix(v string) Query          { return q.Where(ActedBy.HasPrefix(v)) }
+func (q Query) ActedByHasSuffix(v string) Query          { return q.Where(ActedBy.HasSuffix(v)) }
+func (q Query) ActedByContains(v string) Query           { return q.Where(ActedBy.Contains(v)) }
+func (q Query) ImportedByEq(v string) Query              { return q.Where(ImportedBy.Eq(v)) }
+func (q Query) ImportedByNotEq(v string) Query           { return q.Where(ImportedBy.NotEq(v)) }
+func (q Query) ImportedByGt(v string) Query              { return q.Where(ImportedBy.Gt(v)) }
+func (q Query) ImportedByGte(v string) Query             { return q.Where(ImportedBy.Gte(v)) }
+func (q Query) ImportedByLt(v string) Query              { return q.Where(ImportedBy.Lt(v)) }
+func (q Query) ImportedByLte(v string) Query             { return q.Where(ImportedBy.Lte(v)) }
+func (q Query) ImportedByEqLower(v string) Query         { return q.Where(ImportedBy.EqLower(v)) }
+func (q Query) ImportedByLike(v string) Query            { return q.Where(ImportedBy.Like(v)) }
+func (q Query) ImportedByILike(v string) Query           { return q.Where(ImportedBy.ILike(v)) }
+func (q Query) ImportedByIn(v ...string) Query           { return q.Where(ImportedBy.In(v...)) }
+func (q Query) ImportedByNotIn(v ...string) Query        { return q.Where(ImportedBy.NotIn(v...)) }
+func (q Query) ImportedByHasPrefix(v string) Query       { return q.Where(ImportedBy.HasPrefix(v)) }
+func (q Query) ImportedByHasSuffix(v string) Query       { return q.Where(ImportedBy.HasSuffix(v)) }
+func (q Query) ImportedByContains(v string) Query        { return q.Where(ImportedBy.Contains(v)) }
+func (q Query) ApprovedByEq(v string) Query              { return q.Where(ApprovedBy.Eq(v)) }
+func (q Query) ApprovedByNotEq(v string) Query           { return q.Where(ApprovedBy.NotEq(v)) }
+func (q Query) ApprovedByGt(v string) Query              { return q.Where(ApprovedBy.Gt(v)) }
+func (q Query) ApprovedByGte(v string) Query             { return q.Where(ApprovedBy.Gte(v)) }
+func (q Query) ApprovedByLt(v string) Query              { return q.Where(ApprovedBy.Lt(v)) }
+func (q Query) ApprovedByLte(v string) Query             { return q.Where(ApprovedBy.Lte(v)) }
+func (q Query) ApprovedByEqLower(v string) Query         { return q.Where(ApprovedBy.EqLower(v)) }
+func (q Query) ApprovedByLike(v string) Query            { return q.Where(ApprovedBy.Like(v)) }
+func (q Query) ApprovedByILike(v string) Query           { return q.Where(ApprovedBy.ILike(v)) }
+func (q Query) ApprovedByIn(v ...string) Query           { return q.Where(ApprovedBy.In(v...)) }
+func (q Query) ApprovedByNotIn(v ...string) Query        { return q.Where(ApprovedBy.NotIn(v...)) }
+func (q Query) ApprovedByHasPrefix(v string) Query       { return q.Where(ApprovedBy.HasPrefix(v)) }
+func (q Query) ApprovedByHasSuffix(v string) Query       { return q.Where(ApprovedBy.HasSuffix(v)) }
+func (q Query) ApprovedByContains(v string) Query        { return q.Where(ApprovedBy.Contains(v)) }
+func (q Query) LiveAtEq(v time.Time) Query               { return q.Where(LiveAt.Eq(v)) }
+func (q Query) LiveAtNotEq(v time.Time) Query            { return q.Where(LiveAt.NotEq(v)) }
+func (q Query) LiveAtGt(v time.Time) Query               { return q.Where(LiveAt.Gt(v)) }
+func (q Query) LiveAtGte(v time.Time) Query              { return q.Where(LiveAt.Gte(v)) }
+func (q Query) LiveAtLt(v time.Time) Query               { return q.Where(LiveAt.Lt(v)) }
+func (q Query) LiveAtLte(v time.Time) Query              { return q.Where(LiveAt.Lte(v)) }
+func (q Query) LiveAtIsNull() Query                      { return q.Where(LiveAt.IsNull()) }
+func (q Query) LiveAtIsNotNull() Query                   { return q.Where(LiveAt.IsNotNull()) }
+func (q Query) PreviousEq(v string) Query                { return q.Where(Previous.Eq(v)) }
+func (q Query) PreviousNotEq(v string) Query             { return q.Where(Previous.NotEq(v)) }
+func (q Query) PreviousGt(v string) Query                { return q.Where(Previous.Gt(v)) }
+func (q Query) PreviousGte(v string) Query               { return q.Where(Previous.Gte(v)) }
+func (q Query) PreviousLt(v string) Query                { return q.Where(Previous.Lt(v)) }
+func (q Query) PreviousLte(v string) Query               { return q.Where(Previous.Lte(v)) }
+func (q Query) PreviousEqLower(v string) Query           { return q.Where(Previous.EqLower(v)) }
+func (q Query) PreviousLike(v string) Query              { return q.Where(Previous.Like(v)) }
+func (q Query) PreviousILike(v string) Query             { return q.Where(Previous.ILike(v)) }
+func (q Query) PreviousIn(v ...string) Query             { return q.Where(Previous.In(v...)) }
+func (q Query) PreviousNotIn(v ...string) Query          { return q.Where(Previous.NotIn(v...)) }
+func (q Query) PreviousHasPrefix(v string) Query         { return q.Where(Previous.HasPrefix(v)) }
+func (q Query) PreviousHasSuffix(v string) Query         { return q.Where(Previous.HasSuffix(v)) }
+func (q Query) PreviousContains(v string) Query          { return q.Where(Previous.Contains(v)) }
+func (q Query) LiveNoteContains(v runtime.JSON) Query    { return q.Where(LiveNote.Contains(v)) }
+func (q Query) LiveNoteContainedBy(v runtime.JSON) Query { return q.Where(LiveNote.ContainedBy(v)) }
+func (q Query) LiveNoteHasAnyKey(v ...string) Query      { return q.Where(LiveNote.HasAnyKey(v...)) }
+func (q Query) LiveNoteHasAllKeys(v ...string) Query     { return q.Where(LiveNote.HasAllKeys(v...)) }
+func (q Query) LiveNoteTextLikeAny(v ...string) Query    { return q.Where(LiveNote.TextLikeAny(v...)) }
+func (q Query) LiveNoteIsEmpty() Query                   { return q.Where(LiveNote.IsEmpty()) }
 
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "imported_by", "approved_by", "live_at", "previous" FROM "releases"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "imported_by", "approved_by", "live_at", "previous", "live_note" FROM "releases"`
 const countPrefix = `SELECT count(*) FROM "releases"`
 const existsPrefix = `SELECT 1 FROM "releases"`
 const existsSuffix = ` LIMIT 1`
@@ -773,6 +781,7 @@ var orderTable = [nCols][4]string{
 	{"\"approved_by\"", "\"approved_by\" DESC", "\"approved_by\" ASC NULLS FIRST", "\"approved_by\" DESC NULLS LAST"},
 	{"\"live_at\"", "\"live_at\" DESC", "\"live_at\" ASC NULLS FIRST", "\"live_at\" DESC NULLS LAST"},
 	{"\"previous\"", "\"previous\" DESC", "\"previous\" ASC NULLS FIRST", "\"previous\" DESC NULLS LAST"},
+	{"\"live_note\"", "\"live_note\" DESC", "\"live_note\" ASC NULLS FIRST", "\"live_note\" DESC NULLS LAST"},
 }
 
 // identTable is each column's bare quoted name, for the left side of a
@@ -794,6 +803,7 @@ var identTable = [nCols]string{
 	"\"approved_by\"",
 	"\"live_at\"",
 	"\"previous\"",
+	"\"live_note\"",
 }
 
 var lowering = runtime.Lowering{
@@ -816,7 +826,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [16][34]runtime.Frag{
+var fragTable = [17][34]runtime.Frag{
 	{ // id
 		runtime.OpEq:    {A: "\"id\" = $"},
 		runtime.OpNotEq: {A: "\"id\" <> $"},
@@ -1015,6 +1025,14 @@ var fragTable = [16][34]runtime.Frag{
 		runtime.OpTextHasSuffix: {A: "\"previous\" LIKE ('%' || replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_')) ESCAPE '!'"},
 		runtime.OpTextContains:  {A: "\"previous\" LIKE ('%' || replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_') || '%') ESCAPE '!'"},
 	},
+	{ // live_note
+		runtime.OpJSONContains:    {A: "\"live_note\" @> $"},
+		runtime.OpJSONContainedBy: {A: "\"live_note\" <@ $"},
+		runtime.OpHasAnyKey:       {A: "\"live_note\" ?| $"},
+		runtime.OpHasAllKeys:      {A: "\"live_note\" ?& $"},
+		runtime.OpJSONTextLikeAny: {A: "COALESCE(\"live_note\"::text, '') LIKE ANY($", B: ")"},
+		runtime.OpJSONIsEmpty:     {A: "COALESCE(\"live_note\"::text, '') IN ('', 'null', '[]', '{}')"},
+	},
 }
 
 func fragOf(op, col uint32) runtime.Frag {
@@ -1096,7 +1114,7 @@ func (q Query) existsStmt(toks []runtime.Tok) *runtime.Stmt { return existsStmtF
 const (
 	distinctOpen = "SELECT DISTINCT ON ("
 	distinctSep  = ", "
-	distinctTail = ") \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"hash\", \"origin\", \"state\", \"bundle\", \"items\", \"cut_by\", \"acted_by\", \"imported_by\", \"approved_by\", \"live_at\", \"previous\" FROM \"releases\""
+	distinctTail = ") \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"hash\", \"origin\", \"state\", \"bundle\", \"items\", \"cut_by\", \"acted_by\", \"imported_by\", \"approved_by\", \"live_at\", \"previous\", \"live_note\" FROM \"releases\""
 )
 
 // distinctCaches are AllDistinctOn's, without and with an offset. The
@@ -1284,6 +1302,7 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 	}
 	r.LiveAt = runtime.Nullable(rv[14], runtime.Timestamptz)
 	r.Previous = sl.Str(rv[15])
+	r.LiveNote = runtime.JSON(runtime.JSONB(rv[16], sl))
 	return nil
 }
 
@@ -1335,7 +1354,7 @@ func (q Query) bindPreds(b *binder) []any {
 			switch t.Col() {
 			case 0, 3:
 				v = runtime.Bind(v, b.anyRaw[:], q.anyRaw[:], &nar)
-			case 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15:
+			case 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16:
 				v = runtime.Bind(v, b.anyStr[:], q.anyStr[:], &nas)
 			}
 			continue
@@ -1347,7 +1366,7 @@ func (q Query) bindPreds(b *binder) []any {
 			v = runtime.Bind(v, b.tims[:], q.tims[:], &ntm)
 		case 4, 5, 6, 7, 10, 11, 12, 13, 15:
 			v = runtime.Bind(v, b.strs[:], q.strs[:], &ns)
-		case 8, 9:
+		case 8, 9, 16:
 			v = runtime.Bind(v, b.jsns[:], q.jsns[:], &njs)
 		}
 	}
@@ -1556,7 +1575,7 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "releases" ("id", "created_at", "updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "imported_by", "approved_by", "live_at", "previous") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING "id", "created_at", "updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "imported_by", "approved_by", "live_at", "previous"`
+const insertSQL = `INSERT INTO "releases" ("id", "created_at", "updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "imported_by", "approved_by", "live_at", "previous", "live_note") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING "id", "created_at", "updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "imported_by", "approved_by", "live_at", "previous", "live_note"`
 
 const updatePrefix = `UPDATE "releases" SET `
 const deletePrefix = `DELETE FROM "releases"`
@@ -1578,9 +1597,10 @@ const (
 	dApprovedBy uint64 = 1 << 11
 	dLiveAt     uint64 = 1 << 12
 	dPrevious   uint64 = 1 << 13
+	dLiveNote   uint64 = 1 << 14
 )
 
-const nUpdatable = 14
+const nUpdatable = 15
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
@@ -1598,6 +1618,7 @@ var setFrags = [nUpdatable]runtime.Frag{
 	{A: "\"approved_by\" = $", B: ""}, // approved_by
 	{A: "\"live_at\" = $", B: ""},     // live_at
 	{A: "\"previous\" = $", B: ""},    // previous
+	{A: "\"live_note\" = $", B: ""},   // live_note
 }
 
 // exprFrags is the SERVER-side assignment each column may take instead
@@ -1618,6 +1639,7 @@ var exprFrags = [nUpdatable]runtime.Frag{
 	{},                                   // approved_by has no server-side form
 	{A: "\"live_at\" = now()", B: ""},    // live_at = the database's clock
 	{},                                   // previous has no server-side form
+	{},                                   // live_note has no server-side form
 }
 
 // pkFrags addresses one row.
@@ -1645,9 +1667,10 @@ const (
 	iApprovedBy uint64 = 1 << 13
 	iLiveAt     uint64 = 1 << 14
 	iPrevious   uint64 = 1 << 15
+	iLiveNote   uint64 = 1 << 16
 )
 
-const nInsertable = 16
+const nInsertable = 17
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -1667,6 +1690,7 @@ var insCols = [nInsertable]string{
 	"\"approved_by\"",
 	"\"live_at\"",
 	"\"previous\"",
+	"\"live_note\"",
 }
 
 // insParts and insPlaceholder come from the back end at build time; the
@@ -1675,7 +1699,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"releases\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"hash\", \"origin\", \"state\", \"bundle\", \"items\", \"cut_by\", \"acted_by\", \"imported_by\", \"approved_by\", \"live_at\", \"previous\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"hash\", \"origin\", \"state\", \"bundle\", \"items\", \"cut_by\", \"acted_by\", \"imported_by\", \"approved_by\", \"live_at\", \"previous\", \"live_note\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -1694,7 +1718,7 @@ var updOpCache = runtime.NewMaskCache()
 // part of it. Without it m.Row() would hold what the row held BEFORE
 // the statement, so a caller reading back the counter it just
 // incremented would get the old number and never know.
-const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"hash\", \"origin\", \"state\", \"bundle\", \"items\", \"cut_by\", \"acted_by\", \"imported_by\", \"approved_by\", \"live_at\", \"previous\""
+const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"name\", \"hash\", \"origin\", \"state\", \"bundle\", \"items\", \"cut_by\", \"acted_by\", \"imported_by\", \"approved_by\", \"live_at\", \"previous\", \"live_note\""
 
 // Masks reports how many distinct UPDATE shapes have compiled.
 func Masks() int { return updCache.Masks() }
@@ -1851,6 +1875,12 @@ func (m *Mut) SetPrevious(v string) {
 	m.expr &^= dPrevious
 }
 
+func (m *Mut) SetLiveNote(v runtime.JSON) {
+	m.row.LiveNote = v
+	m.dirty |= dLiveNote
+	m.expr &^= dLiveNote
+}
+
 // Ins stages a new row, with a setter for every insertable column. A column
 // left unset is absent from the statement, so the database default applies;
 // a zero value that was set is written.
@@ -1910,6 +1940,8 @@ func (n *Ins) insertArgs(args []any) []any {
 			args = append(args, n.row.LiveAt.Arg())
 		case 15:
 			args = append(args, n.row.Previous)
+		case 16:
+			args = append(args, n.row.LiveNote.OrNull())
 		}
 	}
 	return args
@@ -2002,6 +2034,11 @@ func (n *Ins) SetPrevious(v string) {
 	n.set |= iPrevious
 }
 
+func (n *Ins) SetLiveNote(v runtime.JSON) {
+	n.row.LiveNote = v
+	n.set |= iLiveNote
+}
+
 // The conflict encoding: 0 none, 1 DO NOTHING on any unique index,
 // 2+2*i target i DO UPDATE, 3+2*i target i DO NOTHING.
 const conflictAny = 1
@@ -2034,7 +2071,7 @@ var conflictSpecs = []string{
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 14)
+	set := make([]string, 0, 15)
 	for j, bit := range assignBits[i] {
 		if mask&(1<<bit) != 0 {
 			set = append(set, assignNames[i][j])
@@ -2047,13 +2084,13 @@ func assignable(i uint8, mask uint64) []string {
 // of each column it may overwrite. An empty row is a target whose key
 // covers every updatable column.
 var assignBits = [2][]uint8{
-	{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
-	{2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+	{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+	{2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
 }
 
 var assignNames = [2][]string{
-	{"updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "imported_by", "approved_by", "live_at", "previous"},
-	{"updated_at", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "imported_by", "approved_by", "live_at", "previous"},
+	{"updated_at", "project_id", "name", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "imported_by", "approved_by", "live_at", "previous", "live_note"},
+	{"updated_at", "hash", "origin", "state", "bundle", "items", "cut_by", "acted_by", "imported_by", "approved_by", "live_at", "previous", "live_note"},
 }
 
 // OnConflictID upserts on the unique index over (id).
@@ -2110,6 +2147,7 @@ var assignFor = map[string]string{
 	"approved_by": "\"approved_by\" = EXCLUDED.\"approved_by\"",
 	"live_at":     "\"live_at\" = EXCLUDED.\"live_at\"",
 	"previous":    "\"previous\" = EXCLUDED.\"previous\"",
+	"live_note":   "\"live_note\" = EXCLUDED.\"live_note\"",
 }
 
 func assignExcluded(c string) string { return assignFor[c] }
@@ -2190,7 +2228,7 @@ func Inserts() int { return insCache.Masks() }
 // the row back so database defaults land in r.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	if Hooks.BeforeCreate != nil {
-		n := Ins{row: *r, set: 0xffff}
+		n := Ins{row: *r, set: 0x1ffff}
 		if err := hooks.Apply(ctx, ex, Hooks.BeforeCreate, &n); err != nil {
 			return err
 		}
@@ -2203,7 +2241,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 }
 
 func insertRow(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 16)
+	args := make([]any, 0, 17)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2220,6 +2258,7 @@ func insertRow(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.ApprovedBy)
 	args = append(args, r.LiveAt.Arg())
 	args = append(args, r.Previous)
+	args = append(args, r.LiveNote.OrNull())
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
 		return err
@@ -2262,13 +2301,14 @@ var copyCols = []string{
 	"approved_by",
 	"live_at",
 	"previous",
+	"live_note",
 }
 
 // rowSource walks a []Row for CopyFrom without copying any of it.
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [16]any
+	buf  [17]any
 }
 
 func (s *rowSource) Next() bool {
@@ -2296,6 +2336,7 @@ func (s *rowSource) Values() []any {
 	s.buf[13] = &r.ApprovedBy
 	s.buf[14] = r.LiveAt.Ptr()
 	s.buf[15] = &r.Previous
+	s.buf[16] = &r.LiveNote
 	return s.buf[:]
 }
 
@@ -2316,7 +2357,7 @@ func InsertAll(ctx context.Context, ex runtime.Executor, rows []Row) (int64, err
 func InsertOp(r Row) runtime.BatchOp {
 	const mask = 1<<nInsertable - 1 // every insertable column
 	st := stmtForInsertNoReturn(mask, 0)
-	args := make([]any, 0, 16)
+	args := make([]any, 0, 17)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2333,6 +2374,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.ApprovedBy)
 	args = append(args, r.LiveAt.Arg())
 	args = append(args, r.Previous)
+	args = append(args, r.LiveNote.OrNull())
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
 
@@ -2589,6 +2631,8 @@ func (m Mut) updateArgs(args []any) []any {
 			args = append(args, m.row.LiveAt.Arg())
 		case 13:
 			args = append(args, m.row.Previous)
+		case 14:
+			args = append(args, m.row.LiveNote.OrNull())
 		}
 	}
 	return args

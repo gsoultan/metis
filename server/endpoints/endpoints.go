@@ -641,6 +641,8 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	releaseEndpoints.ImportRelease = modelChange("ImportRelease")(releaseEndpoints.ImportRelease)
 	releaseEndpoints.ExportRelease = modelChange("ExportRelease")(releaseEndpoints.ExportRelease)
 	releaseEndpoints.ImportReleaseFile = modelChange("ImportReleaseFile")(releaseEndpoints.ImportReleaseFile)
+	releaseEndpoints.ReleaseLiveNote = modelChange("ReleaseLiveNote")(releaseEndpoints.ReleaseLiveNote)
+	releaseEndpoints.AttachReleaseLiveNote = modelChange("AttachReleaseLiveNote")(releaseEndpoints.AttachReleaseLiveNote)
 	releaseEndpoints.ApproveRelease = modelChange("ApproveRelease")(releaseEndpoints.ApproveRelease)
 	releaseEndpoints.GoLiveRelease = modelChange("GoLiveRelease")(releaseEndpoints.GoLiveRelease)
 	releaseEndpoints.RollBackRelease = modelChange("RollBackRelease")(releaseEndpoints.RollBackRelease)
