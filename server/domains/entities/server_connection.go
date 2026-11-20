@@ -2,7 +2,6 @@ package entities
 
 import (
 	"crypto/sha256"
-	"encoding/binary"
 	"strings"
 	"time"
 
@@ -120,10 +119,9 @@ vest vine wall wand wave web well wind wing wolf wood wool yard yarn zone`)
 // swapped either key would change them.
 func ConnectionWords(code, upstreamKey, downstreamKey string) string {
 	sum := sha256.Sum256([]byte("metis.connection/v1\n" + code + "\n" + upstreamKey + "\n" + downstreamKey))
-	n := binary.BigEndian.Uint32(sum[:4])
 	words := make([]string, 4)
 	for i := range words {
-		words[i] = connectionWords[byte(n>>(24-8*i))]
+		words[i] = connectionWords[sum[i]]
 	}
 	return strings.Join(words, " ")
 }

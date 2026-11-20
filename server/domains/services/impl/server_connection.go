@@ -216,7 +216,7 @@ func (s *serverConnectionService) handshake(ctx context.Context, base string, he
 	if err != nil {
 		return contracts.ServerHandshakeReply{}, apierr.Invalidf("could not reach %s: %v", base, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxHandshakeReplyBytes+1))
 	if err != nil {
 		return contracts.ServerHandshakeReply{}, apierr.Invalidf("%s did not answer in full: %v", base, err)
