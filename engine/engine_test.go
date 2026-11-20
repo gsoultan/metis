@@ -24,3 +24,17 @@ func TestTheVersionIsTheBuilds(t *testing.T) {
 		t.Fatal("no version")
 	}
 }
+
+// A program embedding the engine reads the role the engine will take before
+// starting it, to decide what it serves itself.
+func TestTheRoleIsReadBeforeTheEngineStarts(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("METIS_ROLE", "worker")
+	if role, err := engine.Role(); err != nil || role != "worker" {
+		t.Fatalf("got %q, %v", role, err)
+	}
+	t.Setenv("METIS_ROLE", "nope")
+	if _, err := engine.Role(); err == nil {
+		t.Fatal("an unknown role was accepted")
+	}
+}

@@ -12,6 +12,7 @@ import (
 const (
 	EnvHTTPAddress = "METIS_HTTP_ADDRESS"
 	EnvPublicURL   = "METIS_PUBLIC_URL"
+	EnvRole        = "METIS_ROLE"
 )
 
 // ServerConfig is the part of config.yaml that says where this server is.
@@ -28,6 +29,10 @@ type ServerConfig struct {
 	// PublicURL is the address people reach this server at, which links in
 	// e-mails are written against.
 	PublicURL string `yaml:"public_url,omitempty" json:"public_url,omitzero"`
+	// Role is what this process does of the engine's work: all, web or
+	// worker. Written by whatever joins a machine to an installation, so the
+	// role chosen there needs nothing set by hand.
+	Role string `yaml:"role,omitempty" json:"role,omitzero"`
 }
 
 // Values returns the server settings this file sets, keyed by the variable
@@ -40,6 +45,9 @@ func (s ServerConfig) Values() map[string]string {
 	}
 	if v := strings.TrimSpace(s.PublicURL); v != "" {
 		values[EnvPublicURL] = v
+	}
+	if v := strings.TrimSpace(s.Role); v != "" {
+		values[EnvRole] = v
 	}
 	return values
 }

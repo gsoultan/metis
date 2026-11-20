@@ -80,6 +80,8 @@ import (
 var version = "dev"
 
 type App struct {
+	// role is what this process does of the engine's work. See role.go.
+	role Role
 	// storm is the PostgreSQL connection the ported repositories use. Nil on any
 	// other engine, and on an installation that has not been set up yet.
 	storm *stormdb.Conn
@@ -334,6 +336,11 @@ func (a *App) RunContext(ctx context.Context, args []string) error {
 	// 0b. Where to listen and the public address, as the wizard wrote them,
 	//     under whatever the environment says.
 	useConfigFile()
+	role, err := roleFromEnvironment()
+	if err != nil {
+		return err
+	}
+	a.role = role
 
 	// 1. Install the at-rest encryption key before any repository can read or
 	//    write an encrypted column.
@@ -798,18 +805,27 @@ func (a *App) startSharedLimits(ctx context.Context) {
 //
 // Constructing a service and starting its background loops are two different
 // things, and only the server does the second.
+//
+// A process in the web role (METIS_ROLE=web) starts only what serving needs:
+// the SSE fan-out, the shared rate-limit counters and the settings reload.
 func (a *App) startBackgroundWork(ctx context.Context) {
+	a.startSSEFanout(ctx)
+	a.startSharedLimits(ctx)
+	go a.reloadSavedSettings(ctx)
+	if !a.role.RunsWork() {
+		log.Info().Str("role", string(a.role)).
+			Msg("This process serves the API and runs no jobs, timers or deliveries; a worker process does")
+		return
+	}
+	log.Info().Str("role", string(a.role)).Msg("This process runs the engine's jobs, timers and deliveries")
 	a.svc.StartWorkers(ctx)
 	a.svc.StartOutgoingWebhookDeliveries(ctx)
 	a.svc.StartBatchOperations(ctx)
 	// Directory syncs, for the sources that carry a schedule. A no-op when
 	// there is no storm connection: there are no sources to run.
 	a.svc.StartScheduledSyncs(ctx)
-	a.startSSEFanout(ctx)
-	a.startSharedLimits(ctx)
 	a.startRetentionSweeps(ctx)
 	a.startUpgradeChecks(ctx)
-	go a.reloadSavedSettings(ctx)
 	// Off unless configured. Each starts in the background, so a broker, a
 	// project or a connection that is not there yet does not hold up the boot.
 	a.startRabbitMQ(ctx)
