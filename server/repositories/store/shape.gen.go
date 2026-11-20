@@ -120,6 +120,19 @@ func _assertCompensatableActivityShape(m m0.CompensatableActivity) {
 	}
 }
 
+// _assertConnectionCodeShape fails to compile if m0.ConnectionCode gains, loses, renames or
+// reorders a field. Regenerate: `storm generate`.
+func _assertConnectionCodeShape(m m0.ConnectionCode) {
+	type shape m0.ConnectionCode
+	_ = shape{
+		m.Model,
+		m.Hash,
+		m.CreatedBy,
+		m.ExpiresAt,
+		m.UsedAt,
+	}
+}
+
 // _assertConnectorShape fails to compile if m0.Connector gains, loses, renames or
 // reorders a field. Regenerate: `storm generate`.
 func _assertConnectorShape(m m0.Connector) {
@@ -745,6 +758,38 @@ func _assertSchemaMigrationShape(m m0.SchemaMigration) {
 		m.Name,
 		m.AppliedAt,
 		m.DurationMS,
+	}
+}
+
+// _assertServerConnectionShape fails to compile if m0.ServerConnection gains, loses, renames or
+// reorders a field. Regenerate: `storm generate`.
+func _assertServerConnectionShape(m m0.ServerConnection) {
+	type shape m0.ServerConnection
+	_ = shape{
+		m.Model,
+		m.Name,
+		m.Purpose,
+		m.Side,
+		m.URL,
+		m.Key,
+		m.Words,
+		m.Token,
+		m.TokenHash,
+		m.Trust,
+		m.RequestedBy,
+		m.AcceptedBy,
+		m.AcceptedAt,
+		m.LastSeenAt,
+	}
+}
+
+// _assertServerSigningKeyShape fails to compile if m0.ServerSigningKey gains, loses, renames or
+// reorders a field. Regenerate: `storm generate`.
+func _assertServerSigningKeyShape(m m0.ServerSigningKey) {
+	type shape m0.ServerSigningKey
+	_ = shape{
+		m.Model,
+		m.Seed,
 	}
 }
 

@@ -11,4 +11,7 @@ const (
 	GroupLimits        Group = "limits"
 	GroupCaches        Group = "caches"
 	GroupObservability Group = "observability"
+	// GroupServer is what this server is, as the servers it connects to see
+	// it.
+	GroupServer Group = "server"
 )

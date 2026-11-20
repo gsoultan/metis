@@ -239,6 +239,24 @@ Migration 54 adds `releases.imported_by` and `releases.approved_by`. A
 release imported before it has neither, and in a protected environment is
 approved by a second person before it goes live, as a new one is.
 
+## Server connections (migration 60)
+
+Migration 60 creates `server_connections`, `connection_codes` and
+`server_signing_keys`, all empty. They hold the servers this one takes
+releases from and gives them to, the one-time codes they connect with, and
+the key it signs its releases with; see
+[Releases](releases.md#between-installations).
+
+An installation that set `METIS_RELEASE_SIGNING_KEY` and
+`METIS_RELEASE_TRUSTED_KEYS` goes on using them as before. One that did not
+now makes a signing key the first time it exports a release, which needs
+`ENCRYPTION_KEY` set, and a production with an accepted staging before it
+now requires staging's live note.
+
+**Rolling back** to a release without the tables leaves them in place and
+unread; the made key is then unused, and release files need
+`METIS_RELEASE_SIGNING_KEY` again.
+
 ## Release live note (migration 59)
 
 Migration 59 adds `releases.live_note`, JSON null on every release already

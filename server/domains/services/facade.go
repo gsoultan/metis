@@ -113,6 +113,11 @@ type ServiceFacade interface {
 	// change kept, no secret ever returned.
 	serviceContracts.InstallationSettingService
 
+	// ServerConnectionService connects this server to the ones releases come
+	// from and go to: a platform administrator's, with a second one accepting
+	// every server releases are taken from.
+	serviceContracts.ServerConnectionService
+
 	// UpgradeService finds newer releases of Metis for the Upgrades page: a
 	// platform administrator's, read-only.
 	serviceContracts.UpgradeService

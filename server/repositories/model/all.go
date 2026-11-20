@@ -74,6 +74,11 @@ func All() []any {
 		&SimulationCase{},
 		// Sets of versions promoted together from one environment to the next.
 		&Release{},
+		// The servers releases are taken from and given to, the one-time codes
+		// they connect with, and the key this one signs its releases with.
+		&ServerConnection{},
+		&ConnectionCode{},
+		&ServerSigningKey{},
 		// One-use links that let a person act on a task without signing in.
 		&TaskLink{},
 		&PersonAPIKey{},

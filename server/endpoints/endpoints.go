@@ -30,6 +30,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/retentionhold"
 	"github.com/gsoultan/metis/server/endpoints/retentionperiod"
 	"github.com/gsoultan/metis/server/endpoints/role"
+	"github.com/gsoultan/metis/server/endpoints/serverconnection"
 	"github.com/gsoultan/metis/server/endpoints/serversetting"
 	"github.com/gsoultan/metis/server/endpoints/setup"
 	"github.com/gsoultan/metis/server/endpoints/simulation"
@@ -64,6 +65,7 @@ type Endpoints struct {
 	Archive           archive.Endpoints
 	ServerSetting     serversetting.Endpoints
 	Upgrade           upgrade.Endpoints
+	ServerConnection  serverconnection.Endpoints
 	Organization      organization.Endpoints
 	Process           process.Endpoints
 	Project           project.Endpoints
@@ -437,6 +439,19 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	upgradeEndpoints.CheckForUpgrade = platformAdmin("CheckForUpgrade")(upgradeEndpoints.CheckForUpgrade)
 	upgradeEndpoints.StartUpgrade = platformAdmin("StartUpgrade")(upgradeEndpoints.StartUpgrade)
 
+	// Which servers this one takes releases from and gives them to is about
+	// every organization on it, so it is a platform administrator's, reading
+	// included. The handshake is public: it comes from the other server, with
+	// no account, and the one-time code admits it. The service asks again who
+	// is calling.
+	connectionEndpoints := serverconnection.MakeEndpoints(s)
+	connectionEndpoints.ListServerConnections = platformAdmin("ListServerConnections")(connectionEndpoints.ListServerConnections)
+	connectionEndpoints.MakeServerConnectionCode = platformAdmin("MakeServerConnectionCode")(connectionEndpoints.MakeServerConnectionCode)
+	connectionEndpoints.CreateServerConnection = platformAdmin("CreateServerConnection")(connectionEndpoints.CreateServerConnection)
+	connectionEndpoints.AcceptServerConnection = platformAdmin("AcceptServerConnection")(connectionEndpoints.AcceptServerConnection)
+	connectionEndpoints.RemoveServerConnection = platformAdmin("RemoveServerConnection")(connectionEndpoints.RemoveServerConnection)
+	connectionEndpoints.AnswerServerHandshake = public("AnswerServerHandshake")(connectionEndpoints.AnswerServerHandshake)
+
 	// Retrying or cancelling many instances at once runs the organization
 	// day to day, as resolving one incident does. The service asks again who
 	// is calling, and refuses a cancel to anybody but an administrator, as a
@@ -682,6 +697,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		Archive:           archiveEndpoints,
 		ServerSetting:     serverSettingEndpoints,
 		Upgrade:           upgradeEndpoints,
+		ServerConnection:  connectionEndpoints,
 		Organization:      organizationEndpoints,
 		Process:           processEndpoints,
 		Project:           projectEndpoints,

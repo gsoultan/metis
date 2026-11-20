@@ -104,27 +104,71 @@ walks further back.
 
 ## Between installations
 
-When production is an installation of its own, a release travels as a file.
+When production is an installation of its own, with its own address and
+database, the installations are **connected**, and a release travels between
+them signed.
 
-1. On the installation the release was cut in, set `METIS_RELEASE_SIGNING_KEY`
-   to an Ed25519 seed: 32 random bytes, base64
-   (`openssl rand -base64 32`). Export the release: its file carries the
-   release, its hash, the public key and a signature over the hash.
-2. On production, set `METIS_RELEASE_TRUSTED_KEYS` to that installation's
-   public key, the `key` field of any file it exports. Several keys are
-   separated by commas.
-3. Import the file into the production project. It is checked as an import
-   between environments is, and then the signature: a file that was changed,
-   or signed by a key production does not trust, is refused.
+### Connecting two servers
+
+Each server says what it is for with `METIS_SERVER_PURPOSE`: `development`
+(the default), `staging` or `production`. Releases go forwards only:
+production takes them from staging or development, staging from development.
+`METIS_SERVER_NAME` is what the others call it; unset, it is called by its
+purpose.
+
+1. On the server releases come from (development, or staging for a
+   production after it), a platform administrator makes a **one-time code**
+   (`POST /api/v1/server-connections/codes`). It is good once, for 15 minutes.
+2. On the server releases go to, a platform administrator enters that
+   server's address and the code (`POST /api/v1/server-connections`). This
+   server calls the other one with the code; the other answers with its name,
+   purpose and public key. Both now list the connection with the same **four
+   words**: the two people check they match. If they do not, something
+   between the servers changed a key, and the connection is removed.
+3. On the server releases go to, a **second** platform administrator accepts
+   the connection (`POST /api/v1/server-connections/{id}/accept`). The one
+   who connected it cannot. Only then are the other server's releases and
+   live notes trusted.
+
+Servers talk over https. Plain http is allowed only where
+`METIS_HTTP_ALLOW_PRIVATE_NETWORKS` is set, which is a developer's machine as
+a rule. A private address such as `https://10.20.0.15` is allowed: an
+administrator chose it, not a process definition. The server releases go to
+is the one that calls, so a production in a private network needs no address
+anyone outside can reach.
+
+### Keys
+
+Each server signs the releases it exports, and its live notes, with an
+Ed25519 key it makes the first time one is needed and keeps sealed with
+`ENCRYPTION_KEY`. It trusts the keys of the servers it accepted. An
+acceptance is sealed too: a row written into the database without
+`ENCRYPTION_KEY` is accepted in name only, and its key is not trusted.
+
+An operator can still set them in the environment:
+
+- `METIS_RELEASE_SIGNING_KEY`, an Ed25519 seed (32 random bytes, base64:
+  `openssl rand -base64 32`), replaces the key the server makes.
+- `METIS_RELEASE_TRUSTED_KEYS`, public keys separated by commas, is then the
+  whole of what the server trusts, and no server can be connected or accepted
+  from the pages.
+
+### A release file
+
+With no network path between them at all, export the release
+(`GET /releases/{name}/export`) and import the file on the other server
+(`POST /releases/import-file`). The file carries the release, its hash, the
+public key and a signature over the hash. It is checked as an import between
+environments is, and then the signature: a file that was changed, or signed
+by a key the server does not trust, is refused.
 
 Go live, approval and rollback are then the same as between environments.
-The checks at go live run production's own saved simulation cases.
+The checks at go live run that server's own saved simulation cases.
 
-By default both settings are read from the environment, never from the
-Settings page. A server that runs Metis can keep them itself instead
-(`services.WithReleaseKeys`, or `engine.WithReleaseKeys` for a program that embeds the engine); it is then answerable for who may change which
-keys are trusted, because: an administrator who could change them could make production trust a
-release nobody tested.
+A program that embeds the engine can keep the keys itself instead
+(`engine.WithReleaseKeys`); it is then answerable for who may change which
+keys are trusted, because an administrator who could change them could make
+production trust a release nobody tested.
 
 ## When production has a staging before it
 
@@ -142,11 +186,10 @@ staged release:
 3. Go live. Production checks the note again, so a note from a key no longer
    trusted does not count.
 
-Whether a note is required is the server's to say, because it is the server
-that knows how its environments are connected: `services.WithReleasePolicy`
-(`engine.WithReleasePolicy` for a program that embeds the engine). Without a
-policy, no note is required, and a production that takes releases straight
-from development relies on the checks the release passed where it was cut.
+A note is required once a production has accepted a staging before it. A
+production connected only to development needs none, and relies on the
+checks the release passed where it was cut. A program that embeds the engine
+can decide otherwise with `engine.WithReleasePolicy`.
 
 ## API
 
@@ -168,3 +211,15 @@ a protected runtime.
 | `POST` | `/releases/{name}/approve` | |
 | `POST` | `/releases/{name}/go-live` | |
 | `POST` | `/releases/rollback` | |
+
+Connecting servers, under `/api/v1/server-connections`, a platform
+administrator's:
+
+| Method | Path | Body |
+|---|---|---|
+| `GET` | `/server-connections` | This server (`name`, `purpose`, `key`, `url`, `trust_locked`) and every connection. |
+| `POST` | `/server-connections/codes` | Answers `{"code": {"code": "…", "expires_at": "…"}}`, shown once. |
+| `POST` | `/server-connections` | `{"url": "https://dev.metis.example.com", "code": "…"}` |
+| `POST` | `/server-connections/{id}/accept` | By an administrator other than the one who connected it. |
+| `DELETE` | `/server-connections/{id}` | |
+| `POST` | `/server-connections/handshake` | Public: another server, with a code made here. |

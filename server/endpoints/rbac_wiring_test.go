@@ -185,8 +185,10 @@ var globalAdminGated = []string{
 }
 
 // publicEndpoints are the only ones reachable before a caller can hold a token.
+// AnswerServerHandshake is another server, which holds none here: the
+// one-time code it brings admits it, once.
 var publicEndpoints = []string{
-	"BeginSecondFactorEnrolment", "CompleteByTaskLink", "ConfirmSecondFactorEnrolment", "GetSetupStatus", "Login",
+	"AnswerServerHandshake", "BeginSecondFactorEnrolment", "CompleteByTaskLink", "ConfirmSecondFactorEnrolment", "GetSetupStatus", "Login",
 	"ReadTaskLink", "Setup", "SignInPerson", "SignInWithCode", "TestConnection",
 }
 
