@@ -144,10 +144,15 @@ func startFormFields(form any) ([]any, bool) {
 
 func startInputOf(field map[string]any) StartInput {
 	input := StartInput{}
-	input.ID, _ = field["id"].(string)
-	input.ID = strings.TrimSpace(input.ID)
-	input.Type, _ = field["type"].(string)
-	input.Required, _ = field["required"].(bool)
+	if id, ok := field["id"].(string); ok {
+		input.ID = strings.TrimSpace(id)
+	}
+	if kind, ok := field["type"].(string); ok {
+		input.Type = kind
+	}
+	if required, ok := field["required"].(bool); ok {
+		input.Required = required
+	}
 	if value, ok := field["defaultValue"]; ok && !isNoStartValue(value) {
 		input.Default = value
 	}
