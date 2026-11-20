@@ -374,6 +374,29 @@ If the only administrator has lost both, run on the server:
 
 Programs that call the API authenticate with an API key, not a password.
 
+#### When metis-server signs people in
+
+What this section describes is the engine signing its own callers in, as it
+does when it runs on its own. A program that embeds the engine as a library
+can take sign-in over with `engine.WithIdentity`, and
+[`gsoultan/metis-server`](https://github.com/gsoultan/metis-server) does: it
+keeps passwords, sessions, authenticator apps and organizations' integration
+API keys (`mik_…`) in tables of its own, and tells the engine who each request
+is from. The engine then:
+
+- refuses a request whose caller the Identity cannot name (401), and one it
+  could not check (503), rather than treating it as anonymous;
+- still decides what each caller may do, from the account's roles and
+  organizations;
+- refuses a key on the routes only a signed-in person may use (403), and
+  leaves a person's own sign-in and credential routes to the embedding
+  program (404 here);
+- hands `--reset-password` and `--reset-two-factor` to the Identity, and keeps
+  no password of its own for the accounts it signs in.
+
+`METIS_TWO_FACTOR` and `METIS_DEV_MODE` mean the same there. See
+[metis-server's README](https://github.com/gsoultan/metis-server#who-signs-people-in).
+
 Signed-in users change their own password from **Profile → Change Password**,
 which asks for the current one — a session alone is not enough, so a stolen
 token cannot lock the owner out of their own account. **Changing it ends every
