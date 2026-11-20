@@ -157,11 +157,15 @@ func startInputOf(field map[string]any) StartInput {
 		input.Default = value
 	}
 	if logic, ok := field["logic"].(map[string]any); ok {
-		hidden, _ := logic["hiddenIf"].(string)
-		input.Conditional = strings.TrimSpace(hidden) != ""
+		if hidden, ok := logic["hiddenIf"].(string); ok {
+			input.Conditional = strings.TrimSpace(hidden) != ""
+		}
 	}
 	if input.Type == startInputChoice && listsItsOwnChoices(field) {
-		options, _ := field["options"].([]any)
+		var options []any
+		if listed, ok := field["options"].([]any); ok {
+			options = listed
+		}
 		for _, option := range options {
 			described, ok := option.(map[string]any)
 			if !ok {
@@ -183,8 +187,8 @@ func listsItsOwnChoices(field map[string]any) bool {
 	if !ok {
 		return true
 	}
-	kind, _ := source["type"].(string)
-	return kind == "" || kind == "static"
+	kind, named := source["type"].(string)
+	return !named || kind == "" || kind == "static"
 }
 
 // isNoStartValue reports whether a value is the same as giving none: nothing,
