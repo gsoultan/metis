@@ -81,3 +81,33 @@ func (k *ServerSigningKey) Schema(t *storm.Table) {
 	t.Name("server_signing_keys")
 	t.Col(&k.Seed).Size(512)
 }
+
+// ReleaseDelivery is a release sent to a server this one gives releases to,
+// and what that server last said about it. The release itself is not copied:
+// it is signed and read from the releases table each time it is collected.
+type ReleaseDelivery struct {
+	storm.Model
+
+	ConnectionID string
+	ProjectID    string
+	Release      string
+	State        string
+	Detail       string
+	SentBy       string
+	SentAt       time.Time
+	CollectedAt  *time.Time
+	ReportedAt   *time.Time
+}
+
+func (d *ReleaseDelivery) Schema(t *storm.Table) {
+	t.Name("release_deliveries")
+	t.Col(&d.ConnectionID).Size(36)
+	t.Col(&d.ProjectID).Size(36)
+	t.Col(&d.Release).Size(255)
+	t.Col(&d.State).Size(16)
+	t.Col(&d.Detail).Size(1024)
+	t.Col(&d.SentBy).Size(255)
+	// A release is sent to a server once; sending it again resends the same.
+	t.Index(&d.ConnectionID, &d.ProjectID, &d.Release).Unique().Named("ux_release_deliveries_connection_project_release")
+	t.Index(&d.ProjectID).Named("ix_release_deliveries_project")
+}

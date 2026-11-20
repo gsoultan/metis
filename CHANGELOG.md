@@ -10,6 +10,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Releases are sent between connected servers.** A release is sent from the
+  server it is on to a server after it, and that server collects it when it
+  checks in, every minute: staged, as an imported file is, into the project
+  with the same organization and project name, and only if it is signed by
+  that connection's key. A staging's live note travels with it. The sending
+  server shows how far each release got there, as of the last check-in.
+  Nothing has to reach a production in a private network. Migration 61 adds
+  the table.
 - **`METIS_ROLE` splits serving from working.** `web` processes serve the API
   and run no jobs, timers, deliveries, syncs or sweeps; `worker` and the default
   `all` run them. Machines that answer people can then scale apart from the ones

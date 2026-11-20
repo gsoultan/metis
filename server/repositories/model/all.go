@@ -75,10 +75,12 @@ func All() []any {
 		// Sets of versions promoted together from one environment to the next.
 		&Release{},
 		// The servers releases are taken from and given to, the one-time codes
-		// they connect with, and the key this one signs its releases with.
+		// they connect with, the key this one signs its releases with, and the
+		// releases sent to each.
 		&ServerConnection{},
 		&ConnectionCode{},
 		&ServerSigningKey{},
+		&ReleaseDelivery{},
 		// One-use links that let a person act on a task without signing in.
 		&TaskLink{},
 		&PersonAPIKey{},

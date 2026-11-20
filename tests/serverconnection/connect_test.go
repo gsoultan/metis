@@ -36,8 +36,9 @@ type server struct {
 		serviceimpl.ReleaseKeys
 		serviceimpl.ReleasePolicy
 	}
-	url string
-	db  *db.Conn
+	url  string
+	db   *db.Conn
+	repo repositories.Repository
 }
 
 func newServer(t *testing.T, name string, purpose entities.ServerPurpose) server {
@@ -53,7 +54,7 @@ func newServer(t *testing.T, name string, purpose entities.ServerPurpose) server
 	handler, _ := app.BuildAPIHandler(svc, endpoints.MakeEndpoints(svc), sse, nil, map[string]health.Checker{}, conn)
 	web := httptest.NewServer(handler)
 	t.Cleanup(web.Close)
-	return server{svc: svc, keys: serviceimpl.NewConnectionReleaseKeys(repo.ServerConnection()), url: web.URL, db: conn}
+	return server{svc: svc, keys: serviceimpl.NewConnectionReleaseKeys(repo.ServerConnection()), url: web.URL, db: conn, repo: repo}
 }
 
 func admin(username string) context.Context {

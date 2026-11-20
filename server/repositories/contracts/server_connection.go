@@ -30,8 +30,29 @@ type ServerConnectionRepository interface {
 	// Accept records who accepted an upstream connection that nobody had.
 	// apierr.ErrNotFound when there is none waiting with that id.
 	Accept(ctx context.Context, id uuid.UUID, by string, at time.Time) (entities.ServerConnection, error)
-	// Delete removes a connection.
+	// Delete removes a connection and the releases sent over it.
 	Delete(ctx context.Context, id uuid.UUID) error
+	// GetDownstreamByTokenHash reads the server this one gives releases to
+	// whose token has this SHA-256. apierr.ErrNotFound when none has.
+	GetDownstreamByTokenHash(ctx context.Context, hash string) (entities.ServerConnection, error)
+	// Seen records that the other server was last heard from at.
+	Seen(ctx context.Context, id uuid.UUID, at time.Time) error
+
+	// SendRelease records a release sent to a server, waiting for it to
+	// collect it. A release already sent there is answered as it is, unless
+	// that server refused it: then it is sent again.
+	SendRelease(ctx context.Context, d entities.ReleaseDelivery) (entities.ReleaseDelivery, error)
+	// ListDeliveries reads the releases of a project sent anywhere, newest
+	// first.
+	ListDeliveries(ctx context.Context, projectID uuid.UUID) ([]entities.ReleaseDelivery, error)
+	// OpenDeliveries reads the releases sent to a server that it has not
+	// settled, oldest first.
+	OpenDeliveries(ctx context.Context, connectionID uuid.UUID) ([]entities.ReleaseDelivery, error)
+	// MarkCollected records when a server first took these releases.
+	MarkCollected(ctx context.Context, connectionID uuid.UUID, ids []uuid.UUID, at time.Time) error
+	// ReportDelivery records what a server said about a release sent to it.
+	// A release sent to another server is not touched.
+	ReportDelivery(ctx context.Context, connectionID, id uuid.UUID, state entities.DeliveryState, detail string, at time.Time) error
 
 	// SigningSeed is this installation's signing seed, or false when none has
 	// been made.

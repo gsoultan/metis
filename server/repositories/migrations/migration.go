@@ -96,5 +96,6 @@ func Steps() []Migration {
 		{Version: startSchedulePauseVersion, Name: "start schedule pause", Run: addStartSchedulePause},
 		{Version: releaseLiveNoteVersion, Name: "release live note", Run: addReleaseLiveNote},
 		{Version: serverConnectionsVersion, Name: "server connections", Run: addServerConnections},
+		{Version: releaseDeliveriesVersion, Name: "release deliveries", Run: addReleaseDeliveries},
 	}
 }

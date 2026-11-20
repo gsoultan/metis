@@ -789,7 +789,7 @@ func (a *App) startSharedLimits(ctx context.Context) {
 }
 
 // startBackgroundWork starts everything that acts on its own: the job workers,
-// the scheduled directory syncs, the SSE fan-out, the shared rate-limit
+// the scheduled directory syncs, the release collection, the SSE fan-out, the shared rate-limit
 // counters, the retention sweeps, and the RabbitMQ bridges and consumers the
 // environment names. Each environment's workers start with its listener, in
 // serveEnvironments.
@@ -826,6 +826,9 @@ func (a *App) startBackgroundWork(ctx context.Context) {
 	a.svc.StartScheduledSyncs(ctx)
 	a.startRetentionSweeps(ctx)
 	a.startUpgradeChecks(ctx)
+	// Releases sent here by the servers this one takes them from: collected,
+	// so a server in a private network needs nothing outside to reach it.
+	a.svc.StartReleaseCollection(ctx)
 	// Off unless configured. Each starts in the background, so a broker, a
 	// project or a connection that is not there yet does not hold up the boot.
 	a.startRabbitMQ(ctx)
@@ -975,6 +978,10 @@ func BuildAPIHandlerWithIdentity(
 		// Another server connecting with a one-time code made here. It has
 		// no account on this server; the code admits it, once.
 		serviceimpl.ServerHandshakePath,
+		// A server this one gives releases to, checking in. It has no
+		// account here either; the connection's token admits it.
+		serviceimpl.ReleaseCollectPath,
+		serviceimpl.ReleaseReportPath,
 	}
 	authenticate := f.NewMandatoryHTTPAuthWithPeople(strategy, svc, publicPaths)
 	if id != nil {
@@ -1458,18 +1465,27 @@ func notificationMailSettings() serviceimpl.EmailSettings {
 // A few workers are plenty for notifications, which are small and not urgent to
 // the second; the queue absorbs a burst — a task created for everyone on a
 // team at once — without letting a mail server that is down grow it forever.
+// serverToServer are the routes another Metis server calls, with no account
+// here.
+var serverToServer = map[string]bool{
+	serviceimpl.ServerHandshakePath: true,
+	serviceimpl.ReleaseCollectPath:  true,
+	serviceimpl.ReleaseReportPath:   true,
+}
+
 const (
 	notificationDeliveryWorkers = 4
 	notificationDeliveryQueue   = 1024
 )
 
-// setupPaths keeps the setup routes of publicPaths, and the handshake of a
-// server connecting with a code: under an Identity, the sign-in routes are
-// not the engine's to serve, and these two take no account.
+// setupPaths keeps the setup routes of publicPaths, and the routes another
+// server calls: the handshake of one connecting with a code, and the
+// check-in of one collecting its releases. Under an Identity, the sign-in
+// routes are not the engine's to serve, and these take no account.
 func setupPaths(publicPaths []string) []string {
 	var kept []string
 	for _, p := range publicPaths {
-		if strings.HasPrefix(p, "/api/v1/setup") || p == serviceimpl.ServerHandshakePath {
+		if strings.HasPrefix(p, "/api/v1/setup") || serverToServer[p] {
 			kept = append(kept, p)
 		}
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/db"
 	"github.com/gsoultan/metis/server/repositories/store/connectioncode"
+	"github.com/gsoultan/metis/server/repositories/store/releasedelivery"
 	"github.com/gsoultan/metis/server/repositories/store/serverconnection"
 	"github.com/gsoultan/metis/server/repositories/store/serversigningkey"
 )
@@ -192,6 +193,10 @@ func (r *serverConnectionRepository) Delete(ctx context.Context, id uuid.UUID) e
 	ex, err := r.conn.conn.MainExecutor(ctx)
 	if err != nil {
 		return err
+	}
+	// The releases sent over it first: they mean nothing without it.
+	if _, err := releasedelivery.New().Where(releasedelivery.ConnectionID.Eq(id.String())).DeleteAll(ctx, ex); err != nil {
+		return fmt.Errorf("could not remove the releases sent over the connection: %w", err)
 	}
 	n, err := serverconnection.New().Where(serverconnection.ID.Eq(id)).DeleteAll(ctx, ex)
 	if err != nil {

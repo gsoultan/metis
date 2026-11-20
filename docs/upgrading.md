@@ -239,6 +239,14 @@ Migration 54 adds `releases.imported_by` and `releases.approved_by`. A
 release imported before it has neither, and in a protected environment is
 approved by a second person before it goes live, as a new one is.
 
+## Release deliveries (migration 61)
+
+Migration 61 creates `release_deliveries`, empty. It holds the releases sent
+to the servers this one gives releases to, and what each of them last said
+about them; see [Releases](releases.md#sending-a-release). A process that runs
+the engine's work now checks in every minute with each accepted server it
+takes releases from, and does nothing when there is none.
+
 ## Server connections (migration 60)
 
 Migration 60 creates `server_connections`, `connection_codes` and
