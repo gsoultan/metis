@@ -161,6 +161,11 @@ var catalog = []Definition{
 	{Name: "METIS_OTLP_SAMPLE_RATIO", Group: GroupObservability, Label: "Traces sampled",
 		Help: "The fraction of requests traced, from 0 to 1.", Default: "0.05",
 		Kind: KindRatio, Applies: AtRestart},
+
+	// This server, as the servers it connects to see it.
+	{Name: "METIS_SERVER_NAME", Group: GroupServer, Label: "Server name",
+		Help: "What this server is called on the servers it is connected to, such as Production Jakarta. Left empty, it is called by what it is for.",
+		Kind: KindText, Applies: Live},
 }
 
 // All returns every setting the Settings page may change, in the order the

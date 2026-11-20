@@ -29,6 +29,8 @@ type Repository interface {
 	// InstallationSetting is the server settings set from the Settings page,
 	// a row per change.
 	InstallationSetting() contracts.InstallationSettingRepository
+	// ServerConnection is the servers releases are taken from and given to.
+	ServerConnection() contracts.ServerConnectionRepository
 	// SimulationCase is the simulation test cases each process keeps.
 	SimulationCase() contracts.SimulationCaseRepository
 	// Release is the releases a runtime holds: cut there, or imported into it.

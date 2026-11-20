@@ -972,6 +972,9 @@ func BuildAPIHandlerWithIdentity(
 		"/api/v1/setup/status",
 		"/api/v1/setup",
 		"/api/v1/setup/test-connection",
+		// Another server connecting with a one-time code made here. It has
+		// no account on this server; the code admits it, once.
+		serviceimpl.ServerHandshakePath,
 	}
 	authenticate := f.NewMandatoryHTTPAuthWithPeople(strategy, svc, publicPaths)
 	if id != nil {
@@ -1460,12 +1463,13 @@ const (
 	notificationDeliveryQueue   = 1024
 )
 
-// setupPaths keeps the setup routes of publicPaths: under an Identity, the
-// sign-in routes are not the engine's to serve.
+// setupPaths keeps the setup routes of publicPaths, and the handshake of a
+// server connecting with a code: under an Identity, the sign-in routes are
+// not the engine's to serve, and these two take no account.
 func setupPaths(publicPaths []string) []string {
 	var kept []string
 	for _, p := range publicPaths {
-		if strings.HasPrefix(p, "/api/v1/setup") {
+		if strings.HasPrefix(p, "/api/v1/setup") || p == serviceimpl.ServerHandshakePath {
 			kept = append(kept, p)
 		}
 	}

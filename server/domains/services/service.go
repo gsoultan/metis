@@ -56,6 +56,7 @@ type service struct {
 	contracts.RetentionPeriodService
 	contracts.ArchiveService
 	contracts.InstallationSettingService
+	contracts.ServerConnectionService
 	contracts.UpgradeService
 	contracts.BatchOperationService
 	contracts.OperationLogService
@@ -107,6 +108,9 @@ type ServiceParams struct {
 	ArchiveService         contracts.ArchiveService
 	// InstallationSettingService is the Settings page's server settings.
 	InstallationSettingService contracts.InstallationSettingService
+	// ServerConnections connects this server to the ones releases come from
+	// and go to. Nil refuses every call.
+	ServerConnections contracts.ServerConnectionService
 	// UpgradeService is the Upgrades page. Nil refuses every call.
 	UpgradeService        contracts.UpgradeService
 	BatchOperationService contracts.BatchOperationService
@@ -135,6 +139,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	}
 	if p.UpgradeService == nil {
 		p.UpgradeService = serviceimpl.NewUnavailableUpgradeService()
+	}
+	if p.ServerConnections == nil {
+		p.ServerConnections = serviceimpl.NewUnavailableServerConnectionService()
 	}
 	if p.BatchOperationService == nil {
 		p.BatchOperationService = serviceimpl.NewUnavailableBatchOperationService()
@@ -214,6 +221,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		RetentionPeriodService:     p.RetentionPeriodService,
 		ArchiveService:             p.ArchiveService,
 		InstallationSettingService: p.InstallationSettingService,
+		ServerConnectionService:    p.ServerConnections,
 		UpgradeService:             p.UpgradeService,
 		BatchOperationService:      p.BatchOperationService,
 		OperationLogService:        p.OperationLogService,
@@ -252,11 +260,15 @@ type facadeSettings struct {
 	upgrades contracts.UpgradeService
 
 	// releaseKeys are the keys releases are signed and trusted by. Nil reads
-	// them from the environment: see WithReleaseKeys.
+	// them from the server's connections: see WithReleaseKeys.
 	releaseKeys serviceimpl.ReleaseKeys
 	// releasePolicy says which releases need another environment's live note
-	// before they go live here. Nil requires none: see WithReleasePolicy.
+	// before they go live here. Nil lets the connections decide: see
+	// WithReleasePolicy.
 	releasePolicy serviceimpl.ReleasePolicy
+	// serverIdentity is what this server is called and is for. Empty reads
+	// them from METIS_SERVER_NAME and METIS_SERVER_PURPOSE.
+	serverIdentity serviceimpl.ServerIdentitySource
 }
 
 // FacadeOption changes what the services are built with.
@@ -300,7 +312,9 @@ func WithUpgrades(upgrades contracts.UpgradeService) FacadeOption {
 
 // WithReleaseKeys is where the key this installation signs its releases with,
 // and the keys whose releases it imports, are kept. Built without it, they are
-// read from METIS_RELEASE_SIGNING_KEY and METIS_RELEASE_TRUSTED_KEYS. A server
+// kept with the server's connections: a signing key made the first time one
+// is needed, and the keys of the servers it accepted, with
+// METIS_RELEASE_SIGNING_KEY and METIS_RELEASE_TRUSTED_KEYS still counting. A server
 // that keeps them itself is answerable for who may change which keys are
 // trusted.
 func WithReleaseKeys(keys serviceimpl.ReleaseKeys) FacadeOption {
@@ -308,11 +322,18 @@ func WithReleaseKeys(keys serviceimpl.ReleaseKeys) FacadeOption {
 }
 
 // WithReleasePolicy is which releases go live here only with another
-// environment's signed note that they went live there. Built without it, none
-// need one. The server that knows how its environments are connected supplies
-// it: a production with a staging before it requires staging's note.
+// environment's signed note that they went live there. Built without it, the
+// server's connections decide: a production that accepted a staging before
+// it requires staging's note.
 func WithReleasePolicy(policy serviceimpl.ReleasePolicy) FacadeOption {
 	return func(settings *facadeSettings) { settings.releasePolicy = policy }
+}
+
+// WithServerIdentity says what this server is called and is for, as the
+// servers it connects to see it. Built without it, METIS_SERVER_NAME and
+// METIS_SERVER_PURPOSE say.
+func WithServerIdentity(identity serviceimpl.ServerIdentitySource) FacadeOption {
+	return func(settings *facadeSettings) { settings.serverIdentity = identity }
 }
 
 // WithCredentials hands every account's password and second factor to the
@@ -442,6 +463,17 @@ func NewServiceFacade(
 		return simEngine
 	})
 
+	// The release keys and policy are the server's connections unless the
+	// program embedding the engine keeps its own.
+	connectionKeys := serviceimpl.NewConnectionReleaseKeys(repo.ServerConnection())
+	releaseKeys, releasePolicy := settings.releaseKeys, settings.releasePolicy
+	if releaseKeys == nil {
+		releaseKeys = connectionKeys
+	}
+	if releasePolicy == nil {
+		releasePolicy = connectionKeys
+	}
+
 	deviationLedger := serviceimpl.NewDeviationLedger(repo)
 	instanceDeviator := serviceimpl.NewInstanceDeviationService(repo, engine)
 	return NewService(ServiceParams{
@@ -480,7 +512,7 @@ func NewServiceFacade(
 		SimulationService:     simulationSvc,
 		SimulationCaseService: serviceimpl.NewSimulationCaseService(repo),
 		ReleaseService: serviceimpl.NewReleaseService(repo, defSvc, decisionSvc, connectorSvc,
-			serviceimpl.ReleaseParts{Simulation: simulationSvc, Protected: environmentSvc.RuntimeProtected, Keys: settings.releaseKeys, Policy: settings.releasePolicy}),
+			serviceimpl.ReleaseParts{Simulation: simulationSvc, Protected: environmentSvc.RuntimeProtected, Keys: releaseKeys, Policy: releasePolicy}),
 		DeviationService: serviceimpl.NewDeviationService(deviationLedger,
 			instanceDeviator,
 			serviceimpl.NewDeviationRequestService(repo, engine,
@@ -489,6 +521,7 @@ func NewServiceFacade(
 		RetentionPeriodService:     serviceimpl.NewRetentionPeriodService(repo),
 		ArchiveService:             serviceimpl.NewArchiveService(repo),
 		InstallationSettingService: serviceimpl.NewInstallationSettingService(repo.InstallationSetting()),
+		ServerConnections:          serviceimpl.NewServerConnectionService(repo.ServerConnection(), releaseKeys, settings.serverIdentity),
 		UpgradeService:             settings.upgrades,
 		BatchOperationService: serviceimpl.NewBatchOperationService(repo, instanceDeviator, jobSvc,
 			serviceimpl.AccountLoader(userSvc), serviceimpl.DefaultBatchOperationSettings()),

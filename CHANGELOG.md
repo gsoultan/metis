@@ -57,6 +57,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Servers connect by a one-time code.** A development, staging or
+  production server (`METIS_SERVER_PURPOSE`) makes a code; the server after it
+  enters it with the first server's address, both show the same four words,
+  and a second administrator there accepts the connection. Only then are the
+  other server's releases and live notes trusted. Each server makes and keeps
+  its own signing key, sealed with `ENCRYPTION_KEY`, and an acceptance is
+  sealed too, so writing a row into the database is not enough to be trusted.
+  A production that accepted a staging requires staging's live note.
+  `METIS_RELEASE_SIGNING_KEY` and `METIS_RELEASE_TRUSTED_KEYS` still win when
+  set, and the trusted keys then lock connecting from the pages. Migration 60.
+  See docs/releases.md.
+
 - **A production can require that a release went live in staging first.**
   Staging gives a signed live note for a release that went live there
   (`GET /api/v1/projects/{id}/releases/{name}/live-note`), and production

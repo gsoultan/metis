@@ -17,8 +17,9 @@ const (
 	reasonLinks          = "Task links carry sign-in tokens; the address they point at is the operator's to choose. Set in the environment, or in config.yaml by the setup wizard."
 	reasonDeprecated     = "Deprecated: register each receiver as a project's outgoing webhook instead."
 	reasonProtected      = "Marks this installation's runtime as production, where only a releaser or an administrator may change the models. An administrator could otherwise unlock their own production."
-	reasonReleaseKey     = "Signs the releases this installation exports. Kept in the database, anyone who could write one row could sign a release production trusts."
-	reasonReleaseTrust   = "Decides whose releases this installation imports. An administrator could otherwise trust a release nobody tested."
+	reasonReleaseKey     = "Signs the releases this installation exports. Unset, the server makes one and keeps it sealed with ENCRYPTION_KEY, so writing a row into the database is not enough to sign a release production trusts."
+	reasonReleaseTrust   = "Set, it alone decides whose releases this installation imports, and servers cannot be connected from the Environments page. Unset, a server is trusted once two administrators connect and accept it there."
+	reasonServerPurpose  = "Decides which servers this one may take releases from: production from staging or development, staging from development. Set in the environment, or in config.yaml by the setup wizard."
 	reasonUpgradeSource  = "Decides whether this installation asks GitHub for new releases, and which ones it is offered. Calling out of the installation is the operator's decision."
 	reasonArchiveStore   = "Where archived instances' records are kept, opened at start-up with the payload directory. A wrong value saved from the UI would leave records nobody can read."
 	reasonSecondFactor   = "Decides whether staff must give a code from an authenticator app after their password. An administrator could otherwise switch off the second factor for everyone."
@@ -68,6 +69,7 @@ var environmentOnly = []Fixed{
 	{Name: "METIS_PLATFORM_ADMINS", Class: ClassGuardrail, Reason: reasonWhoIsAdmin},
 	{Name: "METIS_TWO_FACTOR", Class: ClassGuardrail, Reason: reasonSecondFactor},
 	{Name: "METIS_PROTECTED_RUNTIME", Class: ClassGuardrail, Reason: reasonProtected},
+	{Name: "METIS_SERVER_PURPOSE", Class: ClassGuardrail, Reason: reasonServerPurpose},
 	{Name: "METIS_RELEASE_TRUSTED_KEYS", Class: ClassGuardrail, Reason: reasonReleaseTrust},
 	{Name: "METIS_SOLE_ADMINISTRATOR_ORGANIZATIONS", Class: ClassGuardrail, Reason: reasonWhoIsAdmin},
 	{Name: "METIS_HTTP_ALLOW_PRIVATE_NETWORKS", Class: ClassGuardrail, Reason: reasonEgress},
