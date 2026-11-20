@@ -22,6 +22,7 @@ const (
 	reasonUpgradeSource  = "Decides whether this installation asks GitHub for new releases, and which ones it is offered. Calling out of the installation is the operator's decision."
 	reasonArchiveStore   = "Where archived instances' records are kept, opened at start-up with the payload directory. A wrong value saved from the UI would leave records nobody can read."
 	reasonSecondFactor   = "Decides whether staff must give a code from an authenticator app after their password. An administrator could otherwise switch off the second factor for everyone."
+	reasonRole           = "Decides whether this machine runs the engine's work, read once at start. Each machine has its own, set in the environment or in config.yaml's server.role, and a value saved from the UI would reach every machine at once."
 )
 
 // environmentOnly is every setting the server reads that the Settings page
@@ -49,6 +50,7 @@ var environmentOnly = []Fixed{
 	{Name: "METIS_METRICS_ADDRESS", Class: ClassBootstrap, Reason: reasonListener},
 	{Name: "METIS_PPROF_ENABLED", Class: ClassBootstrap, Reason: reasonListener},
 	{Name: "METIS_PPROF_ADDRESS", Class: ClassBootstrap, Reason: reasonListener},
+	{Name: "METIS_ROLE", Class: ClassBootstrap, Reason: reasonRole},
 	{Name: "METIS_PAYLOAD_DIR", Class: ClassBootstrap, Reason: "A directory on each server's own disk, read before the database is open."},
 	{Name: "METIS_PAYLOAD_THRESHOLD_BYTES", Class: ClassBootstrap, Reason: "Configured with the payload directory, before the database is open."},
 	{Name: "METIS_ARCHIVE_STORE", Class: ClassBootstrap, Reason: reasonArchiveStore},
