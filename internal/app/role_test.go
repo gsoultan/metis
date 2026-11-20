@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -28,6 +29,38 @@ func TestARoleIsReadAsWrittenAndAnythingElseIsRefused(t *testing.T) {
 	}
 	if RoleWeb.RunsWork() || !RoleAll.RunsWork() || !RoleWorker.RunsWork() {
 		t.Error("only the web role may leave the work to other processes")
+	}
+}
+
+// The role a joined machine was given is written to config.yaml, and read from
+// there unless the environment says otherwise.
+func TestTheRoleComesFromTheEnvironmentOrElseConfigYAML(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if role, err := ConfiguredRole(); err != nil || role != RoleAll {
+		t.Fatalf("with neither: %q, %v; want all", role, err)
+	}
+	if err := os.WriteFile("config.yaml", []byte("server:\n  role: worker\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if role, err := ConfiguredRole(); err != nil || role != RoleWorker {
+		t.Fatalf("from config.yaml: %q, %v; want worker", role, err)
+	}
+	t.Setenv(envRole, "web")
+	if role, err := ConfiguredRole(); err != nil || role != RoleWeb {
+		t.Fatalf("the environment did not win over config.yaml: %q, %v", role, err)
+	}
+	t.Setenv(envRole, "")
+	if role, err := ConfiguredRole(); err != nil || role != RoleAll {
+		t.Fatalf("an empty METIS_ROLE is the default, whatever the file says: %q, %v", role, err)
+	}
+	if err := os.Unsetenv(envRole); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("config.yaml", []byte("server:\n  role: wroker\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ConfiguredRole(); err == nil {
+		t.Fatal("a misspelt role in config.yaml was accepted")
 	}
 }
 

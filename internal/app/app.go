@@ -304,12 +304,6 @@ func (a *App) RunContext(ctx context.Context, args []string) error {
 	// 0. Initialize Logger
 	logger.Init()
 
-	role, err := roleFromEnvironment()
-	if err != nil {
-		return err
-	}
-	a.role = role
-
 	// The liveness probe reports the build, so "which version is running" has an
 	// answer that does not depend on finding the startup log.
 	health.SetBuildVersion(version)
@@ -336,6 +330,11 @@ func (a *App) RunContext(ctx context.Context, args []string) error {
 	// 0b. Where to listen and the public address, as the wizard wrote them,
 	//     under whatever the environment says.
 	useConfigFile()
+	role, err := roleFromEnvironment()
+	if err != nil {
+		return err
+	}
+	a.role = role
 
 	// 1. Install the at-rest encryption key before any repository can read or
 	//    write an encrypted column.

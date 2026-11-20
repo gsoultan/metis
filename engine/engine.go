@@ -52,3 +52,12 @@ func (e *Engine) Run(ctx context.Context, args []string) error {
 func Version() string {
 	return app.Version()
 }
+
+// Role is what an engine started here would do of its work, as METIS_ROLE or
+// else server.role in config.yaml says: "all" (the default), "web" (serve the
+// API, run no jobs, timers or deliveries) or "worker". An unknown value is an
+// error, as it is when the engine starts. Reading it changes nothing.
+func Role() (string, error) {
+	role, err := app.ConfiguredRole()
+	return string(role), err
+}
