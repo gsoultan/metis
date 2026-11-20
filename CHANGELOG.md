@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Added
+
+- **`METIS_ROLE` splits serving from working.** `web` processes serve the API
+  and run no jobs, timers, deliveries, syncs or sweeps; `worker` and the default
+  `all` run them. Machines that answer people can then scale apart from the ones
+  doing the work, on the same database. An unknown value stops the engine at
+  start.
+
 ### Changed
 
 - **`POST /api/v1/login` answers with a challenge, not a session, when a code
