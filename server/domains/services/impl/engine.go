@@ -145,6 +145,13 @@ func (e *Engine) startProcessInternal(ctx context.Context, projectID uuid.UUID, 
 	if err != nil {
 		return uuid.Nil, err
 	}
+	// A run started by another run is given what its parent's step maps to
+	// it, and that step was checked when the parent was deployed.
+	if parentInstanceID == uuid.Nil {
+		if vars, err = admittedStartVariables(def.Key, startNode, vars); err != nil {
+			return uuid.Nil, err
+		}
+	}
 
 	idObj, err := uuid.NewV7()
 	if err != nil {
