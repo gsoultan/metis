@@ -82,8 +82,11 @@ func TestAPausedScheduleStartsNothingAndResumingOwesNothingForThePause(t *testin
 		t.Fatalf("pausing twice moved the pause from %s to %s", paused.PausedAt, again.PausedAt)
 	}
 
-	// Its time comes and goes.
-	due := time.Now().Add(11 * time.Minute)
+	// Its time comes and goes. The schedule runs on the ten minutes of the
+	// clock, so the times below are counted from one of those and not from
+	// now: a minute after the next one, which leaves the following one nine
+	// minutes off whenever the test happens to run.
+	due := time.Now().UTC().Truncate(10 * time.Minute).Add(11 * time.Minute)
 	if got := h.runSchedules(t, due); got != 0 {
 		t.Fatalf("a paused schedule started %d runs", got)
 	}

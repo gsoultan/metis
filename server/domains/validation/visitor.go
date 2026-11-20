@@ -64,6 +64,30 @@ func (v *Visitor) VisitFlowNode(n *entities.Node) {
 		}
 	}
 	v.checkStartSchedule(n)
+	v.checkStartInputs(n)
+}
+
+// checkStartInputs refuses inputs the engine could not hold a start to, at
+// deploy rather than at the first start.
+//
+// A process that starts by itself has nobody to fill an input in, so each
+// input it requires must come with a default.
+func (v *Visitor) checkStartInputs(n *entities.Node) {
+	if n.Type != entities.StartEvent || !entities.HasStartInputs(n) {
+		return
+	}
+	inputs, err := entities.StartInputsOf(n)
+	if err != nil {
+		v.errors = append(v.errors, fmt.Sprintf("Flow node %s: %v", n.ID, err))
+		return
+	}
+	if !entities.HasStartSchedule(n) {
+		return
+	}
+	for _, id := range entities.MissingDefault(inputs) {
+		v.errors = append(v.errors, fmt.Sprintf(
+			"Flow node %s starts on a schedule, but its required input %q has no default; nobody is there to fill it in", n.ID, id))
+	}
 }
 
 // checkStartSchedule refuses a schedule the engine could not keep, at deploy

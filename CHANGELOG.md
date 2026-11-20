@@ -90,6 +90,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   (`failures`, `last_error`) and tried again after a minute, doubling up to an
   hour, with the run still owed. A scheduled run starts with no variables.
   Migration 56 adds the table.
+- **A start step can declare what a run must be started with.** Its
+  `start_form` property holds a form in the shape a task's form has: a list of
+  fields, each with an `id`, a `type` (`text`, `textarea`, `number`,
+  `boolean`, `date` or `select`), `required` and `defaultValue`. A start that
+  leaves out a required input, or gives one the wrong kind of value, is now
+  refused with 400 and a message naming each input, whether it comes from the
+  API, a message or a signal. An input left out takes its default. Variables
+  the step does not declare are still accepted, and a process that declares no
+  inputs starts with anything, as before. A run started by a call activity is
+  not held to the called process's inputs. Deploy refuses inputs it cannot
+  read, and a schedule on a start step whose required input has no default.
+
 - **A process's scheduled starts can be read and paused.**
   `GET /api/v1/definitions/start-schedule?project_id=&key=` says whether the
   process starts on a schedule, whether that is paused, when the next run is

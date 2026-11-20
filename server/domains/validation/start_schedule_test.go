@@ -68,3 +68,29 @@ func TestAScheduleTheEngineCannotKeepIsRefusedAtDeploy(t *testing.T) {
 		})
 	}
 }
+
+// Inputs the engine could not hold a start to are refused at deploy, naming
+// the step. Inputs it can read deploy.
+func TestStartInputsAreCheckedAtDeploy(t *testing.T) {
+	readable := &entities.Node{ID: "start", Type: entities.StartEvent, Properties: map[string]any{
+		entities.StartFormProperty: `[{"id":"amount","type":"number","required":true}]`,
+	}}
+	if errs := errorsFor(readable); len(errs) != 0 {
+		t.Fatalf("readable inputs were refused: %v", errs)
+	}
+
+	unreadable := &entities.Node{ID: "start", Type: entities.StartEvent, Properties: map[string]any{
+		entities.StartFormProperty: `[{"type":"number"}]`,
+	}}
+	errs := errorsFor(unreadable)
+	if len(errs) != 1 || !strings.Contains(errs[0], "Flow node start: input 1 has no name") {
+		t.Fatalf("an input with no name deployed: %v", errs)
+	}
+
+	scheduled := scheduleOf("day")
+	scheduled[entities.StartFormProperty] = `[{"id":"amount","type":"number","required":true},{"id":"note","type":"text"}]`
+	errs = errorsFor(&entities.Node{ID: "start", Type: entities.StartEvent, Properties: scheduled})
+	if len(errs) != 1 || !strings.Contains(errs[0], `required input "amount" has no default`) {
+		t.Fatalf("a schedule with a required input nobody fills deployed: %v", errs)
+	}
+}
