@@ -221,7 +221,7 @@ func TestOnlyTheConnectedServerIsHandedItsReleases(t *testing.T) {
 	allowLoopback(t)
 	dev := newServer(t, "Development", entities.ServerDevelopment)
 	for _, auth := range []string{"", "Bearer ", "Bearer not-the-token", "Basic Zm9vOmJhcg=="} {
-		req, err := http.NewRequest(http.MethodPost, dev.url+serviceimpl.ReleaseCollectPath,
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, dev.url+serviceimpl.ReleaseCollectPath,
 			bytes.NewReader([]byte(`{"format":"`+contracts.ReleaseCollectionFormat+`"}`)))
 		if err != nil {
 			t.Fatal(err)

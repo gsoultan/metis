@@ -212,13 +212,13 @@ func (s *serverConnectionService) collectedRelease(ctx context.Context, d entiti
 	item := contracts.CollectedRelease{ID: d.ID, Organization: org.Name, Project: project.Name, Release: rel.Name}
 	if withFile {
 		if item.File, err = s.deliveries.Releases.ExportRelease(ctx, d.ProjectID, rel.Name); err != nil {
-			return contracts.CollectedRelease{}, fmt.Errorf("release %s could not be signed on the sending server: %v", d.Release, err)
+			return contracts.CollectedRelease{}, fmt.Errorf("release %s could not be signed on the sending server: %w", d.Release, err)
 		}
 	}
 	if rel.LiveAt != nil {
 		note, err := s.deliveries.Releases.ReleaseLiveNote(ctx, d.ProjectID, rel.Name)
 		if err != nil {
-			return contracts.CollectedRelease{}, fmt.Errorf("release %s's live note could not be signed on the sending server: %v", d.Release, err)
+			return contracts.CollectedRelease{}, fmt.Errorf("release %s's live note could not be signed on the sending server: %w", d.Release, err)
 		}
 		item.LiveNote = note
 	}
@@ -389,7 +389,7 @@ func (s *serverConnectionService) take(ctx context.Context, c entities.ServerCon
 func (s *serverConnectionService) projectNamed(ctx context.Context, organization, project string) (uuid.UUID, error) {
 	orgs, err := s.deliveries.Organizations.List(ctx)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("this server could not read its organizations: %v", err)
+		return uuid.Nil, fmt.Errorf("this server could not read its organizations: %w", err)
 	}
 	for _, org := range orgs {
 		if org.Name != organization {
@@ -397,7 +397,7 @@ func (s *serverConnectionService) projectNamed(ctx context.Context, organization
 		}
 		projects, err := s.deliveries.Projects.ListByOrganization(ctx, uuid.UUID(org.ID))
 		if err != nil {
-			return uuid.Nil, fmt.Errorf("this server could not read %s's projects: %v", organization, err)
+			return uuid.Nil, fmt.Errorf("this server could not read %s's projects: %w", organization, err)
 		}
 		for _, p := range projects {
 			if p.Name == project {
