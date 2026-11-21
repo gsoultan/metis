@@ -384,6 +384,12 @@ func validateServerConfiguration(req contracts.SetupRequest) error {
 			return fmt.Errorf("%w: %w", apierr.ErrInvalidArgument, err)
 		}
 	}
+	if purpose := strings.ToLower(strings.TrimSpace(req.ServerPurpose)); purpose != "" && !entities.ServerPurpose(purpose).Valid() {
+		return apierr.Invalidf("a server is for development, staging or production, not %q", req.ServerPurpose)
+	}
+	if name := strings.TrimSpace(req.ServerName); len(name) > maxServerNameLength || strings.ContainsFunc(name, isControlRune) {
+		return apierr.Invalidf("the server's name must be one line of at most %d characters", maxServerNameLength)
+	}
 	return nil
 }
 
@@ -409,7 +415,12 @@ func saveConfiguration(req contracts.SetupRequest) error {
 			return fmt.Errorf("%w: %w", apierr.ErrInvalidArgument, err)
 		}
 	}
-	cfg.Server = config.ServerConfig{HTTPAddress: strings.TrimSpace(req.HTTPAddress), PublicURL: publicURL}
+	cfg.Server = config.ServerConfig{
+		HTTPAddress: strings.TrimSpace(req.HTTPAddress),
+		PublicURL:   publicURL,
+		Purpose:     strings.ToLower(strings.TrimSpace(req.ServerPurpose)),
+		Name:        strings.TrimSpace(req.ServerName),
+	}
 
 	if err := cfg.Save(config.DefaultConfigPath); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)

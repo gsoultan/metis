@@ -10,6 +10,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **The setup wizard asks what the server is for.** Setup takes
+  `server_purpose` (development, staging or production) and `server_name`, and
+  writes them to `config.yaml` as `server.purpose` and `server.name`, read as
+  `METIS_SERVER_PURPOSE` and `METIS_SERVER_NAME`. An unknown purpose, or a name
+  that is not one line, is refused before anything is written. The environment
+  still wins over the file.
+
 - **Releases are sent between connected servers.** A release is sent from the
   server it is on to a server after it, and that server collects it when it
   checks in, every minute: staged, as an imported file is, into the project

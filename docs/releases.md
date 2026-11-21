@@ -114,7 +114,9 @@ Each server says what it is for with `METIS_SERVER_PURPOSE`: `development`
 (the default), `staging` or `production`. Releases go forwards only:
 production takes them from staging or development, staging from development.
 `METIS_SERVER_NAME` is what the others call it; unset, it is called by its
-purpose.
+purpose. The setup wizard asks both on its Server step ("What is this server
+for?") and writes them to `config.yaml` as `server.purpose` and `server.name`;
+a variable set in the environment still wins.
 
 1. On the server releases come from (development, or staging for a
    production after it), a platform administrator makes a **one-time code**

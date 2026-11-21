@@ -33,6 +33,8 @@ type SetupRequest struct {
 	SetupToken       string `json:"setup_token"`
 	HTTPAddress      string `json:"http_address"`
 	PublicURL        string `json:"public_url"`
+	ServerPurpose    string `json:"server_purpose"`
+	ServerName       string `json:"server_name"`
 }
 
 type SetupResponse struct {

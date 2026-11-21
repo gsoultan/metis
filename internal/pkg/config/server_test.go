@@ -37,7 +37,10 @@ func TestTheServerSectionIsWrittenOnlyWhenSet(t *testing.T) {
 		t.Fatalf("an empty server section was written:\n%s", data)
 	}
 
-	bare.Server = ServerConfig{HTTPAddress: "0.0.0.0:8080", PublicURL: "https://metis.example.com", Role: "worker"}
+	bare.Server = ServerConfig{
+		HTTPAddress: "0.0.0.0:8080", PublicURL: "https://metis.example.com", Role: "worker",
+		Purpose: "production", Name: "Production (Jakarta)",
+	}
 	fullPath := filepath.Join(dir, "full.yaml")
 	if err := bare.Save(fullPath); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -47,7 +50,8 @@ func TestTheServerSectionIsWrittenOnlyWhenSet(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	values := loaded.Server.Values()
-	if values[EnvHTTPAddress] != "0.0.0.0:8080" || values[EnvPublicURL] != "https://metis.example.com" || values[EnvRole] != "worker" {
+	if values[EnvHTTPAddress] != "0.0.0.0:8080" || values[EnvPublicURL] != "https://metis.example.com" || values[EnvRole] != "worker" ||
+		values[EnvServerPurpose] != "production" || values[EnvServerName] != "Production (Jakarta)" {
 		t.Fatalf("the server section did not round-trip: %+v", values)
 	}
 	if len((ServerConfig{}).Values()) != 0 {

@@ -13,6 +13,10 @@ const (
 	EnvHTTPAddress = "METIS_HTTP_ADDRESS"
 	EnvPublicURL   = "METIS_PUBLIC_URL"
 	EnvRole        = "METIS_ROLE"
+	// EnvServerPurpose and EnvServerName are what this server is for and
+	// what it calls itself to the servers it exchanges releases with.
+	EnvServerPurpose = "METIS_SERVER_PURPOSE"
+	EnvServerName    = "METIS_SERVER_NAME"
 )
 
 // ServerConfig is the part of config.yaml that says where this server is.
@@ -33,6 +37,13 @@ type ServerConfig struct {
 	// worker. Written by whatever joins a machine to an installation, so the
 	// role chosen there needs nothing set by hand.
 	Role string `yaml:"role,omitempty" json:"role,omitzero"`
+	// Purpose is development, staging or production: which servers this one
+	// may take releases from. Written by the setup wizard's "What is this
+	// server for?" step.
+	Purpose string `yaml:"purpose,omitempty" json:"purpose,omitzero"`
+	// Name is what this server calls itself to the others, such as
+	// "Production (Jakarta)". Empty is its purpose, capitalised.
+	Name string `yaml:"name,omitempty" json:"name,omitzero"`
 }
 
 // Values returns the server settings this file sets, keyed by the variable
@@ -48,6 +59,12 @@ func (s ServerConfig) Values() map[string]string {
 	}
 	if v := strings.TrimSpace(s.Role); v != "" {
 		values[EnvRole] = v
+	}
+	if v := strings.TrimSpace(s.Purpose); v != "" {
+		values[EnvServerPurpose] = v
+	}
+	if v := strings.TrimSpace(s.Name); v != "" {
+		values[EnvServerName] = v
 	}
 	return values
 }
