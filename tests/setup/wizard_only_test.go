@@ -42,6 +42,7 @@ func TestAWizardOnlySetupWritesTheServerSectionAndHandsOver(t *testing.T) {
 		DBHost: host, DBPort: port, DBUsername: user, DBPassword: password, DBName: database,
 		EncryptionKey: strongSecret(t), JWTSecret: strongSecret(t),
 		HTTPAddress: " 0.0.0.0:8080 ", PublicURL: "https://metis.example.com/",
+		ServerPurpose: " Production ", ServerName: " Production (Jakarta) ",
 	})
 	if err != nil {
 		t.Fatalf("setup: %v", err)
@@ -56,7 +57,10 @@ func TestAWizardOnlySetupWritesTheServerSectionAndHandsOver(t *testing.T) {
 	}
 	// Written as the server will read them: trimmed, and without the slash a
 	// link would otherwise double.
-	want := config.ServerConfig{HTTPAddress: "0.0.0.0:8080", PublicURL: "https://metis.example.com"}
+	want := config.ServerConfig{
+		HTTPAddress: "0.0.0.0:8080", PublicURL: "https://metis.example.com",
+		Purpose: "production", Name: "Production (Jakarta)",
+	}
 	if cfg.Server != want {
 		t.Fatalf("server section = %+v, want %+v", cfg.Server, want)
 	}
@@ -73,6 +77,8 @@ func TestSetupRefusesAServerAddressItCouldNotUse(t *testing.T) {
 		{HTTPAddress: ":70000"},
 		{PublicURL: "metis.example.com"},
 		{PublicURL: "https://metis.example.com/?next=x"},
+		{ServerPurpose: "qa"},
+		{ServerName: "two\nlines"},
 	} {
 		handedOver := false
 		svc := impl.NewSetupService(nil, testSetupToken, impl.WizardOnly(func() { handedOver = true }))
@@ -86,6 +92,7 @@ func TestSetupRefusesAServerAddressItCouldNotUse(t *testing.T) {
 			DBHost: "127.0.0.1", DBPort: 1, DBUsername: "metis", DBName: "metis",
 			EncryptionKey: strongSecret(t), JWTSecret: strongSecret(t),
 			HTTPAddress: bad.HTTPAddress, PublicURL: bad.PublicURL,
+			ServerPurpose: bad.ServerPurpose, ServerName: bad.ServerName,
 		}
 		err := svc.Setup(t.Context(), req)
 		if !errors.Is(err, apierr.ErrInvalidArgument) {

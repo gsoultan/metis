@@ -58,6 +58,8 @@ func MakeSetupEndpoint(s contracts.SetupService) endpoint.Endpoint {
 			SetupToken:       req.SetupToken,
 			HTTPAddress:      req.HTTPAddress,
 			PublicURL:        req.PublicURL,
+			ServerPurpose:    req.ServerPurpose,
+			ServerName:       req.ServerName,
 		})
 		return SetupResponse{Err: err}, nil
 	}

@@ -60,6 +60,13 @@ type SetupRequest struct {
 	// the default (every interface, port 8080) and sends no links.
 	HTTPAddress string `json:"http_address"`
 	PublicURL   string `json:"public_url"`
+
+	// What this server is for (development, staging or production) and what
+	// it calls itself to the servers it exchanges releases with. Both are
+	// optional and are written to config.yaml: empty is development, named
+	// after its purpose.
+	ServerPurpose string `json:"server_purpose"`
+	ServerName    string `json:"server_name"`
 }
 
 // TestConnectionRequest contains the database connection parameters for testing connectivity.

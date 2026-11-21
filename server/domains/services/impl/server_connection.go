@@ -23,6 +23,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/internal/pkg/config"
 	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/internal/pkg/httpclient"
 	"github.com/gsoultan/metis/server/domains/entities"
@@ -34,9 +35,9 @@ import (
 // see it.
 const (
 	// EnvServerName is what this server calls itself to the others.
-	EnvServerName = "METIS_SERVER_NAME"
+	EnvServerName = config.EnvServerName
 	// EnvServerPurpose is development, staging or production.
-	EnvServerPurpose = "METIS_SERVER_PURPOSE"
+	EnvServerPurpose = config.EnvServerPurpose
 )
 
 // ServerHandshakePath is where a server answers another that was given one of
