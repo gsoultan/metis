@@ -81,6 +81,7 @@ func All() []any {
 		&ConnectionCode{},
 		&ServerSigningKey{},
 		&ReleaseDelivery{},
+		&Machine{},
 		// One-use links that let a person act on a task without signing in.
 		&TaskLink{},
 		&PersonAPIKey{},
