@@ -733,6 +733,9 @@ func releaseName(name string) (string, error) {
 
 // actorName is who a change is recorded as made by.
 func releaseActor(ctx context.Context) string {
+	if actor, ok := ctx.Value(releaseActorKey{}).(string); ok && actor != "" {
+		return actor
+	}
 	if caller := signedIn(ctx); caller != nil {
 		if caller.Username != "" {
 			return caller.Username

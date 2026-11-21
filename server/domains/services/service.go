@@ -474,6 +474,9 @@ func NewServiceFacade(
 		releasePolicy = connectionKeys
 	}
 
+	releaseSvc := serviceimpl.NewReleaseService(repo, defSvc, decisionSvc, connectorSvc,
+		serviceimpl.ReleaseParts{Simulation: simulationSvc, Protected: environmentSvc.RuntimeProtected, Keys: releaseKeys, Policy: releasePolicy})
+
 	deviationLedger := serviceimpl.NewDeviationLedger(repo)
 	instanceDeviator := serviceimpl.NewInstanceDeviationService(repo, engine)
 	return NewService(ServiceParams{
@@ -511,8 +514,7 @@ func NewServiceFacade(
 		NotificationService:   notificationSvc,
 		SimulationService:     simulationSvc,
 		SimulationCaseService: serviceimpl.NewSimulationCaseService(repo),
-		ReleaseService: serviceimpl.NewReleaseService(repo, defSvc, decisionSvc, connectorSvc,
-			serviceimpl.ReleaseParts{Simulation: simulationSvc, Protected: environmentSvc.RuntimeProtected, Keys: releaseKeys, Policy: releasePolicy}),
+		ReleaseService:        releaseSvc,
 		DeviationService: serviceimpl.NewDeviationService(deviationLedger,
 			instanceDeviator,
 			serviceimpl.NewDeviationRequestService(repo, engine,
@@ -521,8 +523,9 @@ func NewServiceFacade(
 		RetentionPeriodService:     serviceimpl.NewRetentionPeriodService(repo),
 		ArchiveService:             serviceimpl.NewArchiveService(repo),
 		InstallationSettingService: serviceimpl.NewInstallationSettingService(repo.InstallationSetting()),
-		ServerConnections:          serviceimpl.NewServerConnectionService(repo.ServerConnection(), releaseKeys, settings.serverIdentity),
-		UpgradeService:             settings.upgrades,
+		ServerConnections: serviceimpl.NewServerConnectionService(repo.ServerConnection(), releaseKeys, settings.serverIdentity,
+			serviceimpl.ReleaseDeliveryParts{Releases: releaseSvc, Projects: repo.Project(), Organizations: repo.Organization()}),
+		UpgradeService: settings.upgrades,
 		BatchOperationService: serviceimpl.NewBatchOperationService(repo, instanceDeviator, jobSvc,
 			serviceimpl.AccountLoader(userSvc), serviceimpl.DefaultBatchOperationSettings()),
 		OperationLogService: serviceimpl.NewOperationLogService(repo),

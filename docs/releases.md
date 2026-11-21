@@ -137,6 +137,42 @@ administrator chose it, not a process definition. The server releases go to
 is the one that calls, so a production in a private network needs no address
 anyone outside can reach.
 
+### Sending a release
+
+Once connected, a release is **sent** from the server it is on
+(`POST /api/v1/projects/{id}/releases/{name}/send` with the connection's id).
+Nothing is pushed: the server it goes to **collects** it when it checks in,
+every minute, so a production in a private network needs nothing outside to
+reach it. A release can be sent as soon as it is cut, or, from a staging,
+once it went live there.
+
+When it checks in, the server releases go to:
+
+1. is handed the releases sent to it that it has not settled, each named by
+   its organization and project name, with the signed release file while it
+   has not taken it, and the sending server's live note once the release went
+   live there;
+2. takes each one into the project with the same organization and project
+   name, **staged**, exactly as a release file is imported, but only if the
+   file is signed by that connection's own key. It is recorded as imported by
+   "server <name>", so a person still approves it and makes it live;
+3. attaches the live note to a staged release that has none;
+4. says how far each release got: `staged`, `approved`, `live`,
+   `superseded`, or `refused` with why (no such project, a connection the
+   release calls is missing, a different release of that name is already
+   there).
+
+The sending server lists where each release went and how far it got
+(`GET /api/v1/projects/{id}/release-deliveries`), as of the other server's
+last check-in, and when that was. It does not guess: if check-ins stop, the
+list says when the last one was. A refused release can be sent again once
+what was wrong is put right. A live, superseded or refused release is not
+handed over again.
+
+Checking in runs in every process that runs the engine's work (`METIS_ROLE`
+`all` or `worker`). A platform administrator can check in at once
+(`POST /api/v1/server-connections/{id}/collect`).
+
 ### Keys
 
 Each server signs the releases it exports, and its live notes, with an
@@ -211,6 +247,8 @@ a protected runtime.
 | `POST` | `/releases/{name}/approve` | |
 | `POST` | `/releases/{name}/go-live` | |
 | `POST` | `/releases/rollback` | |
+| `POST` | `/releases/{name}/send` | `{"connection_id": "…"}`: to a server after this one, which collects it. |
+| `GET` | `/release-deliveries` | Where the project's releases were sent, and how far each got there. |
 
 Connecting servers, under `/api/v1/server-connections`, a platform
 administrator's:
@@ -223,3 +261,6 @@ administrator's:
 | `POST` | `/server-connections/{id}/accept` | By an administrator other than the one who connected it. |
 | `DELETE` | `/server-connections/{id}` | |
 | `POST` | `/server-connections/handshake` | Public: another server, with a code made here. |
+| `POST` | `/server-connections/{id}/collect` | Check in now with a server this one takes releases from. |
+| `POST` | `/server-connections/collect` | Public: a server this one gives releases to, with its connection's token as `Authorization: Bearer`. |
+| `POST` | `/server-connections/report` | Public, the same: how far the releases it was handed got. |

@@ -66,12 +66,14 @@ const (
 var codeEncoding = base32.StdEncoding.WithPadding(base32.NoPadding)
 
 type serverConnectionService struct {
-	repo    repocontracts.ServerConnectionRepository
-	keys    ReleaseKeys
-	client  *http.Client
-	now     func() time.Time
-	name    func() string
-	purpose func() (entities.ServerPurpose, error)
+	repo       repocontracts.ServerConnectionRepository
+	keys       ReleaseKeys
+	deliveries ReleaseDeliveryParts
+	client     *http.Client
+	collector  *http.Client
+	now        func() time.Time
+	name       func() string
+	purpose    func() (entities.ServerPurpose, error)
 }
 
 // ServerIdentitySource says what this server is called and is for. Nil
@@ -81,9 +83,10 @@ type ServerIdentitySource struct {
 	Purpose func() (entities.ServerPurpose, error)
 }
 
-// NewServerConnectionService returns the service that connects servers. keys
-// signs this server's side; nil is the connection keys over repo.
-func NewServerConnectionService(repo repocontracts.ServerConnectionRepository, keys ReleaseKeys, identity ServerIdentitySource) contracts.ServerConnectionService {
+// NewServerConnectionService returns the service that connects servers and
+// sends releases over the connections. keys signs this server's side; nil is
+// the connection keys over repo.
+func NewServerConnectionService(repo repocontracts.ServerConnectionRepository, keys ReleaseKeys, identity ServerIdentitySource, deliveries ReleaseDeliveryParts) contracts.ServerConnectionService {
 	if keys == nil {
 		keys = NewConnectionReleaseKeys(repo)
 	}
@@ -93,7 +96,8 @@ func NewServerConnectionService(repo repocontracts.ServerConnectionRepository, k
 	if identity.Name == nil {
 		identity.Name = func() string { return thisServerName(identity.Purpose) }
 	}
-	return &serverConnectionService{repo: repo, keys: keys, client: handshakeClient(), now: time.Now,
+	return &serverConnectionService{repo: repo, keys: keys, deliveries: deliveries,
+		client: handshakeClient(), collector: collectClient(), now: time.Now,
 		name: identity.Name, purpose: identity.Purpose}
 }
 

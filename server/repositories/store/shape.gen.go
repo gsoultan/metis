@@ -706,6 +706,24 @@ func _assertReleaseShape(m m0.Release) {
 	}
 }
 
+// _assertReleaseDeliveryShape fails to compile if m0.ReleaseDelivery gains, loses, renames or
+// reorders a field. Regenerate: `storm generate`.
+func _assertReleaseDeliveryShape(m m0.ReleaseDelivery) {
+	type shape m0.ReleaseDelivery
+	_ = shape{
+		m.Model,
+		m.ConnectionID,
+		m.ProjectID,
+		m.Release,
+		m.State,
+		m.Detail,
+		m.SentBy,
+		m.SentAt,
+		m.CollectedAt,
+		m.ReportedAt,
+	}
+}
+
 // _assertResourceShape fails to compile if m0.Resource gains, loses, renames or
 // reorders a field. Regenerate: `storm generate`.
 func _assertResourceShape(m m0.Resource) {

@@ -21,6 +21,14 @@ type Endpoints struct {
 	RemoveServerConnection   endpoint.Endpoint
 	// AnswerServerHandshake is public: the code admits it.
 	AnswerServerHandshake endpoint.Endpoint
+
+	SendRelease           endpoint.Endpoint
+	ListReleaseDeliveries endpoint.Endpoint
+	CollectReleases       endpoint.Endpoint
+	// AnswerReleaseCollection and AnswerReleaseReport are public: the
+	// connection's token admits them.
+	AnswerReleaseCollection endpoint.Endpoint
+	AnswerReleaseReport     endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -82,6 +90,72 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 				return HandshakeResponse{Err: err}, nil
 			}
 			return HandshakeResponse{ServerHandshakeReply: reply}, nil
+		},
+		SendRelease: func(ctx context.Context, request any) (any, error) {
+			req, ok := request.(SendRequest)
+			if !ok {
+				return nil, fmt.Errorf("server connection: expected a SendRequest, got %T", request)
+			}
+			projectID, err := uuid.Parse(req.ProjectID)
+			if err != nil {
+				return DeliveryResponse{Err: apierr.Invalidf("%q is not a project id", req.ProjectID)}, nil
+			}
+			connectionID, err := uuid.Parse(req.ConnectionID)
+			if err != nil {
+				return DeliveryResponse{Err: apierr.Invalidf("%q is not a connection id", req.ConnectionID)}, nil
+			}
+			d, err := s.SendRelease(ctx, projectID, req.Release, connectionID)
+			if err != nil {
+				return DeliveryResponse{Err: err}, nil
+			}
+			return DeliveryResponse{Delivery: &d}, nil
+		},
+		ListReleaseDeliveries: func(ctx context.Context, request any) (any, error) {
+			req, ok := request.(ProjectRequest)
+			if !ok {
+				return nil, fmt.Errorf("server connection: expected a ProjectRequest, got %T", request)
+			}
+			projectID, err := uuid.Parse(req.ProjectID)
+			if err != nil {
+				return DeliveriesResponse{Err: apierr.Invalidf("%q is not a project id", req.ProjectID)}, nil
+			}
+			sent, err := s.ListReleaseDeliveries(ctx, projectID)
+			if err != nil {
+				return DeliveriesResponse{Err: err}, nil
+			}
+			return DeliveriesResponse{Deliveries: sent}, nil
+		},
+		CollectReleases: func(ctx context.Context, request any) (any, error) {
+			id, err := connectionID(request)
+			if err != nil {
+				return CollectedResponse{Err: err}, nil
+			}
+			got, err := s.CollectReleases(ctx, id)
+			if err != nil {
+				return CollectedResponse{Err: err}, nil
+			}
+			return CollectedResponse{Collected: &got}, nil
+		},
+		AnswerReleaseCollection: func(ctx context.Context, request any) (any, error) {
+			req, ok := request.(CollectRequest)
+			if !ok {
+				return nil, fmt.Errorf("server connection: expected a CollectRequest, got %T", request)
+			}
+			if req.Format != contracts.ReleaseCollectionFormat {
+				return CollectionResponse{Err: apierr.Invalidf("this server hands releases over as %s", contracts.ReleaseCollectionFormat)}, nil
+			}
+			handed, err := s.AnswerReleaseCollection(ctx, req.Token)
+			if err != nil {
+				return CollectionResponse{Err: err}, nil
+			}
+			return CollectionResponse{ReleaseCollection: handed}, nil
+		},
+		AnswerReleaseReport: func(ctx context.Context, request any) (any, error) {
+			req, ok := request.(ReportRequest)
+			if !ok {
+				return nil, fmt.Errorf("server connection: expected a ReportRequest, got %T", request)
+			}
+			return ReportResponse{Err: s.AnswerReleaseReport(ctx, req.Token, req.ReleaseReport)}, nil
 		},
 	}
 }

@@ -47,3 +47,25 @@ func (unavailableServerConnections) AcceptServerConnection(context.Context, uuid
 func (unavailableServerConnections) RemoveServerConnection(context.Context, uuid.UUID) error {
 	return errNoServerConnections
 }
+
+func (unavailableServerConnections) SendRelease(context.Context, uuid.UUID, string, uuid.UUID) (entities.ReleaseDelivery, error) {
+	return entities.ReleaseDelivery{}, errNoServerConnections
+}
+
+func (unavailableServerConnections) ListReleaseDeliveries(context.Context, uuid.UUID) ([]entities.ReleaseDelivery, error) {
+	return nil, errNoServerConnections
+}
+
+func (unavailableServerConnections) AnswerReleaseCollection(context.Context, string) (contracts.ReleaseCollection, error) {
+	return contracts.ReleaseCollection{}, errNoServerConnections
+}
+
+func (unavailableServerConnections) AnswerReleaseReport(context.Context, string, contracts.ReleaseReport) error {
+	return errNoServerConnections
+}
+
+func (unavailableServerConnections) CollectReleases(context.Context, uuid.UUID) (contracts.CollectedReleases, error) {
+	return contracts.CollectedReleases{}, errNoServerConnections
+}
+
+func (unavailableServerConnections) StartReleaseCollection(context.Context) {}

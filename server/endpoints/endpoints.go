@@ -451,6 +451,14 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	connectionEndpoints.AcceptServerConnection = platformAdmin("AcceptServerConnection")(connectionEndpoints.AcceptServerConnection)
 	connectionEndpoints.RemoveServerConnection = platformAdmin("RemoveServerConnection")(connectionEndpoints.RemoveServerConnection)
 	connectionEndpoints.AnswerServerHandshake = public("AnswerServerHandshake")(connectionEndpoints.AnswerServerHandshake)
+	connectionEndpoints.CollectReleases = platformAdmin("CollectReleases")(connectionEndpoints.CollectReleases)
+	// A server checking in presents the connection's token, not an account.
+	connectionEndpoints.AnswerReleaseCollection = public("AnswerReleaseCollection")(connectionEndpoints.AnswerReleaseCollection)
+	connectionEndpoints.AnswerReleaseReport = public("AnswerReleaseReport")(connectionEndpoints.AnswerReleaseReport)
+	// Sending a release, and seeing where it got, are release steps like the
+	// others: a model change.
+	connectionEndpoints.SendRelease = modelChange("SendRelease")(connectionEndpoints.SendRelease)
+	connectionEndpoints.ListReleaseDeliveries = modelChange("ListReleaseDeliveries")(connectionEndpoints.ListReleaseDeliveries)
 
 	// Retrying or cancelling many instances at once runs the organization
 	// day to day, as resolving one incident does. The service asks again who
