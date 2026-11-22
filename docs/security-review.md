@@ -176,9 +176,11 @@ is part of the review.
    ten thousand at the largest measured, a cost that grows with the tenant.
 3. **A message sets any variable it carries.** `SendMessage` is open to any
    signed-in member and writes whatever variables the message carries into the
-   instances waiting for it (`engine.triggerSubscription`); `BroadcastSignal`,
+   instance waiting for it (`engine.triggerSubscription`); `BroadcastSignal`,
    an operator's, does the same. It is the shape a task completion had before
-   it was held to its form.
+   it was held to its form. Since the audit of November 2026 a message sent
+   over the API with no correlation key reaches no waiting instance, so the
+   caller has to know an instance's key to write into it.
 4. **A change to who administers has no durable record.** Creating an
    account, changing its roles and deleting it write one line each to the
    server's log, naming who did it, and nothing else: no trail, no table, and
