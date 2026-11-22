@@ -3,7 +3,9 @@ package validation
 import (
 	"fmt"
 
+	"github.com/gsoultan/metis/internal/pkg/features"
 	"github.com/gsoultan/metis/server/domains/entities"
+	"github.com/gsoultan/metis/server/domains/logic"
 )
 
 // Visitor implements the entities.DefinitionVisitor interface to validate BPMN definitions.
@@ -49,6 +51,9 @@ func (v *Visitor) VisitFlowNode(n *entities.Node) {
 	if n.Type == entities.ServiceTask && n.Implementation() == "script" {
 		v.errors = append(v.errors, fmt.Sprintf(
 			"Flow node %s is a service task set to run a script, which a service task cannot do; use a script task", n.ID))
+	}
+	if n.Type == entities.ScriptTask && n.ScriptSource() != "" && !features.Enabled(features.ScriptTasks) {
+		v.errors = append(v.errors, logic.ErrScriptTasksOff(n.ID).Error())
 	}
 	if !entities.KnownMultiInstanceType(n.MultiInstanceType) {
 		v.errors = append(v.errors, fmt.Sprintf(

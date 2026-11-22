@@ -97,5 +97,6 @@ func Steps() []Migration {
 		{Version: releaseLiveNoteVersion, Name: "release live note", Run: addReleaseLiveNote},
 		{Version: serverConnectionsVersion, Name: "server connections", Run: addServerConnections},
 		{Version: releaseDeliveriesVersion, Name: "release deliveries", Run: addReleaseDeliveries},
+		{Version: machinesVersion, Name: "machines", Run: addMachines},
 	}
 }

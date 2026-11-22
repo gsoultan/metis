@@ -27,6 +27,7 @@ import (
 	"github.com/gsoultan/metis/server/transports/https/external_tasks"
 	"github.com/gsoultan/metis/server/transports/https/group"
 	"github.com/gsoultan/metis/server/transports/https/incidents"
+	"github.com/gsoultan/metis/server/transports/https/machines"
 	"github.com/gsoultan/metis/server/transports/https/notification"
 	"github.com/gsoultan/metis/server/transports/https/operationlog"
 	"github.com/gsoultan/metis/server/transports/https/organizations"
@@ -102,6 +103,7 @@ func NewHTTPHandler(svc services.ServiceFacade, eps endpoints.Endpoints, sseObse
 	serversettings.RegisterHandlers(m, eps.ServerSetting, options)
 	upgrades.RegisterHandlers(m, eps.Upgrade, options)
 	serverconnections.RegisterHandlers(m, eps.ServerConnection, options)
+	machines.RegisterHandlers(m, eps.Machine, options)
 	notification.RegisterHandlers(m, eps.Notification, options)
 	decisions.RegisterHandlers(m, eps.Decision, options)
 	connectors.RegisterHandlers(m, eps.Connector, options)

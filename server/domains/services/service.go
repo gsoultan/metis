@@ -57,6 +57,7 @@ type service struct {
 	contracts.ArchiveService
 	contracts.InstallationSettingService
 	contracts.ServerConnectionService
+	contracts.MachineService
 	contracts.UpgradeService
 	contracts.BatchOperationService
 	contracts.OperationLogService
@@ -111,6 +112,9 @@ type ServiceParams struct {
 	// ServerConnections connects this server to the ones releases come from
 	// and go to. Nil refuses every call.
 	ServerConnections contracts.ServerConnectionService
+	// Machines is the Servers page: the processes running this installation.
+	// Nil refuses every call.
+	Machines contracts.MachineService
 	// UpgradeService is the Upgrades page. Nil refuses every call.
 	UpgradeService        contracts.UpgradeService
 	BatchOperationService contracts.BatchOperationService
@@ -142,6 +146,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	}
 	if p.ServerConnections == nil {
 		p.ServerConnections = serviceimpl.NewUnavailableServerConnectionService()
+	}
+	if p.Machines == nil {
+		p.Machines = serviceimpl.NewUnavailableMachineService()
 	}
 	if p.BatchOperationService == nil {
 		p.BatchOperationService = serviceimpl.NewUnavailableBatchOperationService()
@@ -222,6 +229,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		ArchiveService:             p.ArchiveService,
 		InstallationSettingService: p.InstallationSettingService,
 		ServerConnectionService:    p.ServerConnections,
+		MachineService:             p.Machines,
 		UpgradeService:             p.UpgradeService,
 		BatchOperationService:      p.BatchOperationService,
 		OperationLogService:        p.OperationLogService,
@@ -525,6 +533,7 @@ func NewServiceFacade(
 		InstallationSettingService: serviceimpl.NewInstallationSettingService(repo.InstallationSetting()),
 		ServerConnections: serviceimpl.NewServerConnectionService(repo.ServerConnection(), releaseKeys, settings.serverIdentity,
 			serviceimpl.ReleaseDeliveryParts{Releases: releaseSvc, Projects: repo.Project(), Organizations: repo.Organization()}),
+		Machines:       serviceimpl.NewMachineService(repo.Machine()),
 		UpgradeService: settings.upgrades,
 		BatchOperationService: serviceimpl.NewBatchOperationService(repo, instanceDeviator, jobSvc,
 			serviceimpl.AccountLoader(userSvc), serviceimpl.DefaultBatchOperationSettings()),
