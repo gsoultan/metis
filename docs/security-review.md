@@ -117,7 +117,8 @@ Whoever can model a process is not whoever runs the engine.
   `METIS_FEATURE_JAVASCRIPT_CONDITIONS` is on; form logic evaluated by a bounded
   evaluator in the approver's browser.
 - **Script tasks** run JavaScript in a sandbox (`server/domains/logic/sandbox.go`)
-  under a wall-clock budget that cannot pre-empt a native call — a known limit.
+  under a wall-clock budget that cannot pre-empt a native call and with no
+  memory limit, so they are refused unless `METIS_FEATURE_SCRIPT_TASKS` is on.
 - **Outbound requests.** Service task URLs and connectors become requests; the
   egress policy is enforced on the resolved address just before connecting
   (`internal/pkg/httpclient`). Wanted: redirects, DNS rebinding, IPv6 and

@@ -16,6 +16,7 @@ type repository struct {
 	archive               contracts.ArchiveRepository
 	installationSetting   contracts.InstallationSettingRepository
 	serverConnection      contracts.ServerConnectionRepository
+	machine               contracts.MachineRepository
 	simulationCase        contracts.SimulationCaseRepository
 	release               contracts.ReleaseRepository
 	batchOperation        contracts.BatchOperationRepository
@@ -79,6 +80,7 @@ func NewRepository(conn *stormdb.Conn) Repository {
 		archive:               pg.NewArchiveRepository(conn),
 		installationSetting:   pg.NewInstallationSettingRepository(conn),
 		serverConnection:      pg.NewServerConnectionRepository(conn),
+		machine:               pg.NewMachineRepository(conn),
 		simulationCase:        pg.NewSimulationCaseRepository(conn),
 		release:               pg.NewReleaseRepository(conn),
 		batchOperation:        pg.NewBatchOperationRepository(conn),
@@ -139,6 +141,7 @@ func (r *repository) InstallationSetting() contracts.InstallationSettingReposito
 func (r *repository) ServerConnection() contracts.ServerConnectionRepository {
 	return r.serverConnection
 }
+func (r *repository) Machine() contracts.MachineRepository { return r.machine }
 func (r *repository) BatchOperation() contracts.BatchOperationRepository {
 	return r.batchOperation
 }
