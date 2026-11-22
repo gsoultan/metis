@@ -102,6 +102,8 @@ func (s *decisionService) storeNewVersion(ctx context.Context, d entities.Decisi
 		projectID = d.Project.ID
 	}
 
+	// After the commit, so a version saved live applies on this replica at once.
+	defer s.decisions.forget()
 	err := allocateVersion(ctx, s.repo.UnitOfWork(), "decision "+d.Key,
 		func(ctx context.Context) (int, error) {
 			return s.repo.Decision().NextVersion(ctx, projectID, d.Key)

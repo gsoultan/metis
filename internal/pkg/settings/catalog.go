@@ -150,6 +150,9 @@ var catalog = []Definition{
 	{Name: "METIS_INSTANCE_COUNT_CACHE_TTL", Group: GroupCaches, Label: "Instance count cache",
 		Help: "How long the instance list's counts are reused.", Default: "1s",
 		Kind: KindDuration, MinDuration: 0, MaxDuration: time.Minute, Applies: AtRestart},
+	{Name: "METIS_DECISION_CACHE_TTL", Group: GroupCaches, Label: "Decision cache",
+		Help: "How long a decision table read for an evaluation is reused.", Default: "1s",
+		Kind: KindDuration, MinDuration: 0, MaxDuration: time.Minute, Applies: AtRestart},
 
 	// Observability.
 	{Name: "METIS_OTLP_ENDPOINT", Group: GroupObservability, Label: "Trace collector",
