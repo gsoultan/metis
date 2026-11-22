@@ -127,6 +127,7 @@ func (m *MockRepository) InstallationSetting() contracts.InstallationSettingRepo
 func (m *MockRepository) SimulationCase() contracts.SimulationCaseRepository     { return nil }
 func (m *MockRepository) Release() contracts.ReleaseRepository                   { return nil }
 func (m *MockRepository) ServerConnection() contracts.ServerConnectionRepository { return nil }
+func (m *MockRepository) Machine() contracts.MachineRepository                   { return nil }
 func (m *MockRepository) BatchOperation() contracts.BatchOperationRepository     { return nil }
 func (m *MockRepository) Broadcast() contracts.BroadcastRepository               { return nil }
 func (m *MockRepository) SharedCounter() contracts.SharedCounterRepository       { return nil }
