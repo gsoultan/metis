@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Performance
+
+- **FEEL evaluation scales with cores.** Every cached expression was read
+  through the LRU's one mutex, so a decision table's cells, a few hundred per
+  evaluation, queued on it from every core. A hit is now read without a lock.
+  A cached cell on every core of a 4-core machine took 460 ns and now takes
+  69 ns; on one core, 285 ns and now 274 ns
+  (`BenchmarkCachedCellsInParallel`).
+
 ### Added
 
 - **The setup wizard asks what the server is for.** Setup takes
