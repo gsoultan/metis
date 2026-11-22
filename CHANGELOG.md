@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Upgrading
+
+- **An instance's variables may not grow past 1 MiB.** Nothing bounded them,
+  and every step wrote all of them again, to the instance and to a snapshot.
+  A step that would take them past `METIS_MAX_INSTANCE_VARIABLES_BYTES`
+  (default 1 MiB of JSON, `0` turns the cap off) now fails: a job is retried
+  and then raises an incident, and an API call is refused as an invalid
+  argument. Starting an instance over the cap is refused too. An instance
+  already over it keeps running for as long as its variables do not grow.
+
 ### Added
 
 - **The setup wizard asks what the server is for.** Setup takes

@@ -168,6 +168,9 @@ func (e *Engine) startProcessInternal(ctx context.Context, projectID uuid.UUID, 
 		CreatedAt:   time.Now(),
 	}
 	instance.AddToken(startNode)
+	if err := refuseOversizedStart(vars, maxInstanceVariablesBytes()); err != nil {
+		return uuid.Nil, err
+	}
 
 	if parentInstanceID != uuid.Nil {
 		instance.ParentInstance = &entities.ProcessInstance{ID: parentInstanceID}
@@ -726,6 +729,9 @@ func (e *Engine) activateEventNode(ctx context.Context, instance *entities.Proce
 }
 
 func (e *Engine) UpdateInstance(ctx context.Context, instance entities.ProcessInstance) error {
+	if err := e.refuseGrowthPastCap(ctx, instance.ID, instance.Variables, maxInstanceVariablesBytes()); err != nil {
+		return err
+	}
 	if err := e.repo.Process().Update(ctx, adapters.InstanceModelAdapter{Instance: instance}.ToModel()); err != nil {
 		return err
 	}
