@@ -117,6 +117,9 @@ type ServiceFacade interface {
 	// from and go to: a platform administrator's, with a second one accepting
 	// every server releases are taken from.
 	serviceContracts.ServerConnectionService
+	// MachineService is the Servers page: the processes running this
+	// installation.
+	serviceContracts.MachineService
 
 	// UpgradeService finds newer releases of Metis for the Upgrades page: a
 	// platform administrator's, read-only.

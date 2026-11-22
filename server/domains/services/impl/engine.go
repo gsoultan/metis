@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/internal/pkg/features"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
 	handlercontracts "github.com/gsoultan/metis/server/domains/handlers/contracts"
@@ -1149,6 +1150,9 @@ func (e *Engine) compensateActivity(ctx context.Context, instance *entities.Proc
 func (e *Engine) ExecuteScript(ctx context.Context, script string, scriptFormat string, variables map[string]any) (map[string]any, error) {
 	if scriptFormat != "javascript" && scriptFormat != "" {
 		return nil, fmt.Errorf("unsupported script format: %s", scriptFormat)
+	}
+	if !features.Enabled(features.ScriptTasks) {
+		return nil, fmt.Errorf("%w: %w", apierr.ErrInvalidArgument, logic.ErrScriptTasksOff(""))
 	}
 
 	return logic.RunScript(ctx, script, variables)

@@ -46,6 +46,7 @@ var actionNouns = []struct{ noun, area string }{
 	{"Upgrade", areaPlatform},
 	// Which servers this one takes releases from and gives them to.
 	{"ServerConnection", areaPlatform},
+	{"Machine", areaPlatform},
 	{"ParticipantSource", areaDirectories},
 	{"Participant", areaPeople},
 	// What a project's People lack before the switch-over, read and filled.
