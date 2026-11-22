@@ -445,6 +445,21 @@ func _assertJobShape(m m0.Job) {
 	}
 }
 
+// _assertMachineShape fails to compile if m0.Machine gains, loses, renames or
+// reorders a field. Regenerate: `storm generate`.
+func _assertMachineShape(m m0.Machine) {
+	type shape m0.Machine
+	_ = shape{
+		m.Model,
+		m.Name,
+		m.Address,
+		m.Role,
+		m.Version,
+		m.StartedAt,
+		m.LastSeenAt,
+	}
+}
+
 // _assertMembershipShape fails to compile if m0.Membership gains, loses, renames or
 // reorders a field. Regenerate: `storm generate`.
 func _assertMembershipShape(m m0.Membership) {
