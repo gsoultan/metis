@@ -1270,6 +1270,43 @@ connections instead of working.
 
 ---
 
+## Sizing the job worker
+
+A replica runs at most `METIS_JOB_WORKERS` jobs at once (default 10), and a job
+holds its worker for as long as its step takes. A service task's step is
+mostly the partner's answer, so one replica's ceiling is about
+
+```
+jobs a second  ≈  METIS_JOB_WORKERS ÷ the partner's answer time in seconds
+```
+
+Ten workers and a partner that answers in 200 ms is about 50 a second. The
+November 2026 audit measured that shape: with a 200 ms partner, one replica
+finished 38.6 instances a second, and four replicas on one database 90.5. The
+replicas did not scale four times because they shared the database and the
+container's four cores.
+
+What to change, in order:
+
+1. **More workers per replica**, if the partner is slow rather than busy.
+   Keep `METIS_JOB_WORKERS` at or below `METIS_DB_MAX_OPEN_CONNS`. A job holds
+   no connection while it waits on a partner, but its writes before and after
+   need one, and above the pool the workers queue on connections instead of
+   working.
+2. **More replicas**, when one replica's CPU is the limit. Every replica claims
+   from the same table, and a claim is a conditional update, so a job runs
+   once however many there are.
+3. **Not a shorter poll.** `METIS_JOB_POLL_INTERVAL` only bounds how late the
+   first job after a quiet spell starts; once there is work the worker claims
+   again as soon as a round comes back full.
+
+A partner slower than `METIS_HTTP_TIMEOUT` (default 30 s, at most 2 m) fails
+its call, which is retried with back-off. A job that runs longer than
+`METIS_JOB_LEASE` keeps its lease, because the worker renews it while the job
+runs.
+
+---
+
 ## Incidents are piling up
 
 `MetisIncidentsRising`: ten more incidents are open than half an hour ago. One

@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Documentation
+
+- **Sizing the job worker** (`docs/runbooks.md`): how a replica's job
+  throughput follows from `METIS_JOB_WORKERS` and the partner's answer time,
+  with the audit's measurements, and what to change first.
+
 ### Added
 
 - **The setup wizard asks what the server is for.** Setup takes
