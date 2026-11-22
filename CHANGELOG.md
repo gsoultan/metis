@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Fixed
+
+- **The sample installs again with script tasks off.** The expense approval in
+  `docs/examples`, which `scripts/seed-sample.sh` and `docs/examples/import.sh`
+  import, approved a small expense with a script step. Since script tasks are
+  off by default its deploy was refused, so the seed stopped on a normal
+  install. That step is now a decision table, `expense-auto-approval`, that
+  writes the same two variables, `approved` and `approverNote`, and both
+  scripts import every table an example has.
+
 ### Upgrading
 
 - **Script tasks are off by default.** A script task with a script, and
