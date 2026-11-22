@@ -812,6 +812,9 @@ func (a *App) startBackgroundWork(ctx context.Context) {
 	a.startSSEFanout(ctx)
 	a.startSharedLimits(ctx)
 	go a.reloadSavedSettings(ctx)
+	// Every process says it is running, whatever its role: the Servers page
+	// lists the web machines beside the workers.
+	a.svc.StartMachineHeartbeat(ctx, thisMachine(a.role))
 	if !a.role.RunsWork() {
 		log.Info().Str("role", string(a.role)).
 			Msg("This process serves the API and runs no jobs, timers or deliveries; a worker process does")

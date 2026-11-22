@@ -842,7 +842,9 @@
       the bump to v0.15.0. Regenerated in the engine-reliability batch below.
     - Historic rows written before sealing stay in plaintext until rewritten; a batched
       backfill would close it.
-    - P0.2(c) (a memory bound for scripts) is still open — see `security-plan.md`.
+    - P0.2(c) (a memory bound for scripts) is still open — see `security-plan.md`. Since
+      2026-11-22 script tasks are off by default (`METIS_FEATURE_SCRIPT_TASKS`), so the
+      open bound applies only where an operator turns them on.
 
 - 2026-09-25 (completed): 90-day plan Phase 1, engine reliability — branch
   `roadmap-engine-reliability`, stacked on `roadmap-open-items`. Each fix is its own commit

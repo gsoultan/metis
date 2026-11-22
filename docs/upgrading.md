@@ -239,6 +239,15 @@ Migration 54 adds `releases.imported_by` and `releases.approved_by`. A
 release imported before it has neither, and in a protected environment is
 approved by a second person before it goes live, as a new one is.
 
+## Machines (migration 62)
+
+Migration 62 creates `machines`, empty. Every process, whatever its
+`METIS_ROLE`, now writes one row there every 15 seconds: its host name, listen
+address, role, version and when it started. A platform administrator reads
+them at `GET /api/v1/machines` (the Servers page). A process last heard from
+more than two minutes ago can be removed with `DELETE /api/v1/machines/{id}`;
+one quiet for a week is removed by itself.
+
 ## Release deliveries (migration 61)
 
 Migration 61 creates `release_deliveries`, empty. It holds the releases sent

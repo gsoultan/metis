@@ -31,6 +31,8 @@ type Repository interface {
 	InstallationSetting() contracts.InstallationSettingRepository
 	// ServerConnection is the servers releases are taken from and given to.
 	ServerConnection() contracts.ServerConnectionRepository
+	// Machine is the processes of this installation, as each last said it was.
+	Machine() contracts.MachineRepository
 	// SimulationCase is the simulation test cases each process keeps.
 	SimulationCase() contracts.SimulationCaseRepository
 	// Release is the releases a runtime holds: cut there, or imported into it.

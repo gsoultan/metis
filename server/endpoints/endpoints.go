@@ -16,6 +16,7 @@ import (
 	"github.com/gsoultan/metis/server/endpoints/external_task"
 	"github.com/gsoultan/metis/server/endpoints/group"
 	"github.com/gsoultan/metis/server/endpoints/incident"
+	"github.com/gsoultan/metis/server/endpoints/machine"
 	"github.com/gsoultan/metis/server/endpoints/notification"
 	"github.com/gsoultan/metis/server/endpoints/operationlog"
 	"github.com/gsoultan/metis/server/endpoints/organization"
@@ -66,6 +67,7 @@ type Endpoints struct {
 	ServerSetting     serversetting.Endpoints
 	Upgrade           upgrade.Endpoints
 	ServerConnection  serverconnection.Endpoints
+	Machine           machine.Endpoints
 	Organization      organization.Endpoints
 	Process           process.Endpoints
 	Project           project.Endpoints
@@ -460,6 +462,13 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	connectionEndpoints.SendRelease = modelChange("SendRelease")(connectionEndpoints.SendRelease)
 	connectionEndpoints.ListReleaseDeliveries = modelChange("ListReleaseDeliveries")(connectionEndpoints.ListReleaseDeliveries)
 
+	// Which machines run the installation is about every organization on it,
+	// as its connections are: a platform administrator's. The service asks
+	// again who is calling.
+	machineEndpoints := machine.MakeEndpoints(s)
+	machineEndpoints.ListMachines = platformAdmin("ListMachines")(machineEndpoints.ListMachines)
+	machineEndpoints.ForgetMachine = platformAdmin("ForgetMachine")(machineEndpoints.ForgetMachine)
+
 	// Retrying or cancelling many instances at once runs the organization
 	// day to day, as resolving one incident does. The service asks again who
 	// is calling, and refuses a cancel to anybody but an administrator, as a
@@ -706,6 +715,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		ServerSetting:     serverSettingEndpoints,
 		Upgrade:           upgradeEndpoints,
 		ServerConnection:  connectionEndpoints,
+		Machine:           machineEndpoints,
 		Organization:      organizationEndpoints,
 		Process:           processEndpoints,
 		Project:           projectEndpoints,

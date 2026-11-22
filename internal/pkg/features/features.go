@@ -97,8 +97,32 @@ var JavaScriptConditions = Flag{
 	Retire:  "delete once no supported installation still turns it on; then drop the JS evaluator from the condition chain",
 }
 
+// ScriptTasks allows script tasks, and POST /api/v1/processes/execute-script,
+// to run JavaScript.
+//
+// The same runtime as `js:` conditions, with the same hole: goja has no heap
+// limit. Measured, one script reaches about 1.5 GB inside its five-second
+// budget, and four run at once, so four script tasks in one definition
+// are enough to have the pod killed for being out of memory — and with it
+// every other tenant's work on that pod. A script that ignores its interrupt
+// is abandoned still running and keeps its slot, so four of those stop every
+// script in the installation as well.
+//
+// It defaults OFF, as JavaScriptConditions does: a default install must not be
+// one deployed definition away from that. Off, a definition with a script in a
+// script task is refused at deploy, a stored one fails at the step with an
+// error naming this flag, and execute-script is refused.
+// GET /api/v1/definitions/script-tasks lists every script task the caller can
+// see, which is the worklist for an installation deciding whether to turn it on.
+var ScriptTasks = Flag{
+	Name:    "script-tasks",
+	Default: false,
+	Why:     "allow script tasks to run JavaScript, which no setting can bound in memory",
+	Retire:  "delete once script tasks run in a runtime with a memory bound, or are removed",
+}
+
 // all is the registry, used to report configuration at startup.
-var all = []*Flag{&StrictTenantScope, &JavaScriptConditions}
+var all = []*Flag{&StrictTenantScope, &JavaScriptConditions, &ScriptTasks}
 
 var (
 	resolveOnce sync.Once

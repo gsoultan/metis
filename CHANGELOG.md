@@ -17,7 +17,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   accepted. It now names eight tables only Metis uses and refuses a login that
   can see any one of them.
 
+### Upgrading
+
+- **Script tasks are off by default.** A script task with a script, and
+  `POST /api/v1/processes/execute-script`, now run JavaScript only with
+  `METIS_FEATURE_SCRIPT_TASKS=true`. goja has no memory limit: one script
+  reached about 1.5 GB inside its five-second budget, and four run at once, so
+  a single definition could have the server killed for every tenant. Off, a
+  definition with a script is refused at deploy (and at release import and
+  simulation), a stored one fails at its step with an error naming the
+  variable, and `execute-script` answers 400. Before upgrading, read
+  `GET /api/v1/definitions/script-tasks`; if it lists any, set the variable or
+  rewrite them as FEEL mappings or service tasks.
+
 ### Added
+
+- **Every process says it is running.** Each process, web or worker, writes
+  its host name, listen address, role, version and start time to the new
+  `machines` table every 15 seconds. `GET /api/v1/machines` lists them for a
+  platform administrator, with the server's own time to reckon how long ago
+  each was heard from; `DELETE /api/v1/machines/{id}` removes one quiet for
+  two minutes or more. Machines quiet for a week are removed by themselves.
 
 - **The setup wizard asks what the server is for.** Setup takes
   `server_purpose` (development, staging or production) and `server_name`, and
