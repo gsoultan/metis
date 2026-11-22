@@ -8,6 +8,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Upgrading
+
+- **Script tasks are off by default.** A script task with a script, and
+  `POST /api/v1/processes/execute-script`, now run JavaScript only with
+  `METIS_FEATURE_SCRIPT_TASKS=true`. goja has no memory limit: one script
+  reached about 1.5 GB inside its five-second budget, and four run at once, so
+  a single definition could have the server killed for every tenant. Off, a
+  definition with a script is refused at deploy (and at release import and
+  simulation), a stored one fails at its step with an error naming the
+  variable, and `execute-script` answers 400. Before upgrading, read
+  `GET /api/v1/definitions/script-tasks`; if it lists any, set the variable or
+  rewrite them as FEEL mappings or service tasks.
+
 ### Added
 
 - **The setup wizard asks what the server is for.** Setup takes

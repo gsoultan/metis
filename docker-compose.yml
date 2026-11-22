@@ -54,6 +54,7 @@ services:
       # Off by default in the product; stated here so the file documents the
       # decision rather than leaving it to a reader to wonder.
       METIS_FEATURE_JAVASCRIPT_CONDITIONS: "false"
+      METIS_FEATURE_SCRIPT_TASKS: "false"
     ports:
       - "8080:8080"   # the API; the web app is gsoultan/metis-server (its docker-compose.yml runs both)
     # The image has no shell, so the healthcheck cannot be a CMD-SHELL string.
