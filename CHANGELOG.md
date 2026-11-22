@@ -10,6 +10,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Every process says it is running.** Each process, web or worker, writes
+  its host name, listen address, role, version and start time to the new
+  `machines` table every 15 seconds. `GET /api/v1/machines` lists them for a
+  platform administrator, with the server's own time to reckon how long ago
+  each was heard from; `DELETE /api/v1/machines/{id}` removes one quiet for
+  two minutes or more. Machines quiet for a week are removed by themselves.
+
 - **The setup wizard asks what the server is for.** Setup takes
   `server_purpose` (development, staging or production) and `server_name`, and
   writes them to `config.yaml` as `server.purpose` and `server.name`, read as
