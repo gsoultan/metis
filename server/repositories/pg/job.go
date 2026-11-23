@@ -105,29 +105,9 @@ func (r *jobRepository) Update(ctx context.Context, j models.JobModel) error {
 	if !found {
 		return fmt.Errorf("%w: no such job", apierr.ErrNotFound)
 	}
-	payload, err := sealedJSONOf(j.Payload)
-	if err != nil {
-		return fmt.Errorf("could not encode the job's payload: %w", err)
-	}
 	mut := job.Mutate(row)
-	// The version as well as the node: a migration moves a job to another
-	// version of its process, and a job left naming the old one fires against
-	// a definition the instance no longer runs — a moved timer went looking
-	// for its new node in the old version and dismissed itself as stale.
-	mut.SetDefinitionID(uuid.UUID(j.DefinitionID))
-	mut.SetStatus(string(j.Status))
-	mut.SetPayload(payload)
-	mut.SetRetries(int64(j.Retries))
-	mut.SetMaxRetries(int64(j.MaxRetries))
-	mut.SetRepeatsRemaining(int64(j.RepeatsRemaining))
-	mut.SetNextRunAt(j.NextRunAt)
-	mut.SetNodeID(j.NodeID)
-	setOrNullString(mut.SetLockedBy, mut.SetLockedByNull, j.LockedBy)
-	setOrNullString(mut.SetLastError, mut.SetLastErrorNull, j.LastError)
-	if j.LockExpires != nil {
-		mut.SetLockExpires(*j.LockExpires)
-	} else {
-		mut.SetLockExpiresNull()
+	if err := setJobFields(&mut, j); err != nil {
+		return err
 	}
 	if err := mut.Update(ctx, ex); err != nil {
 		return fmt.Errorf("could not update the job: %w", err)
@@ -436,6 +416,93 @@ func (r *jobRepository) Lock(ctx context.Context, id uuid.UUID, lockDuration tim
 		return false, fmt.Errorf("could not lock the job: %w", err)
 	}
 	return claimed > 0, nil
+}
+
+// setJobFields writes every field a status write changes.
+//
+// The version as well as the node: a migration moves a job to another version
+// of its process, and a job left naming the old one fires against a definition
+// the instance no longer runs — a moved timer went looking for its new node in
+// the old version and dismissed itself as stale.
+func setJobFields(mut *job.Mut, j models.JobModel) error {
+	payload, err := sealedJSONOf(j.Payload)
+	if err != nil {
+		return fmt.Errorf("could not encode the job's payload: %w", err)
+	}
+	mut.SetDefinitionID(uuid.UUID(j.DefinitionID))
+	mut.SetStatus(string(j.Status))
+	mut.SetPayload(payload)
+	mut.SetRetries(int64(j.Retries))
+	mut.SetMaxRetries(int64(j.MaxRetries))
+	mut.SetRepeatsRemaining(int64(j.RepeatsRemaining))
+	mut.SetNextRunAt(j.NextRunAt)
+	mut.SetNodeID(j.NodeID)
+	setOrNullString(mut.SetLockedBy, mut.SetLockedByNull, j.LockedBy)
+	setOrNullString(mut.SetLastError, mut.SetLastErrorNull, j.LastError)
+	if j.LockExpires != nil {
+		mut.SetLockExpires(*j.LockExpires)
+	} else {
+		mut.SetLockExpiresNull()
+	}
+	return nil
+}
+
+// Renew moves the lease of a job this worker holds to lockDuration from now,
+// and reports whether it still held it.
+//
+// A lease that has run out is not renewed, even while the row still names
+// this worker: from the moment it ran out the job was on offer, and whether
+// another replica took it since is chance. Every condition is on the row being
+// written, so a claim by another worker that committed first leaves a row this
+// does not match.
+func (r *jobRepository) Renew(ctx context.Context, id uuid.UUID, workerID string, lockDuration time.Duration) (bool, error) {
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return false, err
+	}
+	now := time.Now().UTC()
+	var renew job.Mut
+	renew.SetLockExpires(now.Add(lockDuration))
+	renew.SetUpdatedAtNow()
+	renewed, err := job.New().
+		Where(job.ID.Eq(id), job.Status.Eq(string(models.JobRunning)), job.LockedBy.Eq(workerID), job.LockExpires.Gt(now)).
+		UpdateAll(ctx, ex, renew)
+	if err != nil {
+		return false, fmt.Errorf("could not renew the job's lease: %w", err)
+	}
+	return renewed > 0, nil
+}
+
+// Settle writes the outcome of a job this worker holds, and refuses with
+// contracts.ErrJobLeaseLost when it holds it no longer.
+//
+// The fence on a job's completion. A worker whose lease ran out — a call
+// slower than the lease, a pause long enough to miss a renewal — may find
+// another replica has claimed the job and run it. Writing its outcome over
+// that one's would record a step twice; refusing it rolls back the work the
+// write shares a transaction with. The lease's expiry is not a condition: a
+// worker that finishes just after it, with nobody having claimed the job, is
+// still the only one that ran it.
+func (r *jobRepository) Settle(ctx context.Context, j models.JobModel, workerID string) error {
+	ex, err := r.conn.conn.Executor(ctx)
+	if err != nil {
+		return err
+	}
+	var mut job.Mut
+	if err := setJobFields(&mut, j); err != nil {
+		return err
+	}
+	mut.SetUpdatedAtNow()
+	settled, err := job.New().
+		Where(job.ID.Eq(uuid.UUID(j.ID)), job.Status.Eq(string(models.JobRunning)), job.LockedBy.Eq(workerID)).
+		UpdateAll(ctx, ex, mut)
+	if err != nil {
+		return fmt.Errorf("could not settle the job: %w", err)
+	}
+	if settled == 0 {
+		return contracts.ErrJobLeaseLost
+	}
+	return nil
 }
 
 func jobsFrom(rows []job.Row) ([]models.JobModel, error) {

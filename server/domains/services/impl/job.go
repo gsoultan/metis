@@ -25,6 +25,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	contracts2 "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/repositories"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/models"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/semaphore"
@@ -326,7 +327,24 @@ func (s *jobService) runJob(ctx context.Context, job entities.Job) {
 		return
 	}
 
-	err := runRecovered("job "+job.ID.String(), func() error { return s.execute(ctx, job) })
+	// The lease is renewed while the job runs, and the run is stopped if it is
+	// lost; see job_lease.go.
+	// runCtx, not ctx: the lock release deferred above must not be handed a
+	// context this function has cancelled.
+	runCtx, stopJob := context.WithCancelCause(ctx)
+	defer stopJob(nil)
+	stopRenewing := s.holdLease(runCtx, job.ID, stopJob)
+	defer stopRenewing()
+
+	err := runRecovered("job "+job.ID.String(), func() error { return s.execute(runCtx, job) })
+	if errors.Is(err, repocontracts.ErrJobLeaseLost) || errors.Is(context.Cause(runCtx), repocontracts.ErrJobLeaseLost) {
+		// Another worker holds the job now. Whatever this run did was rolled
+		// back with the outcome it could not write, and anything else it would
+		// record belongs to that worker.
+		log.Warn().Str("jobId", job.ID.String()).
+			Msg("Stopped a job whose lease was lost; the worker that claimed it runs it")
+		return
+	}
 	if err == nil {
 		// Completed in the same transaction as its work; see job_settlement.go.
 		return
@@ -334,21 +352,21 @@ func (s *jobService) runJob(ctx context.Context, job entities.Job) {
 	if deferred, isDeferral := deferralOf(err); isDeferral {
 		// Not a failure: an error boundary must not catch this either — a rate
 		// limit is not something a process models a path for.
-		s.deferJob(ctx, job, deferred)
+		s.deferJob(runCtx, job, deferred)
 		return
 	}
 	// Str rather than Err: the same URL-with-credentials reaches the log, and a
 	// log is as durable as the table.
 	log.Error().Str("error", redaction.RedactError(err)).Str("jobId", job.ID.String()).Msg("Job execution failed")
-	if s.droppedForWithdrawnStep(ctx, job) {
+	if s.droppedForWithdrawnStep(runCtx, job) {
 		return
 	}
 	// A panic is a defect in Metis, not a failure the process modelled a path
 	// for: it is retried and then raised as an incident, never caught.
-	if !errors.Is(err, errPanicked) && s.tryErrorBoundaryRoute(ctx, job, err) {
+	if !errors.Is(err, errPanicked) && s.tryErrorBoundaryRoute(runCtx, job, err) {
 		return
 	}
-	s.recordFailure(ctx, job, err)
+	s.recordFailure(runCtx, job, err)
 }
 
 // execute does a job's work. Each kind marks the job completed inside the
