@@ -335,9 +335,10 @@ err := client.SendMessage(ctx, projectID, "payment.received", orderID,
 err = client.BroadcastSignal(ctx, projectID, "quarter.closed", nil)
 ```
 
-Careful with an empty correlation key: it matches every waiting subscription
-for that message name. Pass one unless the name alone is genuinely
-unambiguous.
+A message with an empty correlation key reaches no waiting instance. It only
+starts the processes whose message start event listens for its name, and is
+refused with `400` when none does. To move an instance on, pass its key. A
+broadcast to every waiting instance is a signal, which takes an operator.
 
 ## Human tasks in your own UI
 
