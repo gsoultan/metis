@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/nacl/box"
 
@@ -78,8 +80,8 @@ func (j *joinCommand) run(ctx context.Context, args []string) error {
 	name := flags.String("name", "", "what the Servers page calls this machine; its host name when empty")
 	configPath := flags.String("config", j.configPath, "where to write the settings this machine is given")
 	flags.Usage = func() {
-		fmt.Fprintln(j.out, "Usage: join <address> <code> [--name name] [--config path]")
-		fmt.Fprintln(j.out, "Adds this machine to the installation at address, with a code from its Servers page.")
+		j.say("Usage: join <address> <code> [--name name] [--config path]\n")
+		j.say("Adds this machine to the installation at address, with a code from its Servers page.\n")
 		flags.PrintDefaults()
 	}
 	if err := flags.Parse(reorderJoinArgs(args)); err != nil {
@@ -115,10 +117,10 @@ func (j *joinCommand) run(ctx context.Context, args []string) error {
 	}, &reply); err != nil {
 		return err
 	}
-	fmt.Fprintf(j.out, "\n  %s\n\n", reply.Words)
-	fmt.Fprintf(j.out, "Check that the Servers page at %s shows these four words for %s, then press Accept there.\n", base, machine)
-	fmt.Fprintln(j.out, "If it shows other words, press Refuse: something between here and there changed the request.")
-	fmt.Fprintln(j.out, "Waiting to be accepted…")
+	j.say("\n  %s\n\n", reply.Words)
+	j.say("Check that the Servers page at %s shows these four words for %s, then press Accept there.\n", base, machine)
+	j.say("If it shows other words, press Refuse: something between here and there changed the request.\n")
+	j.say("Waiting to be accepted…\n")
 
 	sealed, err := j.waitForAccept(ctx, base, code, reply.ExpiresAt)
 	if err != nil {
@@ -139,9 +141,9 @@ func (j *joinCommand) run(ctx context.Context, args []string) error {
 	if err := writeNewFile(*configPath, settings); err != nil {
 		return err
 	}
-	fmt.Fprintf(j.out, "Accepted. Wrote %s: this machine runs %s.\n", *configPath, roleWords(cfg.Server.Role))
+	j.say("Accepted. Wrote %s: this machine runs %s.\n", *configPath, roleWords(cfg.Server.Role))
 	j.checkDatabase(ctx, cfg)
-	fmt.Fprintln(j.out, "Start Metis here as usual; it appears on the Servers page within a few seconds.")
+	j.say("Start Metis here as usual; it appears on the Servers page within a few seconds.\n")
 	return nil
 }
 
@@ -218,7 +220,11 @@ func (j *joinCommand) call(ctx context.Context, endpoint string, body, into any)
 	if err != nil {
 		return fmt.Errorf("could not reach the installation: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Debug().Err(err).Msg("join: could not close the installation's answer")
+		}
+	}()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxJoinReplyBytes))
 	if err != nil {
 		return fmt.Errorf("could not read the installation's answer: %w", err)
@@ -244,7 +250,7 @@ func (j *joinCommand) call(ctx context.Context, endpoint string, body, into any)
 func (j *joinCommand) checkDatabase(ctx context.Context, cfg *config.Config) {
 	dsn, err := cfg.DecryptConnectionString("")
 	if err != nil {
-		fmt.Fprintf(j.out, "Could not read the database it names: %v\n", err)
+		j.say("Could not read the database it names: %v\n", err)
 		return
 	}
 	parsed, err := pgconn.ParseConfig(dsn)
@@ -254,26 +260,36 @@ func (j *joinCommand) checkDatabase(ctx context.Context, cfg *config.Config) {
 	address := net.JoinHostPort(parsed.Host, fmt.Sprint(parsed.Port))
 	conn, err := j.dial(ctx, "tcp", address)
 	if err != nil {
-		fmt.Fprintf(j.out, "This machine cannot reach the database at %s (%v). Let it through, or give the installation a database address every machine reaches.\n", address, err)
+		j.say("This machine cannot reach the database at %s (%v). Let it through, or give the installation a database address every machine reaches.\n", address, err)
 		return
 	}
-	_ = conn.Close()
-	fmt.Fprintf(j.out, "This machine reaches the database at %s.\n", address)
+	if err := conn.Close(); err != nil {
+		log.Debug().Err(err).Msg("join: could not close the database check")
+	}
+	j.say("This machine reaches the database at %s.\n", address)
 }
 
 // writeNewFile writes data to path, only if nothing is there, readable by
 // this user alone: it holds the database's password and the keys.
 func writeNewFile(path string, data []byte) error {
+	// #nosec G304 -- path comes from --config or the installation default, and
+	// O_EXCL means nothing already there is opened.
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("could not write %s: %w", path, err)
 	}
 	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return fmt.Errorf("could not write %s: %w", path, err)
+		return errors.Join(fmt.Errorf("could not write %s: %w", path, err), f.Close(), os.Remove(path))
 	}
 	return f.Close()
+}
+
+// say prints to the person running the command. The terminal may be gone,
+// as under a script that closed it; the outcome is in the error returned.
+func (j *joinCommand) say(format string, args ...any) {
+	if _, err := fmt.Fprintf(j.out, format, args...); err != nil {
+		log.Debug().Err(err).Msg("join: could not write to its output")
+	}
 }
 
 func roleWords(role string) string {

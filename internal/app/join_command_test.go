@@ -85,7 +85,7 @@ func testJoinCommand(out *bytes.Buffer) *joinCommand {
 
 func TestAJoinedMachineWritesTheSettingsItIsHanded(t *testing.T) {
 	t.Chdir(t.TempDir())
-	database, err := net.Listen("tcp", "127.0.0.1:0")
+	database, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
