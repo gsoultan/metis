@@ -35,6 +35,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **A machine is added with one command.** On the Servers page an
+  administrator makes a one-time code for a machine that runs pages and API
+  (`web`), background work (`worker`) or both (`all`). On the new machine,
+  `metis join <address> <code>` (or `metis-server join`, which runs the same)
+  shows four words; the page shows the same four beside the machine, and an
+  administrator presses Accept. This installation's `config.yaml` — its
+  database, `ENCRYPTION_KEY` and `JWT_SECRET`, and the new machine's role — is
+  then sealed to a key the new machine made and holds alone, collected once,
+  and written there readable by its user alone. The command also checks that
+  the machine reaches the database it was given. Settings `config.yaml` does
+  not hold, such as `METIS_PEOPLE_TOKEN_KEY`, are not handed over.
+  New routes: `POST /api/v1/machines/joins`, `GET /api/v1/machines/joins`,
+  `POST /api/v1/machines/joins/{id}/accept`, `DELETE /api/v1/machines/joins/{id}`,
+  and the public `POST /api/v1/machines/join` and
+  `POST /api/v1/machines/join/collect`.
+
 - **Every process says it is running.** Each process, web or worker, writes
   its host name, listen address, role, version and start time to the new
   `machines` table every 15 seconds. `GET /api/v1/machines` lists them for a
