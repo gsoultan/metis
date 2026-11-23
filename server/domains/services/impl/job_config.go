@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/metis/internal/pkg/envvar"
+	"github.com/gsoultan/metis/internal/pkg/httpclient"
 	"github.com/rs/zerolog/log"
 )
 
@@ -43,6 +44,21 @@ type JobWorkerSettings struct {
 	Workers      int
 	PollInterval time.Duration
 	Lease        time.Duration
+	// RenewEvery is how often a running job's lease is renewed. Zero means a
+	// third of Lease; tests set it shorter.
+	RenewEvery time.Duration
+}
+
+func (w JobWorkerSettings) renewEvery() time.Duration {
+	if w.RenewEvery > 0 {
+		return w.RenewEvery
+	}
+	if every := w.Lease / renewalsPerLease; every > 0 {
+		return every
+	}
+	// Settings made in code rather than resolved — tests — may leave Lease
+	// zero; a ticker of zero panics.
+	return defaultJobLease / renewalsPerLease
 }
 
 // ResolveJobWorkerSettings reads the sizing from the environment.
@@ -61,7 +77,7 @@ func ResolveJobWorkerSettings() JobWorkerSettings {
 	// be running when another worker is entitled to claim it — which is a
 	// duplicate service call, the one thing the idempotency work exists to
 	// prevent. Refuse the setting rather than the guarantee.
-	if minimum := 2 * time.Minute; settings.Lease < minimum {
+	if minimum := httpclient.MaxTimeout; settings.Lease < minimum {
 		log.Warn().
 			Dur("configured", settings.Lease).
 			Dur("using", minimum).
