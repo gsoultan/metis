@@ -101,8 +101,8 @@ var catalog = []Definition{
 
 	// Limits and timeouts.
 	{Name: "METIS_HTTP_TIMEOUT", Group: GroupLimits, Label: "Outbound call timeout",
-		Help: "How long a service task's call may take.", Default: "30s",
-		Kind: KindDuration, MinDuration: time.Second, MaxDuration: 10 * time.Minute, Applies: AtRestart},
+		Help: "How long a service task's call may take; held to 2m, the shortest job lease.", Default: "30s",
+		Kind: KindDuration, MinDuration: time.Second, MaxDuration: 2 * time.Minute, Applies: AtRestart},
 	{Name: "METIS_HTTP_MAX_RESPONSE_BYTES", Group: GroupLimits, Label: "Largest outbound reply",
 		Help: "Bytes of one reply a service task reads before refusing it.", Default: "8388608 (8 MiB)",
 		Kind: KindInteger, Min: 1024, Max: 1 << 30, Applies: Live},
