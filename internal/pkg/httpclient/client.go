@@ -25,7 +25,12 @@ import (
 )
 
 const (
-	defaultTimeout       = 30 * time.Second
+	defaultTimeout = 30 * time.Second
+	// MaxTimeout is the longest METIS_HTTP_TIMEOUT is allowed to be. It is the
+	// shortest job lease the worker accepts (METIS_JOB_LEASE), so a call ends
+	// before the lease a worker took for it could, even if every renewal of
+	// that lease failed.
+	MaxTimeout           = 2 * time.Minute
 	defaultDialTimeout   = 5 * time.Second
 	defaultTLSTimeout    = 5 * time.Second
 	defaultMaxRedirects  = 5
@@ -42,11 +47,12 @@ const (
 var ErrBlockedAddress = errors.New("httpclient: destination address is blocked by egress policy")
 
 // Timeout returns the per-request wall-clock budget for outbound calls.
-// Override with METIS_HTTP_TIMEOUT (a Go duration such as "10s").
+// Override with METIS_HTTP_TIMEOUT (a Go duration such as "10s"); a value
+// above MaxTimeout is held to it.
 func Timeout() time.Duration {
 	if raw := envvar.Get(envTimeout); raw != "" {
 		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
-			return d
+			return min(d, MaxTimeout)
 		}
 	}
 	return defaultTimeout

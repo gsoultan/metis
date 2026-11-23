@@ -9,6 +9,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/redaction"
 	"github.com/gsoultan/metis/server/domains/adapters"
 	"github.com/gsoultan/metis/server/domains/entities"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/rs/zerolog/log"
 )
 
@@ -50,7 +51,25 @@ const minimumReclaims = 3
 func (s *jobService) completeJob(ctx context.Context, job entities.Job) error {
 	job.Status = entities.JobCompleted
 	job.UpdatedAt = time.Now()
-	return s.repo.Job().Update(ctx, adapters.JobModelAdapter{Job: job}.ToModel())
+	return s.settle(ctx, job)
+}
+
+// settle writes a job's outcome only while this worker still holds the job;
+// see JobRepository.Settle. Every outcome of a run goes through it, so a
+// worker whose lease was taken over records nothing over the one that took it.
+func (s *jobService) settle(ctx context.Context, job entities.Job) error {
+	return s.repo.Job().Settle(ctx, adapters.JobModelAdapter{Job: job}.ToModel(), s.workerID)
+}
+
+// logUnsettled reports an outcome that could not be written.
+func logUnsettled(err error, job entities.Job, what string) {
+	if errors.Is(err, repocontracts.ErrJobLeaseLost) {
+		log.Warn().Str("jobId", job.ID.String()).
+			Msg("Did not record the job's outcome: its lease ran out and another worker holds it now")
+		return
+	}
+	log.Error().Err(err).Str("jobId", job.ID.String()).
+		Msg("Could not record the job " + what + "; it stays running and is tried again when its lease expires")
 }
 
 // exhaustedByReclaim accounts for a job reclaimed from a worker that died, and
@@ -156,11 +175,10 @@ func (s *jobService) failJob(ctx context.Context, job entities.Job, jobErr error
 				return err
 			}
 		}
-		return s.repo.Job().Update(txCtx, adapters.JobModelAdapter{Job: job}.ToModel())
+		return s.settle(txCtx, job)
 	})
 	if err != nil {
-		log.Error().Err(err).Str("jobId", job.ID.String()).
-			Msg("Could not record the job as failed; it stays running and is tried again when its lease expires")
+		logUnsettled(err, job, "as failed")
 	}
 }
 
@@ -226,9 +244,8 @@ func (s *jobService) writeDetached(ctx context.Context, job entities.Job) {
 	job.UpdatedAt = time.Now()
 	writeCtx, cancel := detach(ctx, statusWriteBudget)
 	defer cancel()
-	if err := s.repo.Job().Update(writeCtx, adapters.JobModelAdapter{Job: job}.ToModel()); err != nil {
-		log.Error().Err(err).Str("jobId", job.ID.String()).
-			Msg("Could not record the job's status; it stays running and is tried again when its lease expires")
+	if err := s.settle(writeCtx, job); err != nil {
+		logUnsettled(err, job, "status")
 	}
 }
 

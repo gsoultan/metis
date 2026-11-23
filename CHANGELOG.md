@@ -14,6 +14,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   throughput follows from `METIS_JOB_WORKERS` and the partner's answer time,
   with the audit's measurements, and what to change first.
 
+### Fixed
+
+- **A slow partner is no longer called twice.** A job's lease was taken once
+  and never renewed, `METIS_HTTP_TIMEOUT` had no upper bound, and a job's
+  outcome was written whoever held it. A call slower than the lease let a
+  second replica claim the job and call the partner again while the first was
+  still waiting, and both recorded an outcome. The worker now renews the lease
+  every third of its length while a job runs; every outcome is written only
+  while the worker still holds the job, so a run that loses its lease records
+  nothing and its work is rolled back; and `METIS_HTTP_TIMEOUT` is held to two
+  minutes, the shortest lease the worker accepts.
+
 ### Upgrading
 
 - **Script tasks are off by default.** A script task with a script, and
