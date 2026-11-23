@@ -22,9 +22,11 @@ import (
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 )
 
-const (
-	testEncryptionKey = "0f3c6a9e2b7d4185f0a3c6e9b2d5f8a1c4e7b0d3f6a9c2e5b8d1f4a7c0e3b6d9"
-	testJWTSecret     = "9d6b3e0c7a4f1d8b5e2c9f6a3d0b7e4c1f8a5d2b9e6c3f0a7d4b1e8c5f2a9d6b"
+// A key and a secret made fresh for each run, as strong as an installation's,
+// so none sits in the source to be mistaken for one.
+var (
+	testEncryptionKey = rand.Text() + rand.Text()
+	testJWTSecret     = rand.Text() + rand.Text()
 )
 
 // fakeInstallation answers a joining machine as the Servers page would:
