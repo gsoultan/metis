@@ -8,6 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Security
+
+- **A message with no correlation key no longer reaches waiting instances.**
+  `POST /api/v1/messages` (and its Connect and gRPC twins) is open to any
+  member of the project. Sent with no correlation key, a message advanced
+  every instance waiting on its name, in every process of the project, and
+  wrote the caller's variables into each. It now only starts the processes
+  whose message start event listens for it, as a broker message with no key
+  already did, and is refused as an invalid argument when none does. A waiting
+  instance is reached only by its correlation key. Message throw events and
+  webhooks, which an administrator configures, are unchanged.
+
 ### Documentation
 
 - **Sizing the job worker** (`docs/runbooks.md`): how a replica's job
