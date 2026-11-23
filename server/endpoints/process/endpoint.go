@@ -388,9 +388,34 @@ func MakeSendMessageEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		if err != nil {
 			return SendMessageResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
 		}
+		if strings.TrimSpace(req.CorrelationKey) == "" {
+			return SendMessageResponse{Err: startFromUncorrelatedMessage(ctx, s, projectID, req)}, nil
+		}
 		err = s.SendMessage(ctx, projectID, req.MessageName, req.CorrelationKey, req.Variables)
 		return SendMessageResponse{Err: err}, nil
 	}
+}
+
+// startFromUncorrelatedMessage handles a message that names no correlation
+// key: it starts the processes whose message start event listens for it, and
+// reaches no instance that is already waiting.
+//
+// It used to reach every instance waiting on the message name. Any member of
+// the project could send one, and it advanced every waiting instance of every
+// process in the project and wrote the caller's variables into each — an
+// approval waiting on "payment-received" moved on for whoever sent the name.
+// A waiting instance is now reached only by its correlation key, which is
+// what the broker bridge already did with a message that carried none.
+func startFromUncorrelatedMessage(ctx context.Context, s services.ServiceFacade, projectID uuid.UUID, req SendMessageRequest) error {
+	started, err := s.StartFromMessage(ctx, projectID, req.MessageName, req.Variables)
+	if err != nil {
+		return err
+	}
+	if started == 0 {
+		return apierr.Invalidf("message %q names no correlation key and no process starts on it: "+
+			"a message reaches an instance that is waiting for it only by the instance's correlation key", req.MessageName)
+	}
+	return nil
 }
 
 func MakeExecuteScriptEndpoint(s services.ServiceFacade) endpoint.Endpoint {
