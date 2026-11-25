@@ -29,6 +29,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   69 ns; on one core, 285 ns and now 274 ns
   (`BenchmarkCachedCellsInParallel`).
 
+- **A database lookup refuses a login that can see any of Metis's tables.**
+  The check before a lookup's first query refused a connection only when its
+  login could see all three Metis tables it named, so a login granted
+  `connector_instances` alone, and with it every connection's settings, was
+  accepted. It now names eight tables only Metis uses and refuses a login that
+  can see any one of them.
+
 ### Fixed
 
 - **A slow partner is no longer called twice.** A job's lease was taken once
