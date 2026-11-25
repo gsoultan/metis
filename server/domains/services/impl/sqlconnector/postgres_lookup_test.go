@@ -208,6 +208,19 @@ func TestALookupThatCanSeeMetisOwnTablesIsRefused(t *testing.T) {
 	}
 }
 
+// A login granted one of Metis's tables and nothing else is refused too: the
+// check used to want all three it named before it refused.
+func TestALookupThatCanSeeAnyOfMetisOwnTablesIsRefused(t *testing.T) {
+	for _, table := range []string{"connector_instances", "variable_snapshots"} {
+		target := testutils.PostgresLookupDatabase(t, "CREATE TABLE "+table+" (id int PRIMARY KEY)")
+		_, err := testExecutor().ExecuteRequest(testContext(t), postgresConfig(target.DSN),
+			servicecontracts.ConnectorRequest{Statement: "SELECT 1 AS one", ResultVariable: "x"})
+		if !errors.Is(err, errOwnDatabase) {
+			t.Fatalf("a login that can see %s was allowed: %v", table, err)
+		}
+	}
+}
+
 func assertCustomerCount(t *testing.T, adminDSN string, want int) {
 	t.Helper()
 	config, err := pgx.ParseConfig(adminDSN)
