@@ -24,7 +24,11 @@ var errOwnDatabase = errors.New("the connection's login can see Metis's own tabl
 // than comparing addresses: an alias, a pooler, a second address for the same
 // server, or a port forward would each defeat a comparison, and none of them
 // changes what the login can read. A login that cannot see these tables cannot
-// query them; one that can, is refused.
+// query them; one that can see any of them is refused.
+//
+// Any, not all: the check used to refuse only a login that could see all
+// three tables it named, so a login granted SELECT on connector_instances
+// alone — the connections' settings, credentials included — passed it.
 //
 // On MySQL, INFORMATION_SCHEMA covers every database on the server the login
 // may read, which is right: it could read those too. SQL Server's covers only
@@ -39,7 +43,7 @@ func refuseOwnDatabase(ctx context.Context, db *sql.DB) error {
 		// hand a process author's query to.
 		return fmt.Errorf("could not confirm the lookup's database is not Metis's own, so it was not used: %w", err)
 	}
-	if visible >= ownTableCount {
+	if visible > 0 {
 		return errOwnDatabase
 	}
 	return nil
