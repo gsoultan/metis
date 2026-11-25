@@ -23,9 +23,13 @@ const (
 	// can see. Written in capitals because SQL Server's INFORMATION_SCHEMA is
 	// case-sensitive under a case-sensitive collation; PostgreSQL folds it and
 	// MySQL ignores case here.
+	//
+	// Names only Metis uses, so that a business database is not refused for
+	// a table of its own: process_instances alone could be somebody's, a
+	// variable_snapshots beside it much less likely, and any one of them is
+	// enough to refuse.
 	ownTablesProbe = "SELECT COUNT(DISTINCT TABLE_NAME) FROM INFORMATION_SCHEMA.TABLES " +
-		"WHERE TABLE_NAME IN ('process_instances', 'process_definitions', 'connector_instances')"
+		"WHERE TABLE_NAME IN ('process_instances', 'process_definitions', 'connector_instances', " +
+		"'process_definition_releases', 'variable_snapshots', 'connector_manifests', " +
+		"'deviation_requests', 'decision_releases')"
 )
-
-// ownTableCount is how many of the tables ownTablesProbe names there are.
-const ownTableCount = 3
