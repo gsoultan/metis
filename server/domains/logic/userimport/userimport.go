@@ -54,7 +54,10 @@ type Row struct {
 	// carried so a problem can be reported where somebody can find it.
 	Line int
 
-	Username    string
+	Username string
+	// ExternalID is the person's id in the application the source belongs
+	// to, when the source carries one.
+	ExternalID  string
 	DisplayName string
 	Email       string
 	// Groups are the candidate groups to put this participant in. Groups are
@@ -83,6 +86,12 @@ func (p Problem) String() string {
 type Result struct {
 	Rows     []Row
 	Problems []Problem
+	// Fields are the names the source used, before any mapping, so somebody
+	// matching columns can pick from what is actually there.
+	Fields []string
+	// Sample is the first record as the source sent it, every value cut short,
+	// so a mapping can be checked against a real person.
+	Sample map[string]string
 }
 
 // requiredColumn is the only column a file must have. Everything else about a
@@ -94,7 +103,7 @@ const requiredColumn = "username"
 // that mean nothing here, and rejecting the file over them would mean asking a
 // person to hand-edit a CSV before every import.
 var knownColumns = map[string]bool{
-	"username": true, "display_name": true, "email": true,
+	"username": true, "external_id": true, "display_name": true, "email": true,
 	"groups": true, "active": true,
 }
 
@@ -108,7 +117,13 @@ func Understands(name string) bool { return knownColumns[strings.ToLower(strings
 // The first line is the header and names the columns, in any order — an export
 // nobody controls the column order of is the normal case. Only `username` is
 // required.
-func Parse(r io.Reader) (Result, error) {
+func Parse(r io.Reader) (Result, error) { return ParseWith(r, nil) }
+
+// ParseWith reads a CSV whose columns are named as mapping says.
+func ParseWith(r io.Reader, mapping Mapping) (Result, error) {
+	if err := mapping.Validate(); err != nil {
+		return Result{}, err
+	}
 	reader := csv.NewReader(r)
 	// Rows are allowed to differ in length: a trailing empty column is what a
 	// spreadsheet writes for a blank cell, and refusing the file over it would
@@ -124,7 +139,7 @@ func Parse(r io.Reader) (Result, error) {
 		return Result{}, fmt.Errorf("could not read the header: %w", err)
 	}
 
-	index, err := indexHeader(header)
+	index, err := indexHeader(header, mapping.SourceFor(requiredColumn))
 	if err != nil {
 		return Result{}, err
 	}
@@ -152,7 +167,7 @@ func Parse(r io.Reader) (Result, error) {
 		records = append(records, Record{Line: line, Fields: fieldsOf(record, index)})
 	}
 
-	result := FromRecords(records)
+	result := FromRawRecords(records, mapping)
 	// Read failures come first: they happened before anything was validated,
 	// and reporting them in line order matters more than in stage order.
 	result.Problems = append(readProblems, result.Problems...)
@@ -160,7 +175,8 @@ func Parse(r io.Reader) (Result, error) {
 	return result, nil
 }
 
-// fieldsOf pulls the columns this understands out of one CSV record.
+// fieldsOf reads one CSV record by its header's names. The mapping decides
+// which of them are kept.
 func fieldsOf(record []string, index map[string]int) map[string]string {
 	fields := make(map[string]string, len(index))
 	for name, i := range index {
@@ -182,18 +198,19 @@ func sortProblems(problems []Problem) {
 // is the first thing anybody exporting from Excel would hit.
 const bom = "\ufeff"
 
-// indexHeader maps the columns this understands to their position.
-func indexHeader(header []string) (map[string]int, error) {
+// indexHeader maps every column to its position, and refuses a header with
+// no column for the username.
+func indexHeader(header []string, usernameColumn string) (map[string]int, error) {
 	index := map[string]int{}
 	for i, raw := range header {
 		name := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(raw, bom)))
-		if knownColumns[name] {
+		if _, seen := index[name]; !seen && name != "" {
 			index[name] = i
 		}
 	}
-	if _, ok := index[requiredColumn]; !ok {
+	if _, ok := index[usernameColumn]; !ok {
 		return nil, fmt.Errorf("the file needs a %q column; found %s",
-			requiredColumn, strings.Join(header, ", "))
+			usernameColumn, strings.Join(header, ", "))
 	}
 	return index, nil
 }
@@ -210,6 +227,11 @@ func readRecord(record Record) (Row, *Problem) {
 	}
 	if len(username) > 255 {
 		return Row{}, &Problem{Line: line, Username: username, Reason: "the username is longer than 255 characters"}
+	}
+
+	externalID := strings.TrimSpace(record.Field("external_id"))
+	if len(externalID) > 255 {
+		return Row{}, &Problem{Line: line, Username: username, Reason: "the external ID is longer than 255 characters"}
 	}
 
 	email := strings.TrimSpace(record.Field("email"))
@@ -229,6 +251,7 @@ func readRecord(record Record) (Row, *Problem) {
 	return Row{
 		Line:        line,
 		Username:    username,
+		ExternalID:  externalID,
 		DisplayName: strings.TrimSpace(record.Field("display_name")),
 		Email:       email,
 		Groups:      readGroups(record.Field("groups")),
@@ -244,6 +267,7 @@ func readRecord(record Record) (Row, *Problem) {
 func FromRecords(records []Record) Result {
 	var result Result
 	seen := map[string]int{}
+	seenExternal := map[string]int{}
 
 	for _, record := range records {
 		if len(result.Rows) >= MaxRows {
@@ -265,6 +289,20 @@ func FromRecords(records []Record) Result {
 				Reason:   fmt.Sprintf("already named on line %d", first),
 			})
 			continue
+		}
+		// An external ID twice is one person named twice, which says nothing
+		// about which of the two rows is right. Compared exactly: an id is the
+		// application's, and "A1" and "a1" may well be two people there.
+		if row.ExternalID != "" {
+			if first, duplicate := seenExternal[row.ExternalID]; duplicate {
+				result.Problems = append(result.Problems, Problem{
+					Line:     record.Line,
+					Username: row.Username,
+					Reason:   fmt.Sprintf("external ID %q is already named on line %d", row.ExternalID, first),
+				})
+				continue
+			}
+			seenExternal[row.ExternalID] = record.Line
 		}
 		seen[strings.ToLower(row.Username)] = record.Line
 		result.Rows = append(result.Rows, row)

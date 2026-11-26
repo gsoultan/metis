@@ -15,6 +15,11 @@ type WorkflowUserService interface {
 	// username: at most limit of them, or all of them when limit is zero.
 	ListWorkflowUsers(ctx context.Context, projectID uuid.UUID, limit int) ([]entities.WorkflowUser, error)
 
+	// FindWorkflowUserByExternalID returns the person with that id in the
+	// customer's own application: how a caller holding its own user id finds
+	// the username Metis assigns work to.
+	FindWorkflowUserByExternalID(ctx context.Context, projectID uuid.UUID, externalID string) (entities.WorkflowUser, error)
+
 	// ListWorkflowGroups returns the project's People groups: the teams a step
 	// can offer its task to.
 	ListWorkflowGroups(ctx context.Context, projectID uuid.UUID) ([]entities.WorkflowGroup, error)
@@ -41,6 +46,17 @@ type WorkflowUserService interface {
 	// caller-supplied database. Validating the query cannot make that safe, so
 	// the control is that reaching this is administrative.
 	SyncWorkflowUsersFromPostgres(ctx context.Context, projectID uuid.UUID, dsn, query string) (entities.ImportSummary, error)
+
+	// ImportDirectory reads a directory into a project from a file, an
+	// endpoint or a database query, matching people on their external ID and
+	// then their username. A bad row is reported and the rest still imports.
+	// A database query needs the Query author role or an administrator.
+	ImportDirectory(ctx context.Context, projectID uuid.UUID, req entities.DirectoryImport) (entities.ImportSummary, error)
+
+	// CheckDirectoryImport works out what ImportDirectory would do with the
+	// same request — who is new, who changes, who was renamed and which rows
+	// cannot be imported and why — and writes nothing.
+	CheckDirectoryImport(ctx context.Context, projectID uuid.UUID, req entities.DirectoryImport) (entities.ImportCheck, error)
 
 	// RemoveWorkflowUser takes somebody out of a project's directory.
 	//

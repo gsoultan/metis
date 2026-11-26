@@ -18,6 +18,9 @@ type WorkflowUserRepository interface {
 	// username: at most limit of them, or all of them when limit is zero.
 	ListByProject(ctx context.Context, projectID uuid.UUID, limit int) ([]entities.WorkflowUser, error)
 	GetByUsername(ctx context.Context, projectID uuid.UUID, username string) (entities.WorkflowUser, error)
+	// GetByExternalID finds the participant with that id in the customer's
+	// own application. Nobody with it is not found.
+	GetByExternalID(ctx context.Context, projectID uuid.UUID, externalID string) (entities.WorkflowUser, error)
 
 	// SetPassword replaces a participant's credential and ends their People
 	// sessions. A participant outside the project is not found.
@@ -32,6 +35,15 @@ type WorkflowUserRepository interface {
 	// Returns whether the row was created, so an import can report how many
 	// people are new against how many it overwrote.
 	Upsert(ctx context.Context, participant entities.WorkflowUser) (created bool, err error)
+
+	// CountOpenTasksNaming reports how many of a project's open tasks name a
+	// username, as assignee or candidate: what a rename would leave behind.
+	CountOpenTasksNaming(ctx context.Context, projectID uuid.UUID, username string) (int, error)
+
+	// Rename gives a participant a new username. With moveOpenTasks, the open
+	// tasks naming the old one are readdressed to the new one in the same
+	// transaction, and their number returned.
+	Rename(ctx context.Context, projectID, id uuid.UUID, to string, moveOpenTasks bool) (moved int, err error)
 
 	// EnsureGroup returns the named group for a project, creating it if the
 	// project has no group of that name yet. Importing a directory that

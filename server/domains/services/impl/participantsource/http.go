@@ -21,6 +21,8 @@ type HTTPConfig struct {
 	// Headers carry whatever authenticates the call — a bearer token, an API
 	// key. Held encrypted at rest and never returned to a browser.
 	Headers map[string]string
+	// Mapping names the response's fields the way Metis reads them.
+	Mapping userimport.Mapping
 }
 
 // HTTPSource reads a directory from a JSON endpoint.
@@ -83,7 +85,7 @@ func (s *HTTPSource) Fetch(ctx context.Context) (userimport.Result, error) {
 		return userimport.Result{}, fmt.Errorf("the endpoint answered %s", response.Status)
 	}
 
-	result, err := userimport.FromJSON(body)
+	result, err := userimport.FromJSONWith(body, s.Config.Mapping)
 	if err != nil {
 		return userimport.Result{}, err
 	}

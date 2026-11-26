@@ -26,6 +26,9 @@ type PostgresConfig struct {
 	// every source deliberately, and translating here would make each source
 	// grow its own idea of what a participant is.
 	Query string
+	// Mapping names the query's columns the way Metis reads them, so the
+	// query need not alias them.
+	Mapping userimport.Mapping
 }
 
 // queryTimeout bounds a directory query.
@@ -62,6 +65,9 @@ func NewPostgresSource(config PostgresConfig) *PostgresSource {
 
 // Fetch runs the query and reads the rows it returned.
 func (s *PostgresSource) Fetch(ctx context.Context) (userimport.Result, error) {
+	if err := s.Config.Mapping.Validate(); err != nil {
+		return userimport.Result{}, err
+	}
 	query := strings.TrimSpace(s.Config.Query)
 	if query == "" {
 		return userimport.Result{}, fmt.Errorf("this source has no query")
@@ -156,16 +162,17 @@ func (s *PostgresSource) Fetch(ctx context.Context) (userimport.Result, error) {
 		return userimport.Result{}, fmt.Errorf("the query failed while reading: %w", err)
 	}
 
-	return userimport.FromRecords(records), nil
+	return userimport.FromRawRecords(records, s.Config.Mapping), nil
 }
 
-// fieldsOf maps one result row onto the shared vocabulary, ignoring columns
-// nothing understands — the same way an unknown CSV column or JSON key is
-// ignored, because a real directory table has columns that mean nothing here.
+// fieldsOf reads one result row by its column names. The mapping then keeps
+// the ones Metis reads and drops the rest — the same way an unknown CSV column
+// or JSON key is dropped, because a real directory table has columns that mean
+// nothing here.
 func fieldsOf(columns []string, values []any) map[string]string {
 	fields := make(map[string]string, len(columns))
 	for i, name := range columns {
-		if i >= len(values) || !userimport.Understands(name) {
+		if i >= len(values) {
 			continue
 		}
 		fields[name] = userimport.Stringify(values[i])

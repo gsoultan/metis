@@ -99,6 +99,31 @@ func (r *workflowUserRepository) ListGroups(ctx context.Context, projectID uuid.
 	return out, nil
 }
 
+// GetByExternalID finds one participant by their id in the customer's own
+// application.
+func (r *workflowUserRepository) GetByExternalID(ctx context.Context, projectID uuid.UUID, externalID string) (entities.WorkflowUser, error) {
+	if err := r.scope.requireProjectInTenant(ctx, projectID); err != nil {
+		return entities.WorkflowUser{}, err
+	}
+	ex, err := r.conn.Executor(ctx)
+	if err != nil {
+		return entities.WorkflowUser{}, err
+	}
+	row, found, err := workflowuser.New().
+		Where(
+			workflowuser.ProjectID.Eq(projectID),
+			workflowuser.ExternalID.Eq(externalID),
+		).
+		One(ctx, ex)
+	if err != nil {
+		return entities.WorkflowUser{}, fmt.Errorf("could not read the participant with external ID %q: %w", externalID, err)
+	}
+	if !found {
+		return entities.WorkflowUser{}, fmt.Errorf("%w: nobody in this project has external ID %q", apierr.ErrNotFound, externalID)
+	}
+	return participantFrom(row), nil
+}
+
 // GetByUsername finds one participant by the name a process would refer to.
 func (r *workflowUserRepository) GetByUsername(ctx context.Context, projectID uuid.UUID, username string) (entities.WorkflowUser, error) {
 	if err := r.scope.requireProjectInTenant(ctx, projectID); err != nil {
@@ -167,6 +192,12 @@ func (r *workflowUserRepository) Upsert(ctx context.Context, participant entitie
 	ins.SetActive(participant.Active)
 	setOrNullString(ins.SetDisplayName, ins.SetDisplayNameNull, participant.DisplayName)
 	setOrNullString(ins.SetEmail, ins.SetEmailNull, participant.Email)
+	// Only when given: a source that does not carry the column says nothing
+	// about the id, and clearing it would unlink the person from the
+	// application that named them.
+	if participant.ExternalID != "" {
+		ins.SetExternalID(participant.ExternalID)
+	}
 	// Credentials are never written here. An import carries names, not
 	// passwords, and overwriting a hash with nothing would lock out everybody
 	// the file happened to mention.
@@ -275,6 +306,7 @@ func participantFrom(row workflowuser.Row) entities.WorkflowUser {
 		ID:             row.ID,
 		Project:        &entities.Project{ID: row.ProjectID},
 		Username:       row.Username,
+		ExternalID:     valueOr(row.ExternalID),
 		DisplayName:    valueOr(row.DisplayName),
 		Email:          valueOr(row.Email),
 		Active:         row.Active,

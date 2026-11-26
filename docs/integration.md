@@ -401,6 +401,56 @@ entries, _ := client.GetTimeline(ctx, instanceID)
 // "Task \"Approve the refund\" became available", "admin claimed …", …
 ```
 
+## Your people: importing them, and your own user ids
+
+A process assigns work to a **username**, and People sign in with project,
+username and password. Your application has its own id for each person. Import
+it as the person's **external ID** and Metis recognises them by it from then
+on, so a rename in your application is a rename here, not a second person.
+
+`POST /api/v1/participants/import` reads a directory from a CSV upload, a JSON
+endpoint (`"kind": "http"`) or a query against your own PostgreSQL database
+(`"kind": "postgres"`, which needs the Query author role). The fields Metis
+reads are `external_id`, `username` (required), `display_name`, `email`,
+`groups` and `active`. When your source names them differently, say which is
+which instead of reshaping it; a nested JSON field is named by its path:
+
+```bash
+curl -X POST "$METIS/api/v1/participants/import/check" -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{
+    "project_id": "'"$PROJECT"'", "kind": "http",
+    "url": "https://app.example.com/api/users",
+    "headers": {"Authorization": "Bearer <your app token>"},
+    "mapping": {"external_id": "id", "username": "login", "display_name": "profile.full_name"}
+  }'
+```
+
+`/import/check` takes the same body as `/import` and writes nothing. It answers
+how many rows were read, the fields your source used, and each row that is not
+already as Metis has it, with its outcome:
+
+| Outcome | Meaning |
+| :-- | :-- |
+| `new` | Nobody here has this external ID or username. |
+| `update` | Their name, address or active flag changes. |
+| `linked` | Found by username with no external ID yet; it is set. |
+| `renamed` | Found by external ID under another username. `open_tasks` says how many open tasks name the old one. |
+| `conflict` | The username or external ID belongs to somebody else here. Not imported. |
+| `invalid` | No username, a bad address, or a value named twice in the source. Not imported. |
+
+A rename that would leave open tasks addressed to the old username is applied
+only with `"move_open_tasks": true`, which readdresses those tasks, held and
+offered, to the new one in the same transaction. Without it the row is reported
+and nothing about that person changes.
+
+To find the username for one of your ids:
+`GET /api/v1/participants?project_id=…&external_id=u-7` answers that person, or
+an empty list.
+
+External IDs and usernames are unique **within a project**. Another project,
+or another organization, may have its own `u-7`; they are different people, and
+neither organization can read or write the other's directory.
+
 ## External-task workers: your service does the step
 
 Mark a service task with a topic — in the designer, or in BPMN XML:
