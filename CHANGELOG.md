@@ -22,6 +22,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   database's read-only error; a source reading another database with a
   narrow login is unchanged.
 
+- **Importing people with a database query takes the Query author role.**
+  `POST /api/v1/participants/import` with `kind: postgres` was open to
+  designers, so a designer could run their own SQL against any database the
+  server could reach. It now needs the Query author role or an administrator,
+  as a database lookup in a process does, and is refused as forbidden
+  otherwise. Importing a file or from an endpoint is unchanged.
+
 - **A message with no correlation key no longer reaches waiting instances.**
   `POST /api/v1/messages` (and its Connect and gRPC twins) is open to any
   member of the project. Sent with no correlation key, a message advanced
