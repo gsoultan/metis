@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/sigstore/sigstore-go/pkg/testing/ca"
+
+	"github.com/gsoultan/metis/internal/pkg/distribution"
 )
 
 func TestVerifyChecksums(t *testing.T) {
@@ -17,7 +19,9 @@ func TestVerifyChecksums(t *testing.T) {
 		t.Fatal(err)
 	}
 	checksums := []byte("abc  metis_0.9.0_amd64.deb\n")
-	verifier := SignatureVerifier{Trusted: sigstore, withoutSCTs: true}
+	verifier := SignatureVerifier{Trusted: sigstore, WorkflowIdentityPrefix: distribution.Metis.WorkflowIdentityPrefix(), withoutSCTs: true}
+	server := distribution.Distribution{Name: "metis-server", Repository: "gsoultan/metis-server"}
+	metisIdentity := verifier.WorkflowIdentityPrefix
 
 	tests := []struct {
 		name     string
@@ -27,12 +31,15 @@ func TestVerifyChecksums(t *testing.T) {
 		tag      string
 		ok       bool
 	}{
-		{"the release workflow for this tag", WorkflowIdentityPrefix + "v0.9.0", OIDCIssuer, checksums, "v0.9.0", true},
-		{"the release workflow for another tag", WorkflowIdentityPrefix + "v0.8.0", OIDCIssuer, checksums, "v0.9.0", false},
+		{"the release workflow for this tag", metisIdentity + "v0.9.0", OIDCIssuer, checksums, "v0.9.0", true},
+		{"the release workflow for another tag", metisIdentity + "v0.8.0", OIDCIssuer, checksums, "v0.9.0", false},
 		{"another workflow", "https://github.com/gsoultan/metis/.github/workflows/ci.yml@refs/tags/v0.9.0", OIDCIssuer, checksums, "v0.9.0", false},
 		{"a fork", "https://github.com/someone/metis/.github/workflows/release.yml@refs/tags/v0.9.0", OIDCIssuer, checksums, "v0.9.0", false},
-		{"another issuer", WorkflowIdentityPrefix + "v0.9.0", "https://accounts.google.com", checksums, "v0.9.0", false},
-		{"other bytes", WorkflowIdentityPrefix + "v0.9.0", OIDCIssuer, []byte("tampered"), "v0.9.0", false},
+		{"another issuer", metisIdentity + "v0.9.0", "https://accounts.google.com", checksums, "v0.9.0", false},
+		{"other bytes", metisIdentity + "v0.9.0", OIDCIssuer, []byte("tampered"), "v0.9.0", false},
+		// A release of another distribution, even of the same owner, is not
+		// this one's: metis-server's signature does not install over metis.
+		{"another distribution", server.WorkflowIdentityPrefix() + "v0.9.0", OIDCIssuer, checksums, "v0.9.0", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -53,6 +60,21 @@ func TestVerifyChecksums(t *testing.T) {
 
 func TestVerifyChecksumsRefusesWithoutARoot(t *testing.T) {
 	if err := (SignatureVerifier{}).VerifyChecksums([]byte("x"), []byte("{}"), "v1.0.0"); !errors.Is(err, ErrNotVerified) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestVerifyChecksumsRefusesWithoutAnIdentity(t *testing.T) {
+	sigstore, err := ca.NewVirtualSigstore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier := SignatureVerifier{Trusted: sigstore, withoutSCTs: true}
+	entity, err := sigstore.Sign("https://github.com/gsoultan/metis/.github/workflows/release.yml@refs/tags/v0.9.0", OIDCIssuer, []byte("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifier.verifyEntity(entity, []byte("x"), "v0.9.0"); !errors.Is(err, ErrNotVerified) {
 		t.Fatalf("got %v", err)
 	}
 }

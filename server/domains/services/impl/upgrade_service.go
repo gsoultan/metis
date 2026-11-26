@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/internal/pkg/distribution"
 	"github.com/gsoultan/metis/internal/pkg/releasecheck"
 	"github.com/gsoultan/metis/internal/pkg/selfupgrade"
 	"github.com/gsoultan/metis/server/domains/services/contracts"
@@ -188,19 +189,19 @@ func upgradeCaller(ctx context.Context) error {
 	return nil
 }
 
-// DetectInstall says how this host runs Metis, from what the packages and the
-// container runtimes leave behind.
-func DetectInstall() string {
-	return detectInstall(os.Getenv, fileExists, os.Executable)
+// DetectInstall says how this host runs the distribution d, from what its
+// packages and the container runtimes leave behind.
+func DetectInstall(d distribution.Distribution) string {
+	return detectInstall(d, os.Getenv, fileExists, os.Executable)
 }
 
-func detectInstall(getenv func(string) string, exists func(string) bool, executable func() (string, error)) string {
+func detectInstall(d distribution.Distribution, getenv func(string) string, exists func(string) bool, executable func() (string, error)) string {
 	if getenv("KUBERNETES_SERVICE_HOST") != "" || exists("/.dockerenv") || exists("/run/.containerenv") {
 		return contracts.InstallContainer
 	}
 	path, err := executable()
-	if err == nil && path == "/usr/bin/metis" &&
-		(exists("/usr/lib/systemd/system/metis.service") || exists("/etc/init.d/metis")) {
+	if err == nil && path == d.Binary() &&
+		(exists(d.SystemdUnit()) || exists(d.OpenRCScript())) {
 		return contracts.InstallPackage
 	}
 	return contracts.InstallBinary

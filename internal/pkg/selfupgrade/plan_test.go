@@ -33,7 +33,7 @@ func publish(t *testing.T, tag string, schema int64) release {
 	if err := releasemanifest.Write(&manifest, m); err != nil {
 		t.Fatal(err)
 	}
-	pkgName, err := PackageName(FormatDeb, tag, "amd64")
+	pkgName, err := PackageName(FormatDeb, "metis", tag, "amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func newPlan(t *testing.T, host *fakeHost, site fakeSite, to string) *Plan {
 	t.Helper()
 	dir := t.TempDir()
 	return &Plan{
-		To: to, RequestedBy: "admin", Format: FormatDeb, GOARCH: "amd64",
+		To: to, RequestedBy: "admin", Package: "metis", Format: FormatDeb, GOARCH: "amd64",
 		Dir: filepath.Join(dir, "upgrade"), BackupDir: filepath.Join(dir, "backups"),
 		StartTimeout: 50 * time.Millisecond, PollEvery: time.Millisecond,
 		Releases: site, Verifier: fakeVerifier{}, Service: host, Installer: host, Server: host, Database: host,

@@ -22,9 +22,6 @@ import (
 // The real host: GitHub for downloads, the package manager, the init system,
 // the server's own probes and PostgreSQL.
 
-// DownloadBase is where GoReleaser publishes a release's files.
-const DownloadBase = "https://github.com/gsoultan/metis/releases/download/"
-
 // maxAsset bounds one download. A package is tens of megabytes; anything near
 // this is not one of ours.
 const maxAsset = 512 << 20
@@ -32,7 +29,8 @@ const maxAsset = 512 << 20
 // GitHubReleases downloads release files over HTTPS.
 type GitHubReleases struct {
 	Client *http.Client
-	// Base defaults to DownloadBase; a test points it elsewhere.
+	// Base is where the release's files are published: the distribution's
+	// DownloadBase, or a test's server.
 	Base string
 }
 
@@ -41,11 +39,10 @@ func (g GitHubReleases) Asset(ctx context.Context, tag, name string) ([]byte, er
 	if _, ok := releasecheck.CompareTags(tag, tag); !ok || strings.ContainsAny(name, "/\\?#") {
 		return nil, fmt.Errorf("%q / %q is not a release file", tag, name)
 	}
-	base := g.Base
-	if base == "" {
-		base = DownloadBase
+	if g.Base == "" {
+		return nil, errors.New("no release download address to fetch from")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+url.PathEscape(tag)+"/"+url.PathEscape(name), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, g.Base+url.PathEscape(tag)+"/"+url.PathEscape(name), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -68,10 +65,11 @@ func (g GitHubReleases) Asset(ctx context.Context, tag, name string) ([]byte, er
 	return body, nil
 }
 
-// ExecProbe asks the package manager's own database whether metis is installed.
-func ExecProbe(ctx context.Context) Probe {
+// ExecProbe asks the package manager's own database whether package pkg is
+// installed.
+func ExecProbe(ctx context.Context, pkg string) Probe {
 	return func(f Format) bool {
-		name, args := QueryCommand(f)
+		name, args := QueryCommand(f, pkg)
 		if _, err := exec.LookPath(name); err != nil {
 			return false
 		}
@@ -84,6 +82,8 @@ func ExecProbe(ctx context.Context) Probe {
 // everywhere else.
 type PackageHost struct {
 	Format Format
+	// Service is the service the package installs, named as the package is.
+	Service string
 }
 
 func (h PackageHost) Install(ctx context.Context, path string) error {
@@ -100,9 +100,9 @@ func (h PackageHost) Start(ctx context.Context) error { return h.service(ctx, "s
 
 func (h PackageHost) service(ctx context.Context, verb string) error {
 	if h.Format == FormatAPK {
-		return runCommand(ctx, "rc-service", "metis", verb)
+		return runCommand(ctx, "rc-service", h.Service, verb)
 	}
-	return runCommand(ctx, "systemctl", verb, "metis.service")
+	return runCommand(ctx, "systemctl", verb, h.Service+".service")
 }
 
 func runCommand(ctx context.Context, name string, args ...string) error {

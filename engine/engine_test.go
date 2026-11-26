@@ -38,3 +38,26 @@ func TestTheRoleIsReadBeforeTheEngineStarts(t *testing.T) {
 		t.Fatal("an unknown role was accepted")
 	}
 }
+
+// A program embedding the engine reports its own version, and an invalid
+// distribution stops the engine before it starts rather than having it
+// compare itself with, or upgrade itself from, something it is not.
+func TestTheEmbeddingProgramNamesItsBuild(t *testing.T) {
+	before := engine.Version()
+	t.Cleanup(func() {
+		engine.New(engine.WithBuild(engine.Build{Version: before, Name: "metis", Repository: "gsoultan/metis"}))
+	})
+
+	engine.New(engine.WithBuild(engine.Build{Version: "v0.2.2", Name: "metis-server", Repository: "gsoultan/metis-server"}))
+	if got := engine.Version(); got != "v0.2.2" {
+		t.Fatalf("Version() = %q, want the embedding program's v0.2.2", got)
+	}
+
+	bad := engine.New(engine.WithBuild(engine.Build{Version: "v9.9.9", Name: "metis server", Repository: "gsoultan/metis-server"}))
+	if err := bad.Run(context.Background(), []string{"-help"}); err == nil {
+		t.Fatal("an engine with an invalid distribution ran")
+	}
+	if got := engine.Version(); got != "v0.2.2" {
+		t.Fatalf("an invalid build changed the version to %q", got)
+	}
+}

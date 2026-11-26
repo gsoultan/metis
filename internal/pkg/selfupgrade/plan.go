@@ -28,8 +28,11 @@ type Plan struct {
 	To             string
 	RequestedBy    string
 	AllowDowngrade bool
-	Format         Format
-	GOARCH         string
+	// Package is the Linux package being upgraded, which names the files
+	// downloaded for it.
+	Package string
+	Format  Format
+	GOARCH  string
 	// Dir holds downloads, the previous package, status.json and the lock.
 	Dir string
 	// BackupDir is where the pre-upgrade backup is written.
@@ -118,7 +121,7 @@ func (r *run) execute(ctx context.Context) (Status, error) {
 	if err != nil {
 		return r.refuse("verify "+from+" for a rollback", err)
 	}
-	r.step("verified", fmt.Sprintf("%s and %s are signed by the metis release workflow and match their checksums", p.To, from))
+	r.step("verified", fmt.Sprintf("%s and %s are signed by the release workflow and match their checksums", p.To, from))
 
 	instancesBefore, err := p.Database.Instances(ctx)
 	if err != nil {
@@ -209,7 +212,7 @@ func (r *run) fetchVerified(ctx context.Context, tag string) (verified, error) {
 	if manifest.Release != tag {
 		return verified{}, fmt.Errorf("%w: release.json describes %s, not %s", ErrNotVerified, manifest.Release, tag)
 	}
-	name, err := PackageName(p.Format, tag, p.GOARCH)
+	name, err := PackageName(p.Format, p.Package, tag, p.GOARCH)
 	if err != nil {
 		return verified{}, err
 	}

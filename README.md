@@ -476,6 +476,13 @@ if err := engine.New().Run(ctx, os.Args[1:]); err != nil {
 }
 ```
 
+A program published on its own passes `engine.WithBuild` with its version,
+package name and GitHub repository. The liveness probe and the Upgrades page
+then report that version, the new-release check reads that repository's
+releases, and `<name> upgrade` installs that program's packages, accepting
+only a `checksums.txt` signed by that repository's release workflow. Without
+it, all of these are the `metis` command's.
+
 ## 🧪 Testing
 
 Run the full verification gate (build, vet, tests, race, strict tenant scope):
