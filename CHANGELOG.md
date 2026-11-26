@@ -20,6 +20,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   instance is reached only by its correlation key. Message throw events and
   webhooks, which an administrator configures, are unchanged.
 
+### Documentation
+
+- **Sizing the job worker** (`docs/runbooks.md`): how a replica's job
+  throughput follows from `METIS_JOB_WORKERS` and the partner's answer time,
+  with the audit's measurements, and what to change first.
+
 ### Performance
 
 - **A decision is read once a second, not on every evaluation.** Each
