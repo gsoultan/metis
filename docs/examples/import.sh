@@ -99,8 +99,12 @@ for example in expense-approval supplier-check; do
   echo "$example"
 
   tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT
-  wrap decision "$HERE/$example.decision.json" > "$tmp"
-  report "decision table" "$(post decisions "$tmp")" || failed=1
+  # Every table before the process that names them; expense-approval has two.
+  for table in "$HERE/$example".decision.json "$HERE/$example".*.decision.json; do
+    [ -e "$table" ] || continue
+    wrap decision "$table" > "$tmp"
+    report "decision table $(basename "$table" .decision.json)" "$(post decisions "$tmp")" || failed=1
+  done
 
   wrap definition "$HERE/$example.definition.json" > "$tmp"
   report "process definition" "$(post definitions "$tmp")" || failed=1

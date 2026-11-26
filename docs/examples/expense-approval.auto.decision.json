@@ -1,0 +1,15 @@
+{
+  "key": "expense-auto-approval",
+  "name": "Expense auto-approval",
+  "hit_policy": "FIRST",
+  "inputs": [
+    { "id": "in_amount", "label": "Amount", "expression": "amount", "type": "number" }
+  ],
+  "outputs": [
+    { "id": "out_approved", "label": "Approved", "name": "approved",     "type": "boolean" },
+    { "id": "out_note",     "label": "Note",     "name": "approverNote", "type": "string" }
+  ],
+  "rules": [
+    { "id": "r1", "description": "Under the threshold: approved without anyone being asked", "inputs": ["< 100"], "outputs": [true, "Under the £100 threshold"] }
+  ]
+}

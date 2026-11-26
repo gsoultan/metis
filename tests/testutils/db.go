@@ -11,7 +11,6 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/crypto"
 	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/server/repositories/db"
-	"github.com/gsoultan/metis/server/repositories/migrations"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -31,7 +30,8 @@ const testEncryptionPassphrase = "test-only-encryption-passphrase"
 //
 // Each test gets its own schema, dropped afterwards, so parallel tests cannot
 // see one another's rows. The schema is the one every installation is created
-// with, through the runner the application boots with.
+// with, by the runner the application boots with: run for the first test of a
+// process and replayed for the rest (see schemaReplay).
 func SetupTestDB(t *testing.T) *db.Conn {
 	t.Helper()
 	return setupTestSchema(t, 0)
@@ -82,9 +82,7 @@ func setupTestSchema(t *testing.T, maxConns int) *db.Conn {
 		t.Fatalf("open the storm connection: %v", err)
 	}
 	t.Cleanup(conn.Close)
-	if _, err := migrations.Run(ctx, conn.Main(), nil); err != nil {
-		t.Fatalf("create the schema: %v", err)
-	}
+	buildSchema(t, conn.Main())
 	return conn
 }
 

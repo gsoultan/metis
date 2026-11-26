@@ -49,6 +49,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   package and accepts only a signature from that repository's release
   workflow. The `metis` command is unchanged.
 
+- **The sample installs again with script tasks off.** The expense approval in
+  `docs/examples`, which `scripts/seed-sample.sh` and `docs/examples/import.sh`
+  import, approved a small expense with a script step. Since script tasks are
+  off by default its deploy was refused, so the seed stopped on a normal
+  install. That step is now a decision table, `expense-auto-approval`, that
+  writes the same two variables, `approved` and `approverNote`, and both
+  scripts import every table an example has.
+
 - **A slow partner is no longer called twice.** A job's lease was taken once
   and never renewed, `METIS_HTTP_TIMEOUT` had no upper bound, and a job's
   outcome was written whoever held it. A call slower than the lease let a
@@ -60,6 +68,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   minutes, the shortest lease the worker accepts.
 
 ### Upgrading
+
+- **An instance's variables may not grow past 1 MiB.** Nothing bounded them,
+  and every step wrote all of them again, to the instance and to a snapshot.
+  A step that would take them past `METIS_MAX_INSTANCE_VARIABLES_BYTES`
+  (default 1 MiB of JSON, `0` turns the cap off) now fails: a job is retried
+  and then raises an incident, and an API call is refused as an invalid
+  argument. Starting an instance over the cap is refused too. An instance
+  already over it keeps running for as long as its variables do not grow.
 
 - **Script tasks are off by default.** A script task with a script, and
   `POST /api/v1/processes/execute-script`, now run JavaScript only with
@@ -73,6 +89,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   rewrite them as FEEL mappings or service tasks.
 
 ### Added
+
+- **A machine is added with one command.** On the Servers page an
+  administrator makes a one-time code for a machine that runs pages and API
+  (`web`), background work (`worker`) or both (`all`). On the new machine,
+  `metis join <address> <code>` (or `metis-server join`, which runs the same)
+  shows four words; the page shows the same four beside the machine, and an
+  administrator presses Accept. This installation's `config.yaml` — its
+  database, `ENCRYPTION_KEY` and `JWT_SECRET`, and the new machine's role — is
+  then sealed to a key the new machine made and holds alone, collected once,
+  and written there readable by its user alone. The command also checks that
+  the machine reaches the database it was given. Settings `config.yaml` does
+  not hold, such as `METIS_PEOPLE_TOKEN_KEY`, are not handed over.
+  New routes: `POST /api/v1/machines/joins`, `GET /api/v1/machines/joins`,
+  `POST /api/v1/machines/joins/{id}/accept`, `DELETE /api/v1/machines/joins/{id}`,
+  and the public `POST /api/v1/machines/join` and
+  `POST /api/v1/machines/join/collect`.
 
 - **Every process says it is running.** Each process, web or worker, writes
   its host name, listen address, role, version and start time to the new

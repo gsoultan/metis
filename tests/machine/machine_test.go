@@ -26,7 +26,7 @@ func as(username string, roles ...string) context.Context {
 
 func TestEveryProcessIsListedAndOnlyAQuietOneIsForgotten(t *testing.T) {
 	repo := repositories.NewRepository(testutils.SetupTestDB(t)).Machine()
-	svc := serviceimpl.NewMachineService(repo)
+	svc := serviceimpl.NewMachineService(repo, nil)
 	admin := as("ana", entities.RoleAdmin)
 	now := time.Now().UTC()
 
@@ -68,7 +68,7 @@ func TestEveryProcessIsListedAndOnlyAQuietOneIsForgotten(t *testing.T) {
 }
 
 func TestOnlyAnAdministratorOfEveryOrganizationSeesTheMachines(t *testing.T) {
-	svc := serviceimpl.NewMachineService(repositories.NewRepository(testutils.SetupTestDB(t)).Machine())
+	svc := serviceimpl.NewMachineService(repositories.NewRepository(testutils.SetupTestDB(t)).Machine(), nil)
 	if _, err := svc.ListMachines(as("bo", entities.RoleOperator)); !errors.Is(err, apierr.ErrForbidden) {
 		t.Fatalf("an operator was not refused: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestOnlyAnAdministratorOfEveryOrganizationSeesTheMachines(t *testing.T) {
 
 func TestAProcessSaysItIsRunningUntilItStops(t *testing.T) {
 	repo := repositories.NewRepository(testutils.SetupTestDB(t)).Machine()
-	svc := serviceimpl.NewMachineService(repo)
+	svc := serviceimpl.NewMachineService(repo, nil)
 	ctx, stop := context.WithCancel(t.Context())
 	defer stop()
 	self := entities.Machine{ID: uuid.New(), Name: "this-host", Role: "all"}

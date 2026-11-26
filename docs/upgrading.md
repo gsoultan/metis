@@ -239,6 +239,21 @@ Migration 54 adds `releases.imported_by` and `releases.approved_by`. A
 release imported before it has neither, and in a protected environment is
 approved by a second person before it goes live, as a new one is.
 
+## Machine joins (migration 63)
+
+Migration 63 creates `machine_joins`, empty. It holds the machines being added
+from the Servers page: the SHA-256 of each one-time code, the role the new
+machine will run, its host name and X25519 key once it used the code, and,
+after an administrator accepted it, this installation's `config.yaml` sealed to
+that key. The sealed settings are emptied as soon as the machine collects them,
+and a join ends an hour after its code was made; ended joins are removed a day
+later.
+
+Two routes are public, admitted by the code alone, as the server-connection
+handshake is: `POST /api/v1/machines/join` and
+`POST /api/v1/machines/join/collect`. A proxy in front of Metis that allows
+only signed-in traffic has to let these two through for `metis join` to work.
+
 ## Machines (migration 62)
 
 Migration 62 creates `machines`, empty. Every process, whatever its
