@@ -1,33 +1,23 @@
 package participantsource_test
 
 import (
-	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/server/domains/services/impl/participantsource"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/gsoultan/metis/tests/testutils"
 )
 
-// seedDirectory builds somebody else's directory table to read from.
+// seedDirectory builds somebody else's directory: its own database, read by
+// a login that cannot see Metis's tables, which is the only kind of database a
+// source is allowed to read.
 func seedDirectory(t *testing.T) (dsn, namespace string) {
 	t.Helper()
-	dsn = os.Getenv("STORM_DSN")
-	if dsn == "" {
-		t.Skip("STORM_DSN unset")
-	}
 	namespace = "dir_" + strings.ReplaceAll(uuid.NewString()[:8], "-", "")
-
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Fatalf("pool: %v", err)
-	}
-	defer pool.Close()
-
-	if _, err := pool.Exec(context.Background(), fmt.Sprintf(`
+	target := testutils.PostgresLookupDatabase(t, fmt.Sprintf(`
 		CREATE SCHEMA %s;
 		CREATE TABLE %s.staff (
 			login       text primary key,
@@ -40,18 +30,13 @@ func seedDirectory(t *testing.T) (dsn, namespace string) {
 			('ada',   'Ada Lovelace', 'ada@example.com',   'approvers', true),
 			('bob',   'Bob Vance',    'bob@example.com',   NULL,        false),
 			('carol', NULL,           'not-an-address',    'finance',   true);
-	`, namespace, namespace, namespace)); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	t.Cleanup(func() {
-		cleanup, err := pgxpool.New(context.Background(), dsn)
-		if err != nil {
-			return
-		}
-		defer cleanup.Close()
-		_, _ = cleanup.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+namespace+" CASCADE")
-	})
-	return dsn, namespace
+	`, namespace, namespace, namespace),
+		fmt.Sprintf("GRANT USAGE ON SCHEMA %s TO PUBLIC", namespace),
+		// DELETE as well: a login that could write is the case that matters,
+		// since an administrator's reader is not always as narrow as it should be.
+		fmt.Sprintf("GRANT SELECT, DELETE ON ALL TABLES IN SCHEMA %s TO PUBLIC", namespace),
+	)
+	return target.DSN, namespace
 }
 
 // A query against somebody else's table, aliased into the shared vocabulary.
@@ -154,5 +139,73 @@ func TestAnUnreadableSourceFails(t *testing.T) {
 				t.Fatalf("%s should fail", tc.name)
 			}
 		})
+	}
+}
+
+// Metis's own database is never a directory. A source pointed at it would run
+// a project administrator's SQL against every organization's tables.
+func TestMetisOwnDatabaseIsRefused(t *testing.T) {
+	// Migrates Metis's tables into the test server, as an installation has.
+	testutils.SetupTestConn(t)
+	dsn := envvar.Get(testutils.PostgresDSNEnv)
+	source := participantsource.NewPostgresSource(participantsource.PostgresConfig{
+		DSN:   dsn,
+		Query: "SELECT username FROM workflow_users",
+	})
+	_, err := source.Fetch(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "Metis's own tables") {
+		t.Fatalf("a login that can see Metis's tables must be refused, got %v", err)
+	}
+}
+
+// A directory query only reads. Whatever the SQL says, the transaction it runs
+// in cannot write, so a query that tries is refused by the database itself.
+func TestADirectoryQueryCannotWrite(t *testing.T) {
+	dsn, namespace := seedDirectory(t)
+	for _, query := range []string{
+		fmt.Sprintf("DELETE FROM %s.staff RETURNING login AS username", namespace),
+		fmt.Sprintf("WITH gone AS (DELETE FROM %s.staff RETURNING login) SELECT login AS username FROM gone", namespace),
+	} {
+		source := participantsource.NewPostgresSource(participantsource.PostgresConfig{DSN: dsn, Query: query})
+		if _, err := source.Fetch(t.Context()); err == nil || !strings.Contains(err.Error(), "read-only") {
+			t.Fatalf("%q should be refused as a write, got %v", query, err)
+		}
+	}
+	// And nothing was deleted.
+	source := participantsource.NewPostgresSource(participantsource.PostgresConfig{
+		DSN: dsn, Query: fmt.Sprintf("SELECT login AS username FROM %s.staff", namespace),
+	})
+	result, err := source.Fetch(t.Context())
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if len(result.Rows)+len(result.Problems) != 3 {
+		t.Fatalf("the directory should still have three people, got %d", len(result.Rows)+len(result.Problems))
+	}
+}
+
+// One query is one statement: a second statement after a semicolon is not run.
+func TestADirectoryQueryIsOneStatement(t *testing.T) {
+	dsn, namespace := seedDirectory(t)
+	source := participantsource.NewPostgresSource(participantsource.PostgresConfig{
+		DSN:   dsn + "&default_query_exec_mode=simple_protocol",
+		Query: fmt.Sprintf("SELECT login AS username FROM %s.staff; SELECT 1", namespace),
+	})
+	if _, err := source.Fetch(t.Context()); err == nil {
+		t.Fatal("two statements in one query should be refused")
+	}
+}
+
+// When the operator lists the database hosts a connection may reach, a source
+// naming any other host is refused before anything is dialled.
+func TestASourceOutsideTheAllowedHostsIsRefused(t *testing.T) {
+	t.Setenv("METIS_SQL_LOOKUP_ALLOWED_HOSTS", "db.allowed.example")
+	source := participantsource.NewPostgresSource(participantsource.PostgresConfig{
+		DSN:   "postgres://reader:x@169.254.169.254:5432/hr?sslmode=disable",
+		Query: "SELECT 1 AS username",
+	})
+	_, err := source.Fetch(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "not allowed") {
+		t.Fatalf("a host outside the list should be refused, got %v", err)
 	}
 }

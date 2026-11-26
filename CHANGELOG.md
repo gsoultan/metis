@@ -10,6 +10,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Security
 
+- **A People directory read from a database keeps the lookup connector's
+  rules.** A participant source of kind `postgres` connected to whatever its
+  connection string named and ran its query as given. A query that deleted or
+  updated rows in the source database did so, a connection string naming
+  Metis's own database read every organization's tables, and the hosts listed
+  in `METIS_SQL_LOOKUP_ALLOWED_HOSTS` did not apply. The source now refuses a
+  host outside that list, refuses a login that can see Metis's tables, runs
+  one statement per query inside a read-only transaction, and ends a query on
+  the server after 30 seconds. A source whose query writes now fails with the
+  database's read-only error; a source reading another database with a
+  narrow login is unchanged.
+
+- **Importing people with a database query takes the Query author role.**
+  `POST /api/v1/participants/import` with `kind: postgres` was open to
+  designers, so a designer could run their own SQL against any database the
+  server could reach. It now needs the Query author role or an administrator,
+  as a database lookup in a process does, and is refused as forbidden
+  otherwise. Importing a file or from an endpoint is unchanged.
+
 - **A message with no correlation key no longer reaches waiting instances.**
   `POST /api/v1/messages` (and its Connect and gRPC twins) is open to any
   member of the project. Sent with no correlation key, a message advanced

@@ -124,7 +124,18 @@ func (s *workflowUserService) SyncWorkflowUsersFromHTTP(ctx context.Context, pro
 
 // SyncWorkflowUsersFromPostgres reads a directory from a query against another
 // database.
+//
+// The caller must be allowed to write queries: an administrator, or somebody
+// holding the Query author role. The import is open to designers, and the
+// other two sources read only what a URL or a file returns; this one runs the
+// caller's SQL against any database the server can reach, which is the power
+// a database lookup keeps behind that role. A saved directory source is an
+// administrator's alone.
 func (s *workflowUserService) SyncWorkflowUsersFromPostgres(ctx context.Context, projectID uuid.UUID, dsn, query string) (entities.ImportSummary, error) {
+	if !mayAuthorQueries(ctx) {
+		return entities.ImportSummary{}, apierr.Forbiddenf("importing people with a database query needs the " +
+			"Query author role; ask an administrator to grant it, or to run the import")
+	}
 	return s.importFrom(ctx, projectID, participantsource.NewPostgresSource(participantsource.PostgresConfig{
 		DSN:   dsn,
 		Query: query,
