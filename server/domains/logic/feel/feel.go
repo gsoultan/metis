@@ -56,13 +56,28 @@ var (
 // gateway conditions sit on the engine's hot path, so the same handful of
 // strings are parsed repeatedly. Parsing is pure and evaluation never mutates
 // the tree, so a parsed AST is safe to share across goroutines.
+//
+// A hit is read from hot, a sync.Map, without a lock. Every lookup used to go
+// through the LRU, whose Get takes its one mutex to move the entry to the
+// front: a 100-rule table evaluates a few hundred cells, every evaluation on
+// every core queued on that mutex, and four cores evaluated a table more
+// slowly than one. The LRU still decides what is kept: hot holds only what it
+// holds, because every entry is put in the LRU right after it is stored in
+// hot, and an entry the LRU evicts is deleted from hot. The price is that a
+// hit no longer counts as a use, so a hot entry is evicted in its turn and
+// parsed once more, which a bound of thousands makes rare.
 type astCache struct {
 	once    sync.Once
 	entries *lru.Cache[string, cacheEntry]
+	hot     sync.Map // string → cacheEntry
 }
 
 func (c *astCache) cache() *lru.Cache[string, cacheEntry] {
-	c.once.Do(func() { c.entries = lru.New[string, cacheEntry](maxCachedExpressions) })
+	c.once.Do(func() {
+		c.entries = lru.NewWithEviction(maxCachedExpressions, func(text string, _ cacheEntry) {
+			c.hot.Delete(text)
+		})
+	})
 	return c.entries
 }
 
@@ -85,8 +100,17 @@ type cacheEntry struct {
 const maxCachedExpressions = 4096
 
 func (c *astCache) parse(text string, parse func(string) (Node, error)) (Node, error) {
+	if held, ok := c.hot.Load(text); ok {
+		if entry, ok := held.(cacheEntry); ok {
+			return entry.node, entry.err
+		}
+	}
 	cache := c.cache()
 	if entry, ok := cache.Get(text); ok {
+		// Put again after storing, as a parse does below: Get alone would let
+		// an eviction between it and Store leave the entry in hot for good.
+		c.hot.Store(text, entry)
+		cache.Put(text, entry)
 		return entry.node, entry.err
 	}
 
@@ -95,7 +119,12 @@ func (c *astCache) parse(text string, parse func(string) (Node, error)) (Node, e
 	// Failures are cached too: a broken expression in a deployed definition is
 	// re-evaluated on every instance, and re-parsing it each time to reach the
 	// same error is pure waste.
-	cache.Put(text, cacheEntry{node: node, err: err})
+	//
+	// hot first, then the LRU: an entry is in hot only while the LRU holds it
+	// or is about to, so an eviction always finds it to delete.
+	entry := cacheEntry{node: node, err: err}
+	c.hot.Store(text, entry)
+	cache.Put(text, entry)
 
 	return node, err
 }
