@@ -25,3 +25,25 @@ func (unavailableMachines) ListMachines(context.Context) ([]entities.Machine, er
 func (unavailableMachines) ForgetMachine(context.Context, uuid.UUID) error { return errNoMachines }
 
 func (unavailableMachines) StartMachineHeartbeat(context.Context, entities.Machine) {}
+
+func (unavailableMachines) MakeMachineJoin(context.Context, string) (contracts.IssuedMachineJoin, error) {
+	return contracts.IssuedMachineJoin{}, errNoMachines
+}
+
+func (unavailableMachines) ListMachineJoins(context.Context) ([]entities.MachineJoin, error) {
+	return nil, errNoMachines
+}
+
+func (unavailableMachines) AcceptMachineJoin(context.Context, uuid.UUID) (entities.MachineJoin, error) {
+	return entities.MachineJoin{}, errNoMachines
+}
+
+func (unavailableMachines) RemoveMachineJoin(context.Context, uuid.UUID) error { return errNoMachines }
+
+func (unavailableMachines) RequestMachineJoin(context.Context, contracts.MachineJoinRequest) (contracts.MachineJoinReply, error) {
+	return contracts.MachineJoinReply{}, errNoMachines
+}
+
+func (unavailableMachines) CollectMachineJoin(context.Context, string) (contracts.MachineJoinCollection, error) {
+	return contracts.MachineJoinCollection{}, errNoMachines
+}

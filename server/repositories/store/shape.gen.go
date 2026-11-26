@@ -460,6 +460,27 @@ func _assertMachineShape(m m0.Machine) {
 	}
 }
 
+// _assertMachineJoinShape fails to compile if m0.MachineJoin gains, loses, renames or
+// reorders a field. Regenerate: `storm generate`.
+func _assertMachineJoinShape(m m0.MachineJoin) {
+	type shape m0.MachineJoin
+	_ = shape{
+		m.Model,
+		m.CodeHash,
+		m.Role,
+		m.CreatedBy,
+		m.ExpiresAt,
+		m.Name,
+		m.MachineKey,
+		m.Words,
+		m.RequestedAt,
+		m.AcceptedBy,
+		m.AcceptedAt,
+		m.Sealed,
+		m.CollectedAt,
+	}
+}
+
 // _assertMembershipShape fails to compile if m0.Membership gains, loses, renames or
 // reorders a field. Regenerate: `storm generate`.
 func _assertMembershipShape(m m0.Membership) {

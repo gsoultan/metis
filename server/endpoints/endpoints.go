@@ -468,6 +468,14 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	machineEndpoints := machine.MakeEndpoints(s)
 	machineEndpoints.ListMachines = platformAdmin("ListMachines")(machineEndpoints.ListMachines)
 	machineEndpoints.ForgetMachine = platformAdmin("ForgetMachine")(machineEndpoints.ForgetMachine)
+	machineEndpoints.MakeMachineJoin = platformAdmin("MakeMachineJoin")(machineEndpoints.MakeMachineJoin)
+	machineEndpoints.ListMachineJoins = platformAdmin("ListMachineJoins")(machineEndpoints.ListMachineJoins)
+	machineEndpoints.AcceptMachineJoin = platformAdmin("AcceptMachineJoin")(machineEndpoints.AcceptMachineJoin)
+	machineEndpoints.RemoveMachineJoin = platformAdmin("RemoveMachineJoin")(machineEndpoints.RemoveMachineJoin)
+	// RequestMachineJoin and CollectMachineJoin are a new machine's, with no
+	// account here: the one-time code admits them, and the service checks it.
+	machineEndpoints.RequestMachineJoin = public("RequestMachineJoin")(machineEndpoints.RequestMachineJoin)
+	machineEndpoints.CollectMachineJoin = public("CollectMachineJoin")(machineEndpoints.CollectMachineJoin)
 
 	// Retrying or cancelling many instances at once runs the organization
 	// day to day, as resolving one incident does. The service asks again who
