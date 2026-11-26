@@ -184,6 +184,64 @@ func TestAnUnusableSourceIsRefusedOverHTTP(t *testing.T) {
 	}
 }
 
+// A check crosses the wire with the same body as an import, mapping and all,
+// and the directory can then be asked for one person by their external ID.
+func TestCheckingThenImportingWithAMappingOverHTTP(t *testing.T) {
+	server, projectID := serveParticipants(t)
+	staff := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer s3cret" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data": [{"id": "u-7", "login": "ada", "profile": {"name": "Ada Lovelace"}}]}`))
+	}))
+	t.Cleanup(staff.Close)
+	t.Setenv("METIS_HTTP_ALLOW_PRIVATE_NETWORKS", "true")
+
+	payload := map[string]any{
+		"project_id": projectID.String(), "kind": "http", "url": staff.URL,
+		"headers": map[string]string{"Authorization": "Bearer s3cret"},
+		"mapping": map[string]string{"external_id": "id", "username": "login", "display_name": "profile.name"},
+	}
+	body, _ := json.Marshal(payload)
+	request, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/api/v1/participants/import/check", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	var check entities.ImportCheck
+	if err := json.NewDecoder(response.Body).Decode(&check); err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK || check.Counts["new"] != 1 || check.Rows[0].ExternalID != "u-7" {
+		t.Fatalf("the check should find ada as new, got %s %+v", response.Status, check)
+	}
+	if people := listParticipants(t, server, projectID); len(people) != 0 {
+		t.Fatalf("a check must write nothing, got %d people", len(people))
+	}
+
+	if summary := postJSON(t, server, payload); summary.Created != 1 {
+		t.Fatalf("the import should create ada, got %+v", summary)
+	}
+
+	lookup, _ := http.NewRequestWithContext(t.Context(), http.MethodGet,
+		server.URL+"/api/v1/participants?project_id="+projectID.String()+"&external_id=u-7", nil)
+	found, err := http.DefaultClient.Do(lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = found.Body.Close() }()
+	var listed participant.ListParticipantsResponse
+	if err := json.NewDecoder(found.Body).Decode(&listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Participants) != 1 || listed.Participants[0].Username != "ada" || listed.Participants[0].DisplayName != "Ada Lovelace" {
+		t.Fatalf("u-7 should be ada, got %+v", listed.Participants)
+	}
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 // facadeStub satisfies the whole facade while only answering the participant
@@ -216,6 +274,18 @@ func (f *facadeStub) SyncWorkflowUsersFromHTTP(ctx context.Context, projectID uu
 
 func (f *facadeStub) SyncWorkflowUsersFromPostgres(ctx context.Context, projectID uuid.UUID, dsn, query string) (entities.ImportSummary, error) {
 	return f.participants.SyncWorkflowUsersFromPostgres(entities.WithSystemContext(ctx), projectID, dsn, query)
+}
+
+func (f *facadeStub) ImportDirectory(ctx context.Context, projectID uuid.UUID, req entities.DirectoryImport) (entities.ImportSummary, error) {
+	return f.participants.ImportDirectory(entities.WithSystemContext(ctx), projectID, req)
+}
+
+func (f *facadeStub) CheckDirectoryImport(ctx context.Context, projectID uuid.UUID, req entities.DirectoryImport) (entities.ImportCheck, error) {
+	return f.participants.CheckDirectoryImport(entities.WithSystemContext(ctx), projectID, req)
+}
+
+func (f *facadeStub) FindWorkflowUserByExternalID(ctx context.Context, projectID uuid.UUID, externalID string) (entities.WorkflowUser, error) {
+	return f.participants.FindWorkflowUserByExternalID(entities.WithSystemContext(ctx), projectID, externalID)
 }
 
 func upload(t *testing.T, server *httptest.Server, projectID uuid.UUID, csv string) {

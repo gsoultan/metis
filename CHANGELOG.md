@@ -162,6 +162,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   and the public `POST /api/v1/machines/join` and
   `POST /api/v1/machines/join/collect`.
 
+- **People carry your application's own user id.** A person in a project's
+  directory has an optional `external_id`, unique within the project. An
+  import matches on it first and on the username after, so somebody renamed
+  in your application is renamed here rather than added again; somebody
+  imported before is linked on their username. A rename that would leave open
+  tasks addressed to the old username is applied only with
+  `move_open_tasks`, which readdresses them in the same transaction, and is
+  reported otherwise. `GET /api/v1/participants?external_id=` finds one
+  person. Database migration 64 adds the column; it is nullable, so it
+  rewrites nothing.
+- **Check an import before running it.** `POST
+  /api/v1/participants/import/check` takes the same body as an import, writes
+  nothing, and answers each row's outcome (new, update, linked, renamed,
+  conflict, invalid), the fields the source used and a sample record.
+- **Name a source's fields your way.** An import, a check and a saved
+  directory source take a `mapping` from Metis's field names to the source's,
+  nested JSON paths included, and an endpoint import takes `headers` for its
+  authentication.
+
 - **Every process says it is running.** Each process, web or worker, writes
   its host name, listen address, role, version and start time to the new
   `machines` table every 15 seconds. `GET /api/v1/machines` lists them for a
@@ -191,6 +210,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   start.
 
 ### Changed
+
+- An import's `updated` counts only the people whose details changed or who
+  were linked; people named exactly as they were are counted in the new
+  `unchanged`. `renamed` and `tasks_moved` are new.
 
 - **A release is checked where it is cut.** Cutting a release now runs its
   decisions' own tests and its processes' saved simulation cases in the

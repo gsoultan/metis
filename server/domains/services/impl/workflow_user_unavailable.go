@@ -30,6 +30,10 @@ func (unavailableWorkflowUsers) ListWorkflowUsers(context.Context, uuid.UUID, in
 	return nil, apierr.Invalidf("%s", unavailableReason)
 }
 
+func (unavailableWorkflowUsers) FindWorkflowUserByExternalID(context.Context, uuid.UUID, string) (entities.WorkflowUser, error) {
+	return entities.WorkflowUser{}, apierr.Invalidf("%s", unavailableReason)
+}
+
 func (unavailableWorkflowUsers) ListWorkflowGroups(context.Context, uuid.UUID) ([]entities.WorkflowGroup, error) {
 	return nil, apierr.Invalidf("%s", unavailableReason)
 }
@@ -44,6 +48,14 @@ func (unavailableWorkflowUsers) SyncWorkflowUsersFromHTTP(context.Context, uuid.
 
 func (unavailableWorkflowUsers) SyncWorkflowUsersFromPostgres(context.Context, uuid.UUID, string, string) (entities.ImportSummary, error) {
 	return entities.ImportSummary{}, apierr.Invalidf("%s", unavailableReason)
+}
+
+func (unavailableWorkflowUsers) ImportDirectory(context.Context, uuid.UUID, entities.DirectoryImport) (entities.ImportSummary, error) {
+	return entities.ImportSummary{}, apierr.Invalidf("%s", unavailableReason)
+}
+
+func (unavailableWorkflowUsers) CheckDirectoryImport(context.Context, uuid.UUID, entities.DirectoryImport) (entities.ImportCheck, error) {
+	return entities.ImportCheck{}, apierr.Invalidf("%s", unavailableReason)
 }
 
 func (unavailableWorkflowUsers) RemoveWorkflowUser(context.Context, uuid.UUID, uuid.UUID) error {

@@ -449,8 +449,9 @@ way in that the provider does not control.
 ## 🔌 Integrating from your application
 
 Metis is built to be driven by other systems: deploy definitions, start
-instances, correlate messages, work human tasks from your own UI, and serve
-process steps with external workers — over plain HTTP or the Go SDK:
+instances, correlate messages, work human tasks from your own UI, bring your
+people in under your own user ids, and serve process steps with external
+workers — over plain HTTP or the Go SDK:
 
 ```bash
 go get github.com/gsoultan/metis-sdk

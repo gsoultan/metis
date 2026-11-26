@@ -29,13 +29,14 @@ type Row struct {
 	Username        string
 	PasswordHash    runtime.Null[string]
 	TokensValidFrom runtime.Null[time.Time]
+	ExternalID      runtime.Null[string]
 	DisplayName     runtime.Null[string]
 	Email           runtime.Null[string]
 	Active          bool
 	DeletedAt       runtime.Null[time.Time]
 }
 
-const nCols = 11
+const nCols = 12
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -117,12 +118,14 @@ func (q *Query) cursor(col uint32, r Row) {
 	case 6:
 		ok = runtime.Stash(q.tims[:], &q.ntm, r.TokensValidFrom.V)
 	case 7:
-		ok = runtime.Stash(q.strs[:], &q.ns, r.DisplayName.V)
+		ok = runtime.Stash(q.strs[:], &q.ns, r.ExternalID.V)
 	case 8:
-		ok = runtime.Stash(q.strs[:], &q.ns, r.Email.V)
+		ok = runtime.Stash(q.strs[:], &q.ns, r.DisplayName.V)
 	case 9:
-		ok = runtime.Stash(q.bools[:], &q.nbo, r.Active)
+		ok = runtime.Stash(q.strs[:], &q.ns, r.Email.V)
 	case 10:
+		ok = runtime.Stash(q.bools[:], &q.nbo, r.Active)
+	case 11:
 		ok = runtime.Stash(q.tims[:], &q.ntm, r.DeletedAt.V)
 	}
 	q.over = q.over || !ok
@@ -285,10 +288,11 @@ var (
 	Username        = TextCol{4}
 	PasswordHash    = NullTextCol{5}
 	TokensValidFrom = NullTimeCol{6}
-	DisplayName     = NullTextCol{7}
-	Email           = NullTextCol{8}
-	Active          = BoolCol{9}
-	DeletedAt       = NullTimeCol{10}
+	ExternalID      = NullTextCol{7}
+	DisplayName     = NullTextCol{8}
+	Email           = NullTextCol{9}
+	Active          = BoolCol{10}
+	DeletedAt       = NullTimeCol{11}
 )
 
 // UUIDCol addresses a uuid column.
@@ -546,18 +550,18 @@ func (q *Query) leaf(p Pred) {
 		switch p.col {
 		case 0, 3:
 			ok = runtime.Stash(q.anyRaw[:], &q.nar, p.anyRaw)
-		case 4, 5, 7, 8:
+		case 4, 5, 7, 8, 9:
 			ok = runtime.Stash(q.anyStr[:], &q.nas, p.anyStr)
 		}
 	default:
 		switch p.col {
 		case 0, 3:
 			ok = runtime.Stash(q.raws[:], &q.nr, p.raw)
-		case 1, 2, 6, 10:
+		case 1, 2, 6, 11:
 			ok = runtime.Stash(q.tims[:], &q.ntm, p.tim)
-		case 4, 5, 7, 8:
+		case 4, 5, 7, 8, 9:
 			ok = runtime.Stash(q.strs[:], &q.ns, p.str)
-		case 9:
+		case 10:
 			ok = runtime.Stash(q.bools[:], &q.nbo, p.bol)
 		}
 	}
@@ -572,8 +576,8 @@ func (q *Query) leaf(p Pred) {
 // least one related row; HasNoPosts() matches the rest. Both compose
 // under Where/Any/Not like any predicate, because both lower to constant
 // fragments: no bound value, one compiled statement per structure.
-func HasGroups() Pred   { return Pred{col: 11, op: runtime.OpExists} }
-func HasNoGroups() Pred { return Pred{col: 11, op: runtime.OpNotExists} }
+func HasGroups() Pred   { return Pred{col: 12, op: runtime.OpExists} }
+func HasNoGroups() Pred { return Pred{col: 12, op: runtime.OpNotExists} }
 
 // Chained predicate sugar. Identical to Where(Col.Op(v)).
 func (q Query) IDEq(v [16]byte) Query                  { return q.Where(ID.Eq(v)) }
@@ -635,6 +639,23 @@ func (q Query) TokensValidFromLt(v time.Time) Query    { return q.Where(TokensVa
 func (q Query) TokensValidFromLte(v time.Time) Query   { return q.Where(TokensValidFrom.Lte(v)) }
 func (q Query) TokensValidFromIsNull() Query           { return q.Where(TokensValidFrom.IsNull()) }
 func (q Query) TokensValidFromIsNotNull() Query        { return q.Where(TokensValidFrom.IsNotNull()) }
+func (q Query) ExternalIDEq(v string) Query            { return q.Where(ExternalID.Eq(v)) }
+func (q Query) ExternalIDNotEq(v string) Query         { return q.Where(ExternalID.NotEq(v)) }
+func (q Query) ExternalIDGt(v string) Query            { return q.Where(ExternalID.Gt(v)) }
+func (q Query) ExternalIDGte(v string) Query           { return q.Where(ExternalID.Gte(v)) }
+func (q Query) ExternalIDLt(v string) Query            { return q.Where(ExternalID.Lt(v)) }
+func (q Query) ExternalIDLte(v string) Query           { return q.Where(ExternalID.Lte(v)) }
+func (q Query) ExternalIDEqLower(v string) Query       { return q.Where(ExternalID.EqLower(v)) }
+func (q Query) ExternalIDLike(v string) Query          { return q.Where(ExternalID.Like(v)) }
+func (q Query) ExternalIDILike(v string) Query         { return q.Where(ExternalID.ILike(v)) }
+func (q Query) ExternalIDIn(v ...string) Query         { return q.Where(ExternalID.In(v...)) }
+func (q Query) ExternalIDNotIn(v ...string) Query      { return q.Where(ExternalID.NotIn(v...)) }
+func (q Query) ExternalIDHasPrefix(v string) Query     { return q.Where(ExternalID.HasPrefix(v)) }
+func (q Query) ExternalIDHasSuffix(v string) Query     { return q.Where(ExternalID.HasSuffix(v)) }
+func (q Query) ExternalIDContains(v string) Query      { return q.Where(ExternalID.Contains(v)) }
+func (q Query) ExternalIDIsNull() Query                { return q.Where(ExternalID.IsNull()) }
+func (q Query) ExternalIDIsNotNull() Query             { return q.Where(ExternalID.IsNotNull()) }
+func (q Query) ExternalIDIsNullOrEmpty() Query         { return q.Where(ExternalID.IsNullOrEmpty()) }
 func (q Query) DisplayNameEq(v string) Query           { return q.Where(DisplayName.Eq(v)) }
 func (q Query) DisplayNameNotEq(v string) Query        { return q.Where(DisplayName.NotEq(v)) }
 func (q Query) DisplayNameGt(v string) Query           { return q.Where(DisplayName.Gt(v)) }
@@ -685,7 +706,7 @@ func (q Query) DeletedAtIsNotNull() Query              { return q.Where(DeletedA
 // can narrow what it sees and cannot widen it. Reaching the deleted
 // rows is a different function, and visibly so.
 const softDeleteWhere = `"deleted_at" IS NULL`
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "username", "password_hash", "tokens_valid_from", "display_name", "email", "active", "deleted_at" FROM "workflow_users"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "project_id", "username", "password_hash", "tokens_valid_from", "external_id", "display_name", "email", "active", "deleted_at" FROM "workflow_users"`
 const countPrefix = `SELECT count(*) FROM "workflow_users"`
 const existsPrefix = `SELECT 1 FROM "workflow_users"`
 const existsSuffix = ` LIMIT 1`
@@ -727,6 +748,7 @@ var orderTable = [nCols][4]string{
 	{"\"username\"", "\"username\" DESC", "\"username\" ASC NULLS FIRST", "\"username\" DESC NULLS LAST"},
 	{"\"password_hash\"", "\"password_hash\" DESC", "\"password_hash\" ASC NULLS FIRST", "\"password_hash\" DESC NULLS LAST"},
 	{"\"tokens_valid_from\"", "\"tokens_valid_from\" DESC", "\"tokens_valid_from\" ASC NULLS FIRST", "\"tokens_valid_from\" DESC NULLS LAST"},
+	{"\"external_id\"", "\"external_id\" DESC", "\"external_id\" ASC NULLS FIRST", "\"external_id\" DESC NULLS LAST"},
 	{"\"display_name\"", "\"display_name\" DESC", "\"display_name\" ASC NULLS FIRST", "\"display_name\" DESC NULLS LAST"},
 	{"\"email\"", "\"email\" DESC", "\"email\" ASC NULLS FIRST", "\"email\" DESC NULLS LAST"},
 	{"\"active\"", "\"active\" DESC", "\"active\" ASC NULLS FIRST", "\"active\" DESC NULLS LAST"},
@@ -743,6 +765,7 @@ var identTable = [nCols]string{
 	"\"username\"",
 	"\"password_hash\"",
 	"\"tokens_valid_from\"",
+	"\"external_id\"",
 	"\"display_name\"",
 	"\"email\"",
 	"\"active\"",
@@ -769,7 +792,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [12][34]runtime.Frag{
+var fragTable = [13][34]runtime.Frag{
 	{ // id
 		runtime.OpEq:    {A: "\"id\" = $"},
 		runtime.OpNotEq: {A: "\"id\" <> $"},
@@ -842,6 +865,25 @@ var fragTable = [12][34]runtime.Frag{
 		runtime.OpLte:       {A: "\"tokens_valid_from\" <= $"},
 		runtime.OpIsNull:    {A: "\"tokens_valid_from\" IS NULL"},
 		runtime.OpIsNotNull: {A: "\"tokens_valid_from\" IS NOT NULL"},
+	},
+	{ // external_id
+		runtime.OpEq:            {A: "\"external_id\" = $"},
+		runtime.OpNotEq:         {A: "\"external_id\" <> $"},
+		runtime.OpGt:            {A: "\"external_id\" > $"},
+		runtime.OpGte:           {A: "\"external_id\" >= $"},
+		runtime.OpLt:            {A: "\"external_id\" < $"},
+		runtime.OpLte:           {A: "\"external_id\" <= $"},
+		runtime.OpEqLower:       {A: "lower(\"external_id\") = lower($", B: ")"},
+		runtime.OpLike:          {A: "\"external_id\" LIKE $"},
+		runtime.OpILike:         {A: "\"external_id\" ILIKE $"},
+		runtime.OpIn:            {A: "\"external_id\" = ANY($", B: ")"},
+		runtime.OpNotIn:         {A: "\"external_id\" <> ALL($", B: ")"},
+		runtime.OpTextHasPrefix: {A: "\"external_id\" LIKE (replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_') || '%') ESCAPE '!'"},
+		runtime.OpTextHasSuffix: {A: "\"external_id\" LIKE ('%' || replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_')) ESCAPE '!'"},
+		runtime.OpTextContains:  {A: "\"external_id\" LIKE ('%' || replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_') || '%') ESCAPE '!'"},
+		runtime.OpIsNull:        {A: "\"external_id\" IS NULL"},
+		runtime.OpIsNotNull:     {A: "\"external_id\" IS NOT NULL"},
+		runtime.OpNullOrEmpty:   {A: "COALESCE(\"external_id\", '') = ''"},
 	},
 	{ // display_name
 		runtime.OpEq:            {A: "\"display_name\" = $"},
@@ -980,7 +1022,7 @@ func (q Query) existsStmt(toks []runtime.Tok) *runtime.Stmt { return existsStmtF
 const (
 	distinctOpen = "SELECT DISTINCT ON ("
 	distinctSep  = ", "
-	distinctTail = ") \"id\", \"created_at\", \"updated_at\", \"project_id\", \"username\", \"password_hash\", \"tokens_valid_from\", \"display_name\", \"email\", \"active\", \"deleted_at\" FROM \"workflow_users\""
+	distinctTail = ") \"id\", \"created_at\", \"updated_at\", \"project_id\", \"username\", \"password_hash\", \"tokens_valid_from\", \"external_id\", \"display_name\", \"email\", \"active\", \"deleted_at\" FROM \"workflow_users\""
 )
 
 // distinctCaches are AllDistinctOn's, without and with an offset. The
@@ -1159,16 +1201,17 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 		return runtime.ShapeErr("tokens_valid_from", "timestamptz", 8, b)
 	}
 	r.TokensValidFrom = runtime.Nullable(rv[6], runtime.Timestamptz)
-	r.DisplayName = runtime.NullText(rv[7], sl)
-	r.Email = runtime.NullText(rv[8], sl)
-	if len(rv[9]) != 1 {
-		return runtime.ShapeErr("active", "bool", 1, rv[9])
+	r.ExternalID = runtime.NullText(rv[7], sl)
+	r.DisplayName = runtime.NullText(rv[8], sl)
+	r.Email = runtime.NullText(rv[9], sl)
+	if len(rv[10]) != 1 {
+		return runtime.ShapeErr("active", "bool", 1, rv[10])
 	}
-	r.Active = runtime.Bool(rv[9])
-	if b := rv[10]; b != nil && len(b) != 8 {
+	r.Active = runtime.Bool(rv[10])
+	if b := rv[11]; b != nil && len(b) != 8 {
 		return runtime.ShapeErr("deleted_at", "timestamptz", 8, b)
 	}
-	r.DeletedAt = runtime.Nullable(rv[10], runtime.Timestamptz)
+	r.DeletedAt = runtime.Nullable(rv[11], runtime.Timestamptz)
 	return nil
 }
 
@@ -1220,7 +1263,7 @@ func (q Query) bindPreds(b *binder) []any {
 			switch t.Col() {
 			case 0, 3:
 				v = runtime.Bind(v, b.anyRaw[:], q.anyRaw[:], &nar)
-			case 4, 5, 7, 8:
+			case 4, 5, 7, 8, 9:
 				v = runtime.Bind(v, b.anyStr[:], q.anyStr[:], &nas)
 			}
 			continue
@@ -1228,11 +1271,11 @@ func (q Query) bindPreds(b *binder) []any {
 		switch t.Col() {
 		case 0, 3:
 			v = runtime.Bind(v, b.raws[:], q.raws[:], &nr)
-		case 1, 2, 6, 10:
+		case 1, 2, 6, 11:
 			v = runtime.Bind(v, b.tims[:], q.tims[:], &ntm)
-		case 4, 5, 7, 8:
+		case 4, 5, 7, 8, 9:
 			v = runtime.Bind(v, b.strs[:], q.strs[:], &ns)
-		case 9:
+		case 10:
 			v = runtime.Bind(v, b.bools[:], q.bools[:], &nbo)
 		}
 	}
@@ -1441,7 +1484,7 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "workflow_users" ("id", "created_at", "updated_at", "project_id", "username", "password_hash", "tokens_valid_from", "display_name", "email", "active", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING "id", "created_at", "updated_at", "project_id", "username", "password_hash", "tokens_valid_from", "display_name", "email", "active", "deleted_at"`
+const insertSQL = `INSERT INTO "workflow_users" ("id", "created_at", "updated_at", "project_id", "username", "password_hash", "tokens_valid_from", "external_id", "display_name", "email", "active", "deleted_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING "id", "created_at", "updated_at", "project_id", "username", "password_hash", "tokens_valid_from", "external_id", "display_name", "email", "active", "deleted_at"`
 
 const updatePrefix = `UPDATE "workflow_users" SET `
 const deletePrefix = `DELETE FROM "workflow_users"`
@@ -1454,13 +1497,14 @@ const (
 	dUsername        uint64 = 1 << 2
 	dPasswordHash    uint64 = 1 << 3
 	dTokensValidFrom uint64 = 1 << 4
-	dDisplayName     uint64 = 1 << 5
-	dEmail           uint64 = 1 << 6
-	dActive          uint64 = 1 << 7
-	dDeletedAt       uint64 = 1 << 8
+	dExternalID      uint64 = 1 << 5
+	dDisplayName     uint64 = 1 << 6
+	dEmail           uint64 = 1 << 7
+	dActive          uint64 = 1 << 8
+	dDeletedAt       uint64 = 1 << 9
 )
 
-const nUpdatable = 9
+const nUpdatable = 10
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
@@ -1469,6 +1513,7 @@ var setFrags = [nUpdatable]runtime.Frag{
 	{A: "\"username\" = $", B: ""},          // username
 	{A: "\"password_hash\" = $", B: ""},     // password_hash
 	{A: "\"tokens_valid_from\" = $", B: ""}, // tokens_valid_from
+	{A: "\"external_id\" = $", B: ""},       // external_id
 	{A: "\"display_name\" = $", B: ""},      // display_name
 	{A: "\"email\" = $", B: ""},             // email
 	{A: "\"active\" = $", B: ""},            // active
@@ -1484,6 +1529,7 @@ var exprFrags = [nUpdatable]runtime.Frag{
 	{},                                   // username has no server-side form
 	{},                                   // password_hash has no server-side form
 	{A: "\"tokens_valid_from\" = now()", B: ""}, // tokens_valid_from = the database's clock
+	{},                                   // external_id has no server-side form
 	{},                                   // display_name has no server-side form
 	{},                                   // email has no server-side form
 	{},                                   // active has no server-side form
@@ -1506,13 +1552,14 @@ const (
 	iUsername        uint64 = 1 << 4
 	iPasswordHash    uint64 = 1 << 5
 	iTokensValidFrom uint64 = 1 << 6
-	iDisplayName     uint64 = 1 << 7
-	iEmail           uint64 = 1 << 8
-	iActive          uint64 = 1 << 9
-	iDeletedAt       uint64 = 1 << 10
+	iExternalID      uint64 = 1 << 7
+	iDisplayName     uint64 = 1 << 8
+	iEmail           uint64 = 1 << 9
+	iActive          uint64 = 1 << 10
+	iDeletedAt       uint64 = 1 << 11
 )
 
-const nInsertable = 11
+const nInsertable = 12
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -1523,6 +1570,7 @@ var insCols = [nInsertable]string{
 	"\"username\"",
 	"\"password_hash\"",
 	"\"tokens_valid_from\"",
+	"\"external_id\"",
 	"\"display_name\"",
 	"\"email\"",
 	"\"active\"",
@@ -1535,7 +1583,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"workflow_users\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"username\", \"password_hash\", \"tokens_valid_from\", \"display_name\", \"email\", \"active\", \"deleted_at\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"username\", \"password_hash\", \"tokens_valid_from\", \"external_id\", \"display_name\", \"email\", \"active\", \"deleted_at\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -1554,7 +1602,7 @@ var updOpCache = runtime.NewMaskCache()
 // part of it. Without it m.Row() would hold what the row held BEFORE
 // the statement, so a caller reading back the counter it just
 // incremented would get the old number and never know.
-const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"username\", \"password_hash\", \"tokens_valid_from\", \"display_name\", \"email\", \"active\", \"deleted_at\""
+const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"project_id\", \"username\", \"password_hash\", \"tokens_valid_from\", \"external_id\", \"display_name\", \"email\", \"active\", \"deleted_at\""
 
 // Masks reports how many distinct UPDATE shapes have compiled.
 func Masks() int { return updCache.Masks() }
@@ -1665,6 +1713,20 @@ func (m *Mut) SetTokensValidFromNull() {
 	m.expr &^= dTokensValidFrom
 }
 
+func (m *Mut) SetExternalID(v string) {
+	m.row.ExternalID = runtime.Null[string]{V: v, Valid: true}
+	m.dirty |= dExternalID
+	m.expr &^= dExternalID
+}
+
+// SetExternalIDNull writes SQL NULL. It is a separate method because a
+// zero value and an absent value are different facts.
+func (m *Mut) SetExternalIDNull() {
+	m.row.ExternalID = runtime.Null[string]{}
+	m.dirty |= dExternalID
+	m.expr &^= dExternalID
+}
+
 func (m *Mut) SetDisplayName(v string) {
 	m.row.DisplayName = runtime.Null[string]{V: v, Valid: true}
 	m.dirty |= dDisplayName
@@ -1761,12 +1823,14 @@ func (n *Ins) insertArgs(args []any) []any {
 		case 6:
 			args = append(args, n.row.TokensValidFrom.Arg())
 		case 7:
-			args = append(args, n.row.DisplayName.Arg())
+			args = append(args, n.row.ExternalID.Arg())
 		case 8:
-			args = append(args, n.row.Email.Arg())
+			args = append(args, n.row.DisplayName.Arg())
 		case 9:
-			args = append(args, n.row.Active)
+			args = append(args, n.row.Email.Arg())
 		case 10:
+			args = append(args, n.row.Active)
+		case 11:
 			args = append(args, n.row.DeletedAt.Arg())
 		}
 	}
@@ -1820,6 +1884,18 @@ func (n *Ins) SetTokensValidFrom(v time.Time) {
 func (n *Ins) SetTokensValidFromNull() {
 	n.row.TokensValidFrom = runtime.Null[time.Time]{}
 	n.set |= iTokensValidFrom
+}
+
+func (n *Ins) SetExternalID(v string) {
+	n.row.ExternalID = runtime.Null[string]{V: v, Valid: true}
+	n.set |= iExternalID
+}
+
+// SetExternalIDNull writes SQL NULL explicitly, which is not the same as
+// leaving the column unset and taking its default.
+func (n *Ins) SetExternalIDNull() {
+	n.row.ExternalID = runtime.Null[string]{}
+	n.set |= iExternalID
 }
 
 func (n *Ins) SetDisplayName(v string) {
@@ -1890,12 +1966,13 @@ func upsertTail(conflict uint8, mask uint64) string {
 // unique index carries its predicate.
 var conflictSpecs = []string{
 	" ON CONFLICT (\"id\")",
+	" ON CONFLICT (\"project_id\", \"external_id\")",
 	" ON CONFLICT (\"project_id\", \"username\")",
 }
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 9)
+	set := make([]string, 0, 10)
 	for j, bit := range assignBits[i] {
 		if mask&(1<<bit) != 0 {
 			set = append(set, assignNames[i][j])
@@ -1907,14 +1984,16 @@ func assignable(i uint8, mask uint64) []string {
 // assignBits and assignNames are, per target, the insert bit and the name
 // of each column it may overwrite. An empty row is a target whose key
 // covers every updatable column.
-var assignBits = [2][]uint8{
-	{2, 3, 4, 5, 6, 7, 8, 9, 10},
-	{2, 5, 6, 7, 8, 9, 10},
+var assignBits = [3][]uint8{
+	{2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
+	{2, 4, 5, 6, 8, 9, 10, 11},
+	{2, 5, 6, 7, 8, 9, 10, 11},
 }
 
-var assignNames = [2][]string{
-	{"updated_at", "project_id", "username", "password_hash", "tokens_valid_from", "display_name", "email", "active", "deleted_at"},
-	{"updated_at", "password_hash", "tokens_valid_from", "display_name", "email", "active", "deleted_at"},
+var assignNames = [3][]string{
+	{"updated_at", "project_id", "username", "password_hash", "tokens_valid_from", "external_id", "display_name", "email", "active", "deleted_at"},
+	{"updated_at", "username", "password_hash", "tokens_valid_from", "display_name", "email", "active", "deleted_at"},
+	{"updated_at", "password_hash", "tokens_valid_from", "external_id", "display_name", "email", "active", "deleted_at"},
 }
 
 // OnConflictID upserts on the unique index over (id).
@@ -1924,10 +2003,17 @@ func (n *Ins) OnConflictID() *Ins {
 	return n
 }
 
+// OnConflictProjectIDExternalID upserts on the unique index over (project_id, external_id).
+// Unassigned columns of the existing row are kept; DoNothing() keeps it all.
+func (n *Ins) OnConflictProjectIDExternalID() *Ins {
+	n.conflict = 4
+	return n
+}
+
 // OnConflictProjectIDUsername upserts on the unique index over (project_id, username).
 // Unassigned columns of the existing row are kept; DoNothing() keeps it all.
 func (n *Ins) OnConflictProjectIDUsername() *Ins {
-	n.conflict = 4
+	n.conflict = 6
 	return n
 }
 
@@ -1962,6 +2048,7 @@ var assignFor = map[string]string{
 	"username":          "\"username\" = EXCLUDED.\"username\"",
 	"password_hash":     "\"password_hash\" = EXCLUDED.\"password_hash\"",
 	"tokens_valid_from": "\"tokens_valid_from\" = EXCLUDED.\"tokens_valid_from\"",
+	"external_id":       "\"external_id\" = EXCLUDED.\"external_id\"",
 	"display_name":      "\"display_name\" = EXCLUDED.\"display_name\"",
 	"email":             "\"email\" = EXCLUDED.\"email\"",
 	"active":            "\"active\" = EXCLUDED.\"active\"",
@@ -2046,7 +2133,7 @@ func Inserts() int { return insCache.Masks() }
 // the row back so database defaults land in r.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	if Hooks.BeforeCreate != nil {
-		n := Ins{row: *r, set: 0x7ff}
+		n := Ins{row: *r, set: 0xfff}
 		if err := hooks.Apply(ctx, ex, Hooks.BeforeCreate, &n); err != nil {
 			return err
 		}
@@ -2059,7 +2146,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 }
 
 func insertRow(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 11)
+	args := make([]any, 0, 12)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2067,6 +2154,7 @@ func insertRow(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.Username)
 	args = append(args, r.PasswordHash.Arg())
 	args = append(args, r.TokensValidFrom.Arg())
+	args = append(args, r.ExternalID.Arg())
 	args = append(args, r.DisplayName.Arg())
 	args = append(args, r.Email.Arg())
 	args = append(args, r.Active)
@@ -2104,6 +2192,7 @@ var copyCols = []string{
 	"username",
 	"password_hash",
 	"tokens_valid_from",
+	"external_id",
 	"display_name",
 	"email",
 	"active",
@@ -2114,7 +2203,7 @@ var copyCols = []string{
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [11]any
+	buf  [12]any
 }
 
 func (s *rowSource) Next() bool {
@@ -2133,10 +2222,11 @@ func (s *rowSource) Values() []any {
 	s.buf[4] = &r.Username
 	s.buf[5] = r.PasswordHash.Ptr()
 	s.buf[6] = r.TokensValidFrom.Ptr()
-	s.buf[7] = r.DisplayName.Ptr()
-	s.buf[8] = r.Email.Ptr()
-	s.buf[9] = &r.Active
-	s.buf[10] = r.DeletedAt.Ptr()
+	s.buf[7] = r.ExternalID.Ptr()
+	s.buf[8] = r.DisplayName.Ptr()
+	s.buf[9] = r.Email.Ptr()
+	s.buf[10] = &r.Active
+	s.buf[11] = r.DeletedAt.Ptr()
 	return s.buf[:]
 }
 
@@ -2157,7 +2247,7 @@ func InsertAll(ctx context.Context, ex runtime.Executor, rows []Row) (int64, err
 func InsertOp(r Row) runtime.BatchOp {
 	const mask = 1<<nInsertable - 1 // every insertable column
 	st := stmtForInsertNoReturn(mask, 0)
-	args := make([]any, 0, 11)
+	args := make([]any, 0, 12)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -2165,6 +2255,7 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.Username)
 	args = append(args, r.PasswordHash.Arg())
 	args = append(args, r.TokensValidFrom.Arg())
+	args = append(args, r.ExternalID.Arg())
 	args = append(args, r.DisplayName.Arg())
 	args = append(args, r.Email.Arg())
 	args = append(args, r.Active)
@@ -2478,12 +2569,14 @@ func (m Mut) updateArgs(args []any) []any {
 		case 4:
 			args = append(args, m.row.TokensValidFrom.Arg())
 		case 5:
-			args = append(args, m.row.DisplayName.Arg())
+			args = append(args, m.row.ExternalID.Arg())
 		case 6:
-			args = append(args, m.row.Email.Arg())
+			args = append(args, m.row.DisplayName.Arg())
 		case 7:
-			args = append(args, m.row.Active)
+			args = append(args, m.row.Email.Arg())
 		case 8:
+			args = append(args, m.row.Active)
+		case 9:
 			args = append(args, m.row.DeletedAt.Arg())
 		}
 	}

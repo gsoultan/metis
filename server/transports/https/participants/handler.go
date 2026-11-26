@@ -43,6 +43,15 @@ func RegisterHandlers(m *http.ServeMux, eps participant.Endpoints, options []htt
 		common.EncodeResponse,
 		options...,
 	))
+	// The same body as an import, so whatever can be imported can be checked
+	// first. A longer pattern than the import's, and ServeMux matches the most
+	// specific, so the two never both match a request.
+	m.Handle("POST /api/v1/participants/import/check", httptransport.NewServer(
+		eps.CheckParticipantImport,
+		decodeImportParticipantsRequest,
+		common.EncodeResponse,
+		options...,
+	))
 	// DELETE rather than another POST under /participants/, and no conflict with
 	// the import route above: ServeMux matches on method as well as path, and
 	// the two patterns never both match a request.
@@ -133,8 +142,9 @@ func decodeSetParticipantPasswordRequest(_ context.Context, r *http.Request) (an
 
 func decodeListParticipantsRequest(_ context.Context, r *http.Request) (any, error) {
 	return participant.ListParticipantsRequest{
-		ProjectID: r.URL.Query().Get("project_id"),
-		Limit:     common.LimitParam(r),
+		ProjectID:  r.URL.Query().Get("project_id"),
+		Limit:      common.LimitParam(r),
+		ExternalID: r.URL.Query().Get("external_id"),
 	}, nil
 }
 
@@ -190,9 +200,18 @@ func decodeUpload(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return participant.ImportParticipantsRequest{
-		ProjectID: r.FormValue("project_id"),
-		Kind:      "csv",
-		CSV:       body,
-	}, nil
+	req := participant.ImportParticipantsRequest{
+		ProjectID:     r.FormValue("project_id"),
+		Kind:          "csv",
+		CSV:           body,
+		MoveOpenTasks: r.FormValue("move_open_tasks") == "true",
+	}
+	// The mapping rides along as a JSON field of the form, since a file has
+	// to arrive as multipart.
+	if raw := r.FormValue("mapping"); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &req.Mapping); err != nil {
+			return nil, apierr.Invalidf("the mapping is not a JSON object of field names: %v", err)
+		}
+	}
+	return req, nil
 }

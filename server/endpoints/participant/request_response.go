@@ -9,6 +9,10 @@ type ListParticipantsRequest struct {
 	// everybody. One is how to ask whether the project has anybody without
 	// downloading its whole directory.
 	Limit int `json:"limit,omitzero"`
+	// ExternalID, when given, answers only the person with that id in the
+	// customer's own application: how a caller holding its own user id finds
+	// the username Metis assigns work to.
+	ExternalID string `json:"external_id,omitzero"`
 }
 
 type ListParticipantsResponse struct {
@@ -51,19 +55,50 @@ type ImportParticipantsRequest struct {
 	// returned.
 	DSN   string `json:"dsn,omitzero"`
 	Query string `json:"query,omitzero"`
+
+	// Headers authenticate an endpoint call: a bearer token, an API key. Used
+	// for this request and never returned.
+	Headers map[string]string `json:"headers,omitzero"`
+	// Mapping names the source's fields the way Metis reads them, keyed by
+	// Metis's name: {"username": "login", "external_id": "id"}.
+	Mapping map[string]string `json:"mapping,omitzero"`
+	// MoveOpenTasks lets a rename carry the open tasks naming the old
+	// username over to the new one.
+	MoveOpenTasks bool `json:"move_open_tasks,omitzero"`
+}
+
+// directoryImport is the request as the service takes it.
+func (r ImportParticipantsRequest) directoryImport() entities.DirectoryImport {
+	return entities.DirectoryImport{
+		Kind: r.Kind, CSV: r.CSV,
+		URL: r.URL, Method: r.Method, Headers: r.Headers,
+		DSN: r.DSN, Query: r.Query,
+		Mapping: r.Mapping, MoveOpenTasks: r.MoveOpenTasks,
+	}
 }
 
 // ImportParticipantsResponse is the summary, flattened so a caller reads
 // created/updated/problems without unwrapping.
 type ImportParticipantsResponse struct {
-	Created  int                      `json:"created"`
-	Updated  int                      `json:"updated"`
-	Groups   int                      `json:"groups"`
-	Problems []entities.ImportProblem `json:"problems,omitzero"`
-	Err      error                    `json:"err,omitzero"`
+	Created    int                      `json:"created"`
+	Updated    int                      `json:"updated"`
+	Unchanged  int                      `json:"unchanged"`
+	Renamed    int                      `json:"renamed"`
+	TasksMoved int                      `json:"tasks_moved"`
+	Groups     int                      `json:"groups"`
+	Problems   []entities.ImportProblem `json:"problems,omitzero"`
+	Err        error                    `json:"err,omitzero"`
 }
 
 func (r ImportParticipantsResponse) Failed() error { return r.Err }
+
+// CheckParticipantImportResponse is what an import would do.
+type CheckParticipantImportResponse struct {
+	entities.ImportCheck
+	Err error `json:"err,omitzero"`
+}
+
+func (r CheckParticipantImportResponse) Failed() error { return r.Err }
 
 // RemoveParticipantRequest names somebody to take out of a project's directory.
 //
