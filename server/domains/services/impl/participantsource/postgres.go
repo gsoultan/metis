@@ -2,11 +2,13 @@ package participantsource
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/gsoultan/metis/server/domains/logic/userimport"
+	"github.com/gsoultan/metis/server/domains/services/impl/sqlconnector"
 	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog/log"
 )
@@ -33,6 +35,10 @@ type PostgresConfig struct {
 // scheduled sync that never returns is one that never runs again.
 const queryTimeout = 30 * time.Second
 
+// applicationName is how a directory read shows in the source database's
+// pg_stat_activity, so whoever runs it can tell what is connecting.
+const applicationName = "metis-directory"
+
 // PostgresSource reads a directory from a query against another database.
 //
 // This is the most dangerous of the three, and worth being explicit about: it
@@ -45,7 +51,9 @@ const queryTimeout = 30 * time.Second
 //
 // What it deliberately does not do is run against Metis's own database. A
 // source is a connection to somewhere else; pointing one at ourselves would
-// turn a directory sync into arbitrary SQL against our own tables.
+// turn a directory sync into arbitrary SQL against our own tables. Fetch
+// enforces that, and keeps the lookup connector's other rules: allowed hosts
+// only, one statement, read-only.
 type PostgresSource struct{ Config PostgresConfig }
 
 func NewPostgresSource(config PostgresConfig) *PostgresSource {
@@ -62,13 +70,24 @@ func (s *PostgresSource) Fetch(ctx context.Context) (userimport.Result, error) {
 		return userimport.Result{}, fmt.Errorf("this source names no database")
 	}
 
+	// The same rules a lookup's connection keeps, whatever the string asks
+	// for: only hosts the operator allows, one statement per query, read-only
+	// by default. Configuring a source is administrative, but on a shared
+	// installation a project's administrator is not whoever runs it, and
+	// without these one project could read, or write, any database the server
+	// can reach.
+	config, err := sqlconnector.PreparePostgres(s.Config.DSN, applicationName)
+	if err != nil {
+		return userimport.Result{}, fmt.Errorf("the source database is not allowed: %w", err)
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
 
 	// A single connection rather than a pool: a directory sync is one query,
 	// occasionally, and a pool would hold connections open against somebody
 	// else's database between runs.
-	conn, err := pgx.Connect(ctx, s.Config.DSN)
+	conn, err := pgx.ConnectConfig(ctx, config)
 	if err != nil {
 		return userimport.Result{}, fmt.Errorf("the source database could not be reached: %w", err)
 	}
@@ -81,7 +100,33 @@ func (s *PostgresSource) Fetch(ctx context.Context) (userimport.Result, error) {
 		}
 	}()
 
-	rows, err := conn.Query(ctx, query)
+	// Not Metis's own database. The note on PostgresSource said so and nothing
+	// enforced it: a source pointed at ourselves turned a directory sync into
+	// arbitrary SQL against every organization's tables. Asked of the
+	// database, not compared by address, because an alias or a pooler defeats
+	// a comparison and does not change what the login can read.
+	if err := sqlconnector.RefuseOwnPostgres(ctx, conn); err != nil {
+		return userimport.Result{}, fmt.Errorf("the source database was refused: %w", err)
+	}
+
+	// Begun read-only as well as defaulting to it, and with the time limit set
+	// on the server, so a query that runs away is ended there rather than only
+	// abandoned here.
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return userimport.Result{}, fmt.Errorf("could not start a read-only transaction: %w", err)
+	}
+	defer func() {
+		// Never committed: a directory read has nothing to keep.
+		if err := tx.Rollback(context.WithoutCancel(ctx)); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			log.Warn().Err(err).Msg("Could not end a participant directory read")
+		}
+	}()
+	if _, err := tx.Exec(ctx, sqlconnector.StatementTimeout(queryTimeout.Milliseconds())); err != nil {
+		return userimport.Result{}, fmt.Errorf("could not limit the query's time: %w", err)
+	}
+
+	rows, err := tx.Query(ctx, query)
 	if err != nil {
 		return userimport.Result{}, fmt.Errorf("the query was refused: %w", err)
 	}
