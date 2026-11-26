@@ -30,6 +30,10 @@ import (
 //     variable no column names. A lone word is text unless it names a column;
 //     `_input` is the cell's own column and never a variable. A cell past the
 //     last column is never tested, and is not read here.
+//   - A computed output cell, which is a FEEL expression evaluated with the
+//     same variables once its line is chosen (decision_computed_outputs.go).
+//     Every such cell is read, chosen or not: which line wins depends on the
+//     case, and a name too many is the safe mistake.
 //   - A decision it requires, which is evaluated with the same variables.
 //     Those are returned as keys: which version of each is in force, and what
 //     that version reads, is the caller's to find.
@@ -59,7 +63,31 @@ func DecisionTableReads(table entities.DecisionDefinition) (names, requires []st
 		}
 	}
 
+	analysable = computedOutputNames(table, read) && analysable
+
 	return sortedNames(read), requiredDecisions(table), analysable
+}
+
+// computedOutputNames adds the variables the table's computed output cells
+// read to into, and reports whether every one could be read. A cell that is
+// not text is a value and reads nothing; a blank one answers nothing.
+func computedOutputNames(table entities.DecisionDefinition, into map[string]struct{}) bool {
+	readable := true
+	for _, rule := range table.Rules {
+		for i, column := range table.Outputs {
+			if !column.Computed || i >= len(rule.Outputs) {
+				continue
+			}
+			expression, isText := rule.Outputs[i].(string)
+			if !isText || strings.TrimSpace(expression) == "" {
+				continue
+			}
+			if parsed, ok := feelNames(expression, into); !parsed || !ok {
+				readable = false
+			}
+		}
+	}
+	return readable
 }
 
 // cellExpressionDepth is the depth at which the evaluator reaches the

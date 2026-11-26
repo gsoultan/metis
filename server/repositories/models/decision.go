@@ -45,6 +45,9 @@ type DecisionOutput struct {
 	// field simply starts appearing. Tables written before it have none, which
 	// is the same state as an author who has not set one.
 	Values []string `json:"values,omitzero"`
+	// Computed: see entities.DecisionOutput. Stored in the same JSON column,
+	// so it needs no migration; a table written before it has none.
+	Computed bool `json:"computed,omitzero"`
 }
 
 // DecisionRule represents a rule in a decision table in the database.

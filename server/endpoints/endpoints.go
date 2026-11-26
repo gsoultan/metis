@@ -208,6 +208,9 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	// decides from then on — the same bar as saving one, and as promoting a
 	// process version.
 	decisionEndpoints.PromoteDecision = modelChange("PromoteDecision")(decisionEndpoints.PromoteDecision)
+	// Importing stores decisions and can deploy a process, so it is gated as
+	// a change to the models, preview or not: one gate, one endpoint.
+	decisionEndpoints.ImportGrule = modelChange("ImportGruleRules")(decisionEndpoints.ImportGrule)
 
 	// Registering a webhook creates a public address into this installation, so
 	// it takes the same authority as changing a process: designer, not viewer.

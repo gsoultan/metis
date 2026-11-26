@@ -105,6 +105,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **Grule rules import.** `POST /api/v1/decisions/import/grule` takes Grule
+  rule files (`.grl`, or Grule's JSON form) and makes decision tables for the
+  rules a table can answer exactly, and a process with one business rule step
+  per table, in the order the rules chain. `preview: true` stores nothing and
+  reports what would become of every rule; without it the tables are stored,
+  and with `deploy: true` the process is deployed, in one transaction. A key
+  the project already uses is refused rather than given a new version. Rules
+  that loop, call functions FEEL has no form for, or depend on Grule's firing
+  order are left out with the reason, and so are the rules that read what
+  they would have set. Files are parsed by metis's own parser within size,
+  count and depth limits and nothing in them is run. See
+  `docs/grule-import.md`.
+
+- **A decision can compute its answer.** An output column marked
+  `computed: true` holds a FEEL expression on each line (`price * 0.1`,
+  `applicant.limit + 500`, `"gold"`), evaluated with the decision's variables
+  once the hit policy has chosen the line. Under FIRST only the chosen line is
+  evaluated; PRIORITY, ANY and COLLECT see the computed values. A cell that
+  cannot be evaluated fails the decision with the line and column named,
+  never a null answer. Existing tables are unchanged: a column is a value
+  column unless it says otherwise.
+
 - **A machine is added with one command.** On the Servers page an
   administrator makes a one-time code for a machine that runs pages and API
   (`web`), background work (`worker`) or both (`all`). On the new machine,

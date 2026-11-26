@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	httptransport "github.com/go-kit/kit/transport/http"
+	"github.com/gsoultan/metis/internal/pkg/apierr"
+	"github.com/gsoultan/metis/server/domains/logic/grule"
 	"github.com/gsoultan/metis/server/endpoints/decision"
 	"github.com/gsoultan/metis/server/transports/https/common"
 )
@@ -63,6 +65,13 @@ func RegisterHandlers(m *http.ServeMux, eps decision.Endpoints, options []httptr
 		common.EncodeResponse,
 		options...,
 	))
+	// Grule rules (GRL or Grule JSON) turned into decisions and a process.
+	m.Handle("POST /api/v1/decisions/import/grule", httptransport.NewServer(
+		eps.ImportGrule,
+		decodeImportGruleRequest,
+		common.EncodeResponse,
+		options...,
+	))
 	m.Handle("POST /api/v1/decisions/evaluate", httptransport.NewServer(
 		eps.EvaluateDecision,
 		decodeEvaluateDecisionRequest,
@@ -86,6 +95,18 @@ func RegisterHandlers(m *http.ServeMux, eps decision.Endpoints, options []httptr
 		common.EncodeResponse,
 		options...,
 	))
+}
+
+// maxImportBodyBytes bounds an import request: the files' own limit, with
+// room for the JSON that carries them.
+const maxImportBodyBytes = grule.MaxTotalBytes + grule.MaxTotalBytes/2
+
+func decodeImportGruleRequest(_ context.Context, r *http.Request) (any, error) {
+	var req decision.ImportGruleRequest
+	if err := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxImportBodyBytes)).Decode(&req); err != nil {
+		return nil, apierr.Invalidf("the import could not be read: %v", err)
+	}
+	return req, nil
 }
 
 func decodeListDecisionVersionsRequest(_ context.Context, r *http.Request) (any, error) {

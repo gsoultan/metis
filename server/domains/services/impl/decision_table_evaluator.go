@@ -28,6 +28,10 @@ func (e *DecisionTableEvaluatorImpl) EvaluateTable(ctx context.Context, def enti
 	if err != nil {
 		return entities.DecisionResult{}, err
 	}
+	matched, err = e.computeOutputs(ctx, def, matched, variables)
+	if err != nil {
+		return entities.DecisionResult{}, err
+	}
 	return e.applyHitPolicy(def, matched)
 }
 

@@ -24,6 +24,7 @@ type Endpoints struct {
 	RunTests             endpoint.Endpoint
 	ListDecisionVersions endpoint.Endpoint
 	PromoteDecision      endpoint.Endpoint
+	ImportGrule          endpoint.Endpoint
 }
 
 func MakeEndpoints(s services.ServiceFacade) Endpoints {
@@ -39,6 +40,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		RunTests:             MakeRunDecisionTestsEndpoint(s),
 		ListDecisionVersions: MakeListDecisionVersionsEndpoint(s),
 		PromoteDecision:      MakePromoteDecisionEndpoint(s),
+		ImportGrule:          MakeImportGruleEndpoint(s),
 	}
 }
 

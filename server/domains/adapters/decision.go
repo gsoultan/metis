@@ -27,11 +27,12 @@ func (a DecisionModelAdapter) ToModel() models.DecisionDefinitionModel {
 	outputs := make([]models.DecisionOutput, len(a.Decision.Outputs))
 	for i, out := range a.Decision.Outputs {
 		outputs[i] = models.DecisionOutput{
-			ID:     out.ID,
-			Label:  out.Label,
-			Name:   out.Name,
-			Type:   out.Type,
-			Values: out.Values,
+			ID:       out.ID,
+			Label:    out.Label,
+			Name:     out.Name,
+			Type:     out.Type,
+			Values:   out.Values,
+			Computed: out.Computed,
 		}
 	}
 	rules := make([]models.DecisionRule, len(a.Decision.Rules))
@@ -79,11 +80,12 @@ func (a DecisionEntityAdapter) ToEntity() entities.DecisionDefinition {
 	outputs := make([]entities.DecisionOutput, len(a.Model.Outputs))
 	for i, out := range a.Model.Outputs {
 		outputs[i] = entities.DecisionOutput{
-			ID:     out.ID,
-			Label:  out.Label,
-			Name:   out.Name,
-			Type:   out.Type,
-			Values: out.Values,
+			ID:       out.ID,
+			Label:    out.Label,
+			Name:     out.Name,
+			Type:     out.Type,
+			Values:   out.Values,
+			Computed: out.Computed,
 		}
 	}
 	rules := make([]entities.DecisionRule, len(a.Model.Rules))

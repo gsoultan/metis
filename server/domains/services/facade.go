@@ -55,6 +55,10 @@ type ServiceFacade interface {
 	serviceContracts.JobService
 	serviceContracts.ExternalTaskService
 	serviceContracts.DecisionService
+
+	// RuleImporter turns rules written for another rule engine (Grule) into
+	// decisions and the process that consults them.
+	serviceContracts.RuleImporter
 	serviceContracts.MigrationService
 	serviceContracts.ConnectorService
 	serviceContracts.CollaborationService
