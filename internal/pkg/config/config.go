@@ -69,9 +69,9 @@ type Config struct {
 // file mode is the control, and docs/recovery.md covers keeping ENCRYPTION_KEY
 // backed up separately from the database.
 func (c *Config) Save(path string) error {
-	data, err := yaml.Marshal(c)
+	data, err := c.Marshal()
 	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+		return err
 	}
 
 	if err := os.WriteFile(path, data, 0600); err != nil {
@@ -79,6 +79,18 @@ func (c *Config) Save(path string) error {
 	}
 
 	return nil
+}
+
+// Marshal is the configuration as config.yaml holds it, secrets included:
+// what is done with the bytes is the caller's to keep safe.
+//
+// #nosec G117 -- as for Save: writing the secrets out is the point.
+func (c *Config) Marshal() ([]byte, error) {
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal config: %w", err)
+	}
+	return data, nil
 }
 
 // DecryptConnectionString decrypts the stored connection string using the
@@ -118,7 +130,11 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
+	return Parse(data)
+}
 
+// Parse reads a config.yaml's contents, as Load reads the file.
+func Parse(data []byte) (*Config, error) {
 	var cfg Config
 	// KnownFields: an unrecognised key is a typo, and a typo in a database
 	// setting is a server quietly pointed at something nobody intended.

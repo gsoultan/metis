@@ -295,6 +295,11 @@ func (a *App) RunContext(ctx context.Context, args []string) error {
 	if len(args) > 0 && args[0] == "upgrade" {
 		return a.runUpgradeCommand(ctx, args[1:], os.Stdout)
 	}
+	// `metis join <address> <code>` adds this machine to an installation,
+	// with a code from its Servers page, before it has any settings.
+	if len(args) > 0 && args[0] == "join" {
+		return a.runJoinCommand(ctx, args[1:], os.Stdout)
+	}
 
 	// 0. Flag Parsing. A set of its own rather than the process's, so that an
 	//    embedding program's flags are not mixed into the engine's.
@@ -985,6 +990,10 @@ func BuildAPIHandlerWithIdentity(
 		// account here either; the connection's token admits it.
 		serviceimpl.ReleaseCollectPath,
 		serviceimpl.ReleaseReportPath,
+		// A machine being added from the Servers page, with no account
+		// here: the one-time code admits it.
+		serviceimpl.MachineJoinPath,
+		serviceimpl.MachineJoinCollectPath,
 	}
 	authenticate := f.NewMandatoryHTTPAuthWithPeople(strategy, svc, publicPaths)
 	if id != nil {
@@ -1471,9 +1480,11 @@ func notificationMailSettings() serviceimpl.EmailSettings {
 // serverToServer are the routes another Metis server calls, with no account
 // here.
 var serverToServer = map[string]bool{
-	serviceimpl.ServerHandshakePath: true,
-	serviceimpl.ReleaseCollectPath:  true,
-	serviceimpl.ReleaseReportPath:   true,
+	serviceimpl.ServerHandshakePath:    true,
+	serviceimpl.ReleaseCollectPath:     true,
+	serviceimpl.ReleaseReportPath:      true,
+	serviceimpl.MachineJoinPath:        true,
+	serviceimpl.MachineJoinCollectPath: true,
 }
 
 const (

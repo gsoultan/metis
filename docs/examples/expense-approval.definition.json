@@ -63,12 +63,13 @@
     {
       "id": "auto-approve",
       "name": "Approved automatically",
-      "type": "scriptTask",
+      "type": "businessRuleTask",
       "x": 640,
       "y": 480,
-      "script_format": "javascript",
-      "script": "setVar('approved', true); setVar('approverNote', 'Under the \u00a3100 threshold');",
-      "documentation": "The third path the trace in docs/data-flow.md asks for: without it, a small expense has nowhere to go."
+      "documentation": "The third path the trace in docs/data-flow.md asks for: without it, a small expense has nowhere to go. Writes `approved` and `approverNote` from the expense-auto-approval table, so the threshold's note is a policy anyone can read, not code.",
+      "properties": {
+        "decision_key": "expense-auto-approval"
+      }
     },
     {
       "id": "end",

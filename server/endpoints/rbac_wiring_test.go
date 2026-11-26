@@ -188,10 +188,11 @@ var globalAdminGated = []string{
 // AnswerServerHandshake is another server, which holds none here: the
 // one-time code it brings admits it, once. AnswerReleaseCollection and
 // AnswerReleaseReport are a connected server checking in: the connection's
-// token admits it.
+// token admits it. RequestMachineJoin and CollectMachineJoin are a machine
+// being added, with no account yet: the one-time code admits it.
 var publicEndpoints = []string{
-	"AnswerReleaseCollection", "AnswerReleaseReport", "AnswerServerHandshake", "BeginSecondFactorEnrolment", "CompleteByTaskLink", "ConfirmSecondFactorEnrolment", "GetSetupStatus", "Login",
-	"ReadTaskLink", "Setup", "SignInPerson", "SignInWithCode", "TestConnection",
+	"AnswerReleaseCollection", "AnswerReleaseReport", "AnswerServerHandshake", "BeginSecondFactorEnrolment", "CollectMachineJoin", "CompleteByTaskLink", "ConfirmSecondFactorEnrolment", "GetSetupStatus", "Login",
+	"ReadTaskLink", "RequestMachineJoin", "Setup", "SignInPerson", "SignInWithCode", "TestConnection",
 }
 
 // The assertion above checks that these four are public. It never checked that

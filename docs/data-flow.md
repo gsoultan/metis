@@ -177,8 +177,11 @@ Start with `amount: 40` and only step 2 differs:
 - `< 100`? **Yes** → `approvalLevel: "auto"`, `approver: "system"`
 
 The gateway's third path (`approvalLevel = auto`) matches, and the expense is
-approved without anyone being asked. **No task is created** — the process runs
-from start to finish in a single call.
+approved without anyone being asked. That step is a second decision table,
+`expense-auto-approval`, which writes `approved: true` and
+`approverNote: "Under the £100 threshold"`: the note is policy, so it lives
+where policy can be read, not in code. **No task is created** — the process
+runs from start to finish in a single call.
 
 > The first version of this example had only the manager and director paths, so
 > a £40 expense reached the gateway with nowhere to go. The engine stopped and
