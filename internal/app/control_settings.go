@@ -176,6 +176,7 @@ func (a *App) newServices(dispatcher observercontracts.EventDispatcher, jwtSecre
 		services.WithPersonDevices(a.personDevices()),
 		services.WithTaskLinkLifetime(a.taskLinkLifetime),
 		services.WithUpgrades(a.upgradeService()),
+		services.WithMachineSettings(a.machineSettings),
 		a.credentialsOption())
 	options = append(options, a.releaseOptions()...)
 	return services.NewServiceFacade(a.repo, dispatcher, a.sse, jwtSecret,

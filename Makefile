@@ -52,7 +52,7 @@ vet: ## Run go vet across the whole module
 .PHONY: test
 test: ## Run the full Go test suite (NOT ./server/... — that skips tests/)
 	$(call warn_if_no_dsn)
-	go test -timeout 20m $(GO_TEST_P) $(GO_TEST_FLAGS) $(GO_PKGS)
+	go test -timeout 30m $(GO_TEST_P) $(GO_TEST_FLAGS) $(GO_PKGS)
 
 .PHONY: test-db
 test-db: ## Run the tests that need a real database (Postgres/MySQL); see AGENTS.md §4

@@ -28,13 +28,15 @@ const (
 )
 
 type machineService struct {
-	repo repocontracts.MachineRepository
-	now  func() time.Time
+	repo     repocontracts.MachineRepository
+	settings MachineSettings
+	now      func() time.Time
 }
 
-// NewMachineService returns the Servers page's service over repo.
-func NewMachineService(repo repocontracts.MachineRepository) contracts.MachineService {
-	return &machineService{repo: repo, now: time.Now}
+// NewMachineService returns the Servers page's service over repo. settings
+// is what a machine added from the page is given; nil, and none is accepted.
+func NewMachineService(repo repocontracts.MachineRepository, settings MachineSettings) contracts.MachineService {
+	return &machineService{repo: repo, settings: settings, now: time.Now}
 }
 
 // machineAdmin is the caller when they administer every organization: which
@@ -93,6 +95,9 @@ func (s *machineService) StartMachineHeartbeat(ctx context.Context, self entitie
 			if beats%240 == 0 {
 				if _, err := s.repo.ForgetQuiet(ctx, s.now().Add(-machineForgottenAfter)); err != nil && ctx.Err() == nil {
 					log.Warn().Err(err).Msg("Could not remove the machines quiet for a week")
+				}
+				if _, err := s.repo.ForgetEndedJoins(ctx, s.now().Add(-machineJoinsKeptFor)); err != nil && ctx.Err() == nil {
+					log.Warn().Err(err).Msg("Could not remove the machine joins that ended a day ago")
 				}
 			}
 			beats++

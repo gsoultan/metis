@@ -277,6 +277,9 @@ type facadeSettings struct {
 	// serverIdentity is what this server is called and is for. Empty reads
 	// them from METIS_SERVER_NAME and METIS_SERVER_PURPOSE.
 	serverIdentity serviceimpl.ServerIdentitySource
+	// machineSettings is what a machine added from the Servers page is
+	// given. Nil, and no machine is accepted.
+	machineSettings serviceimpl.MachineSettings
 }
 
 // FacadeOption changes what the services are built with.
@@ -342,6 +345,13 @@ func WithReleasePolicy(policy serviceimpl.ReleasePolicy) FacadeOption {
 // METIS_SERVER_PURPOSE say.
 func WithServerIdentity(identity serviceimpl.ServerIdentitySource) FacadeOption {
 	return func(settings *facadeSettings) { settings.serverIdentity = identity }
+}
+
+// WithMachineSettings says what a machine added from the Servers page is
+// given: this installation's config.yaml for the role it runs. Built without
+// it, the page makes codes but accepts no machine.
+func WithMachineSettings(machineSettings serviceimpl.MachineSettings) FacadeOption {
+	return func(settings *facadeSettings) { settings.machineSettings = machineSettings }
 }
 
 // WithCredentials hands every account's password and second factor to the
@@ -533,7 +543,7 @@ func NewServiceFacade(
 		InstallationSettingService: serviceimpl.NewInstallationSettingService(repo.InstallationSetting()),
 		ServerConnections: serviceimpl.NewServerConnectionService(repo.ServerConnection(), releaseKeys, settings.serverIdentity,
 			serviceimpl.ReleaseDeliveryParts{Releases: releaseSvc, Projects: repo.Project(), Organizations: repo.Organization()}),
-		Machines:       serviceimpl.NewMachineService(repo.Machine()),
+		Machines:       serviceimpl.NewMachineService(repo.Machine(), settings.machineSettings),
 		UpgradeService: settings.upgrades,
 		BatchOperationService: serviceimpl.NewBatchOperationService(repo, instanceDeviator, jobSvc,
 			serviceimpl.AccountLoader(userSvc), serviceimpl.DefaultBatchOperationSettings()),
