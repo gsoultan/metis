@@ -122,7 +122,7 @@ func TestACommittedStepIsOwedToTheReceiversThatAskedForIt(t *testing.T) {
 	byWebhook := map[uuid.UUID][]entities.OutgoingWebhookEvent{}
 	for _, delivery := range due {
 		byWebhook[delivery.Webhook.ID] = append(byWebhook[delivery.Webhook.ID], delivery.Event)
-		if strings.Contains(string(delivery.Body), "98765") {
+		if strings.Contains(uuidPattern.ReplaceAllString(string(delivery.Body), "<id>"), "98765") {
 			t.Errorf("a delivery carries the instance's variables: %s", delivery.Body)
 		}
 		var payload entities.OutgoingWebhookPayload

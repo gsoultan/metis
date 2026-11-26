@@ -19,12 +19,14 @@ import (
 type decisionService struct {
 	repo           repositories.Repository
 	tableEvaluator servicecontracts.DecisionTableEvaluator
+	// decisions holds tables read for evaluation; see decision_cache.go.
+	decisions *decisionCache
 }
 
 // NewDecisionService creates a new DecisionService implementation.
 // tableEvaluator is the Strategy used to evaluate decision table rules and hit policies.
 func NewDecisionService(repo repositories.Repository, tableEvaluator servicecontracts.DecisionTableEvaluator) servicecontracts.DecisionService {
-	return &decisionService{repo: repo, tableEvaluator: tableEvaluator}
+	return &decisionService{repo: repo, tableEvaluator: tableEvaluator, decisions: newDecisionCache()}
 }
 
 // ErrNoDecisionProject refuses an evaluation that does not say which project
@@ -79,13 +81,12 @@ func (s *decisionService) evaluateRecursive(ctx context.Context, projectID uuid.
 	// A pinned version is exactly that version. Otherwise the live one — which
 	// may be older than the newest: a saved version can be staged, and an
 	// older one made live again.
-	var m models.DecisionDefinitionModel
-	var err error
-	if version > 0 {
-		m, err = s.repo.Decision().GetByKeyAndVersion(ctx, projectID, decisionKey, version)
-	} else {
-		m, err = s.repo.Decision().GetLiveByKey(ctx, projectID, decisionKey)
-	}
+	m, err := s.decisions.get(ctx, projectID, decisionKey, version, func() (models.DecisionDefinitionModel, error) {
+		if version > 0 {
+			return s.repo.Decision().GetByKeyAndVersion(ctx, projectID, decisionKey, version)
+		}
+		return s.repo.Decision().GetLiveByKey(ctx, projectID, decisionKey)
+	})
 	if err != nil {
 		return entities.DecisionResult{}, err
 	}
@@ -287,6 +288,8 @@ func (s *decisionService) DeleteDecision(ctx context.Context, id uuid.UUID) erro
 	}
 
 	projectID := decision.Project.ID
+	// After the commit, so no read in between can keep the version deleted.
+	defer s.decisions.forget()
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		// Locked before the check, as a promotion locks it before its write:
 		// a version being made live cannot be deleted in the same moment, and

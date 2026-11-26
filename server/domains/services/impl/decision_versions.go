@@ -67,6 +67,8 @@ func (s *decisionService) PromoteDecisionVersion(ctx context.Context, projectID 
 	if version <= 0 {
 		return apierr.Invalidf("version must be a positive number, got %d", version)
 	}
+	// After the commit, so this replica evaluates the new live version at once.
+	defer s.decisions.forget()
 	return s.repo.UnitOfWork().Do(ctx, func(txCtx context.Context) error {
 		if _, err := s.repo.Decision().LockVersion(txCtx, projectID, key, version); err != nil {
 			return err

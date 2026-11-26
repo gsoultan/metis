@@ -2,6 +2,7 @@ package webhook_test
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,9 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/repositories/models"
 )
+
+// uuidPattern matches an id as the payload writes one.
+var uuidPattern = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 
 // deployCharge deploys start → a step a worker performs → end.
 func (h *outgoingHarness) deployCharge(t *testing.T) {
@@ -60,8 +64,11 @@ func TestARaisedIncidentIsOwedToTheReceiversThatAskedForIt(t *testing.T) {
 	if len(due) != 1 || due[0].Webhook.ID != pager.ID || due[0].Event != entities.OutgoingIncidentRaised {
 		t.Fatalf("owed %d deliveries, want one incident.raised to the pager: %+v", len(due), due)
 	}
+	// Ids are random hex and can hold "4111" or "DE89" by chance, so they
+	// are blanked before the body is searched for the error's words.
+	unquoted := uuidPattern.ReplaceAllString(string(due[0].Body), "<id>")
 	for _, quoted := range []string{"4111", "declined", "issuer", "DE89"} {
-		if strings.Contains(string(due[0].Body), quoted) {
+		if strings.Contains(unquoted, quoted) {
 			t.Errorf("the delivery quotes %q from the incident's error: %s", quoted, due[0].Body)
 		}
 	}

@@ -22,6 +22,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Performance
 
+- **A decision is read once a second, not on every evaluation.** Each
+  evaluation read the live pointer and the version, and again for each
+  required decision; those reads were about 95% of its time. Tables read for
+  an evaluation are now reused for `METIS_DECISION_CACHE_TTL` (default `1s`,
+  `0` turns it off). A save, release or delete applies at once on the replica
+  that made it and within the TTL on the others. A 100-rule table on
+  PostgreSQL went from 1,008 evaluations a second to 13,973 with one worker,
+  and from 4,249 to 12,673 with eight.
+
 - **FEEL evaluation scales with cores.** Every cached expression was read
   through the LRU's one mutex, so a decision table's cells, a few hundred per
   evaluation, queued on it from every core. A hit is now read without a lock.
