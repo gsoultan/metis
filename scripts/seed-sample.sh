@@ -316,19 +316,24 @@ import_examples() {
   PROJECT="$(api GET /projects | json "(d.get('projects') or [{}])[0].get('id')")"
   [[ -n "$PROJECT" ]] || die "no project to import into"
 
-  local example wrapped
+  local example file kind wrapped
   for example in expense-approval supplier-check; do
-    for kind in decision definition; do
+    # Every table first, then the process that names them: an example can have
+    # more than one table (expense-approval.auto.decision.json).
+    for file in "$EXAMPLES/$example".decision.json "$EXAMPLES/$example".*.decision.json \
+                "$EXAMPLES/$example".definition.json; do
+      [[ -e "$file" ]] || continue
+      kind="${file%.json}"; kind="${kind##*.}"
       wrapped="$(python3 -c '
 import json, sys
 body = json.load(open(sys.argv[1]))
 body["project"] = {"id": sys.argv[2]}     # a reference is an object, not an id
 json.dump({sys.argv[3]: body}, sys.stdout)
-' "$EXAMPLES/$example.$kind.json" "$PROJECT" "$kind")"
+' "$file" "$PROJECT" "$kind")"
 
       local err
       err="$(api POST "/${kind}s" "$wrapped" | json "d.get('error') or d.get('err')")"
-      [[ -z "$err" ]] || die "importing $example.$kind: $err"
+      [[ -z "$err" ]] || die "importing $(basename "$file"): $err"
     done
     ok "imported $example"
   done
