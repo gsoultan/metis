@@ -72,6 +72,9 @@ func newEngineHarness(t *testing.T, projectName string) engineHarness {
 	)
 
 	messagingSvc := service_impl2.NewMessagingService(engine, externalTaskSvc)
+	// Its inbound workers run until stopped; left running, every test leaked
+	// sixteen, about seven thousand by the end of the package.
+	t.Cleanup(messagingSvc.StopAll)
 	adHocActivator := service_impl2.NewAdHocActivator(engine, repo)
 	userSvc := service_impl2.NewUserService(repo, "test-jwt-secret")
 	setupSvc := service_impl2.NewSetupService(nil, "")
