@@ -29,6 +29,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
+- **A program that embeds the engine reports its own version and upgrades from
+  its own releases.** The engine's version was stamped only into the `metis`
+  command, so metis-server, built from a release tag, still reported `dev`:
+  the Upgrades page called it a development build and never offered it a
+  release. The new-release check and the upgrade helper also read the `metis`
+  command's releases and packages whatever program ran. `engine.WithBuild`
+  now names the embedding program's version, package and GitHub repository;
+  the release check reads that repository, and `upgrade` downloads that
+  package and accepts only a signature from that repository's release
+  workflow. The `metis` command is unchanged.
+
 - **A slow partner is no longer called twice.** A job's lease was taken once
   and never renewed, `METIS_HTTP_TIMEOUT` had no upper bound, and a job's
   outcome was written whoever held it. A call slower than the lease let a

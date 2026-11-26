@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	pkgauth "github.com/gsoultan/metis/internal/pkg/auth"
+	"github.com/gsoultan/metis/internal/pkg/distribution"
 	"github.com/gsoultan/metis/internal/pkg/releasecheck"
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services/contracts"
@@ -150,6 +151,20 @@ func TestATurnedOffCheckAsksNobody(t *testing.T) {
 	}
 }
 
+func TestDetectInstallOfAnEmbeddingProgram(t *testing.T) {
+	server := distribution.Distribution{Name: "metis-server", Repository: "gsoultan/metis-server"}
+	none := func(string) string { return "" }
+	unit := func(p string) bool { return p == "/usr/lib/systemd/system/metis-server.service" }
+	exe := func() (string, error) { return "/usr/bin/metis-server", nil }
+	if got := detectInstall(server, none, unit, exe); got != contracts.InstallPackage {
+		t.Fatalf("metis-server's package: detectInstall = %q, want %q", got, contracts.InstallPackage)
+	}
+	// The engine's package is not metis-server's, whatever runs.
+	if got := detectInstall(distribution.Metis, none, unit, exe); got != contracts.InstallBinary {
+		t.Fatalf("metis's names on metis-server's install: detectInstall = %q, want %q", got, contracts.InstallBinary)
+	}
+}
+
 func TestDetectInstall(t *testing.T) {
 	none := func(string) string { return "" }
 	exe := func(path string) func() (string, error) { return func() (string, error) { return path, nil } }
@@ -185,7 +200,7 @@ func TestDetectInstall(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := detectInstall(tt.getenv, tt.exists, tt.executable); got != tt.want {
+			if got := detectInstall(distribution.Metis, tt.getenv, tt.exists, tt.executable); got != tt.want {
 				t.Fatalf("detectInstall = %q, want %q", got, tt.want)
 			}
 		})

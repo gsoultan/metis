@@ -21,10 +21,6 @@ import (
 const (
 	// OIDCIssuer is GitHub Actions' token issuer.
 	OIDCIssuer = "https://token.actions.githubusercontent.com"
-	// WorkflowIdentityPrefix is the release workflow, run for a tag; the tag
-	// itself is appended, so a signature made for one release does not pass
-	// for another.
-	WorkflowIdentityPrefix = "https://github.com/gsoultan/metis/.github/workflows/release.yml@refs/tags/"
 )
 
 // ErrNotVerified wraps every reason a download is refused.
@@ -35,6 +31,12 @@ type SignatureVerifier struct {
 	// Trusted is Sigstore's public root of trust: the Fulcio certificate
 	// authorities, the Rekor transparency logs and the CT logs.
 	Trusted root.TrustedMaterial
+	// WorkflowIdentityPrefix is the release workflow of the distribution
+	// being upgraded, run for a tag; the tag itself is appended, so a
+	// signature made for one release does not pass for another. It comes
+	// from the distribution compiled into this binary, never from a
+	// download.
+	WorkflowIdentityPrefix string
 
 	// withoutSCTs drops the certificate transparency check, which the test
 	// Sigstore cannot produce. Unexported, and false unless a test sets it.
@@ -55,6 +57,9 @@ func (v SignatureVerifier) verifyEntity(entity verify.SignedEntity, checksums []
 	if v.Trusted == nil {
 		return fmt.Errorf("%w: no Sigstore root of trust to check against", ErrNotVerified)
 	}
+	if v.WorkflowIdentityPrefix == "" {
+		return fmt.Errorf("%w: no release workflow identity to check against", ErrNotVerified)
+	}
 	// The signature was logged in Rekor, Rekor's entry is what dates it
 	// inside the certificate's ten minutes, and the certificate was logged
 	// publicly when it was issued.
@@ -66,7 +71,7 @@ func (v SignatureVerifier) verifyEntity(entity verify.SignedEntity, checksums []
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrNotVerified, err)
 	}
-	identity, err := verify.NewShortCertificateIdentity(OIDCIssuer, "", WorkflowIdentityPrefix+tag, "")
+	identity, err := verify.NewShortCertificateIdentity(OIDCIssuer, "", v.WorkflowIdentityPrefix+tag, "")
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrNotVerified, err)
 	}
@@ -74,7 +79,7 @@ func (v SignatureVerifier) verifyEntity(entity verify.SignedEntity, checksums []
 		verify.WithArtifact(bytes.NewReader(checksums)),
 		verify.WithCertificateIdentity(identity),
 	)); err != nil {
-		return fmt.Errorf("%w: checksums.txt is not signed by the metis release workflow for %s: %w", ErrNotVerified, tag, err)
+		return fmt.Errorf("%w: checksums.txt is not signed by the release workflow for %s: %w", ErrNotVerified, tag, err)
 	}
 	return nil
 }

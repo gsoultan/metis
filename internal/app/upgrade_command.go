@@ -18,24 +18,25 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/sigstore/sigstore-go/pkg/root"
 
+	"github.com/gsoultan/metis/internal/pkg/distribution"
 	"github.com/gsoultan/metis/internal/pkg/selfupgrade"
 	"github.com/gsoultan/metis/server/domains/services/contracts"
 	serviceimpl "github.com/gsoultan/metis/server/domains/services/impl"
 )
 
-const (
-	// The package's own paths; see deploy/linux and .goreleaser.yaml.
-	packageEnvFile  = "/etc/metis/metis.env"
-	packageStateDir = "/var/lib/metis"
-	// UpgradeRequestFile is where the Upgrades page leaves a request, in the
-	// service's own state directory; metis-upgrade.path watches it.
-	UpgradeRequestFile = packageStateDir + "/upgrade-request.json"
-	// UpgradeStatusFile is where the helper reports progress.
-	UpgradeStatusFile = packageStateDir + "/upgrade/status.json"
-	serviceGroup      = "metis"
+const upgradeStartTimeout = 5 * time.Minute
 
-	upgradeStartTimeout = 5 * time.Minute
-)
+// upgradeRequestFile is where the Upgrades page leaves a request, in the
+// service's own state directory; the package's <name>-upgrade.path watches
+// it. The package's own paths are in deploy/linux and .goreleaser.yaml.
+func upgradeRequestFile(d distribution.Distribution) string {
+	return d.StateDir() + "/upgrade-request.json"
+}
+
+// upgradeStatusFile is where the helper reports progress.
+func upgradeStatusFile(d distribution.Distribution) string {
+	return d.StateDir() + "/upgrade/status.json"
+}
 
 // runUpgradeCommand is `metis upgrade --to vX.Y.Z`: install a newer release
 // on a host where a Linux package installed this one. It runs as root, beside
@@ -46,8 +47,8 @@ func (a *App) runUpgradeCommand(ctx context.Context, args []string, out io.Write
 	to := flags.String("to", "", "the release to install, such as v0.8.0")
 	allowDowngrade := flags.Bool("allow-downgrade", false, "install an older release than the one running")
 	requestedBy := flags.String("requested-by", "", "who asked for the upgrade, kept in its status")
-	envFile := flags.String("env-file", packageEnvFile, "the service's environment file")
-	stateDir := flags.String("state-dir", packageStateDir, "the service's working directory")
+	envFile := flags.String("env-file", a.distribution.EnvFile(), "the service's environment file")
+	stateDir := flags.String("state-dir", a.distribution.StateDir(), "the service's working directory")
 	fromRequest := flags.String("from-request", "", "take the release and requester from the Upgrades page's request file")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -63,17 +64,17 @@ func (a *App) runUpgradeCommand(ctx context.Context, args []string, out io.Write
 		*to, *requestedBy = request.To, request.RequestedBy
 	}
 	if *to == "" {
-		return errors.New("say which release to install: metis upgrade --to vX.Y.Z (the Upgrades page names the newest)")
+		return fmt.Errorf("say which release to install: %s upgrade --to vX.Y.Z (the Upgrades page names the newest)", a.distribution.Name)
 	}
 	if os.Geteuid() != 0 {
-		return errors.New("an upgrade installs a package and restarts the service, so it runs as root: sudo metis upgrade --to " + *to)
+		return fmt.Errorf("an upgrade installs a package and restarts the service, so it runs as root: sudo %s upgrade --to %s", a.distribution.Name, *to)
 	}
-	if install := serviceimpl.DetectInstall(); install != contracts.InstallPackage {
+	if install := serviceimpl.DetectInstall(a.distribution); install != contracts.InstallPackage {
 		return fmt.Errorf("this metis was not installed from a Linux package (%s), so it is upgraded the way it was installed; see docs/upgrading.md", install)
 	}
 
 	gid := 0
-	if group, err := user.LookupGroup(serviceGroup); err == nil {
+	if group, err := user.LookupGroup(a.distribution.Name); err == nil {
 		// A group id that is not a number leaves the status root's alone.
 		if n, err := strconv.Atoi(group.Gid); err == nil {
 			gid = n
@@ -137,7 +138,7 @@ func (a *App) upgradePlan(ctx context.Context, to, envFile, stateDir string) (*s
 	if err != nil {
 		return nil, err
 	}
-	format, err := selfupgrade.DetectFormat(selfupgrade.ExecProbe(ctx))
+	format, err := selfupgrade.DetectFormat(selfupgrade.ExecProbe(ctx, a.distribution.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -147,10 +148,11 @@ func (a *App) upgradePlan(ctx context.Context, to, envFile, stateDir string) (*s
 	if err != nil {
 		return nil, fmt.Errorf("fetch Sigstore's trusted root to verify the release: %w", err)
 	}
-	host := selfupgrade.PackageHost{Format: format}
+	host := selfupgrade.PackageHost{Format: format, Service: a.distribution.Name}
 	database := selfupgrade.Postgres{DSN: dsn}
 	return &selfupgrade.Plan{
 		To:           to,
+		Package:      a.distribution.Name,
 		Format:       format,
 		GOARCH:       runtime.GOARCH,
 		Dir:          filepath.Join(stateDir, "upgrade"),
@@ -158,8 +160,14 @@ func (a *App) upgradePlan(ctx context.Context, to, envFile, stateDir string) (*s
 		StartTimeout: upgradeStartTimeout,
 		// The address is a constant in this source, so the plain client; see
 		// upgradeService for why not the guarded one.
-		Releases:  selfupgrade.GitHubReleases{Client: &http.Client{Timeout: 10 * time.Minute}},
-		Verifier:  selfupgrade.SignatureVerifier{Trusted: trusted},
+		Releases: selfupgrade.GitHubReleases{
+			Client: &http.Client{Timeout: 10 * time.Minute},
+			Base:   a.distribution.DownloadBase(),
+		},
+		Verifier: selfupgrade.SignatureVerifier{
+			Trusted:                trusted,
+			WorkflowIdentityPrefix: a.distribution.WorkflowIdentityPrefix(),
+		},
 		Service:   host,
 		Installer: host,
 		Server:    selfupgrade.LocalServer{Client: &http.Client{Timeout: 5 * time.Second}, Base: base},

@@ -23,12 +23,9 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/gsoultan/metis/internal/pkg/distribution"
 	"github.com/gsoultan/metis/internal/pkg/releasemanifest"
 )
-
-// DefaultReleasesURL is where the release list is read: the public repository
-// this source tree is built from.
-const DefaultReleasesURL = "https://api.github.com/repos/gsoultan/metis/releases?per_page=30"
 
 // maxListBytes bounds the release list; thirty releases with their notes are
 // well under it.
@@ -67,7 +64,10 @@ type Status struct {
 
 // Options configure a Checker.
 type Options struct {
-	Current     string
+	Current string
+	// ReleasesURL is where the release list is read: the GitHub repository
+	// of the program running, which is the metis command's unless a program
+	// embedding the engine names its own.
 	ReleasesURL string
 	// Prerelease offers release candidates as well as final releases.
 	Prerelease bool
@@ -89,7 +89,7 @@ type Checker struct {
 // New builds a Checker. It does not check until asked.
 func New(opts Options) *Checker {
 	if opts.ReleasesURL == "" {
-		opts.ReleasesURL = DefaultReleasesURL
+		opts.ReleasesURL = distribution.Metis.ReleasesURL()
 	}
 	if opts.Client == nil {
 		opts.Client = &http.Client{Timeout: 20 * time.Second}

@@ -21,9 +21,6 @@ const (
 	// weekly event at most; four requests a day is well inside the sixty an
 	// hour GitHub allows a host without a token.
 	upgradeCheckInterval = 6 * time.Hour
-
-	// upgradeTriggerEnabled exists while metis-upgrade.path is enabled.
-	upgradeTriggerEnabled = "/etc/systemd/system/paths.target.wants/metis-upgrade.path"
 )
 
 // upgradeService builds the Upgrades page's service, and the checker that
@@ -41,15 +38,15 @@ func (a *App) upgradeService() servicecontracts.UpgradeService {
 	settings := serviceimpl.UpgradeSettings{
 		Current:       version,
 		Channel:       channel,
-		Install:       serviceimpl.DetectInstall(),
+		Install:       serviceimpl.DetectInstall(a.distribution),
 		SchemaVersion: appliedSchemaVersion(),
 	}
 	if settings.Install == servicecontracts.InstallPackage {
-		settings.RequestPath = UpgradeRequestFile
-		settings.StatusPath = UpgradeStatusFile
+		settings.RequestPath = upgradeRequestFile(a.distribution)
+		settings.StatusPath = upgradeStatusFile(a.distribution)
 		// Enabled, not merely installed: an operator who disabled it chose the
 		// command line.
-		_, err := os.Stat(upgradeTriggerEnabled)
+		_, err := os.Stat(a.distribution.UpgradeTriggerEnabled())
 		settings.Triggered = err == nil
 	}
 	switch value := envvar.Get(envUpgradeCheck); value {
@@ -59,8 +56,9 @@ func (a *App) upgradeService() servicecontracts.UpgradeService {
 		// host, and would refuse every check made through one. The address
 		// here is a constant in this source, not anything a user wrote.
 		a.releaseChecker = releasecheck.New(releasecheck.Options{
-			Current:    version,
-			Prerelease: channel == "prerelease",
+			Current:     version,
+			ReleasesURL: a.distribution.ReleasesURL(),
+			Prerelease:  channel == "prerelease",
 		})
 		settings.Checker = a.releaseChecker
 	case "false":

@@ -21,6 +21,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/gsoultan/metis/internal/pkg/distribution"
 	"github.com/gsoultan/metis/internal/pkg/envvar"
 	"github.com/gsoultan/metis/internal/pkg/features"
 	"github.com/gsoultan/metis/internal/pkg/identity"
@@ -97,6 +98,12 @@ type App struct {
 	// releaseChecker asks GitHub for new releases. Nil when
 	// METIS_UPGRADE_CHECK turns it off.
 	releaseChecker *releasecheck.Checker
+	// distribution is the published program running: the metis command's
+	// unless the embedding program named its own. See build.go.
+	distribution distribution.Distribution
+	// buildErr is why the embedding program's build could not be used; Run
+	// refuses to start with it.
+	buildErr error
 	// publicURL is where people reach this server, which task links are
 	// written against. Empty when METIS_PUBLIC_URL is unset, and then no
 	// links are sent.
@@ -278,6 +285,7 @@ func newHTTPServer(address string, handler http.Handler) *http.Server {
 
 func New() *App {
 	return &App{
+		distribution: distribution.Metis,
 		initDBOnce: sync.OnceFunc(func() {
 			log.Info().Msg("Initializing database connection...")
 		}),
@@ -291,6 +299,9 @@ func Version() string { return version }
 // name) until ctx is done, so a program that embeds the engine decides both
 // what it is told and when it stops.
 func (a *App) RunContext(ctx context.Context, args []string) error {
+	if a.buildErr != nil {
+		return a.buildErr
+	}
 	// `metis upgrade` is a command of its own, run as root beside the service.
 	if len(args) > 0 && args[0] == "upgrade" {
 		return a.runUpgradeCommand(ctx, args[1:], os.Stdout)

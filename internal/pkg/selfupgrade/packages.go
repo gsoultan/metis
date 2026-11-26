@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// Format is the package manager that owns /usr/bin/metis on this host.
+// Format is the package manager that owns the installed binary on this host.
 type Format string
 
 const (
@@ -16,11 +16,11 @@ const (
 )
 
 // Probe is what DetectFormat looks at: whether a package manager knows the
-// metis package. Asking the package database, not which tools are installed,
+// installed package. Asking the package database, not which tools are installed,
 // because a Debian host can have rpm installed too.
 type Probe func(f Format) bool
 
-// DetectFormat names the package manager that installed metis, or fails: a
+// DetectFormat names the package manager that installed the package, or fails: a
 // binary nobody's package manager owns is replaced by whoever placed it.
 func DetectFormat(installed Probe) (Format, error) {
 	for _, f := range []Format{FormatDeb, FormatRPM, FormatAPK, FormatArch} {
@@ -28,12 +28,12 @@ func DetectFormat(installed Probe) (Format, error) {
 			return f, nil
 		}
 	}
-	return "", fmt.Errorf("no package manager on this host installed metis, so this is not a package install; replace the binary the way it was placed")
+	return "", fmt.Errorf("no package manager on this host installed this program, so this is not a package install; replace the binary the way it was placed")
 }
 
-// PackageName is the file GoReleaser publishes for a format, release and
-// architecture (Go's names: amd64, arm64).
-func PackageName(f Format, tag, goarch string) (string, error) {
+// PackageName is the file GoReleaser publishes for package pkg in a format,
+// release and architecture (Go's names: amd64, arm64).
+func PackageName(f Format, pkg, tag, goarch string) (string, error) {
 	version := strings.TrimPrefix(tag, "v")
 	machine := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[goarch]
 	if machine == "" {
@@ -41,13 +41,13 @@ func PackageName(f Format, tag, goarch string) (string, error) {
 	}
 	switch f {
 	case FormatDeb:
-		return fmt.Sprintf("metis_%s_%s.deb", version, goarch), nil
+		return fmt.Sprintf("%s_%s_%s.deb", pkg, version, goarch), nil
 	case FormatRPM:
-		return fmt.Sprintf("metis-%s-1.%s.rpm", version, machine), nil
+		return fmt.Sprintf("%s-%s-1.%s.rpm", pkg, version, machine), nil
 	case FormatAPK:
-		return fmt.Sprintf("metis_%s_%s.apk", version, machine), nil
+		return fmt.Sprintf("%s_%s_%s.apk", pkg, version, machine), nil
 	case FormatArch:
-		return fmt.Sprintf("metis-%s-1-%s.pkg.tar.zst", version, machine), nil
+		return fmt.Sprintf("%s-%s-1-%s.pkg.tar.zst", pkg, version, machine), nil
 	}
 	return "", fmt.Errorf("unknown package format %q", f)
 }
@@ -71,16 +71,16 @@ func InstallCommand(f Format, path string) (string, []string, error) {
 	return "", nil, fmt.Errorf("unknown package format %q", f)
 }
 
-// QueryCommand asks a package manager whether metis is installed.
-func QueryCommand(f Format) (string, []string) {
+// QueryCommand asks a package manager whether package pkg is installed.
+func QueryCommand(f Format, pkg string) (string, []string) {
 	switch f {
 	case FormatDeb:
-		return "dpkg-query", []string{"-W", "metis"}
+		return "dpkg-query", []string{"-W", pkg}
 	case FormatRPM:
-		return "rpm", []string{"-q", "metis"}
+		return "rpm", []string{"-q", pkg}
 	case FormatAPK:
-		return "apk", []string{"info", "-e", "metis"}
+		return "apk", []string{"info", "-e", pkg}
 	default:
-		return "pacman", []string{"-Q", "metis"}
+		return "pacman", []string{"-Q", pkg}
 	}
 }
