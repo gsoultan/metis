@@ -66,6 +66,8 @@ var actionNouns = []struct{ noun, area string }{
 	{"Simulate", areaProcesses},
 	{"SimulationCase", areaProcesses},
 	{"Decision", areaDecisions},
+	// Importing Grule rules makes decision tables, and the process that runs them.
+	{"GruleRules", areaDecisions},
 	{"Webhook", areaWebhooks},
 	{"LegacySignatures", areaWebhooks},
 	{"Incident", areaInstances},

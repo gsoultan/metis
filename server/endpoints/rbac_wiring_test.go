@@ -130,7 +130,7 @@ func TestMakeEndpoints_AdministrativeEndpointsAreRoleGated(t *testing.T) {
 	// Changing the models a runtime runs takes a designer outside a protected
 	// runtime and a releaser inside one; an administrator in both.
 	for _, name := range []string{"CreateDefinition", "DeleteDefinition", "ImportDefinition", "PromoteDefinition",
-		"ScheduleDefinition", "CancelScheduledDefinition", "PauseStartSchedule", "ResumeStartSchedule", "CreateDecision", "UpdateDecision", "DeleteDecision", "PromoteDecision"} {
+		"ScheduleDefinition", "CancelScheduledDefinition", "PauseStartSchedule", "ResumeStartSchedule", "CreateDecision", "UpdateDecision", "DeleteDecision", "PromoteDecision", "ImportGruleRules"} {
 		if !strings.Contains(source, `modelChange("`+name+`")`) {
 			t.Errorf("%s is not gated as a change to a runtime's models", name)
 		}

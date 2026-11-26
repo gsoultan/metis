@@ -61,6 +61,7 @@ type service struct {
 	contracts.UpgradeService
 	contracts.BatchOperationService
 	contracts.OperationLogService
+	contracts.RuleImporter
 }
 
 type ServiceParams struct {
@@ -83,25 +84,27 @@ type ServiceParams struct {
 	// PersonDevices are the phones and browsers People registered for push.
 	PersonDevices contracts.DeviceService
 	// PushSender sends pushes to People's devices.
-	PushSender             contracts.PushSender
-	ExecutionEngine        contracts.ExecutionEngine
-	JobService             contracts.JobService
-	ExternalTaskService    contracts.ExternalTaskService
-	DecisionService        contracts.DecisionService
-	MigrationService       contracts.MigrationService
-	ConnectorService       contracts.ConnectorService
-	CollaborationService   contracts.CollaborationService
-	MessagingService       contracts.MessagingService
-	WebhookService         contracts.WebhookService
-	OutgoingWebhooks       contracts.OutgoingWebhookService
-	OutgoingDeliveries     contracts.OutgoingWebhookDeliverer
-	AdHocActivator         contracts.AdHocActivator
-	UserService            contracts.UserService
-	GroupService           contracts.GroupService
-	SetupService           contracts.SetupService
-	NotificationService    contracts.NotificationService
-	SimulationService      contracts.SimulationService
-	SimulationCaseService  contracts.SimulationCaseService
+	PushSender            contracts.PushSender
+	ExecutionEngine       contracts.ExecutionEngine
+	JobService            contracts.JobService
+	ExternalTaskService   contracts.ExternalTaskService
+	DecisionService       contracts.DecisionService
+	MigrationService      contracts.MigrationService
+	ConnectorService      contracts.ConnectorService
+	CollaborationService  contracts.CollaborationService
+	MessagingService      contracts.MessagingService
+	WebhookService        contracts.WebhookService
+	OutgoingWebhooks      contracts.OutgoingWebhookService
+	OutgoingDeliveries    contracts.OutgoingWebhookDeliverer
+	AdHocActivator        contracts.AdHocActivator
+	UserService           contracts.UserService
+	GroupService          contracts.GroupService
+	SetupService          contracts.SetupService
+	NotificationService   contracts.NotificationService
+	SimulationService     contracts.SimulationService
+	SimulationCaseService contracts.SimulationCaseService
+	// RuleImporter turns other rule engines' rules into decisions.
+	RuleImporter           contracts.RuleImporter
 	ReleaseService         contracts.ReleaseService
 	DeviationService       contracts.DeviationService
 	RetentionHoldService   contracts.RetentionHoldService
@@ -187,6 +190,9 @@ func NewService(p ServiceParams) ServiceFacade {
 	if p.ReleaseService == nil {
 		p.ReleaseService = serviceimpl.NewUnavailableReleaseService()
 	}
+	if p.RuleImporter == nil {
+		p.RuleImporter = serviceimpl.NewUnavailableRuleImporter()
+	}
 	return &service{
 		OrganizationService:        p.OrganizationService,
 		ProjectService:             p.ProjectService,
@@ -233,6 +239,7 @@ func NewService(p ServiceParams) ServiceFacade {
 		UpgradeService:             p.UpgradeService,
 		BatchOperationService:      p.BatchOperationService,
 		OperationLogService:        p.OperationLogService,
+		RuleImporter:               p.RuleImporter,
 	}
 }
 
@@ -506,6 +513,7 @@ func NewServiceFacade(
 		JobService:             jobSvc,
 		ExternalTaskService:    externalTaskSvc,
 		DecisionService:        decisionSvc,
+		RuleImporter:           serviceimpl.NewRuleImportService(repo, decisionSvc, defSvc),
 		MigrationService:       migrationSvc,
 		ConnectorService:       connectorSvc,
 		CollaborationService:   collaborationSvc,

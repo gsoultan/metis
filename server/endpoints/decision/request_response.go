@@ -186,3 +186,22 @@ type PromoteDecisionResponse struct {
 }
 
 func (r PromoteDecisionResponse) Failed() error { return r.Err }
+
+// ImportGruleRequest carries Grule rule files to be turned into decisions and
+// a process. Preview reports and stores nothing; Deploy deploys the process
+// as well as storing the decisions.
+type ImportGruleRequest struct {
+	ProjectID string              `json:"project_id"`
+	Key       string              `json:"key"`
+	Name      string              `json:"name,omitzero"`
+	Files     []entities.RuleFile `json:"files"`
+	Preview   bool                `json:"preview,omitzero"`
+	Deploy    bool                `json:"deploy,omitzero"`
+}
+
+type ImportGruleResponse struct {
+	Import entities.GruleImport `json:"import"`
+	Err    error                `json:"err,omitzero"`
+}
+
+func (r ImportGruleResponse) Failed() error { return r.Err }
