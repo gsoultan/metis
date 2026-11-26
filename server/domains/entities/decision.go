@@ -72,6 +72,17 @@ type DecisionOutput struct {
 	// by, which is why it used to be an alias for FIRST — a table asking for
 	// "the most severe outcome that applies" got "the first one written down".
 	Values []string `json:"values,omitzero"`
+
+	// Computed makes each cell of this column a FEEL expression rather than a
+	// value: `price * 0.1`, `"gold"`, `applicant.limit + 500`. It is evaluated
+	// with the decision's variables once the line it sits on has been chosen.
+	//
+	// DMN writes every output entry as an expression. metis stored values, so
+	// a policy that says "the discount is ten percent of the price" needed a
+	// script step beside the table. A flag on the column rather than on every
+	// cell because a column that already holds the text "gold" must keep
+	// answering "gold", not the variable named gold.
+	Computed bool `json:"computed,omitzero"`
 }
 
 // DecisionRule represents a rule in a decision table.

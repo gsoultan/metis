@@ -54,6 +54,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **A decision can compute its answer.** An output column marked
+  `computed: true` holds a FEEL expression on each line (`price * 0.1`,
+  `applicant.limit + 500`, `"gold"`), evaluated with the decision's variables
+  once the hit policy has chosen the line. Under FIRST only the chosen line is
+  evaluated; PRIORITY, ANY and COLLECT see the computed values. A cell that
+  cannot be evaluated fails the decision with the line and column named,
+  never a null answer. Existing tables are unchanged: a column is a value
+  column unless it says otherwise.
+
 - **Every process says it is running.** Each process, web or worker, writes
   its host name, listen address, role, version and start time to the new
   `machines` table every 15 seconds. `GET /api/v1/machines` lists them for a

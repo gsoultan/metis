@@ -29,7 +29,7 @@ Metis BPM (formerly GoBPM) is a professional, production-ready BPMN orchestrator
   - **Reliability**: Persistent job storage and execution.
   - **Error Handling**: Automatic retries with exponential backoff and jitter, then an incident when the attempts run out.
   - **Incident Management**: Capture execution failures as "Incidents" for manual resolution and retry.
-- **Expressions**: **FEEL** (the DMN expression language) evaluates gateway conditions, completion conditions, input/output mappings and decision-table cells.
+- **Expressions**: **FEEL** (the DMN expression language) evaluates gateway conditions, completion conditions, input/output mappings and decision-table cells. A decision output column marked `computed` holds a FEEL expression per line (`price * 0.1`), evaluated once the line is chosen.
   - Legacy `js:` gateway conditions are **refused by default** — the JavaScript runtime cannot be memory-bounded. Installations still migrating can set `METIS_FEATURE_JAVASCRIPT_CONDITIONS=true`; `GET /api/v1/definitions/javascript-conditions` lists every stored condition that still needs rewriting.
 - **Scripting Engine**: Integrated **Goja** (JavaScript engine) for **Script Tasks**, under a wall-clock budget and interrupt. **Off by default**: goja has no memory limit, and one script reached about 1.5 GB inside its five-second budget. Set `METIS_FEATURE_SCRIPT_TASKS=true` to run them; `GET /api/v1/definitions/script-tasks` lists every script task.
 - **Task Inbox**: A dedicated view for users to manage, claim, and complete their assigned tasks.
