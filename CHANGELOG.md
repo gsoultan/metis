@@ -26,6 +26,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   throughput follows from `METIS_JOB_WORKERS` and the partner's answer time,
   with the audit's measurements, and what to change first.
 
+### Performance
+
+- **FEEL evaluation scales with cores.** Every cached expression was read
+  through the LRU's one mutex, so a decision table's cells, a few hundred per
+  evaluation, queued on it from every core. A hit is now read without a lock.
+  A cached cell on every core of a 4-core machine took 460 ns and now takes
+  69 ns; on one core, 285 ns and now 274 ns
+  (`BenchmarkCachedCellsInParallel`).
+
 - **A database lookup refuses a login that can see any of Metis's tables.**
   The check before a lookup's first query refused a connection only when its
   login could see all three Metis tables it named, so a login granted
