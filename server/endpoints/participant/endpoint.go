@@ -1,8 +1,8 @@
 package participant
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-kit/kit/endpoint"
@@ -17,6 +17,7 @@ type Endpoints struct {
 	ListParticipants        endpoint.Endpoint
 	ListParticipantGroups   endpoint.Endpoint
 	ImportParticipants      endpoint.Endpoint
+	CheckParticipantImport  endpoint.Endpoint
 	RemoveParticipant       endpoint.Endpoint
 	SetParticipantPassword  endpoint.Endpoint
 	ListDirectoryGaps       endpoint.Endpoint
@@ -34,6 +35,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 		ListParticipants:        MakeListParticipantsEndpoint(s),
 		ListParticipantGroups:   MakeListParticipantGroupsEndpoint(s),
 		ImportParticipants:      MakeImportParticipantsEndpoint(s),
+		CheckParticipantImport:  MakeCheckParticipantImportEndpoint(s),
 		RemoveParticipant:       MakeRemoveParticipantEndpoint(s),
 		SetParticipantPassword:  MakeSetParticipantPasswordEndpoint(s),
 		ListDirectoryGaps:       MakeListDirectoryGapsEndpoint(s),
@@ -56,6 +58,18 @@ func MakeListParticipantsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 		projectID, err := uuid.Parse(req.ProjectID)
 		if err != nil {
 			return ListParticipantsResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
+		}
+		if req.ExternalID != "" {
+			// One person or nobody: an empty list rather than an error, so
+			// asking is how a caller learns whether they have been imported.
+			person, err := s.FindWorkflowUserByExternalID(ctx, projectID, req.ExternalID)
+			if errors.Is(err, apierr.ErrNotFound) {
+				return ListParticipantsResponse{Participants: []entities.WorkflowUser{}}, nil
+			}
+			if err != nil {
+				return ListParticipantsResponse{Err: err}, nil
+			}
+			return ListParticipantsResponse{Participants: []entities.WorkflowUser{person}}, nil
 		}
 		people, err := s.ListWorkflowUsers(ctx, projectID, req.Limit)
 		return ListParticipantsResponse{Participants: people, Err: err}, nil
@@ -99,28 +113,35 @@ func MakeImportParticipantsEndpoint(s services.ServiceFacade) endpoint.Endpoint 
 			return ImportParticipantsResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
 		}
 
-		var summary entities.ImportSummary
-		switch req.Kind {
-		case "csv", "":
-			if len(req.CSV) == 0 {
-				return ImportParticipantsResponse{Err: apierr.Invalidf("no file was uploaded")}, nil
-			}
-			summary, err = s.ImportWorkflowUsers(ctx, projectID, bytes.NewReader(req.CSV))
-		case "http":
-			summary, err = s.SyncWorkflowUsersFromHTTP(ctx, projectID, req.URL, req.Method)
-		case "postgres":
-			summary, err = s.SyncWorkflowUsersFromPostgres(ctx, projectID, req.DSN, req.Query)
-		default:
-			return ImportParticipantsResponse{Err: apierr.Invalidf("%q is not a directory source", req.Kind)}, nil
-		}
-
+		summary, err := s.ImportDirectory(ctx, projectID, req.directoryImport())
 		return ImportParticipantsResponse{
-			Created:  summary.Created,
-			Updated:  summary.Updated,
-			Groups:   summary.Groups,
-			Problems: summary.Problems,
-			Err:      err,
+			Created:    summary.Created,
+			Updated:    summary.Updated,
+			Unchanged:  summary.Unchanged,
+			Renamed:    summary.Renamed,
+			TasksMoved: summary.TasksMoved,
+			Groups:     summary.Groups,
+			Problems:   summary.Problems,
+			Err:        err,
 		}, nil
+	}
+}
+
+// MakeCheckParticipantImportEndpoint works out what an import would do and
+// writes nothing: who is new, who changes, who was renamed in the source, and
+// which rows cannot be imported and why.
+func MakeCheckParticipantImportEndpoint(s services.ServiceFacade) endpoint.Endpoint {
+	return func(ctx context.Context, request any) (any, error) {
+		req, ok := request.(ImportParticipantsRequest)
+		if !ok {
+			return nil, fmt.Errorf("participant: expected an ImportParticipantsRequest, got %T", request)
+		}
+		projectID, err := uuid.Parse(req.ProjectID)
+		if err != nil {
+			return CheckParticipantImportResponse{Err: apierr.Invalidf("project_id %q is not a valid identifier: %v", req.ProjectID, err)}, nil
+		}
+		check, err := s.CheckDirectoryImport(ctx, projectID, req.directoryImport())
+		return CheckParticipantImportResponse{ImportCheck: check, Err: err}, nil
 	}
 }
 

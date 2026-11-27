@@ -13,7 +13,6 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/logic/userimport"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
-	"github.com/gsoultan/metis/server/domains/services/impl/participantsource"
 	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
 
@@ -33,6 +32,16 @@ func (s *workflowUserService) ListWorkflowUsers(ctx context.Context, projectID u
 	return s.participants.ListByProject(ctx, projectID, limit)
 }
 
+func (s *workflowUserService) FindWorkflowUserByExternalID(ctx context.Context, projectID uuid.UUID, externalID string) (entities.WorkflowUser, error) {
+	if projectID == uuid.Nil {
+		return entities.WorkflowUser{}, apierr.Invalidf("a project is required")
+	}
+	if externalID == "" {
+		return entities.WorkflowUser{}, apierr.Invalidf("an external ID is required")
+	}
+	return s.participants.GetByExternalID(ctx, projectID, externalID)
+}
+
 func (s *workflowUserService) ListWorkflowGroups(ctx context.Context, projectID uuid.UUID) ([]entities.WorkflowGroup, error) {
 	if projectID == uuid.Nil {
 		return nil, apierr.Invalidf("a project is required")
@@ -41,123 +50,23 @@ func (s *workflowUserService) ListWorkflowGroups(ctx context.Context, projectID 
 }
 
 // ImportWorkflowUsers reads a CSV of participants into a project.
-//
-// Deliberately not one transaction. A file is a list of independent facts about
-// independent people, and rolling the whole import back because row four
-// hundred had a malformed address would discard three hundred and ninety-nine
-// rows that were fine — while telling somebody their import "failed", which
-// they would then have to reconcile by hand.
-//
-// What is atomic is each participant: their row and their group memberships go
-// in together, so nobody ends up in a group they are not a member of.
 func (s *workflowUserService) ImportWorkflowUsers(ctx context.Context, projectID uuid.UUID, csv io.Reader) (entities.ImportSummary, error) {
-	if projectID == uuid.Nil {
-		return entities.ImportSummary{}, apierr.Invalidf("a project is required")
-	}
-
-	parsed, err := userimport.Parse(csv)
+	body, err := io.ReadAll(csv)
 	if err != nil {
-		// The file itself is unusable — empty, or missing the one column that
-		// identifies a person. That is a refusal, not a list of problems.
-		return entities.ImportSummary{}, apierr.Invalidf("%s", err.Error())
+		return entities.ImportSummary{}, apierr.Invalidf("could not read the file: %v", err)
 	}
-
-	return s.write(ctx, projectID, parsed), nil
-}
-
-// write saves what a source produced.
-//
-// An import is additive: somebody absent from the source is left alone, not
-// deactivated. A partial file is far more common than a complete one, and
-// taking people's work away because a file did not mention them is a change
-// nobody asked for and nobody would see.
-func (s *workflowUserService) write(ctx context.Context, projectID uuid.UUID, parsed userimport.Result) entities.ImportSummary {
-	summary := entities.ImportSummary{Problems: problemsFrom(parsed.Problems)}
-	// Groups already ensured in this file, so a directory where four hundred
-	// people are in "approvers" looks the group up once rather than four
-	// hundred times.
-	groups := map[string]uuid.UUID{}
-
-	for _, row := range parsed.Rows {
-		created, err := s.participants.Upsert(ctx, entities.WorkflowUser{
-			Project:     &entities.Project{ID: projectID},
-			Username:    row.Username,
-			DisplayName: row.DisplayName,
-			Email:       row.Email,
-			Active:      row.Active,
-		})
-		if err != nil {
-			// One person failing is that row's problem, reported where somebody
-			// can find it. The file carries on.
-			summary.Problems = append(summary.Problems, entities.ImportProblem{
-				Line:     row.Line,
-				Username: row.Username,
-				Reason:   reasonFor(err),
-			})
-			continue
-		}
-		if created {
-			summary.Created++
-		} else {
-			summary.Updated++
-		}
-
-		if err := s.joinGroups(ctx, projectID, row, groups, &summary); err != nil {
-			summary.Problems = append(summary.Problems, entities.ImportProblem{
-				Line:     row.Line,
-				Username: row.Username,
-				Reason:   reasonFor(err),
-			})
-		}
-	}
-
-	return summary
+	return s.ImportDirectory(ctx, projectID, entities.DirectoryImport{Kind: "csv", CSV: body})
 }
 
 // SyncWorkflowUsersFromHTTP reads a directory from a JSON endpoint.
 func (s *workflowUserService) SyncWorkflowUsersFromHTTP(ctx context.Context, projectID uuid.UUID, url, method string) (entities.ImportSummary, error) {
-	return s.importFrom(ctx, projectID, participantsource.NewHTTPSource(participantsource.HTTPConfig{
-		URL:    url,
-		Method: method,
-	}))
+	return s.ImportDirectory(ctx, projectID, entities.DirectoryImport{Kind: "http", URL: url, Method: method})
 }
 
 // SyncWorkflowUsersFromPostgres reads a directory from a query against another
-// database.
-//
-// The caller must be allowed to write queries: an administrator, or somebody
-// holding the Query author role. The import is open to designers, and the
-// other two sources read only what a URL or a file returns; this one runs the
-// caller's SQL against any database the server can reach, which is the power
-// a database lookup keeps behind that role. A saved directory source is an
-// administrator's alone.
+// database. See sourceFor for who may.
 func (s *workflowUserService) SyncWorkflowUsersFromPostgres(ctx context.Context, projectID uuid.UUID, dsn, query string) (entities.ImportSummary, error) {
-	if !mayAuthorQueries(ctx) {
-		return entities.ImportSummary{}, apierr.Forbiddenf("importing people with a database query needs the " +
-			"Query author role; ask an administrator to grant it, or to run the import")
-	}
-	return s.importFrom(ctx, projectID, participantsource.NewPostgresSource(participantsource.PostgresConfig{
-		DSN:   dsn,
-		Query: query,
-	}))
-}
-
-// importFrom fetches from a source and writes what it found.
-//
-// Every source ends here, so an endpoint and a file produce the same summary
-// and the same per-row problems — the sources differ only in where the rows
-// came from.
-func (s *workflowUserService) importFrom(ctx context.Context, projectID uuid.UUID, source participantsource.Source) (entities.ImportSummary, error) {
-	if projectID == uuid.Nil {
-		return entities.ImportSummary{}, apierr.Invalidf("a project is required")
-	}
-	parsed, err := source.Fetch(ctx)
-	if err != nil {
-		// The source could not be read at all. That is a refusal, not a list of
-		// problems — nothing was imported and nothing partially landed.
-		return entities.ImportSummary{}, apierr.Invalidf("%s", err.Error())
-	}
-	return s.write(ctx, projectID, parsed), nil
+	return s.ImportDirectory(ctx, projectID, entities.DirectoryImport{Kind: "postgres", DSN: dsn, Query: query})
 }
 
 // joinGroups puts a participant in the groups their row named, creating any the

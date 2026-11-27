@@ -19,12 +19,19 @@ import (
 // results: {"data": [...]} and {"items": [...]} are the two spellings that
 // cover nearly everything, and refusing them would mean asking somebody to put
 // a transforming proxy in front of their own directory.
-func FromJSON(document []byte) (Result, error) {
+func FromJSON(document []byte) (Result, error) { return FromJSONWith(document, nil) }
+
+// FromJSONWith reads a JSON directory whose fields are named as mapping says.
+// A nested field is named by its path: "profile.full_name".
+func FromJSONWith(document []byte, mapping Mapping) (Result, error) {
+	if err := mapping.Validate(); err != nil {
+		return Result{}, err
+	}
 	records, err := recordsFromJSON(document)
 	if err != nil {
 		return Result{}, err
 	}
-	return FromRecords(records), nil
+	return FromRawRecords(records, mapping), nil
 }
 
 func recordsFromJSON(document []byte) ([]Record, error) {
@@ -70,13 +77,8 @@ func recordsFromJSON(document []byte) ([]Record, error) {
 func recordsFrom(items []map[string]any) []Record {
 	records := make([]Record, 0, len(items))
 	for i, item := range items {
-		fields := make(map[string]string, len(knownColumns))
-		for key, value := range item {
-			name := strings.ToLower(strings.TrimSpace(key))
-			if knownColumns[name] {
-				fields[name] = Stringify(value)
-			}
-		}
+		fields := make(map[string]string, len(item))
+		flatten(fields, "", item, 0)
 		// Numbered from one, and called a line, because that is the word the
 		// problem report uses for every other source. "Item 4" and "line 4"
 		// being the same number matters more than the word being exact.
@@ -118,5 +120,34 @@ func Stringify(value any) string {
 		return strings.Join(parts, ";")
 	default:
 		return fmt.Sprint(v)
+	}
+}
+
+// Bounds on how far one object is read into. A directory's person is a few
+// dozen fields a level or two deep; past these it is not a person.
+const (
+	maxNesting      = 4
+	maxFieldsPerRow = 256
+)
+
+// flatten names every value in an object by its path, lower-cased:
+// {"profile": {"full_name": "Ada"}} is "profile.full_name". A list is a value,
+// not a level, so a list of groups stays one field.
+func flatten(into map[string]string, prefix string, object map[string]any, depth int) {
+	for key, value := range object {
+		if len(into) >= maxFieldsPerRow {
+			return
+		}
+		name := strings.ToLower(strings.TrimSpace(key))
+		if prefix != "" {
+			name = prefix + "." + name
+		}
+		if nested, ok := value.(map[string]any); ok {
+			if depth+1 < maxNesting {
+				flatten(into, name, nested, depth+1)
+			}
+			continue
+		}
+		into[name] = Stringify(value)
 	}
 }

@@ -99,6 +99,7 @@ func Steps() []Migration {
 		{Version: releaseDeliveriesVersion, Name: "release deliveries", Run: addReleaseDeliveries},
 		{Version: machinesVersion, Name: "machines", Run: addMachines},
 		{Version: machineJoinsVersion, Name: "machine joins", Run: addMachineJoins},
+		{Version: participantExternalIDVersion, Name: "participant external id", Run: addParticipantExternalID},
 		{Version: machineRoleChangeVersion, Name: "machine role change", Run: addMachineRoleChange},
 	}
 }

@@ -1109,6 +1109,7 @@ func _assertWorkflowUserShape(m m0.WorkflowUser) {
 		m.Username,
 		m.PasswordHash,
 		m.TokensValidFrom,
+		m.ExternalID,
 		m.DisplayName,
 		m.Email,
 		m.Active,

@@ -283,6 +283,9 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	participantEndpoints.ListParticipants = protected("ListParticipants")(participantEndpoints.ListParticipants)
 	participantEndpoints.ListParticipantGroups = protected("ListParticipantGroups")(participantEndpoints.ListParticipantGroups)
 	participantEndpoints.ImportParticipants = designer("ImportParticipants")(participantEndpoints.ImportParticipants)
+	// A check reads the same source an import does, and the directory it
+	// would land in, so it takes the same role.
+	participantEndpoints.CheckParticipantImport = designer("CheckParticipantImport")(participantEndpoints.CheckParticipantImport)
 	// Setting somebody's password takes their sign-in, as much as removing
 	// them does, so it takes the same role.
 	participantEndpoints.SetParticipantPassword = designer("SetParticipantPassword")(participantEndpoints.SetParticipantPassword)

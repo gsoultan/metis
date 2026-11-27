@@ -10,7 +10,7 @@ import (
 // machineRoleChangeVersion adds what lets the Servers page switch a machine
 // between web and worker: the role asked of it, and whether its operator
 // fixed its role where the page cannot change it.
-const machineRoleChangeVersion = 64
+const machineRoleChangeVersion = 65
 
 // machineRoleChangeDDL is the columns as the model declares them. They keep
 // their defaults: a machine still on the release before them, during an

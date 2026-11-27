@@ -137,7 +137,12 @@ func (s *participantSyncService) run(ctx context.Context, source entities.Partic
 	}
 
 	projectID := source.Project.ID
-	summary := s.participants.write(ctx, projectID, parsed)
+	// A scheduled run has nobody to ask about a rename that leaves open tasks
+	// behind, so the source says once, when it is saved, whether to move them.
+	summary, err := s.participants.write(ctx, projectID, parsed, boolOf(source.Config, "move_open_tasks"))
+	if err != nil {
+		return summary, err
+	}
 
 	if source.OnMissing == entities.OnMissingDeactivate {
 		// A source that named nobody it could use says nothing about who has
@@ -198,11 +203,13 @@ func fetcherFor(source entities.ParticipantSource) (participantsource.Source, er
 			URL:     stringOf(source.Config, "url"),
 			Method:  stringOf(source.Config, "method"),
 			Headers: headersOf(source.Config),
+			Mapping: mappingOf(source.Config),
 		}), nil
 	case string(participantsource.KindPostgres):
 		return participantsource.NewPostgresSource(participantsource.PostgresConfig{
-			DSN:   stringOf(source.Config, "dsn"),
-			Query: stringOf(source.Config, "query"),
+			DSN:     stringOf(source.Config, "dsn"),
+			Query:   stringOf(source.Config, "query"),
+			Mapping: mappingOf(source.Config),
 		}), nil
 	default:
 		return nil, apierr.Invalidf("%q is not a directory source", source.Kind)
@@ -228,6 +235,22 @@ func headersOf(config map[string]any) map[string]string {
 	return headers
 }
 
+// mappingOf reads which of the source's fields is which of Metis's. Comma-ok
+// for the reason headersOf is.
+func mappingOf(config map[string]any) userimport.Mapping {
+	raw, ok := config["mapping"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	mapping := make(userimport.Mapping, len(raw))
+	for metis := range raw {
+		if field := stringOf(raw, metis); field != "" {
+			mapping[metis] = field
+		}
+	}
+	return mapping
+}
+
 // validateSource refuses a source that could never be read.
 func validateSource(source *entities.ParticipantSource) error {
 	if source.Name == "" {
@@ -237,6 +260,9 @@ func validateSource(source *entities.ParticipantSource) error {
 	case string(participantsource.KindHTTP), string(participantsource.KindPostgres):
 	default:
 		return apierr.Invalidf("%q is not a directory source; use http or postgres", source.Kind)
+	}
+	if err := mappingOf(source.Config).Validate(); err != nil {
+		return apierr.Invalidf("%s", err.Error())
 	}
 	switch source.OnMissing {
 	case "":

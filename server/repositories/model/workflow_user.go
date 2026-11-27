@@ -42,6 +42,12 @@ type WorkflowUser struct {
 	PasswordHash    *string
 	TokensValidFrom *time.Time
 
+	// ExternalID is this person's id in the customer's own application: the
+	// key a directory import recognises them by, across renames. Optional, and
+	// unique within the project when set — two projects, or two organizations,
+	// may each have a person 1001, and they are different people.
+	ExternalID *string
+
 	DisplayName *string
 	Email       *string
 
@@ -61,6 +67,10 @@ func (u *WorkflowUser) Schema(t *storm.Table) {
 	// rows the upsert would stop conflicting and insert a second participant,
 	// leaving their tasks and group memberships attached to the first.
 	t.UniqueAcrossDeleted(&u.Project, &u.Username)
+	t.Col(&u.ExternalID).Size(255)
+	// Across the deleted rows for the same reason as the username: somebody
+	// the source names again is the same person coming back, not a new one.
+	t.UniqueAcrossDeleted(&u.Project, &u.ExternalID)
 	t.Col(&u.Email).Size(320)
 	t.Col(&u.Active).Index()
 	t.Col(&u.DeletedAt).Index()
