@@ -124,6 +124,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
+- **An administrator switches a machine between web and worker from the
+  Servers page.** `POST /api/v1/machines/{id}/role` with `{"role": "web"}`,
+  `"worker"` or `"all"` asks a running machine to take that role; a platform
+  administrator alone may ask. The machine hears it on its next heartbeat,
+  writes the role into its `config.yaml`, finishes its work as a stop does,
+  and starts itself again. The ask is refused when it would leave no running
+  machine doing background work, when the machine's operator set its role
+  with `METIS_ROLE` or it has no `config.yaml` (the Servers page shows these
+  as fixed), and when the machine is not running. A program that embeds the
+  engine sees `engine.ErrRestart` from `Run` and calls `engine.Restart()`
+  once its own work is done; on Windows `Restart` returns an error and the
+  service manager starts the program again. New columns: migration 64.
+
 - **Grule rules import.** `POST /api/v1/decisions/import/grule` takes Grule
   rule files (`.grl`, or Grule's JSON form) and makes decision tables for the
   rules a table can answer exactly, and a process with one business rule step

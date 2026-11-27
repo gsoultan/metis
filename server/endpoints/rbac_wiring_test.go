@@ -170,6 +170,8 @@ func TestMakeEndpoints_InstallationWideEndpointsNeedAPlatformAdministrator(t *te
 	for _, name := range []string{
 		"InstallConnectorManifest", "SetConnectorManifestEnabled", "DeleteConnectorManifest",
 		"CreateConnector", "UpdateConnector", "DeleteConnector",
+		"ListMachines", "ForgetMachine", "ChangeMachineRole",
+		"MakeMachineJoin", "ListMachineJoins", "AcceptMachineJoin", "RemoveMachineJoin",
 	} {
 		if !strings.Contains(source, `platformAdmin("`+name+`")`) {
 			t.Errorf("%s is not behind the platform administrator gate; any organization's administrator could call it", name)

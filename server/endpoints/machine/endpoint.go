@@ -19,8 +19,9 @@ import (
 // Endpoints list the machines running this installation and forget the ones
 // that stopped.
 type Endpoints struct {
-	ListMachines  endpoint.Endpoint
-	ForgetMachine endpoint.Endpoint
+	ListMachines      endpoint.Endpoint
+	ForgetMachine     endpoint.Endpoint
+	ChangeMachineRole endpoint.Endpoint
 
 	// Adding a machine with a one-time code: an administrator's side.
 	MakeMachineJoin   endpoint.Endpoint
@@ -31,6 +32,19 @@ type Endpoints struct {
 	RequestMachineJoin endpoint.Endpoint
 	CollectMachineJoin endpoint.Endpoint
 }
+
+// RoleRequest is the role a running machine is asked to take.
+type RoleRequest struct {
+	ID   string `json:"-"`
+	Role string `json:"role"`
+}
+
+// RoleResponse says whether the machine was asked.
+type RoleResponse struct {
+	Err error `json:"err,omitzero"`
+}
+
+func (r RoleResponse) Failed() error { return r.Err }
 
 // MakeJoinRequest is the role the new machine will run.
 type MakeJoinRequest struct {
@@ -125,6 +139,17 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 				return ForgetResponse{Err: apierr.Invalidf("%q is not a machine id", req.ID)}, nil
 			}
 			return ForgetResponse{Err: s.ForgetMachine(ctx, id)}, nil
+		},
+		ChangeMachineRole: func(ctx context.Context, request any) (any, error) {
+			req, ok := request.(RoleRequest)
+			if !ok {
+				return nil, fmt.Errorf("machine: expected a RoleRequest, got %T", request)
+			}
+			id, err := uuid.Parse(req.ID)
+			if err != nil {
+				return RoleResponse{Err: apierr.Invalidf("%q is not a machine id", req.ID)}, nil
+			}
+			return RoleResponse{Err: s.ChangeMachineRole(ctx, id, req.Role)}, nil
 		},
 		MakeMachineJoin: func(ctx context.Context, request any) (any, error) {
 			req, ok := request.(MakeJoinRequest)

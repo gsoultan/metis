@@ -83,6 +83,11 @@ var version = "dev"
 type App struct {
 	// role is what this process does of the engine's work. See role.go.
 	role Role
+	// stopToChangeRole ends the run so the process starts again in the role
+	// the Servers page asked for; changedRole says it did. See
+	// machine_role.go.
+	stopToChangeRole context.CancelFunc
+	changedRole      atomic.Bool
 	// storm is the PostgreSQL connection the ported repositories use. Nil on any
 	// other engine, and on an installation that has not been set up yet.
 	storm *stormdb.Conn
@@ -295,10 +300,10 @@ func New() *App {
 // Version is the build this binary reports, set at link time.
 func Version() string { return version }
 
-// RunContext runs the engine with args (the command line without the program
+// runContext runs the engine with args (the command line without the program
 // name) until ctx is done, so a program that embeds the engine decides both
 // what it is told and when it stops.
-func (a *App) RunContext(ctx context.Context, args []string) error {
+func (a *App) runContext(ctx context.Context, args []string) error {
 	if a.buildErr != nil {
 		return a.buildErr
 	}
@@ -830,7 +835,7 @@ func (a *App) startBackgroundWork(ctx context.Context) {
 	go a.reloadSavedSettings(ctx)
 	// Every process says it is running, whatever its role: the Servers page
 	// lists the web machines beside the workers.
-	a.svc.StartMachineHeartbeat(ctx, thisMachine(a.role))
+	a.svc.StartMachineHeartbeat(ctx, thisMachine(a.role), a.changeRole)
 	if !a.role.RunsWork() {
 		log.Info().Str("role", string(a.role)).
 			Msg("This process serves the API and runs no jobs, timers or deliveries; a worker process does")

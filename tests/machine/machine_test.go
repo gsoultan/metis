@@ -83,7 +83,7 @@ func TestAProcessSaysItIsRunningUntilItStops(t *testing.T) {
 	ctx, stop := context.WithCancel(t.Context())
 	defer stop()
 	self := entities.Machine{ID: uuid.New(), Name: "this-host", Role: "all"}
-	svc.StartMachineHeartbeat(ctx, self)
+	svc.StartMachineHeartbeat(ctx, self, nil)
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {

@@ -457,6 +457,8 @@ func _assertMachineShape(m m0.Machine) {
 		m.Version,
 		m.StartedAt,
 		m.LastSeenAt,
+		m.RequestedRole,
+		m.RoleFixed,
 	}
 }
 

@@ -24,7 +24,11 @@ func (unavailableMachines) ListMachines(context.Context) ([]entities.Machine, er
 
 func (unavailableMachines) ForgetMachine(context.Context, uuid.UUID) error { return errNoMachines }
 
-func (unavailableMachines) StartMachineHeartbeat(context.Context, entities.Machine) {}
+func (unavailableMachines) ChangeMachineRole(context.Context, uuid.UUID, string) error {
+	return errNoMachines
+}
+
+func (unavailableMachines) StartMachineHeartbeat(context.Context, entities.Machine, func(string)) {}
 
 func (unavailableMachines) MakeMachineJoin(context.Context, string) (contracts.IssuedMachineJoin, error) {
 	return contracts.IssuedMachineJoin{}, errNoMachines

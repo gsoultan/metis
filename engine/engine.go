@@ -39,13 +39,28 @@ func New(options ...Option) *Engine {
 // command line without the program name, as for the metis command: empty to
 // serve, or a maintenance flag such as --reset-password, which does its work
 // and returns. A cancelled ctx is a clean stop, not an error. A help flag
-// returns nil after the usage is printed.
+// returns nil after the usage is printed. ErrRestart is a run that stopped
+// itself to take another role; see Restart.
 func (e *Engine) Run(ctx context.Context, args []string) error {
 	err := e.app.RunContext(ctx, args)
 	if errors.Is(err, flag.ErrHelp) {
 		return nil
 	}
 	return err
+}
+
+// ErrRestart is what Run returns when the engine stopped so this process
+// starts again: an administrator changed what this machine runs on the
+// Servers page, and config.yaml now says so. The program finishes its own
+// shutdown and then calls Restart.
+var ErrRestart = app.ErrRestart
+
+// Restart starts this program again in place of this process, with the same
+// binary, arguments and environment, after Run returned ErrRestart. It
+// returns only when that fails: then exit with the error, and a service
+// manager set to restart the program brings it back.
+func Restart() error {
+	return app.Restart()
 }
 
 // Version is the engine's build, as its liveness probe reports it.

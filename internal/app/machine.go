@@ -24,5 +24,6 @@ func thisMachine(role Role) entities.Machine {
 		Role:      string(role),
 		Version:   Version(),
 		StartedAt: time.Now().UTC(),
+		RoleFixed: roleFixed(),
 	}
 }
