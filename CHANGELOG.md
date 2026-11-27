@@ -10,6 +10,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Security
 
+- **grpc moves to 1.85.0, which carries the GO-2026-6443 fix.** A request
+  with no authority or Host header could crash the gRPC listener before any
+  authentication. The fix was in 1.83.2 but not in 1.84.0, which sigstore-go
+  1.4.0 had pulled in. 1.85.0 is the first stable release above 1.83 with it,
+  so Dependabot no longer holds grpc back.
+
 - **A People directory read from a database keeps the lookup connector's
   rules.** A participant source of kind `postgres` connected to whatever its
   connection string named and ran its query as given. A query that deleted or
