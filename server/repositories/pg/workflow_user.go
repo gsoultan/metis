@@ -75,6 +75,49 @@ func (r *workflowUserRepository) ListByProject(ctx context.Context, projectID uu
 	return out, nil
 }
 
+// ListByProjectPaged returns one page of a project's participants and how
+// many there are in all, for a list that says "51–100 of 4,000".
+//
+// The search runs here rather than in the browser: once the list is paged,
+// filtering what the browser holds finds only the people on the page it is
+// showing.
+func (r *workflowUserRepository) ListByProjectPaged(ctx context.Context, projectID uuid.UUID, search string, p contracts.Pagination) (contracts.Page[entities.WorkflowUser], error) {
+	empty := contracts.NewPage([]entities.WorkflowUser{}, 0, p)
+	if err := r.scope.requireProjectInTenant(ctx, projectID); err != nil {
+		return empty, err
+	}
+	ex, err := r.conn.Executor(ctx)
+	if err != nil {
+		return empty, err
+	}
+	query := workflowuser.New().Where(workflowuser.ProjectID.Eq(projectID))
+	if pattern, ok := containsPattern(search); ok {
+		query = query.Any(
+			workflowuser.Username.ILike(pattern),
+			workflowuser.DisplayName.ILike(pattern),
+			workflowuser.Email.ILike(pattern),
+		)
+	}
+	total, err := query.Count(ctx, ex)
+	if err != nil {
+		return empty, fmt.Errorf("could not count participants: %w", err)
+	}
+	n := p.Normalize()
+	rows, err := query.
+		Order(workflowuser.Username.Asc(), workflowuser.ID.Asc()).
+		Limit(int64(n.PageSize)).
+		Offset(int64(p.Offset())).
+		All(ctx, ex, nil)
+	if err != nil {
+		return empty, fmt.Errorf("could not list participants: %w", err)
+	}
+	out := make([]entities.WorkflowUser, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, participantFrom(row))
+	}
+	return contracts.NewPage(out, total, p), nil
+}
+
 // ListGroups returns every group of the project, by name. A project's groups
 // are the teams its directory names, a handful to a few hundred, so the whole
 // list is what a picker shows.

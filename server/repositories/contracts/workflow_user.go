@@ -17,6 +17,10 @@ type WorkflowUserRepository interface {
 	// ListByProject returns a project's participants, alphabetically by
 	// username: at most limit of them, or all of them when limit is zero.
 	ListByProject(ctx context.Context, projectID uuid.UUID, limit int) ([]entities.WorkflowUser, error)
+	// ListByProjectPaged returns one page of a project's participants,
+	// alphabetically by username, with how many there are in all. A search
+	// keeps only those whose username, display name or email contains it.
+	ListByProjectPaged(ctx context.Context, projectID uuid.UUID, search string, page Pagination) (Page[entities.WorkflowUser], error)
 	GetByUsername(ctx context.Context, projectID uuid.UUID, username string) (entities.WorkflowUser, error)
 	// GetByExternalID finds the participant with that id in the customer's
 	// own application. Nobody with it is not found.

@@ -8,6 +8,7 @@ import (
 	"github.com/gsoultan/metis/internal/pkg/apierr"
 	"github.com/gsoultan/metis/server/domains/entities"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
 
 // NewUnavailableWorkflowUserService stands in when there is no storm
@@ -28,6 +29,10 @@ const unavailableReason = "the participant directory needs PostgreSQL; this inst
 
 func (unavailableWorkflowUsers) ListWorkflowUsers(context.Context, uuid.UUID, int) ([]entities.WorkflowUser, error) {
 	return nil, apierr.Invalidf("%s", unavailableReason)
+}
+
+func (unavailableWorkflowUsers) PageWorkflowUsers(_ context.Context, _ uuid.UUID, _ string, page repocontracts.Pagination) (repocontracts.Page[entities.WorkflowUser], error) {
+	return repocontracts.NewPage([]entities.WorkflowUser{}, 0, page), apierr.Invalidf("%s", unavailableReason)
 }
 
 func (unavailableWorkflowUsers) FindWorkflowUserByExternalID(context.Context, uuid.UUID, string) (entities.WorkflowUser, error) {

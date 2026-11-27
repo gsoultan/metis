@@ -447,6 +447,15 @@ To find the username for one of your ids:
 `GET /api/v1/participants?project_id=…&external_id=u-7` answers that person, or
 an empty list.
 
+To read the directory a page at a time:
+`GET /api/v1/participants?project_id=…&page=2&page_size=50&q=smith` answers one
+page, alphabetically by username, with
+`"page": {"total": 340, "page": 2, "page_size": 50, "has_more": true}`. `q`
+keeps the people whose username, display name or email contains it, ignoring
+case, and is at most 200 characters. A page holds at most 200 people. Without
+`page`, `page_size` or `q` the answer is the whole directory, as before, and
+carries no `page`.
+
 External IDs and usernames are unique **within a project**. Another project,
 or another organization, may have its own `u-7`; they are different people, and
 neither organization can read or write the other's directory.

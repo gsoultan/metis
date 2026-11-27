@@ -1,6 +1,10 @@
 package participant
 
-import "github.com/gsoultan/metis/server/domains/entities"
+import (
+	"strings"
+
+	"github.com/gsoultan/metis/server/domains/entities"
+)
 
 // ListParticipantsRequest asks for a project's participants.
 type ListParticipantsRequest struct {
@@ -13,11 +17,28 @@ type ListParticipantsRequest struct {
 	// customer's own application: how a caller holding its own user id finds
 	// the username Metis assigns work to.
 	ExternalID string `json:"external_id,omitzero"`
+	// Page, PageSize and Search ask for one page of the directory rather than
+	// all of it. Any of them makes the answer a page, with Page in the
+	// response; none of them keeps the answer what it always was, everybody,
+	// because the designer's picker and a directory sync read the whole list.
+	Page     int `json:"page,omitzero"`
+	PageSize int `json:"page_size,omitzero"`
+	// Search keeps only the people whose username, display name or email
+	// contains it, ignoring case.
+	Search string `json:"q,omitzero"`
+}
+
+// Paged reports whether the caller asked for a page rather than everybody.
+func (r ListParticipantsRequest) Paged() bool {
+	return r.Page > 0 || r.PageSize > 0 || strings.TrimSpace(r.Search) != ""
 }
 
 type ListParticipantsResponse struct {
 	Participants []entities.WorkflowUser `json:"participants"`
-	Err          error                   `json:"err,omitzero"`
+	// Page describes the window returned, when a page was asked for, so a
+	// caller can say "51–100 of 4,000".
+	Page *PageInfo `json:"page,omitempty"`
+	Err  error     `json:"err,omitzero"`
 }
 
 func (r ListParticipantsResponse) Failed() error { return r.Err }

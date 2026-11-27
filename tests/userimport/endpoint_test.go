@@ -16,6 +16,7 @@ import (
 	"github.com/gsoultan/metis/server/domains/services"
 	servicecontracts "github.com/gsoultan/metis/server/domains/services/contracts"
 	"github.com/gsoultan/metis/server/endpoints/participant"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	participanthttp "github.com/gsoultan/metis/server/transports/https/participants"
 )
 
@@ -262,6 +263,10 @@ type facadeStub struct {
 
 func (f *facadeStub) ListWorkflowUsers(ctx context.Context, projectID uuid.UUID, limit int) ([]entities.WorkflowUser, error) {
 	return f.participants.ListWorkflowUsers(entities.WithSystemContext(ctx), projectID, limit)
+}
+
+func (f *facadeStub) PageWorkflowUsers(ctx context.Context, projectID uuid.UUID, search string, page repocontracts.Pagination) (repocontracts.Page[entities.WorkflowUser], error) {
+	return f.participants.PageWorkflowUsers(entities.WithSystemContext(ctx), projectID, search, page)
 }
 
 func (f *facadeStub) ImportWorkflowUsers(ctx context.Context, projectID uuid.UUID, csv io.Reader) (entities.ImportSummary, error) {

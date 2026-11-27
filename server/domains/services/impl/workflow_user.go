@@ -32,6 +32,13 @@ func (s *workflowUserService) ListWorkflowUsers(ctx context.Context, projectID u
 	return s.participants.ListByProject(ctx, projectID, limit)
 }
 
+func (s *workflowUserService) PageWorkflowUsers(ctx context.Context, projectID uuid.UUID, search string, page repocontracts.Pagination) (repocontracts.Page[entities.WorkflowUser], error) {
+	if projectID == uuid.Nil {
+		return repocontracts.NewPage([]entities.WorkflowUser{}, 0, page), apierr.Invalidf("a project is required")
+	}
+	return s.participants.ListByProjectPaged(ctx, projectID, search, page)
+}
+
 func (s *workflowUserService) FindWorkflowUserByExternalID(ctx context.Context, projectID uuid.UUID, externalID string) (entities.WorkflowUser, error) {
 	if projectID == uuid.Nil {
 		return entities.WorkflowUser{}, apierr.Invalidf("a project is required")
