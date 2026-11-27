@@ -25,4 +25,10 @@ type Machine struct {
 	// LastSeenAt is when it last said it was running. One that stopped
 	// saying so is shown as it was, with when; nothing is guessed.
 	LastSeenAt time.Time `json:"last_seen_at"`
+	// RequestedRole is the role an administrator asked it to take, which it
+	// takes by starting again; empty when nothing is asked.
+	RequestedRole string `json:"requested_role,omitzero"`
+	// RoleFixed is whether its operator set its role where the Servers page
+	// cannot change it: METIS_ROLE, or no config.yaml on that machine.
+	RoleFixed bool `json:"role_fixed,omitzero"`
 }

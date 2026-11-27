@@ -2,11 +2,20 @@ package contracts
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gsoultan/metis/server/domains/entities"
 )
+
+// ErrMachineRoleFixed is a process whose operator set its role where the
+// Servers page cannot change it: METIS_ROLE, or no config.yaml to keep it in.
+var ErrMachineRoleFixed = errors.New("that machine's role is set by its operator")
+
+// ErrNoMachineLeftWorking is a change of role that would leave no running
+// process running the work: jobs, timers and deliveries would wait.
+var ErrNoMachineLeftWorking = errors.New("no running machine would be left running background work")
 
 // MachineRepository keeps the processes of this installation, as each last
 // said it was. Installation-wide: who may read it is decided before this is
@@ -25,6 +34,15 @@ type MachineRepository interface {
 	// ForgetQuiet removes every process last heard from before then, and says
 	// how many.
 	ForgetQuiet(ctx context.Context, before time.Time) (int64, error)
+	// RequestRole asks process id, heard from since liveSince, to start again
+	// in role. Asking for the role it has takes back an earlier ask. Refused
+	// with apierr.ErrNotFound when it is not running, ErrMachineRoleFixed when
+	// its operator fixed its role, and ErrNoMachineLeftWorking when no running
+	// process would be left running the work. Concurrent asks are taken one at
+	// a time, so two cannot each leave the other as the last worker.
+	RequestRole(ctx context.Context, id uuid.UUID, role string, liveSince time.Time) error
+	// RequestedRole is the role process id was asked to take, or empty.
+	RequestedRole(ctx context.Context, id uuid.UUID) (string, error)
 
 	// CreateJoin keeps a join made with a one-time code: its role, who made
 	// it, when it ends and the code's SHA-256.

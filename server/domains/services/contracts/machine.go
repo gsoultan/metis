@@ -18,10 +18,16 @@ type MachineService interface {
 	// One heard from in the last two minutes is refused: it is running, and
 	// would only come back. A platform administrator's.
 	ForgetMachine(ctx context.Context, id uuid.UUID) error
+	// ChangeMachineRole asks running process id to start again in role: all,
+	// web or worker. Refused when its operator fixed its role, and when no
+	// running process would be left running the work. A platform
+	// administrator's.
+	ChangeMachineRole(ctx context.Context, id uuid.UUID, role string) error
 	// StartMachineHeartbeat says, every few seconds until ctx ends, that this
 	// process is running and what it is. Every process does, whatever its
-	// role.
-	StartMachineHeartbeat(ctx context.Context, self entities.Machine)
+	// role. When an administrator asks it to take another role, changeRole is
+	// called with it, once; nil, and the ask is left unread.
+	StartMachineHeartbeat(ctx context.Context, self entities.Machine, changeRole func(role string))
 
 	// MakeMachineJoin makes a one-time code for a new machine to join this
 	// installation with, running role. A platform administrator's.

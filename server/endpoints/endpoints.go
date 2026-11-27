@@ -474,6 +474,7 @@ func MakeEndpoints(s services.ServiceFacade) Endpoints {
 	machineEndpoints := machine.MakeEndpoints(s)
 	machineEndpoints.ListMachines = platformAdmin("ListMachines")(machineEndpoints.ListMachines)
 	machineEndpoints.ForgetMachine = platformAdmin("ForgetMachine")(machineEndpoints.ForgetMachine)
+	machineEndpoints.ChangeMachineRole = platformAdmin("ChangeMachineRole")(machineEndpoints.ChangeMachineRole)
 	machineEndpoints.MakeMachineJoin = platformAdmin("MakeMachineJoin")(machineEndpoints.MakeMachineJoin)
 	machineEndpoints.ListMachineJoins = platformAdmin("ListMachineJoins")(machineEndpoints.ListMachineJoins)
 	machineEndpoints.AcceptMachineJoin = platformAdmin("AcceptMachineJoin")(machineEndpoints.AcceptMachineJoin)

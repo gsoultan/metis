@@ -239,6 +239,20 @@ Migration 54 adds `releases.imported_by` and `releases.approved_by`. A
 release imported before it has neither, and in a protected environment is
 approved by a second person before it goes live, as a new one is.
 
+## Machine role change (migration 65)
+
+Migration 65 adds two columns to `machines`: `requested_role`, the role an
+administrator asked a machine to take on the Servers page (empty when there is
+no ask), and `role_fixed`, whether the machine's operator set its role where
+the page cannot change it. Both have defaults, so a replica still on the
+previous release writes its heartbeat as before during a rolling upgrade; it
+does not hear an ask, which waits until it runs this release.
+
+A machine that takes a new role rewrites its own `config.yaml` and starts
+again. Under systemd the unit in `deploy/linux` needs nothing more: the process
+replaces itself in place. A machine whose role you want to keep out of the
+browser's reach sets `METIS_ROLE`, which wins over `config.yaml`.
+
 ## Machine joins (migration 63)
 
 Migration 63 creates `machine_joins`, empty. It holds the machines being added

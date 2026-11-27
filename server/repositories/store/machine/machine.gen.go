@@ -22,18 +22,20 @@ var (
 // Row is what a full read returns: the model struct with relations
 // replaced by their scalar foreign keys and *T rewritten to Null[T].
 type Row struct {
-	ID         [16]byte
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	Name       string
-	Address    string
-	Role       string
-	Version    string
-	StartedAt  time.Time
-	LastSeenAt time.Time
+	ID            [16]byte
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	Name          string
+	Address       string
+	Role          string
+	Version       string
+	StartedAt     time.Time
+	LastSeenAt    time.Time
+	RequestedRole string
+	RoleFixed     bool
 }
 
-const nCols = 9
+const nCols = 11
 
 // Query is a value type: composing one allocates nothing. Predicates
 // are a postfix token stream, so disjunction and negation are
@@ -43,10 +45,11 @@ type Query struct {
 	nt   uint8
 	top  uint8 // top-level conjuncts, ANDed at compile time
 
-	strs        [6]string
-	raws        [4][16]byte
-	tims        [4]time.Time
-	ns, nr, ntm uint8
+	strs             [6]string
+	raws             [4][16]byte
+	tims             [4]time.Time
+	bools            [4]bool
+	ns, nr, ntm, nbo uint8
 
 	anyRaw   [3][][16]byte
 	anyStr   [3][]string
@@ -117,6 +120,10 @@ func (q *Query) cursor(col uint32, r Row) {
 		ok = runtime.Stash(q.tims[:], &q.ntm, r.StartedAt)
 	case 8:
 		ok = runtime.Stash(q.tims[:], &q.ntm, r.LastSeenAt)
+	case 9:
+		ok = runtime.Stash(q.strs[:], &q.ns, r.RequestedRole)
+	case 10:
+		ok = runtime.Stash(q.bools[:], &q.nbo, r.RoleFixed)
 	}
 	q.over = q.over || !ok
 }
@@ -252,8 +259,17 @@ type Pred struct {
 	str    string
 	raw    [16]byte
 	tim    time.Time
+	bol    bool
 	anyRaw [][16]byte
 	anyStr []string
+}
+
+// b2i lets a bool ride in the numeric slot of a Pred.
+func b2i(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // ord is one column handle's ORDER BY term in direction dir.
@@ -262,15 +278,17 @@ func ord(dir uint32, c uint8) Sort { return Sort(runtime.MakeOrder(dir, uint32(c
 // Typed column handles. The type of the handle is what makes
 // Age.Like(...) fail to compile.
 var (
-	ID         = UUIDCol{0}
-	CreatedAt  = TimeCol{1}
-	UpdatedAt  = TimeCol{2}
-	Name       = TextCol{3}
-	Address    = TextCol{4}
-	Role       = TextCol{5}
-	Version    = TextCol{6}
-	StartedAt  = TimeCol{7}
-	LastSeenAt = TimeCol{8}
+	ID            = UUIDCol{0}
+	CreatedAt     = TimeCol{1}
+	UpdatedAt     = TimeCol{2}
+	Name          = TextCol{3}
+	Address       = TextCol{4}
+	Role          = TextCol{5}
+	Version       = TextCol{6}
+	StartedAt     = TimeCol{7}
+	LastSeenAt    = TimeCol{8}
+	RequestedRole = TextCol{9}
+	RoleFixed     = BoolCol{10}
 )
 
 // UUIDCol addresses a uuid column.
@@ -338,6 +356,17 @@ func (h TextCol) NotIn(v ...string) Pred {
 func (h TextCol) HasPrefix(v string) Pred { return Pred{col: h.c, op: runtime.OpTextHasPrefix, str: v} }
 func (h TextCol) HasSuffix(v string) Pred { return Pred{col: h.c, op: runtime.OpTextHasSuffix, str: v} }
 func (h TextCol) Contains(v string) Pred  { return Pred{col: h.c, op: runtime.OpTextContains, str: v} }
+
+// BoolCol addresses a bool column.
+type BoolCol struct{ c uint8 }
+
+func (h BoolCol) Asc() Sort           { return ord(runtime.Asc, h.c) }
+func (h BoolCol) Desc() Sort          { return ord(runtime.Desc, h.c) }
+func (h BoolCol) AscNullsFirst() Sort { return ord(runtime.AscNullsFirst, h.c) }
+func (h BoolCol) DescNullsLast() Sort { return ord(runtime.DescNullsLast, h.c) }
+
+func (h BoolCol) Eq(v bool) Pred    { return Pred{col: h.c, op: runtime.OpEq, bol: v} }
+func (h BoolCol) NotEq(v bool) Pred { return Pred{col: h.c, op: runtime.OpNotEq, bol: v} }
 
 // Where applies predicates, ANDed together.
 func (q Query) Where(ps ...Pred) Query {
@@ -459,7 +488,7 @@ func (q *Query) leaf(p Pred) {
 		switch p.col {
 		case 0:
 			ok = runtime.Stash(q.anyRaw[:], &q.nar, p.anyRaw)
-		case 3, 4, 5, 6:
+		case 3, 4, 5, 6, 9:
 			ok = runtime.Stash(q.anyStr[:], &q.nas, p.anyStr)
 		}
 	default:
@@ -468,8 +497,10 @@ func (q *Query) leaf(p Pred) {
 			ok = runtime.Stash(q.raws[:], &q.nr, p.raw)
 		case 1, 2, 7, 8:
 			ok = runtime.Stash(q.tims[:], &q.ntm, p.tim)
-		case 3, 4, 5, 6:
+		case 3, 4, 5, 6, 9:
 			ok = runtime.Stash(q.strs[:], &q.ns, p.str)
+		case 10:
+			ok = runtime.Stash(q.bools[:], &q.nbo, p.bol)
 		}
 	}
 	if !ok {
@@ -480,92 +511,108 @@ func (q *Query) leaf(p Pred) {
 }
 
 // Chained predicate sugar. Identical to Where(Col.Op(v)).
-func (q Query) IDEq(v [16]byte) Query             { return q.Where(ID.Eq(v)) }
-func (q Query) IDNotEq(v [16]byte) Query          { return q.Where(ID.NotEq(v)) }
-func (q Query) IDIn(v ...[16]byte) Query          { return q.Where(ID.In(v...)) }
-func (q Query) IDNotIn(v ...[16]byte) Query       { return q.Where(ID.NotIn(v...)) }
-func (q Query) CreatedAtEq(v time.Time) Query     { return q.Where(CreatedAt.Eq(v)) }
-func (q Query) CreatedAtNotEq(v time.Time) Query  { return q.Where(CreatedAt.NotEq(v)) }
-func (q Query) CreatedAtGt(v time.Time) Query     { return q.Where(CreatedAt.Gt(v)) }
-func (q Query) CreatedAtGte(v time.Time) Query    { return q.Where(CreatedAt.Gte(v)) }
-func (q Query) CreatedAtLt(v time.Time) Query     { return q.Where(CreatedAt.Lt(v)) }
-func (q Query) CreatedAtLte(v time.Time) Query    { return q.Where(CreatedAt.Lte(v)) }
-func (q Query) UpdatedAtEq(v time.Time) Query     { return q.Where(UpdatedAt.Eq(v)) }
-func (q Query) UpdatedAtNotEq(v time.Time) Query  { return q.Where(UpdatedAt.NotEq(v)) }
-func (q Query) UpdatedAtGt(v time.Time) Query     { return q.Where(UpdatedAt.Gt(v)) }
-func (q Query) UpdatedAtGte(v time.Time) Query    { return q.Where(UpdatedAt.Gte(v)) }
-func (q Query) UpdatedAtLt(v time.Time) Query     { return q.Where(UpdatedAt.Lt(v)) }
-func (q Query) UpdatedAtLte(v time.Time) Query    { return q.Where(UpdatedAt.Lte(v)) }
-func (q Query) NameEq(v string) Query             { return q.Where(Name.Eq(v)) }
-func (q Query) NameNotEq(v string) Query          { return q.Where(Name.NotEq(v)) }
-func (q Query) NameGt(v string) Query             { return q.Where(Name.Gt(v)) }
-func (q Query) NameGte(v string) Query            { return q.Where(Name.Gte(v)) }
-func (q Query) NameLt(v string) Query             { return q.Where(Name.Lt(v)) }
-func (q Query) NameLte(v string) Query            { return q.Where(Name.Lte(v)) }
-func (q Query) NameEqLower(v string) Query        { return q.Where(Name.EqLower(v)) }
-func (q Query) NameLike(v string) Query           { return q.Where(Name.Like(v)) }
-func (q Query) NameILike(v string) Query          { return q.Where(Name.ILike(v)) }
-func (q Query) NameIn(v ...string) Query          { return q.Where(Name.In(v...)) }
-func (q Query) NameNotIn(v ...string) Query       { return q.Where(Name.NotIn(v...)) }
-func (q Query) NameHasPrefix(v string) Query      { return q.Where(Name.HasPrefix(v)) }
-func (q Query) NameHasSuffix(v string) Query      { return q.Where(Name.HasSuffix(v)) }
-func (q Query) NameContains(v string) Query       { return q.Where(Name.Contains(v)) }
-func (q Query) AddressEq(v string) Query          { return q.Where(Address.Eq(v)) }
-func (q Query) AddressNotEq(v string) Query       { return q.Where(Address.NotEq(v)) }
-func (q Query) AddressGt(v string) Query          { return q.Where(Address.Gt(v)) }
-func (q Query) AddressGte(v string) Query         { return q.Where(Address.Gte(v)) }
-func (q Query) AddressLt(v string) Query          { return q.Where(Address.Lt(v)) }
-func (q Query) AddressLte(v string) Query         { return q.Where(Address.Lte(v)) }
-func (q Query) AddressEqLower(v string) Query     { return q.Where(Address.EqLower(v)) }
-func (q Query) AddressLike(v string) Query        { return q.Where(Address.Like(v)) }
-func (q Query) AddressILike(v string) Query       { return q.Where(Address.ILike(v)) }
-func (q Query) AddressIn(v ...string) Query       { return q.Where(Address.In(v...)) }
-func (q Query) AddressNotIn(v ...string) Query    { return q.Where(Address.NotIn(v...)) }
-func (q Query) AddressHasPrefix(v string) Query   { return q.Where(Address.HasPrefix(v)) }
-func (q Query) AddressHasSuffix(v string) Query   { return q.Where(Address.HasSuffix(v)) }
-func (q Query) AddressContains(v string) Query    { return q.Where(Address.Contains(v)) }
-func (q Query) RoleEq(v string) Query             { return q.Where(Role.Eq(v)) }
-func (q Query) RoleNotEq(v string) Query          { return q.Where(Role.NotEq(v)) }
-func (q Query) RoleGt(v string) Query             { return q.Where(Role.Gt(v)) }
-func (q Query) RoleGte(v string) Query            { return q.Where(Role.Gte(v)) }
-func (q Query) RoleLt(v string) Query             { return q.Where(Role.Lt(v)) }
-func (q Query) RoleLte(v string) Query            { return q.Where(Role.Lte(v)) }
-func (q Query) RoleEqLower(v string) Query        { return q.Where(Role.EqLower(v)) }
-func (q Query) RoleLike(v string) Query           { return q.Where(Role.Like(v)) }
-func (q Query) RoleILike(v string) Query          { return q.Where(Role.ILike(v)) }
-func (q Query) RoleIn(v ...string) Query          { return q.Where(Role.In(v...)) }
-func (q Query) RoleNotIn(v ...string) Query       { return q.Where(Role.NotIn(v...)) }
-func (q Query) RoleHasPrefix(v string) Query      { return q.Where(Role.HasPrefix(v)) }
-func (q Query) RoleHasSuffix(v string) Query      { return q.Where(Role.HasSuffix(v)) }
-func (q Query) RoleContains(v string) Query       { return q.Where(Role.Contains(v)) }
-func (q Query) VersionEq(v string) Query          { return q.Where(Version.Eq(v)) }
-func (q Query) VersionNotEq(v string) Query       { return q.Where(Version.NotEq(v)) }
-func (q Query) VersionGt(v string) Query          { return q.Where(Version.Gt(v)) }
-func (q Query) VersionGte(v string) Query         { return q.Where(Version.Gte(v)) }
-func (q Query) VersionLt(v string) Query          { return q.Where(Version.Lt(v)) }
-func (q Query) VersionLte(v string) Query         { return q.Where(Version.Lte(v)) }
-func (q Query) VersionEqLower(v string) Query     { return q.Where(Version.EqLower(v)) }
-func (q Query) VersionLike(v string) Query        { return q.Where(Version.Like(v)) }
-func (q Query) VersionILike(v string) Query       { return q.Where(Version.ILike(v)) }
-func (q Query) VersionIn(v ...string) Query       { return q.Where(Version.In(v...)) }
-func (q Query) VersionNotIn(v ...string) Query    { return q.Where(Version.NotIn(v...)) }
-func (q Query) VersionHasPrefix(v string) Query   { return q.Where(Version.HasPrefix(v)) }
-func (q Query) VersionHasSuffix(v string) Query   { return q.Where(Version.HasSuffix(v)) }
-func (q Query) VersionContains(v string) Query    { return q.Where(Version.Contains(v)) }
-func (q Query) StartedAtEq(v time.Time) Query     { return q.Where(StartedAt.Eq(v)) }
-func (q Query) StartedAtNotEq(v time.Time) Query  { return q.Where(StartedAt.NotEq(v)) }
-func (q Query) StartedAtGt(v time.Time) Query     { return q.Where(StartedAt.Gt(v)) }
-func (q Query) StartedAtGte(v time.Time) Query    { return q.Where(StartedAt.Gte(v)) }
-func (q Query) StartedAtLt(v time.Time) Query     { return q.Where(StartedAt.Lt(v)) }
-func (q Query) StartedAtLte(v time.Time) Query    { return q.Where(StartedAt.Lte(v)) }
-func (q Query) LastSeenAtEq(v time.Time) Query    { return q.Where(LastSeenAt.Eq(v)) }
-func (q Query) LastSeenAtNotEq(v time.Time) Query { return q.Where(LastSeenAt.NotEq(v)) }
-func (q Query) LastSeenAtGt(v time.Time) Query    { return q.Where(LastSeenAt.Gt(v)) }
-func (q Query) LastSeenAtGte(v time.Time) Query   { return q.Where(LastSeenAt.Gte(v)) }
-func (q Query) LastSeenAtLt(v time.Time) Query    { return q.Where(LastSeenAt.Lt(v)) }
-func (q Query) LastSeenAtLte(v time.Time) Query   { return q.Where(LastSeenAt.Lte(v)) }
+func (q Query) IDEq(v [16]byte) Query                 { return q.Where(ID.Eq(v)) }
+func (q Query) IDNotEq(v [16]byte) Query              { return q.Where(ID.NotEq(v)) }
+func (q Query) IDIn(v ...[16]byte) Query              { return q.Where(ID.In(v...)) }
+func (q Query) IDNotIn(v ...[16]byte) Query           { return q.Where(ID.NotIn(v...)) }
+func (q Query) CreatedAtEq(v time.Time) Query         { return q.Where(CreatedAt.Eq(v)) }
+func (q Query) CreatedAtNotEq(v time.Time) Query      { return q.Where(CreatedAt.NotEq(v)) }
+func (q Query) CreatedAtGt(v time.Time) Query         { return q.Where(CreatedAt.Gt(v)) }
+func (q Query) CreatedAtGte(v time.Time) Query        { return q.Where(CreatedAt.Gte(v)) }
+func (q Query) CreatedAtLt(v time.Time) Query         { return q.Where(CreatedAt.Lt(v)) }
+func (q Query) CreatedAtLte(v time.Time) Query        { return q.Where(CreatedAt.Lte(v)) }
+func (q Query) UpdatedAtEq(v time.Time) Query         { return q.Where(UpdatedAt.Eq(v)) }
+func (q Query) UpdatedAtNotEq(v time.Time) Query      { return q.Where(UpdatedAt.NotEq(v)) }
+func (q Query) UpdatedAtGt(v time.Time) Query         { return q.Where(UpdatedAt.Gt(v)) }
+func (q Query) UpdatedAtGte(v time.Time) Query        { return q.Where(UpdatedAt.Gte(v)) }
+func (q Query) UpdatedAtLt(v time.Time) Query         { return q.Where(UpdatedAt.Lt(v)) }
+func (q Query) UpdatedAtLte(v time.Time) Query        { return q.Where(UpdatedAt.Lte(v)) }
+func (q Query) NameEq(v string) Query                 { return q.Where(Name.Eq(v)) }
+func (q Query) NameNotEq(v string) Query              { return q.Where(Name.NotEq(v)) }
+func (q Query) NameGt(v string) Query                 { return q.Where(Name.Gt(v)) }
+func (q Query) NameGte(v string) Query                { return q.Where(Name.Gte(v)) }
+func (q Query) NameLt(v string) Query                 { return q.Where(Name.Lt(v)) }
+func (q Query) NameLte(v string) Query                { return q.Where(Name.Lte(v)) }
+func (q Query) NameEqLower(v string) Query            { return q.Where(Name.EqLower(v)) }
+func (q Query) NameLike(v string) Query               { return q.Where(Name.Like(v)) }
+func (q Query) NameILike(v string) Query              { return q.Where(Name.ILike(v)) }
+func (q Query) NameIn(v ...string) Query              { return q.Where(Name.In(v...)) }
+func (q Query) NameNotIn(v ...string) Query           { return q.Where(Name.NotIn(v...)) }
+func (q Query) NameHasPrefix(v string) Query          { return q.Where(Name.HasPrefix(v)) }
+func (q Query) NameHasSuffix(v string) Query          { return q.Where(Name.HasSuffix(v)) }
+func (q Query) NameContains(v string) Query           { return q.Where(Name.Contains(v)) }
+func (q Query) AddressEq(v string) Query              { return q.Where(Address.Eq(v)) }
+func (q Query) AddressNotEq(v string) Query           { return q.Where(Address.NotEq(v)) }
+func (q Query) AddressGt(v string) Query              { return q.Where(Address.Gt(v)) }
+func (q Query) AddressGte(v string) Query             { return q.Where(Address.Gte(v)) }
+func (q Query) AddressLt(v string) Query              { return q.Where(Address.Lt(v)) }
+func (q Query) AddressLte(v string) Query             { return q.Where(Address.Lte(v)) }
+func (q Query) AddressEqLower(v string) Query         { return q.Where(Address.EqLower(v)) }
+func (q Query) AddressLike(v string) Query            { return q.Where(Address.Like(v)) }
+func (q Query) AddressILike(v string) Query           { return q.Where(Address.ILike(v)) }
+func (q Query) AddressIn(v ...string) Query           { return q.Where(Address.In(v...)) }
+func (q Query) AddressNotIn(v ...string) Query        { return q.Where(Address.NotIn(v...)) }
+func (q Query) AddressHasPrefix(v string) Query       { return q.Where(Address.HasPrefix(v)) }
+func (q Query) AddressHasSuffix(v string) Query       { return q.Where(Address.HasSuffix(v)) }
+func (q Query) AddressContains(v string) Query        { return q.Where(Address.Contains(v)) }
+func (q Query) RoleEq(v string) Query                 { return q.Where(Role.Eq(v)) }
+func (q Query) RoleNotEq(v string) Query              { return q.Where(Role.NotEq(v)) }
+func (q Query) RoleGt(v string) Query                 { return q.Where(Role.Gt(v)) }
+func (q Query) RoleGte(v string) Query                { return q.Where(Role.Gte(v)) }
+func (q Query) RoleLt(v string) Query                 { return q.Where(Role.Lt(v)) }
+func (q Query) RoleLte(v string) Query                { return q.Where(Role.Lte(v)) }
+func (q Query) RoleEqLower(v string) Query            { return q.Where(Role.EqLower(v)) }
+func (q Query) RoleLike(v string) Query               { return q.Where(Role.Like(v)) }
+func (q Query) RoleILike(v string) Query              { return q.Where(Role.ILike(v)) }
+func (q Query) RoleIn(v ...string) Query              { return q.Where(Role.In(v...)) }
+func (q Query) RoleNotIn(v ...string) Query           { return q.Where(Role.NotIn(v...)) }
+func (q Query) RoleHasPrefix(v string) Query          { return q.Where(Role.HasPrefix(v)) }
+func (q Query) RoleHasSuffix(v string) Query          { return q.Where(Role.HasSuffix(v)) }
+func (q Query) RoleContains(v string) Query           { return q.Where(Role.Contains(v)) }
+func (q Query) VersionEq(v string) Query              { return q.Where(Version.Eq(v)) }
+func (q Query) VersionNotEq(v string) Query           { return q.Where(Version.NotEq(v)) }
+func (q Query) VersionGt(v string) Query              { return q.Where(Version.Gt(v)) }
+func (q Query) VersionGte(v string) Query             { return q.Where(Version.Gte(v)) }
+func (q Query) VersionLt(v string) Query              { return q.Where(Version.Lt(v)) }
+func (q Query) VersionLte(v string) Query             { return q.Where(Version.Lte(v)) }
+func (q Query) VersionEqLower(v string) Query         { return q.Where(Version.EqLower(v)) }
+func (q Query) VersionLike(v string) Query            { return q.Where(Version.Like(v)) }
+func (q Query) VersionILike(v string) Query           { return q.Where(Version.ILike(v)) }
+func (q Query) VersionIn(v ...string) Query           { return q.Where(Version.In(v...)) }
+func (q Query) VersionNotIn(v ...string) Query        { return q.Where(Version.NotIn(v...)) }
+func (q Query) VersionHasPrefix(v string) Query       { return q.Where(Version.HasPrefix(v)) }
+func (q Query) VersionHasSuffix(v string) Query       { return q.Where(Version.HasSuffix(v)) }
+func (q Query) VersionContains(v string) Query        { return q.Where(Version.Contains(v)) }
+func (q Query) StartedAtEq(v time.Time) Query         { return q.Where(StartedAt.Eq(v)) }
+func (q Query) StartedAtNotEq(v time.Time) Query      { return q.Where(StartedAt.NotEq(v)) }
+func (q Query) StartedAtGt(v time.Time) Query         { return q.Where(StartedAt.Gt(v)) }
+func (q Query) StartedAtGte(v time.Time) Query        { return q.Where(StartedAt.Gte(v)) }
+func (q Query) StartedAtLt(v time.Time) Query         { return q.Where(StartedAt.Lt(v)) }
+func (q Query) StartedAtLte(v time.Time) Query        { return q.Where(StartedAt.Lte(v)) }
+func (q Query) LastSeenAtEq(v time.Time) Query        { return q.Where(LastSeenAt.Eq(v)) }
+func (q Query) LastSeenAtNotEq(v time.Time) Query     { return q.Where(LastSeenAt.NotEq(v)) }
+func (q Query) LastSeenAtGt(v time.Time) Query        { return q.Where(LastSeenAt.Gt(v)) }
+func (q Query) LastSeenAtGte(v time.Time) Query       { return q.Where(LastSeenAt.Gte(v)) }
+func (q Query) LastSeenAtLt(v time.Time) Query        { return q.Where(LastSeenAt.Lt(v)) }
+func (q Query) LastSeenAtLte(v time.Time) Query       { return q.Where(LastSeenAt.Lte(v)) }
+func (q Query) RequestedRoleEq(v string) Query        { return q.Where(RequestedRole.Eq(v)) }
+func (q Query) RequestedRoleNotEq(v string) Query     { return q.Where(RequestedRole.NotEq(v)) }
+func (q Query) RequestedRoleGt(v string) Query        { return q.Where(RequestedRole.Gt(v)) }
+func (q Query) RequestedRoleGte(v string) Query       { return q.Where(RequestedRole.Gte(v)) }
+func (q Query) RequestedRoleLt(v string) Query        { return q.Where(RequestedRole.Lt(v)) }
+func (q Query) RequestedRoleLte(v string) Query       { return q.Where(RequestedRole.Lte(v)) }
+func (q Query) RequestedRoleEqLower(v string) Query   { return q.Where(RequestedRole.EqLower(v)) }
+func (q Query) RequestedRoleLike(v string) Query      { return q.Where(RequestedRole.Like(v)) }
+func (q Query) RequestedRoleILike(v string) Query     { return q.Where(RequestedRole.ILike(v)) }
+func (q Query) RequestedRoleIn(v ...string) Query     { return q.Where(RequestedRole.In(v...)) }
+func (q Query) RequestedRoleNotIn(v ...string) Query  { return q.Where(RequestedRole.NotIn(v...)) }
+func (q Query) RequestedRoleHasPrefix(v string) Query { return q.Where(RequestedRole.HasPrefix(v)) }
+func (q Query) RequestedRoleHasSuffix(v string) Query { return q.Where(RequestedRole.HasSuffix(v)) }
+func (q Query) RequestedRoleContains(v string) Query  { return q.Where(RequestedRole.Contains(v)) }
+func (q Query) RoleFixedEq(v bool) Query              { return q.Where(RoleFixed.Eq(v)) }
+func (q Query) RoleFixedNotEq(v bool) Query           { return q.Where(RoleFixed.NotEq(v)) }
 
-const selectPrefix = `SELECT "id", "created_at", "updated_at", "name", "address", "role", "version", "started_at", "last_seen_at" FROM "machines"`
+const selectPrefix = `SELECT "id", "created_at", "updated_at", "name", "address", "role", "version", "started_at", "last_seen_at", "requested_role", "role_fixed" FROM "machines"`
 const countPrefix = `SELECT count(*) FROM "machines"`
 const existsPrefix = `SELECT 1 FROM "machines"`
 const existsSuffix = ` LIMIT 1`
@@ -609,6 +656,8 @@ var orderTable = [nCols][4]string{
 	{"\"version\"", "\"version\" DESC", "\"version\" ASC NULLS FIRST", "\"version\" DESC NULLS LAST"},
 	{"\"started_at\"", "\"started_at\" DESC", "\"started_at\" ASC NULLS FIRST", "\"started_at\" DESC NULLS LAST"},
 	{"\"last_seen_at\"", "\"last_seen_at\" DESC", "\"last_seen_at\" ASC NULLS FIRST", "\"last_seen_at\" DESC NULLS LAST"},
+	{"\"requested_role\"", "\"requested_role\" DESC", "\"requested_role\" ASC NULLS FIRST", "\"requested_role\" DESC NULLS LAST"},
+	{"\"role_fixed\"", "\"role_fixed\" DESC", "\"role_fixed\" ASC NULLS FIRST", "\"role_fixed\" DESC NULLS LAST"},
 }
 
 // identTable is each column's bare quoted name, for the left side of a
@@ -623,6 +672,8 @@ var identTable = [nCols]string{
 	"\"version\"",
 	"\"started_at\"",
 	"\"last_seen_at\"",
+	"\"requested_role\"",
+	"\"role_fixed\"",
 }
 
 var lowering = runtime.Lowering{
@@ -645,7 +696,7 @@ func orderOf(dir, col uint32) string {
 
 // fragTable is every predicate this table can produce, lowered at build
 // time. Runtime splices; it never formats.
-var fragTable = [9][34]runtime.Frag{
+var fragTable = [11][34]runtime.Frag{
 	{ // id
 		runtime.OpEq:    {A: "\"id\" = $"},
 		runtime.OpNotEq: {A: "\"id\" <> $"},
@@ -748,6 +799,26 @@ var fragTable = [9][34]runtime.Frag{
 		runtime.OpLt:    {A: "\"last_seen_at\" < $"},
 		runtime.OpLte:   {A: "\"last_seen_at\" <= $"},
 	},
+	{ // requested_role
+		runtime.OpEq:            {A: "\"requested_role\" = $"},
+		runtime.OpNotEq:         {A: "\"requested_role\" <> $"},
+		runtime.OpGt:            {A: "\"requested_role\" > $"},
+		runtime.OpGte:           {A: "\"requested_role\" >= $"},
+		runtime.OpLt:            {A: "\"requested_role\" < $"},
+		runtime.OpLte:           {A: "\"requested_role\" <= $"},
+		runtime.OpEqLower:       {A: "lower(\"requested_role\") = lower($", B: ")"},
+		runtime.OpLike:          {A: "\"requested_role\" LIKE $"},
+		runtime.OpILike:         {A: "\"requested_role\" ILIKE $"},
+		runtime.OpIn:            {A: "\"requested_role\" = ANY($", B: ")"},
+		runtime.OpNotIn:         {A: "\"requested_role\" <> ALL($", B: ")"},
+		runtime.OpTextHasPrefix: {A: "\"requested_role\" LIKE (replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_') || '%') ESCAPE '!'"},
+		runtime.OpTextHasSuffix: {A: "\"requested_role\" LIKE ('%' || replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_')) ESCAPE '!'"},
+		runtime.OpTextContains:  {A: "\"requested_role\" LIKE ('%' || replace(replace(replace($", B: ", '!', '!!'), '%', '!%'), '_', '!_') || '%') ESCAPE '!'"},
+	},
+	{ // role_fixed
+		runtime.OpEq:    {A: "\"role_fixed\" = $"},
+		runtime.OpNotEq: {A: "\"role_fixed\" <> $"},
+	},
 }
 
 func fragOf(op, col uint32) runtime.Frag {
@@ -829,7 +900,7 @@ func (q Query) existsStmt(toks []runtime.Tok) *runtime.Stmt { return existsStmtF
 const (
 	distinctOpen = "SELECT DISTINCT ON ("
 	distinctSep  = ", "
-	distinctTail = ") \"id\", \"created_at\", \"updated_at\", \"name\", \"address\", \"role\", \"version\", \"started_at\", \"last_seen_at\" FROM \"machines\""
+	distinctTail = ") \"id\", \"created_at\", \"updated_at\", \"name\", \"address\", \"role\", \"version\", \"started_at\", \"last_seen_at\", \"requested_role\", \"role_fixed\" FROM \"machines\""
 )
 
 // distinctCaches are AllDistinctOn's, without and with an offset. The
@@ -1010,6 +1081,11 @@ func scan(rv [][]byte, r *Row, sl *runtime.Slab) error {
 		return runtime.ShapeErr("last_seen_at", "timestamptz", 8, rv[8])
 	}
 	r.LastSeenAt = runtime.Timestamptz(rv[8])
+	r.RequestedRole = sl.Str(rv[9])
+	if len(rv[10]) != 1 {
+		return runtime.ShapeErr("role_fixed", "bool", 1, rv[10])
+	}
+	r.RoleFixed = runtime.Bool(rv[10])
 	return nil
 }
 
@@ -1018,6 +1094,7 @@ type binder struct {
 	strs   [6]string
 	raws   [4][16]byte
 	tims   [4]time.Time
+	bools  [4]bool
 	anyRaw [3][][16]byte
 	anyStr [3][]string
 	limit  int64
@@ -1046,7 +1123,7 @@ func putBinder(b *binder) {
 // own copies. Count and Exists stop here: they have no LIMIT or OFFSET.
 func (q Query) bindPreds(b *binder) []any {
 	v := b.vals[:0]
-	var ns, nr, ntm, nar, nas uint8
+	var ns, nr, ntm, nbo, nar, nas uint8
 	for i := uint8(0); i < q.nt; i++ {
 		t := q.toks[i]
 		// A predicate's value or a keyset cursor's: both use the arenas.
@@ -1060,7 +1137,7 @@ func (q Query) bindPreds(b *binder) []any {
 			switch t.Col() {
 			case 0:
 				v = runtime.Bind(v, b.anyRaw[:], q.anyRaw[:], &nar)
-			case 3, 4, 5, 6:
+			case 3, 4, 5, 6, 9:
 				v = runtime.Bind(v, b.anyStr[:], q.anyStr[:], &nas)
 			}
 			continue
@@ -1070,8 +1147,10 @@ func (q Query) bindPreds(b *binder) []any {
 			v = runtime.Bind(v, b.raws[:], q.raws[:], &nr)
 		case 1, 2, 7, 8:
 			v = runtime.Bind(v, b.tims[:], q.tims[:], &ntm)
-		case 3, 4, 5, 6:
+		case 3, 4, 5, 6, 9:
 			v = runtime.Bind(v, b.strs[:], q.strs[:], &ns)
+		case 10:
+			v = runtime.Bind(v, b.bools[:], q.bools[:], &nbo)
 		}
 	}
 	b.vals = v
@@ -1279,7 +1358,7 @@ func (q Query) Prepare(b *Binder) (string, []any) {
 
 // insertSQL does not vary: the column list is fixed by the table, so
 // the placeholders are known at build time and nothing is spliced.
-const insertSQL = `INSERT INTO "machines" ("id", "created_at", "updated_at", "name", "address", "role", "version", "started_at", "last_seen_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING "id", "created_at", "updated_at", "name", "address", "role", "version", "started_at", "last_seen_at"`
+const insertSQL = `INSERT INTO "machines" ("id", "created_at", "updated_at", "name", "address", "role", "version", "started_at", "last_seen_at", "requested_role", "role_fixed") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING "id", "created_at", "updated_at", "name", "address", "role", "version", "started_at", "last_seen_at", "requested_role", "role_fixed"`
 
 const updatePrefix = `UPDATE "machines" SET `
 const deletePrefix = `DELETE FROM "machines"`
@@ -1287,26 +1366,30 @@ const deletePrefix = `DELETE FROM "machines"`
 // Dirty bits. One per updatable column; the set of them is an UPDATE's
 // identity, exactly as a token stream is a SELECT's.
 const (
-	dUpdatedAt  uint64 = 1 << 0
-	dName       uint64 = 1 << 1
-	dAddress    uint64 = 1 << 2
-	dRole       uint64 = 1 << 3
-	dVersion    uint64 = 1 << 4
-	dStartedAt  uint64 = 1 << 5
-	dLastSeenAt uint64 = 1 << 6
+	dUpdatedAt     uint64 = 1 << 0
+	dName          uint64 = 1 << 1
+	dAddress       uint64 = 1 << 2
+	dRole          uint64 = 1 << 3
+	dVersion       uint64 = 1 << 4
+	dStartedAt     uint64 = 1 << 5
+	dLastSeenAt    uint64 = 1 << 6
+	dRequestedRole uint64 = 1 << 7
+	dRoleFixed     uint64 = 1 << 8
 )
 
-const nUpdatable = 7
+const nUpdatable = 9
 
 // setFrags is every assignment this table can make, lowered at build time.
 var setFrags = [nUpdatable]runtime.Frag{
-	{A: "\"updated_at\" = $", B: ""},   // updated_at
-	{A: "\"name\" = $", B: ""},         // name
-	{A: "\"address\" = $", B: ""},      // address
-	{A: "\"role\" = $", B: ""},         // role
-	{A: "\"version\" = $", B: ""},      // version
-	{A: "\"started_at\" = $", B: ""},   // started_at
-	{A: "\"last_seen_at\" = $", B: ""}, // last_seen_at
+	{A: "\"updated_at\" = $", B: ""},     // updated_at
+	{A: "\"name\" = $", B: ""},           // name
+	{A: "\"address\" = $", B: ""},        // address
+	{A: "\"role\" = $", B: ""},           // role
+	{A: "\"version\" = $", B: ""},        // version
+	{A: "\"started_at\" = $", B: ""},     // started_at
+	{A: "\"last_seen_at\" = $", B: ""},   // last_seen_at
+	{A: "\"requested_role\" = $", B: ""}, // requested_role
+	{A: "\"role_fixed\" = $", B: ""},     // role_fixed
 }
 
 // exprFrags is the SERVER-side assignment each column may take instead
@@ -1320,6 +1403,8 @@ var exprFrags = [nUpdatable]runtime.Frag{
 	{},                                     // version has no server-side form
 	{A: "\"started_at\" = now()", B: ""},   // started_at = the database's clock
 	{A: "\"last_seen_at\" = now()", B: ""}, // last_seen_at = the database's clock
+	{},                                     // requested_role has no server-side form
+	{},                                     // role_fixed has no server-side form
 }
 
 // pkFrags addresses one row.
@@ -1331,18 +1416,20 @@ var pkFrags = [1]runtime.Frag{
 // assigned, so every other column takes its database default — which is
 // the only way a DEFAULT gen_random_uuid() can ever fire.
 const (
-	iID         uint64 = 1 << 0
-	iCreatedAt  uint64 = 1 << 1
-	iUpdatedAt  uint64 = 1 << 2
-	iName       uint64 = 1 << 3
-	iAddress    uint64 = 1 << 4
-	iRole       uint64 = 1 << 5
-	iVersion    uint64 = 1 << 6
-	iStartedAt  uint64 = 1 << 7
-	iLastSeenAt uint64 = 1 << 8
+	iID            uint64 = 1 << 0
+	iCreatedAt     uint64 = 1 << 1
+	iUpdatedAt     uint64 = 1 << 2
+	iName          uint64 = 1 << 3
+	iAddress       uint64 = 1 << 4
+	iRole          uint64 = 1 << 5
+	iVersion       uint64 = 1 << 6
+	iStartedAt     uint64 = 1 << 7
+	iLastSeenAt    uint64 = 1 << 8
+	iRequestedRole uint64 = 1 << 9
+	iRoleFixed     uint64 = 1 << 10
 )
 
-const nInsertable = 9
+const nInsertable = 11
 
 // insCols is the quoted column name for each insert bit.
 var insCols = [nInsertable]string{
@@ -1355,6 +1442,8 @@ var insCols = [nInsertable]string{
 	"\"version\"",
 	"\"started_at\"",
 	"\"last_seen_at\"",
+	"\"requested_role\"",
+	"\"role_fixed\"",
 }
 
 // insParts and insPlaceholder come from the back end at build time; the
@@ -1363,7 +1452,7 @@ var insParts = runtime.InsertParts{Open: " (", Sep: ", ", Mid: ") VALUES (", Clo
 var insPlaceholder = runtime.Placeholder{}
 
 const insPrefix = "INSERT INTO \"machines\""
-const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"name\", \"address\", \"role\", \"version\", \"started_at\", \"last_seen_at\""
+const insReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"name\", \"address\", \"role\", \"version\", \"started_at\", \"last_seen_at\", \"requested_role\", \"role_fixed\""
 
 var insCache = runtime.NewMaskCache()
 
@@ -1382,7 +1471,7 @@ var updOpCache = runtime.NewMaskCache()
 // part of it. Without it m.Row() would hold what the row held BEFORE
 // the statement, so a caller reading back the counter it just
 // incremented would get the old number and never know.
-const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"name\", \"address\", \"role\", \"version\", \"started_at\", \"last_seen_at\""
+const updReturning = " RETURNING \"id\", \"created_at\", \"updated_at\", \"name\", \"address\", \"role\", \"version\", \"started_at\", \"last_seen_at\", \"requested_role\", \"role_fixed\""
 
 // Masks reports how many distinct UPDATE shapes have compiled.
 func Masks() int { return updCache.Masks() }
@@ -1495,6 +1584,18 @@ func (m *Mut) SetLastSeenAtNow() {
 	m.dirty &^= dLastSeenAt
 }
 
+func (m *Mut) SetRequestedRole(v string) {
+	m.row.RequestedRole = v
+	m.dirty |= dRequestedRole
+	m.expr &^= dRequestedRole
+}
+
+func (m *Mut) SetRoleFixed(v bool) {
+	m.row.RoleFixed = v
+	m.dirty |= dRoleFixed
+	m.expr &^= dRoleFixed
+}
+
 // Ins stages a new row, with a setter for every insertable column. A column
 // left unset is absent from the statement, so the database default applies;
 // a zero value that was set is written.
@@ -1540,6 +1641,10 @@ func (n *Ins) insertArgs(args []any) []any {
 			args = append(args, n.row.StartedAt)
 		case 8:
 			args = append(args, n.row.LastSeenAt)
+		case 9:
+			args = append(args, n.row.RequestedRole)
+		case 10:
+			args = append(args, n.row.RoleFixed)
 		}
 	}
 	return args
@@ -1590,6 +1695,16 @@ func (n *Ins) SetLastSeenAt(v time.Time) {
 	n.set |= iLastSeenAt
 }
 
+func (n *Ins) SetRequestedRole(v string) {
+	n.row.RequestedRole = v
+	n.set |= iRequestedRole
+}
+
+func (n *Ins) SetRoleFixed(v bool) {
+	n.row.RoleFixed = v
+	n.set |= iRoleFixed
+}
+
 // The conflict encoding: 0 none, 1 DO NOTHING on any unique index,
 // 2+2*i target i DO UPDATE, 3+2*i target i DO NOTHING.
 const conflictAny = 1
@@ -1621,7 +1736,7 @@ var conflictSpecs = []string{
 
 // assignable is the columns target i may overwrite, given the mask.
 func assignable(i uint8, mask uint64) []string {
-	set := make([]string, 0, 7)
+	set := make([]string, 0, 9)
 	for j, bit := range assignBits[i] {
 		if mask&(1<<bit) != 0 {
 			set = append(set, assignNames[i][j])
@@ -1634,11 +1749,11 @@ func assignable(i uint8, mask uint64) []string {
 // of each column it may overwrite. An empty row is a target whose key
 // covers every updatable column.
 var assignBits = [1][]uint8{
-	{2, 3, 4, 5, 6, 7, 8},
+	{2, 3, 4, 5, 6, 7, 8, 9, 10},
 }
 
 var assignNames = [1][]string{
-	{"updated_at", "name", "address", "role", "version", "started_at", "last_seen_at"},
+	{"updated_at", "name", "address", "role", "version", "started_at", "last_seen_at", "requested_role", "role_fixed"},
 }
 
 // OnConflictID upserts on the unique index over (id).
@@ -1674,13 +1789,15 @@ func joinAssign(set []string) string {
 }
 
 var assignFor = map[string]string{
-	"updated_at":   "\"updated_at\" = EXCLUDED.\"updated_at\"",
-	"name":         "\"name\" = EXCLUDED.\"name\"",
-	"address":      "\"address\" = EXCLUDED.\"address\"",
-	"role":         "\"role\" = EXCLUDED.\"role\"",
-	"version":      "\"version\" = EXCLUDED.\"version\"",
-	"started_at":   "\"started_at\" = EXCLUDED.\"started_at\"",
-	"last_seen_at": "\"last_seen_at\" = EXCLUDED.\"last_seen_at\"",
+	"updated_at":     "\"updated_at\" = EXCLUDED.\"updated_at\"",
+	"name":           "\"name\" = EXCLUDED.\"name\"",
+	"address":        "\"address\" = EXCLUDED.\"address\"",
+	"role":           "\"role\" = EXCLUDED.\"role\"",
+	"version":        "\"version\" = EXCLUDED.\"version\"",
+	"started_at":     "\"started_at\" = EXCLUDED.\"started_at\"",
+	"last_seen_at":   "\"last_seen_at\" = EXCLUDED.\"last_seen_at\"",
+	"requested_role": "\"requested_role\" = EXCLUDED.\"requested_role\"",
+	"role_fixed":     "\"role_fixed\" = EXCLUDED.\"role_fixed\"",
 }
 
 func assignExcluded(c string) string { return assignFor[c] }
@@ -1761,7 +1878,7 @@ func Inserts() int { return insCache.Masks() }
 // the row back so database defaults land in r.
 func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 	if Hooks.BeforeCreate != nil {
-		n := Ins{row: *r, set: 0x1ff}
+		n := Ins{row: *r, set: 0x7ff}
 		if err := hooks.Apply(ctx, ex, Hooks.BeforeCreate, &n); err != nil {
 			return err
 		}
@@ -1774,7 +1891,7 @@ func Insert(ctx context.Context, ex runtime.Executor, r *Row) error {
 }
 
 func insertRow(ctx context.Context, ex runtime.Executor, r *Row) error {
-	args := make([]any, 0, 9)
+	args := make([]any, 0, 11)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -1784,6 +1901,8 @@ func insertRow(ctx context.Context, ex runtime.Executor, r *Row) error {
 	args = append(args, r.Version)
 	args = append(args, r.StartedAt)
 	args = append(args, r.LastSeenAt)
+	args = append(args, r.RequestedRole)
+	args = append(args, r.RoleFixed)
 	rows, err := ex.Query(ctx, insertSQL, args)
 	if err != nil {
 		return err
@@ -1819,13 +1938,15 @@ var copyCols = []string{
 	"version",
 	"started_at",
 	"last_seen_at",
+	"requested_role",
+	"role_fixed",
 }
 
 // rowSource walks a []Row for CopyFrom without copying any of it.
 type rowSource struct {
 	rows []Row
 	i    int
-	buf  [9]any
+	buf  [11]any
 }
 
 func (s *rowSource) Next() bool {
@@ -1846,6 +1967,8 @@ func (s *rowSource) Values() []any {
 	s.buf[6] = &r.Version
 	s.buf[7] = &r.StartedAt
 	s.buf[8] = &r.LastSeenAt
+	s.buf[9] = &r.RequestedRole
+	s.buf[10] = &r.RoleFixed
 	return s.buf[:]
 }
 
@@ -1866,7 +1989,7 @@ func InsertAll(ctx context.Context, ex runtime.Executor, rows []Row) (int64, err
 func InsertOp(r Row) runtime.BatchOp {
 	const mask = 1<<nInsertable - 1 // every insertable column
 	st := stmtForInsertNoReturn(mask, 0)
-	args := make([]any, 0, 9)
+	args := make([]any, 0, 11)
 	args = append(args, r.ID)
 	args = append(args, r.CreatedAt)
 	args = append(args, r.UpdatedAt)
@@ -1876,6 +1999,8 @@ func InsertOp(r Row) runtime.BatchOp {
 	args = append(args, r.Version)
 	args = append(args, r.StartedAt)
 	args = append(args, r.LastSeenAt)
+	args = append(args, r.RequestedRole)
+	args = append(args, r.RoleFixed)
 	return runtime.BatchOp{SQL: st.SQL, Args: args}
 }
 
@@ -2118,6 +2243,10 @@ func (m Mut) updateArgs(args []any) []any {
 			args = append(args, m.row.StartedAt)
 		case 6:
 			args = append(args, m.row.LastSeenAt)
+		case 7:
+			args = append(args, m.row.RequestedRole)
+		case 8:
+			args = append(args, m.row.RoleFixed)
 		}
 	}
 	return args

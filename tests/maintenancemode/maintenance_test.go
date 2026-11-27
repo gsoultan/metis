@@ -2,7 +2,7 @@
 // start the engine.
 //
 // `metis --reset-password <user>` is a recovery command. It ran the full
-// startup sequence first, because `setupService` — step 3 of App.RunContext — ended by
+// startup sequence first, because `setupService` — step 3 of App.runContext — ended by
 // calling StartWorkers, StartScheduledSyncs, startSSEFanout,
 // startEnvironmentWorkers and startSharedLimits. The --reset-password branch
 // returns at step 3b, *after* that.
@@ -60,18 +60,18 @@ func TestSetupServiceStartsNothingInTheBackground(t *testing.T) {
 
 	if len(found) > 0 {
 		t.Errorf("setupService starts %d background worker(s).\n"+
-			"It runs at step 3 of App.RunContext, before the --reset-password branch returns at 3b,\n"+
+			"It runs at step 3 of App.runContext, before the --reset-password branch returns at 3b,\n"+
 			"so a password reset would start the engine and then exit, stranding any job it\n"+
 			"claimed for the length of its lease.\n"+
-			"Move these into startBackgroundWork, which RunContext calls only on the server path:\n  %s",
+			"Move these into startBackgroundWork, which runContext calls only on the server path:\n  %s",
 			len(found), strings.Join(found, "\n  "))
 	}
 }
 
 // The other half of the same fact: the server path must still start them, or
 // nothing would ever run and every process would hang at its first wait.
-func TestRunContextStartsBackgroundWorkAfterTheMaintenanceBranch(t *testing.T) {
-	fn := findMethod(t, "RunContext")
+func TestRunStartsBackgroundWorkAfterTheMaintenanceBranch(t *testing.T) {
+	fn := findMethod(t, "runContext")
 
 	var sawReset, sawStart bool
 	var resetAt, startAt token.Pos
@@ -95,14 +95,14 @@ func TestRunContextStartsBackgroundWorkAfterTheMaintenanceBranch(t *testing.T) {
 	})
 
 	if !sawStart {
-		t.Fatal("App.RunContext never calls startBackgroundWork, so no job worker, timer sweep or " +
+		t.Fatal("App.runContext never calls startBackgroundWork, so no job worker, timer sweep or " +
 			"event fan-out would ever run and every process would hang at its first wait")
 	}
 	if !sawReset {
-		t.Fatal("App.RunContext never calls handleResetPassword, so --reset-password does nothing")
+		t.Fatal("App.runContext never calls handleResetPassword, so --reset-password does nothing")
 	}
 	if startAt < resetAt {
-		t.Error("App.RunContext starts background work before the --reset-password branch returns.\n" +
+		t.Error("App.runContext starts background work before the --reset-password branch returns.\n" +
 			"That is the ordering this package exists to prevent: the maintenance command " +
 			"would start the engine and exit.")
 	}

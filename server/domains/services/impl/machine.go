@@ -67,7 +67,7 @@ func (s *machineService) ForgetMachine(ctx context.Context, id uuid.UUID) error 
 	return err
 }
 
-func (s *machineService) StartMachineHeartbeat(ctx context.Context, self entities.Machine) {
+func (s *machineService) StartMachineHeartbeat(ctx context.Context, self entities.Machine, changeRole func(role string)) {
 	if self.ID == uuid.Nil {
 		self.ID = uuid.New()
 	}
@@ -98,6 +98,13 @@ func (s *machineService) StartMachineHeartbeat(ctx context.Context, self entitie
 				}
 				if _, err := s.repo.ForgetEndedJoins(ctx, s.now().Add(-machineJoinsKeptFor)); err != nil && ctx.Err() == nil {
 					log.Warn().Err(err).Msg("Could not remove the machine joins that ended a day ago")
+				}
+			}
+			// Asked once; the process is on its way out after that.
+			if changeRole != nil && err == nil {
+				if role, asked := s.askedRole(ctx, self.ID, self.Role); asked {
+					changeRole(role)
+					changeRole = nil
 				}
 			}
 			beats++
