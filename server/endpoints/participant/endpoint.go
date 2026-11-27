@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/go-kit/kit/endpoint"
 	"github.com/google/uuid"
@@ -11,7 +12,13 @@ import (
 	"github.com/gsoultan/metis/server/domains/entities"
 	"github.com/gsoultan/metis/server/domains/services"
 	"github.com/gsoultan/metis/server/endpoints/principal"
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 )
+
+// maxSearchLength bounds what the directory search matches against. A name or
+// an address is far shorter; without a bound a request can make the database
+// match a URL's worth of pattern against every row of the project.
+const maxSearchLength = 200
 
 type Endpoints struct {
 	ListParticipants        endpoint.Endpoint
@@ -71,8 +78,33 @@ func MakeListParticipantsEndpoint(s services.ServiceFacade) endpoint.Endpoint {
 			}
 			return ListParticipantsResponse{Participants: []entities.WorkflowUser{person}}, nil
 		}
+		if req.Paged() {
+			return listParticipantsPage(ctx, s, projectID, req), nil
+		}
 		people, err := s.ListWorkflowUsers(ctx, projectID, req.Limit)
 		return ListParticipantsResponse{Participants: people, Err: err}, nil
+	}
+}
+
+// listParticipantsPage answers one page of the directory, with the window the
+// server actually served after clamping, so the caller's controls show what
+// came back rather than what was asked for.
+func listParticipantsPage(ctx context.Context, s services.ServiceFacade, projectID uuid.UUID, req ListParticipantsRequest) ListParticipantsResponse {
+	if utf8.RuneCountInString(req.Search) > maxSearchLength {
+		return ListParticipantsResponse{Participants: []entities.WorkflowUser{}, Err: apierr.Invalidf("a search is at most %d characters", maxSearchLength)}
+	}
+	page, err := s.PageWorkflowUsers(ctx, projectID, req.Search, repocontracts.Pagination{Page: req.Page, PageSize: req.PageSize})
+	if err != nil {
+		return ListParticipantsResponse{Participants: []entities.WorkflowUser{}, Err: err}
+	}
+	return ListParticipantsResponse{
+		Participants: page.Items,
+		Page: &PageInfo{
+			Total:    page.Total,
+			Page:     page.Page,
+			PageSize: page.PageSize,
+			HasMore:  page.HasMore(),
+		},
 	}
 }
 

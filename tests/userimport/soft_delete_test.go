@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	repocontracts "github.com/gsoultan/metis/server/repositories/contracts"
 	"github.com/gsoultan/metis/server/repositories/pg"
 )
 
@@ -135,6 +136,15 @@ func TestRemovingSomebodyTakesThemOutOfTheDirectory(t *testing.T) {
 	}
 	if len(people) != 1 || people[0].Username != "grace" {
 		t.Fatalf("after removing ada the directory holds %d people (%v); it should hold grace alone", len(people), people)
+	}
+	// A page counts the same directory: a removed person on no page but in
+	// the total would leave the last page short with no way to reach the rest.
+	page, err := svc.PageWorkflowUsers(ctx, projectID, "", repocontracts.Pagination{Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("page: %v", err)
+	}
+	if page.Total != 1 || len(page.Items) != 1 || page.Items[0].Username != "grace" {
+		t.Fatalf("after removing ada a page holds %v of %d; it should hold grace alone", usernames(page.Items), page.Total)
 	}
 
 	// Removing again is not found, not a second success: the caller asked to

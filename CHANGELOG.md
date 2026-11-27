@@ -39,6 +39,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   instance is reached only by its correlation key. Message throw events and
   webhooks, which an administrator configures, are unchanged.
 
+### Added
+
+- **The People directory reads a page at a time.**
+  `GET /api/v1/participants` takes `page`, `page_size` and `q`, and with any
+  of them answers one page, alphabetically by username, with a `page` object
+  saying how many there are in all. `q` searches usernames, display names and
+  emails on the server, so a search finds people on pages the caller is not
+  showing. A request without them answers the whole directory, as before.
+
 ### Documentation
 
 - **Sizing the job worker** (`docs/runbooks.md`): how a replica's job

@@ -141,10 +141,14 @@ func decodeSetParticipantPasswordRequest(_ context.Context, r *http.Request) (an
 }
 
 func decodeListParticipantsRequest(_ context.Context, r *http.Request) (any, error) {
+	page, pageSize := common.PageParams(r)
 	return participant.ListParticipantsRequest{
 		ProjectID:  r.URL.Query().Get("project_id"),
 		Limit:      common.LimitParam(r),
 		ExternalID: r.URL.Query().Get("external_id"),
+		Page:       page,
+		PageSize:   pageSize,
+		Search:     r.URL.Query().Get("q"),
 	}, nil
 }
 
