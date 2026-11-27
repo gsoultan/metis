@@ -17,7 +17,8 @@ func Restart() error {
 	if err != nil {
 		return fmt.Errorf("find this program to start it again: %w", err)
 	}
-	// #nosec G204 -- this program's own binary and arguments, as it was started.
+	// #nosec G204 G702 -- this program's own binary, arguments and
+	// environment, exactly as it was started: nothing a request supplied.
 	if err := syscall.Exec(binary, os.Args, os.Environ()); err != nil {
 		return fmt.Errorf("start this program again: %w", err)
 	}
