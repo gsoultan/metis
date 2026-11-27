@@ -22,4 +22,7 @@ const (
 const (
 	zero storm.RawSQL = "0"
 	yes  storm.RawSQL = "true"
+	// blankText is an empty default on a varchar column, written the way
+	// PostgreSQL reads it back, so the model and the database agree on it.
+	blankText storm.RawSQL = "''::character varying"
 )

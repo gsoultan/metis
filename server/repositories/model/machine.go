@@ -34,7 +34,7 @@ func (m *Machine) Schema(t *storm.Table) {
 	t.Col(&m.Version).Size(64)
 	// Defaults, so the heartbeat of a machine still on the release before
 	// these columns, during an upgrade, is not refused.
-	t.Col(&m.RequestedRole).Size(16).Default(blank)
+	t.Col(&m.RequestedRole).Size(16).Default(blankText)
 	t.Col(&m.RoleFixed).Default(no)
 	t.Index(&m.LastSeenAt).Named("ix_machines_last_seen_at")
 }
